@@ -200,13 +200,20 @@ class Settings(BaseSettings):
                 return False
         return value
 
-    @field_validator("DATABASE_URL")
+    @field_validator("DATABASE_URL", mode="before")
     @classmethod
-    def validate_database_url(cls, value: str) -> str:
+    def validate_database_url(cls, value: Any) -> str:
         """Ensure the database URL uses the async PostgreSQL driver."""
 
-        if not value.startswith("postgresql+asyncpg://"):
-            raise ValueError("DATABASE_URL must start with postgresql+asyncpg://")
+        if isinstance(value, str):
+            val = value.strip()
+            if val.startswith("postgres://"):
+                return val.replace("postgres://", "postgresql+asyncpg://", 1)
+            if val.startswith("postgresql://"):
+                return val.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if not val.startswith("postgresql+asyncpg://"):
+                raise ValueError("DATABASE_URL must start with postgresql+asyncpg://")
+            return val
         return value
 
     @field_validator("BACKEND_CORS_ORIGINS", "ALLOWED_ORIGINS", mode="before")
