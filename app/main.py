@@ -221,7 +221,8 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 await conn.execute(text("SELECT 1"))
             logger.info("Database connectivity check SUCCESSFUL on attempt %d.", attempt)
             
-            # Ensure database schema exists
+            # Ensure all ORM models are registered in Base.metadata before creating schema
+            import app.models  # noqa: F401
             from app.db.base import Base
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -234,7 +235,7 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                     "You are using Railway's internal hostname on Render. Replace DATABASE_URL with Railway's Public / External URL."
                 )
             else:
-                logger.error("Database connection attempt %d/%d failed: %s", attempt, max_retries, str(e))
+                logger.error("Database connection attempt %d/%d failed: %s", attempt, max_retries, str(e), exc_info=True)
                 
             if attempt < max_retries:
                 logger.info("Retrying database connection in %.1f seconds...", delay)
