@@ -1,26 +1,97 @@
 """Async SQLAlchemy engine and session dependency."""
 
+import asyncio
 import socket
 from collections.abc import AsyncGenerator
+from typing import Any
 
+import asyncpg
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 
-# Force IPv4 (socket.AF_INET) to prevent [Errno 101] Network is unreachable on Render internal networks
-connect_args: dict = {
-    "socket_family": socket.AF_INET,
-}
+
+async def get_asyncpg_connection() -> asyncpg.Connection:
+    """
+    Custom asynchronous creator for SQLAlchemy's create_async_engine.
+
+    Render internal networking (e.g. hostnames matching dpg-xxxxx-a) uses a dual-stack
+    DNS setup. However, the internal container network environment on Render only routes
+    IPv4 traffic. Default socket resolution in Python's asyncio / asyncpg resolves and
+    attempts an IPv6 (AF_INET6) connection first, producing:
+        OSError: [Errno 101] Network is unreachable
+
+    To prevent this, we explicitly resolve the database hostname to IPv4 (AF_INET) via
+    socket.getaddrinfo() before initiating the connection with asyncpg.connect().
+    """
+    db_url = make_url(settings.DATABASE_URL)
+    host = db_url.host or "localhost"
+    port = db_url.port or 5432
+
+    # Manually resolve the hostname using socket.AF_INET to force IPv4
+    loop = asyncio.get_running_loop()
+    try:
+        addr_info = await loop.getaddrinfo(
+            host,
+            port,
+            family=socket.AF_INET,
+            type=socket.SOCK_STREAM,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to resolve IPv4 address for database host '{host}': {exc}"
+        ) from exc
+
+    if not addr_info:
+        raise RuntimeError(f"No IPv4 address could be resolved for database host '{host}'.")
+
+    # Select the first IPv4 address returned
+    ipv4_address = addr_info[0][4][0]
+
+    # Preserve all connection settings: user, password, database, port, ssl, timeout
+    kwargs: dict[str, Any] = {
+        "host": ipv4_address,
+        "port": port,
+        "user": db_url.username,
+        "password": db_url.password,
+        "database": db_url.database,
+    }
+
+    # Handle SSL configuration from URL query parameters
+    ssl_mode = db_url.query.get("sslmode")
+    ssl_param = db_url.query.get("ssl")
+    if ssl_mode:
+        if ssl_mode.lower() == "disable":
+            kwargs["ssl"] = False
+        elif ssl_mode.lower() in ("require", "verify-ca", "verify-full", "prefer", "allow"):
+            kwargs["ssl"] = "require"
+    elif ssl_param:
+        if ssl_param.lower() in ("false", "disable", "off", "0"):
+            kwargs["ssl"] = False
+        elif ssl_param.lower() in ("true", "require", "on", "1"):
+            kwargs["ssl"] = True
+        else:
+            kwargs["ssl"] = ssl_param
+
+    # Handle timeout parameter if specified
+    if "timeout" in db_url.query:
+        kwargs["timeout"] = float(db_url.query["timeout"])
+    elif "connect_timeout" in db_url.query:
+        kwargs["timeout"] = float(db_url.query["connect_timeout"])
+
+    return await asyncpg.connect(**kwargs)
+
 
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
+    async_creator=get_asyncpg_connection,
     echo=settings.DB_ECHO,
     pool_pre_ping=True,
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
-    connect_args=connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(

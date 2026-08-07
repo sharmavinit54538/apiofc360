@@ -63,7 +63,7 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-import socket
+from app.db.database import get_asyncpg_connection
 
 
 async def run_async_migrations() -> None:
@@ -73,7 +73,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        connect_args={"socket_family": socket.AF_INET},
+        async_creator=get_asyncpg_connection,
     )
 
     async with connectable.connect() as connection:
