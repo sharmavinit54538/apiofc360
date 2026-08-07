@@ -22,8 +22,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 try:
-    import numpy as np
     import cv2
+    import numpy as np
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
