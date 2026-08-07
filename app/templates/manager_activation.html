@@ -1,0 +1,176 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>Activate Your HRMS Account</title>
+  <style type="text/css">
+    body {
+      width: 100% !important;
+      min-width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background-color: #F8FAFC !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+      color: #111827 !important;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    img {
+      border: 0 !important;
+      outline: none !important;
+      text-decoration: none !important;
+      display: block;
+    }
+    table {
+      border-collapse: collapse !important;
+      mso-table-lspace: 0pt !important;
+      mso-table-rspace: 0pt !important;
+    }
+    td {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    a {
+      text-decoration: none !important;
+    }
+    @media only screen and (max-width: 620px) {
+      .email-container {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      .mobile-padding {
+        padding: 24px 16px !important;
+      }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F8FAFC; width: 100% !important; min-width: 100% !important;">
+  <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; table-layout: fixed; padding: 40px 10px;">
+    <tr>
+      <td align="center">
+        <!-- Email Container -->
+        <table border="0" cellpadding="0" cellspacing="0" class="email-container" width="600" style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 16px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); overflow: hidden;">
+          
+          <!-- Accent Header Bar -->
+          <tr>
+            <td height="6" style="background: linear-gradient(90deg, #2563EB 0%, #4F46E5 100%); font-size: 0px; line-height: 0px;">&nbsp;</td>
+          </tr>
+          
+          <!-- Logo & Brand Header -->
+          <tr>
+            <td align="center" style="padding: 32px 40px 20px 40px;" class="mobile-padding">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td align="center">
+                    <span style="font-size: 20px; font-weight: 800; color: #111827; letter-spacing: -0.5px;">HRMS Portal</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Content Body -->
+          <tr>
+            <td style="padding: 16px 40px 32px 40px;" class="mobile-padding">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td style="font-size: 22px; font-weight: 700; color: #111827; padding-bottom: 16px;">
+                    Welcome to the Company!
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size: 15px; line-height: 1.6; color: #374151; padding-bottom: 20px;">
+                    Hi {{ name }},
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size: 15px; line-height: 1.6; color: #374151; padding-bottom: 24px;">
+                    A manager account has been created for you in our HRMS Portal. Please use the details below to activate your account and complete your onboarding process.
+                  </td>
+                </tr>
+                
+                <!-- Credentials Card -->
+                <tr>
+                  <td style="padding-bottom: 28px;">
+                    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px;">
+                      <tr>
+                        <td style="font-size: 14px; line-height: 1.8; color: #4B5563;">
+                          <strong style="color: #111827;">Company Name:</strong> {{ company_name }}<br />
+                          <strong style="color: #111827;">Manager Name:</strong> {{ name }}<br />
+                          <strong style="color: #111827;">Manager ID:</strong> {{ employee_id }}<br />
+                          <strong style="color: #111827;">Login Email:</strong> {{ login_email }}<br />
+                          {% if temp_password %}
+                          <strong style="color: #111827;">Temporary Password:</strong> <code style="font-family: monospace; font-size: 14px; color: #0F172A; background-color: #E2E8F0; padding: 2px 6px; border-radius: 4px;">{{ temp_password }}</code>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                
+                <!-- Activation CTA Button -->
+                <tr>
+                  <td align="center" style="padding-bottom: 12px;">
+                    <table border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center" style="background-color: #2563EB; border-radius: 8px;">
+                          <a href="{{ activation_url }}" target="_blank" style="display: inline-block; font-size: 15px; font-weight: 700; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; border: 1px solid #2563EB;">Activate Account</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                
+                <!-- Expiry Text -->
+                <tr>
+                  <td align="center" style="font-size: 13px; color: #6B7280; padding-bottom: 28px;">
+                    This activation link is valid for <strong style="color: #111827;">{{ expiry_hours }} hours</strong>.
+                  </td>
+                </tr>
+                
+                <!-- Security Notice Warning Card -->
+                <tr>
+                  <td style="padding-bottom: 32px;">
+                    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FFFBEB; border-left: 4px solid #F59E0B; border-radius: 4px 8px 8px 4px;">
+                      <tr>
+                        <td style="padding: 16px;">
+                          <div style="font-size: 14px; font-weight: 700; color: #78350F; padding-bottom: 4px;">Important Security Notice</div>
+                          <div style="font-size: 13px; line-height: 1.5; color: #92400E;">During activation, you will be prompted to create your new permanent password. Keep your credentials secure and never share them with anyone.</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                
+                <!-- Sign-off -->
+                <tr>
+                  <td style="font-size: 15px; line-height: 1.6; color: #374151; border-top: 1px solid #E5E7EB; padding-top: 24px;">
+                    Best regards,<br />
+                    <strong style="color: #111827;">The HR / Operations Team</strong>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 32px 40px; background-color: #F8FAFC; border-top: 1px solid #E5E7EB; text-align: center;" class="mobile-padding">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td style="font-size: 12px; line-height: 1.5; color: #6B7280; text-align: center;">
+                    &copy; 2026 HRMS System. All rights reserved.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

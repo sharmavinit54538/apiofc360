@@ -1,0 +1,38 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+env/
+venv/
+.venv/
+env*/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+uvicorn.err.log
+uvicorn.out.log
+
+# Uploads & Scratch directories
+uploads/
+scratch/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE & System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
