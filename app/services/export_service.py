@@ -52,48 +52,52 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Custom canvas class to compute total page numbers dynamically
-class NumberedCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+if HAS_REPORTLAB:
+    # Custom canvas class to compute total page numbers dynamically
+    class NumberedCanvas(canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states = []
 
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
 
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_number(num_pages)
-            super().showPage()
-        super().save()
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.draw_page_number(num_pages)
+                super().showPage()
+            super().save()
 
-    def draw_page_number(self, page_count):
-        self.saveState()
-        self.setFont("Helvetica", 9)
-        self.setFillColor(colors.HexColor("#64748B"))
-        # Page dimensions: letter is 8.5 x 11 inches, landscape is 11 x 8.5 inches
-        page_width, page_height = self._pagesize
-        
-        # Draw header separator
-        self.setStrokeColor(colors.HexColor("#E2E8F0"))
-        self.setLineWidth(0.5)
-        self.line(36, page_height - 40, page_width - 36, page_height - 40)
-        
-        # Draw header title
-        self.drawString(36, page_height - 32, "Ecochange HRMS Report")
-        self.drawRightString(page_width - 36, page_height - 32, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
-        
-        # Draw footer line
-        self.line(36, 45, page_width - 36, 45)
-        
-        # Draw footer page count
-        page_text = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(page_width - 36, 30, page_text)
-        self.drawString(36, 30, "Confidential - For Internal Use Only")
-        self.restoreState()
+        def draw_page_number(self, page_count):
+            self.saveState()
+            self.setFont("Helvetica", 9)
+            self.setFillColor(colors.HexColor("#64748B"))
+            # Page dimensions: letter is 8.5 x 11 inches, landscape is 11 x 8.5 inches
+            page_width, page_height = self._pagesize
+            
+            # Draw header separator
+            self.setStrokeColor(colors.HexColor("#E2E8F0"))
+            self.setLineWidth(0.5)
+            self.line(36, page_height - 40, page_width - 36, page_height - 40)
+            
+            # Draw header title
+            self.drawString(36, page_height - 32, "Ecochange HRMS Report")
+            self.drawRightString(page_width - 36, page_height - 32, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+            
+            # Draw footer line
+            self.line(36, 45, page_width - 36, 45)
+            
+            # Draw footer page count
+            page_text = f"Page {self._pageNumber} of {page_count}"
+            self.drawRightString(page_width - 36, 30, page_text)
+            self.drawString(36, 30, "Confidential - For Internal Use Only")
+            self.restoreState()
+else:
+    class NumberedCanvas:
+        pass
 
 
 class ExportService:

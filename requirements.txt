@@ -15,3 +15,5 @@ cloudinary>=1.45.0
 pypdf
 python-docx>=1.1.2
 itsdangerous>=2.2.0
+reportlab>=4.2.0
+openpyxl>=3.1.5
