@@ -9,6 +9,10 @@ sys.path.insert(0, os.getcwd())
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+TEST_USER_EMAIL = os.getenv("TEST_USER_EMAIL", "testuser@example.com")
+TEST_USER_PASSWORD = os.getenv("TEST_USER_PASSWORD", "SecretPass123!")
+
+
 async def reset_password_in_db():
     from app.db.database import AsyncSessionLocal
     from app.models.user import User
@@ -16,14 +20,14 @@ async def reset_password_in_db():
     from sqlalchemy import select
     
     async with AsyncSessionLocal() as session:
-        res = await session.execute(select(User).where(User.email == "sharmavinit7348@gmail.com"))
+        res = await session.execute(select(User).where(User.email == TEST_USER_EMAIL))
         user = res.scalar_one_or_none()
         if user:
-            user.password_hash = hash_password("Bindu@134366")
+            user.password_hash = hash_password(TEST_USER_PASSWORD)
             await session.commit()
-            print("[DB SETUP] Reset password for sharmavinit7348@gmail.com to Bindu@134366!")
+            print(f"[DB SETUP] Reset password for {TEST_USER_EMAIL}!")
         else:
-            print("[DB SETUP] Warning: User sharmavinit7348@gmail.com not found!")
+            print(f"[DB SETUP] Warning: User {TEST_USER_EMAIL} not found!")
  
 async def run():
     # Reset password directly in DB first
@@ -39,8 +43,8 @@ async def run():
         # Login
         print("=== Step 1: Login ===")
         login_resp = await client.post(f"{base}/auth/login", json={
-            "identifier": "sharmavinit7348@gmail.com",
-            "password": "Bindu@134366"
+            "identifier": TEST_USER_EMAIL,
+            "password": TEST_USER_PASSWORD
         })
         print(f"Login Status: {login_resp.status_code}")
         if login_resp.status_code != 200:

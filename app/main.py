@@ -4,6 +4,7 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
 try:
@@ -311,7 +312,7 @@ def create_app() -> FastAPI:
         default_response_class=DefaultResponse,
     )
 
-    # Hardcoded ports so browser doesn't throw Network Error for localhost:8080
+    # Allowed origins configuration
     allowed_origins_list = [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
@@ -319,43 +320,20 @@ def create_app() -> FastAPI:
         "http://127.0.0.1:5173"
     ]
     
-    # Agar .env me kuch origins hain toh unhe bhi merge kar lete hain
     if settings.ALLOWED_ORIGINS:
         allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
     if settings.BACKEND_CORS_ORIGINS:
         allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
 
-    @app.middleware("http")
-    async def custom_cors_middleware(request, call_next):
-        origin = request.headers.get("origin")
-        if request.method == "OPTIONS":
-            response = Response(status_code=204)
-            if origin:
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-            else:
-                response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            response.headers["Access-Control-Max-Age"] = "86400"
-            return response
+    allowed_origins_list = list(dict.fromkeys(allowed_origins_list))
 
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            response = JSONResponse(
-                status_code=500,
-                content={"success": False, "message": str(exc), "data": None, "errors": None}
-            )
-
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-        else:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        return response
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # GZip compression for responses > 500 bytes (~60-70% size reduction)
     app.add_middleware(GZipMiddleware, minimum_size=500)
