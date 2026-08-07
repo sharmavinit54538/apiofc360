@@ -63,6 +63,9 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+import socket
+
+
 async def run_async_migrations() -> None:
     """Run migrations through SQLAlchemy's async engine."""
 
@@ -70,6 +73,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"socket_family": socket.AF_INET},
     )
 
     async with connectable.connect() as connection:

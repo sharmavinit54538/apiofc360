@@ -1,11 +1,16 @@
 """Async SQLAlchemy engine and session dependency."""
 
+import socket
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 
+# Force IPv4 (socket.AF_INET) to prevent [Errno 101] Network is unreachable on Render internal networks
+connect_args: dict = {
+    "socket_family": socket.AF_INET,
+}
 
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
@@ -15,6 +20,7 @@ engine: AsyncEngine = create_async_engine(
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
+    connect_args=connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(

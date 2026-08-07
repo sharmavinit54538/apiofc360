@@ -203,10 +203,12 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def validate_database_url(cls, value: Any) -> str:
-        """Ensure the database URL uses the async PostgreSQL driver and valid external host."""
+        """Ensure the database URL uses the async PostgreSQL driver and valid host."""
 
         if isinstance(value, str):
-            val = value.strip()
+            val = value.strip().strip('"').strip("'")
+            if val.startswith("DATABASE_URL="):
+                val = val[len("DATABASE_URL="):].strip().strip('"').strip("'")
             if "postgres.railway.internal" in val:
                 raise ValueError(
                     "DATABASE_URL contains Railway internal host 'postgres.railway.internal' which is unreachable from Render/outside Railway. "
