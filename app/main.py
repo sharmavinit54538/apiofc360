@@ -209,33 +209,69 @@ async def auto_screen_unscreened_leads():
             logger.exception("Auto-screening: background check failed: %s", str(e))
 
 
+async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_factor: float = 2.0) -> bool:
+    """Attempt database connection with exponential backoff retry logic."""
+    import asyncio
+    delay = initial_delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Initializing database connection (Attempt %d/%d)...", attempt, max_retries)
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database connectivity check SUCCESSFUL on attempt %d.", attempt)
+            
+            # Ensure database schema exists
+            from app.db.base import Base
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database schema verified and initialized successfully.")
+            return True
+        except Exception as e:
+            if "postgres.railway.internal" in str(e):
+                logger.error(
+                    "DATABASE CONNECTIVITY CRITICAL ERROR: 'postgres.railway.internal' is unreachable. "
+                    "You are using Railway's internal hostname on Render. Replace DATABASE_URL with Railway's Public / External URL."
+                )
+            else:
+                logger.error("Database connection attempt %d/%d failed: %s", attempt, max_retries, str(e))
+                
+            if attempt < max_retries:
+                logger.info("Retrying database connection in %.1f seconds...", delay)
+                await asyncio.sleep(delay)
+                delay *= backoff_factor
+            else:
+                logger.error("Database connection failed after %d retries. Server starting in degraded mode.", max_retries)
+                return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan event handler to check database connectivity on startup."""
-    logger.info("Initializing database connectivity check on startup...")
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("Database connectivity check: SUCCESSFUL.")
-        
-        # Ensure all tables exist
-        from app.db.base import Base
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables initialized successfully.")
-        
-        # Trigger background auto screening check for unscreened leads
-        import asyncio
+    """Lifespan event handler with retry logic and graceful shutdown."""
+    import asyncio
+    logger.info("Starting up FastAPI application...")
+    
+    db_connected = await init_db_with_retry(max_retries=5, initial_delay=1.0, backoff_factor=2.0)
+    if db_connected:
+        try:
+            from app.db.database import _get_tenant_classes
+            _get_tenant_classes()
+            logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
+        except Exception as err:
+            logger.error("Failed to pre-warm tenant class cache: %s", str(err))
+
         asyncio.create_task(auto_screen_unscreened_leads())
+    else:
+        logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
         
-        # Pre-warm tenant class cache
-        from app.db.database import _get_tenant_classes
-        _get_tenant_classes()
-        logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
-        
-    except Exception as e:
-        logger.warning("Database connectivity or startup initialization warning: %s", str(e))
     yield
+    
+    # Graceful shutdown of database pool
+    try:
+        logger.info("Shutting down database engine connection pool...")
+        await engine.dispose()
+        logger.info("Database engine shut down cleanly.")
+    except Exception as e:
+        logger.error("Error shutting down database engine: %s", str(e))
 
 
 def configure_logging() -> None:

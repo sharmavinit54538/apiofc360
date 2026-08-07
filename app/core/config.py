@@ -27,10 +27,10 @@ class Settings(BaseSettings):
         description="Async SQLAlchemy PostgreSQL URL.",
     )
     DB_ECHO: bool = False
-    DB_POOL_SIZE: int = 20
-    DB_MAX_OVERFLOW: int = 40
-    DB_POOL_TIMEOUT: int = 60
-    DB_POOL_RECYCLE: int = 1800
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 300
 
     SECRET_KEY: SecretStr = Field(
         default=DEFAULT_SECRET_KEY,
@@ -203,14 +203,20 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def validate_database_url(cls, value: Any) -> str:
-        """Ensure the database URL uses the async PostgreSQL driver."""
+        """Ensure the database URL uses the async PostgreSQL driver and valid external host."""
 
         if isinstance(value, str):
             val = value.strip()
+            if "postgres.railway.internal" in val:
+                raise ValueError(
+                    "DATABASE_URL contains Railway internal host 'postgres.railway.internal' which is unreachable from Render/outside Railway. "
+                    "Please replace it with Railway's Public/External Connection URL (e.g. monorail.proxy.rlwy.net or TCP proxy domain)."
+                )
             if val.startswith("postgres://"):
-                return val.replace("postgres://", "postgresql+asyncpg://", 1)
-            if val.startswith("postgresql://"):
-                return val.replace("postgresql://", "postgresql+asyncpg://", 1)
+                val = val.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif val.startswith("postgresql://"):
+                val = val.replace("postgresql://", "postgresql+asyncpg://", 1)
+            
             if not val.startswith("postgresql+asyncpg://"):
                 raise ValueError("DATABASE_URL must start with postgresql+asyncpg://")
             return val
