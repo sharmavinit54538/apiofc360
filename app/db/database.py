@@ -130,6 +130,13 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
     return await asyncpg.connect(**kwargs)
 
 
+logger.info(
+    "Initializing SQLAlchemy AsyncEngine (pool_size=%d, max_overflow=%d, pool_recycle=%d)",
+    settings.DB_POOL_SIZE,
+    settings.DB_MAX_OVERFLOW,
+    settings.DB_POOL_RECYCLE,
+)
+
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
     async_creator=get_asyncpg_connection,
@@ -141,6 +148,7 @@ engine: AsyncEngine = create_async_engine(
     pool_recycle=settings.DB_POOL_RECYCLE,
 )
 
+logger.info("Initializing async_sessionmaker (expire_on_commit=False, autoflush=False)")
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -151,15 +159,25 @@ AsyncSessionLocal = async_sessionmaker(
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Yield an async database session for request-scoped dependency injection."""
-
+    logger.debug("[DB Lifecycle] Creating new AsyncSession from sessionmaker...")
     async with AsyncSessionLocal() as session:
+        logger.debug("[DB Lifecycle] AsyncSession created & active (id=%s). Yielding session...", id(session))
         try:
             yield session
-        except Exception:
+            logger.debug("[DB Lifecycle] Request execution completed. Session active: %s", session.is_active)
+        except Exception as exc:
+            logger.exception(
+                "[DB Lifecycle] DBAPI/Query exception during session execution (id=%s): %s. Executing rollback...",
+                id(session),
+                str(exc),
+            )
             await session.rollback()
+            logger.debug("[DB Lifecycle] Rollback completed for session id=%s", id(session))
             raise
         finally:
+            logger.debug("[DB Lifecycle] Closing AsyncSession (id=%s)...", id(session))
             await session.close()
+            logger.debug("[DB Lifecycle] AsyncSession closed (id=%s).", id(session))
 
 
 from sqlalchemy import event
@@ -184,6 +202,8 @@ def _get_tenant_classes() -> set:
 
 @event.listens_for(Session, "do_orm_execute")
 def _do_orm_execute(orm_execute_state):
+    if not orm_execute_state.is_select:
+        return
     tenant_id = tenant_id_ctx.get()
     if tenant_id and not orm_execute_state.execution_options.get("bypass_tenant", False):
         for cls in _get_tenant_classes():
@@ -193,9 +213,10 @@ def _do_orm_execute(orm_execute_state):
                     lambda target_cls: target_cls.company_id == tenant_id,
                     include_aliases=True,
                     propagate_to_loaders=True,
-                    track_closure_variables=False
+                    track_closure_variables=False,
                 )
             )
+
 
 @event.listens_for(Session, "before_flush")
 def _before_flush(session, flush_context, instances):
