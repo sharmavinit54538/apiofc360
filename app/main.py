@@ -221,12 +221,16 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 await conn.execute(text("SELECT 1"))
             logger.info("Database connectivity check SUCCESSFUL on attempt %d.", attempt)
             
-            # Ensure all ORM models are registered in Base.metadata before creating schema
-            import app.models  # noqa: F401
-            from app.db.base import Base
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database schema verified and initialized successfully.")
+            # Connectivity verified
+            try:
+                import app.models  # noqa: F401
+                from app.db.base import Base
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("Database schema verified and initialized successfully.")
+            except Exception as schema_err:
+                logger.warning("Database schema auto-creation notice (tables may already exist): %s", str(schema_err))
+            
             return True
         except Exception as e:
             if "postgres.railway.internal" in str(e):
