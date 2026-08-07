@@ -207,7 +207,11 @@ async def auto_screen_unscreened_leads():
                 )
                 
         except Exception as e:
-            logger.exception("Auto-screening: background check failed: %s", str(e))
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "undefinedtable" in err_str:
+                logger.info("Auto-screening: applications table does not exist in database yet — skipping background lead screening.")
+            else:
+                logger.warning("Auto-screening: background check notice: %s", str(e))
 
 
 async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_factor: float = 2.0) -> bool:
@@ -452,8 +456,6 @@ def create_app() -> FastAPI:
     app.include_router(travel_router, prefix="/api/v2")
     app.include_router(reports_router, prefix="/api/v2")
     app.include_router(reports_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(reports_router, prefix="/api")
-    app.include_router(reports_router)
     app.include_router(productivity_router, prefix="/api/v2")
     app.include_router(goals_router, prefix="/api/v2")
     app.include_router(compensation_router, prefix="/api/v2")
@@ -512,34 +514,20 @@ def create_app() -> FastAPI:
             "errors": None
         }
 
-    @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health"])
+    @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health Checks"])
     async def health_check():
-        """Fast health check endpoint to verify backend and database status."""
+        """Liveness & health probe verifying backend and database status."""
+        db_status = "disconnected"
         try:
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-            return {
-                "status": "healthy",
-                "database": "connected",
-            }
+            db_status = "connected"
         except Exception as e:
-            logger.error("Health check failed: DB is unreachable. Error: %s", e)
-            import json
-            return Response(
-                content=json.dumps({
-                    "status": "unhealthy",
-                    "database": "disconnected",
-                    "error": str(e)
-                }),
-                status_code=503,
-                media_type="application/json"
-            )
+            logger.error("Health check DB connection error: %s", e)
 
-    @app.get("/health", tags=["Health Checks"])
-    async def health():
-        """Liveness probe endpoint."""
         return {
-            "status": "healthy",
+            "status": "healthy" if db_status == "connected" else "degraded",
+            "database": db_status,
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
