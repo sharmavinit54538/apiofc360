@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     BCRYPT_ROUNDS: int = 12
-    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000", "http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:3000"]
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:8080", "http://127.0.0.1:8080", "http://192.168.31.230:8080", "http://localhost:5173", "http://127.0.0.1:5173"]
+    BACKEND_CORS_ORIGINS: list[str] = ["https://ofc360.com", "https://www.ofc360.com", "https://ofc360.vercel.app", "http://localhost:3000", "http://localhost:8000", "http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:3000"]
+    ALLOWED_ORIGINS: list[str] = ["https://ofc360.com", "https://www.ofc360.com", "https://ofc360.vercel.app", "http://localhost:8080", "http://127.0.0.1:8080", "http://192.168.31.230:8080", "http://localhost:5173", "http://127.0.0.1:5173"]
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Employee module settings
     COMPANY_EMAIL_DOMAIN: str = "company.com"
     ACTIVATION_TOKEN_EXPIRE_HOURS: int = 72
-    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    FRONTEND_BASE_URL: str = "https://ofc360.com"
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
