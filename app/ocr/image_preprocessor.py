@@ -19,16 +19,16 @@ import math
 import os
 from typing import Optional
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 try:
+    import numpy as np
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
-    logger.warning("opencv-python-headless not installed — image preprocessing disabled")
+    np = None
+    logger.warning("opencv-python-headless or numpy not installed — image preprocessing disabled")
 
 
 class ImagePreprocessor:
