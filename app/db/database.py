@@ -1,7 +1,7 @@
-"""Async SQLAlchemy engine and session dependency."""
-
 import asyncio
+import logging
 import socket
+import ssl
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -11,25 +11,84 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
+
+def should_force_ipv4(host: str) -> bool:
+    """
+    Determine whether to force manual IPv4 resolution for database hostname.
+
+    - Automatically SKIPPED for Render internal hosts (starts with 'dpg-' or contains '.render.com' / '.internal')
+      or when running in Render environment.
+    - Only enabled if settings.FORCE_IPV4_DB is explicitly set to True (opt-in fallback for legacy
+      Supabase-style direct connections with IPv6 routing issues).
+    """
+    is_render_host = host.startswith("dpg-") or ".render.com" in host or host.endswith(".internal")
+    is_render_env = settings.ENVIRONMENT.lower() in ("render", "production", "staging")
+
+    if is_render_host or is_render_env:
+        return False
+
+    return bool(getattr(settings, "FORCE_IPV4_DB", False))
+
 
 async def get_asyncpg_connection() -> asyncpg.Connection:
     """
     Custom asynchronous creator for SQLAlchemy's create_async_engine.
 
-    Render internal networking (e.g. hostnames matching dpg-xxxxx-a) uses a dual-stack
-    DNS setup. However, the internal container network environment on Render only routes
-    IPv4 traffic. Default socket resolution in Python's asyncio / asyncpg resolves and
-    attempts an IPv6 (AF_INET6) connection first, producing:
-        OSError: [Errno 101] Network is unreachable
+    Render internal networking (e.g. hostnames matching dpg-xxxxx-a) uses standard IPv4/dual-stack routing
+    and does not require manual IP resolution. Manual IPv4 resolution using raw IP addresses breaks TLS/SNI
+    handshakes ('No SNI information found') when SSL is enabled.
 
-    To prevent this, we explicitly resolve the database hostname to IPv4 (AF_INET) via
-    socket.getaddrinfo() before initiating the connection with asyncpg.connect().
+    This function uses direct hostname connections by default, while retaining an opt-in IPv4 forcing workaround
+    (via FORCE_IPV4_DB=True) for legacy providers (e.g. Supabase direct connections with IPv6 issues).
     """
     db_url = make_url(settings.DATABASE_URL)
     host = db_url.host or "localhost"
     port = db_url.port or 5432
 
-    # Manually resolve the hostname using socket.AF_INET to force IPv4
+    # Handle SSL configuration from URL query parameters
+    ssl_mode = db_url.query.get("sslmode")
+    ssl_param = db_url.query.get("ssl")
+    ssl_setting: Any = None
+
+    if ssl_mode:
+        if ssl_mode.lower() in ("disable", "off", "0", "false"):
+            ssl_setting = False
+        elif ssl_mode.lower() in ("require", "verify-ca", "verify-full", "prefer", "allow"):
+            ssl_setting = "require"
+    elif ssl_param:
+        if ssl_param.lower() in ("false", "disable", "off", "0"):
+            ssl_setting = False
+        elif ssl_param.lower() in ("true", "require", "on", "1"):
+            ssl_setting = True
+        else:
+            ssl_setting = ssl_param
+
+    # Determine if IPv4 forcing workaround should be used
+    use_ipv4_workaround = should_force_ipv4(host)
+
+    if not use_ipv4_workaround:
+        logger.info("Using direct connection (no IPv4 workaround) for database host: %s", host)
+        kwargs: dict[str, Any] = {
+            "host": host,
+            "port": port,
+            "user": db_url.username,
+            "password": db_url.password,
+            "database": db_url.database,
+        }
+        if ssl_setting is not None:
+            kwargs["ssl"] = ssl_setting
+
+        if "timeout" in db_url.query:
+            kwargs["timeout"] = float(db_url.query["timeout"])
+        elif "connect_timeout" in db_url.query:
+            kwargs["timeout"] = float(db_url.query["connect_timeout"])
+
+        return await asyncpg.connect(**kwargs)
+
+    # Legacy IPv4-forcing workaround (for direct IPv6-only resolution issues e.g. Supabase)
+    logger.info("Using IPv4-forced connection with SNI-preserving SSL context for database host: %s", host)
     loop = asyncio.get_running_loop()
     try:
         addr_info = await loop.getaddrinfo(
@@ -46,11 +105,9 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
     if not addr_info:
         raise RuntimeError(f"No IPv4 address could be resolved for database host '{host}'.")
 
-    # Select the first IPv4 address returned
     ipv4_address = addr_info[0][4][0]
 
-    # Preserve all connection settings: user, password, database, port, ssl, timeout
-    kwargs: dict[str, Any] = {
+    kwargs = {
         "host": ipv4_address,
         "port": port,
         "user": db_url.username,
@@ -58,23 +115,13 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
         "database": db_url.database,
     }
 
-    # Handle SSL configuration from URL query parameters
-    ssl_mode = db_url.query.get("sslmode")
-    ssl_param = db_url.query.get("ssl")
-    if ssl_mode:
-        if ssl_mode.lower() == "disable":
-            kwargs["ssl"] = False
-        elif ssl_mode.lower() in ("require", "verify-ca", "verify-full", "prefer", "allow"):
-            kwargs["ssl"] = "require"
-    elif ssl_param:
-        if ssl_param.lower() in ("false", "disable", "off", "0"):
-            kwargs["ssl"] = False
-        elif ssl_param.lower() in ("true", "require", "on", "1"):
-            kwargs["ssl"] = True
-        else:
-            kwargs["ssl"] = ssl_param
+    if ssl_setting is not None and ssl_setting is not False:
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        kwargs["ssl"] = ssl_ctx
+    elif ssl_setting is False:
+        kwargs["ssl"] = False
 
-    # Handle timeout parameter if specified
     if "timeout" in db_url.query:
         kwargs["timeout"] = float(db_url.query["timeout"])
     elif "connect_timeout" in db_url.query:

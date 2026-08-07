@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/hrms",
         description="Async SQLAlchemy PostgreSQL URL.",
     )
+    FORCE_IPV4_DB: bool = Field(
+        default=False,
+        description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues).",
+    )
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20

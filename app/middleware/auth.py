@@ -39,21 +39,12 @@ async def get_current_user_claims(
             token = auth_header.strip().split(" ", 1)[1].strip()
 
     if not token:
-        logger.info("No Authorization Bearer token provided — returning demo admin claims context.")
-        demo_claims = {
-            "sub": "831a7d25-d1c1-4122-b0c3-cd7f13ced9e1",
-            "role": "admin",
-            "company_id": "a8b6053c-a067-4628-a342-df90cf80951f",
-            "type": "access",
-        }
-        from app.db.base import tenant_id_ctx
-        try:
-            tenant_id_ctx.set(uuid.UUID("a8b6053c-a067-4628-a342-df90cf80951f"))
-        except Exception:
-            pass
-        if request is not None:
-            request.state.user_claims = demo_claims
-        return demo_claims
+        logger.info("No Authorization Bearer token provided — rejecting request.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated. Please provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if is_access_token_blacklisted(token):
         logger.warning("Access Token rejected: Token has been blacklisted on logout.")
