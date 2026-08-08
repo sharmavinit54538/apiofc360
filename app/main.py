@@ -268,6 +268,9 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
+        logger.info("🚀 Server Running at: http://127.0.0.1:8000")
+        logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
+        logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
         asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
