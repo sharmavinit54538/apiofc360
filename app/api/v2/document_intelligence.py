@@ -30,7 +30,7 @@ class ClassifyRequest(BaseModel):
 
 class ExtractRequest(BaseModel):
     document_id: uuid.UUID
-    schema_json: str = Field(..., description="Target JSON extraction schema representation")
+    extraction_schema: str = Field(..., description="Target JSON extraction schema representation", alias="schema_json")
     model: Optional[str] = None
 
 class AnalyzeRequest(BaseModel):
@@ -204,7 +204,7 @@ async def extract_document_fields(
         raise HTTPException(status_code=404, detail="Document not classified or processed yet.")
 
     svc = DocumentIntelligenceService(db)
-    extracted = await svc.extract_fields(doc.raw_text, body.schema_json, body.model)
+    extracted = await svc.extract_fields(doc.raw_text, body.extraction_schema, body.model)
 
     # Save to DB
     doc.extracted_data = extracted

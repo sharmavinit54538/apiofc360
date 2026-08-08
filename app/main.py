@@ -41,7 +41,6 @@ from app.api.events import router as events_router
 from app.api.polls import router as polls_router
 from app.api.internal_dashboard import router as internal_dashboard_router
 from app.api.ai_copilot import router as ai_copilot_router
-from app.api.v1.ai import router as ai_router
 from app.api.v1.ai_recruiter import router as ai_recruiter_router
 from app.api.v1.ai_attendance import router as ai_attendance_router
 from app.api.v1.ai_performance import router as ai_performance_router
@@ -55,7 +54,7 @@ from app.api.v1.compliance_monitor import router as compliance_monitor_router
 from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
-from app.api.ai_insights import router as ai_insights_router, ai_analytics_router, analytics_alias_router
+from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
 from app.api.settings import router as settings_api_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
@@ -351,6 +350,10 @@ def create_app() -> FastAPI:
     from app.middleware.timing import TimingMiddleware
     app.add_middleware(TimingMiddleware)
 
+    # Global rate limiting middleware
+    from app.core.rate_limiter import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+
     # Session Middleware configuration for secure user sessions via HTTP cookies
     if HAS_SESSION_MIDDLEWARE and SessionMiddleware is not None:
         session_secret = (
@@ -367,21 +370,17 @@ def create_app() -> FastAPI:
         )
 
     install_exception_handlers(app)
+    # ── API v1 routers ─────────────────────────────────────────────────────────
     app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employees_router, prefix=settings.API_V1_PREFIX)
     app.include_router(managers_router, prefix=settings.API_V1_PREFIX)
     app.include_router(departments_router, prefix=settings.API_V1_PREFIX)
     app.include_router(announcements_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(announcements_router, prefix="/api/v1/company")
     app.include_router(jobs_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(jobs_router, prefix="/api/v1/recruitment")
     app.include_router(assets_router, prefix=settings.API_V1_PREFIX)
     app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(applications_router, prefix="/api")
     app.include_router(interviews_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(interviews_router, prefix="/api/v1/recruitment")
     app.include_router(offers_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(offers_router, prefix="/api/v1/recruitment")
     app.include_router(exits_router, prefix=settings.API_V1_PREFIX)
     app.include_router(calendar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(documents_router, prefix=settings.API_V1_PREFIX)
@@ -395,7 +394,6 @@ def create_app() -> FastAPI:
     app.include_router(internal_dashboard_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_copilot_router, prefix=settings.API_V1_PREFIX)
     app.include_router(chat_assistant_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_recruiter_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_attendance_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)
@@ -411,13 +409,9 @@ def create_app() -> FastAPI:
     app.include_router(ai_brain_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_insights_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(analytics_alias_router, prefix=settings.API_V1_PREFIX)
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(settings_api_router, prefix="/api")
-    app.include_router(settings_api_router)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(cto_dashboard_router, prefix="/api")
     app.include_router(onboarding_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_admin_api_router, prefix=settings.API_V1_PREFIX)
@@ -433,29 +427,22 @@ def create_app() -> FastAPI:
     app.include_router(scorecards_router, prefix=settings.API_V1_PREFIX)
     app.include_router(recruitment_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(recruitment_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(recruitment_router, prefix="/api")
     app.include_router(ats_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ats_router, prefix="/api")
-    app.include_router(careers_router, prefix="/api")
+    app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
+
+    # ── API v2 routers ─────────────────────────────────────────────────────────
     app.include_router(doc_intel_router, prefix="/api/v2")
     app.include_router(emp_support_router, prefix="/api/v2")
     app.include_router(interview_bot_router, prefix="/api/v2")
     app.include_router(hr_analytics_router, prefix="/api/v2")
-    app.include_router(hr_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(hr_workflow_router, prefix="/api/v2")
     app.include_router(payroll_router, prefix="/api/v2")
-    app.include_router(payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(payroll_router, prefix="/api")
-    app.include_router(tax_router, prefix=settings.API_V1_PREFIX)
     app.include_router(tax_router, prefix="/api/v2")
-    app.include_router(tax_router, prefix="/api")
     app.include_router(performance_router, prefix="/api/v2")
-    app.include_router(performance_router, prefix="/api/v1/api/v2")
     app.include_router(policy_router, prefix="/api/v2")
     app.include_router(wellness_router, prefix="/api/v2")
     app.include_router(travel_router, prefix="/api/v2")
     app.include_router(reports_router, prefix="/api/v2")
-    app.include_router(reports_router, prefix=settings.API_V1_PREFIX)
     app.include_router(productivity_router, prefix="/api/v2")
     app.include_router(goals_router, prefix="/api/v2")
     app.include_router(compensation_router, prefix="/api/v2")
@@ -476,12 +463,10 @@ def create_app() -> FastAPI:
     app.include_router(compliance_router, prefix="/api/v2")
     app.include_router(risk_router, prefix="/api/v2")
     app.include_router(copilot_router, prefix="/api/v2")
-    app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(generate_router, prefix="/api")
-    app.include_router(generate_router)
 
-    app.include_router(jobs_router)  # Unprefixed fallback
-    app.include_router(recruitment_analytics_router)  # Unprefixed fallback
+    # ── Public / unprefixed routers ────────────────────────────────────────────
+    app.include_router(careers_router, prefix="/api")
+    app.include_router(generate_router, prefix="/api")
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

@@ -8,9 +8,6 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-DEFAULT_SECRET_KEY = "change-me-in-production-with-a-strong-random-secret"
-
-
 class Settings(BaseSettings):
     """Runtime settings for the FastAPI application."""
 
@@ -23,12 +20,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/hrms",
-        description="Async SQLAlchemy PostgreSQL URL.",
+        default="",
+        description="Async SQLAlchemy PostgreSQL URL. Must be set via env var in production.",
     )
     FORCE_IPV4_DB: bool = Field(
         default=False,
-        description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues).",
+        description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues - e.g., Supabase direct). Default False for Render/standard PostgreSQL.",
     )
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 10
@@ -37,8 +34,8 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = 300
 
     SECRET_KEY: SecretStr = Field(
-        default=DEFAULT_SECRET_KEY,
-        description="Secret key used for JWT signing and OTP hashing.",
+        default="",
+        description="Secret key used for JWT signing and OTP hashing. Must be 32+ chars. Set via env var.",
     )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -50,6 +47,12 @@ class Settings(BaseSettings):
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
+
+    # Global API rate limiting
+    API_RATE_LIMIT_ENABLED: bool = True
+    API_RATE_LIMIT_PER_MINUTE: int = 100
+    API_RATE_LIMIT_PER_HOUR: int = 2000
+    API_RATE_LIMIT_BURST: int = 20
 
     OTP_EXPIRE_MINUTES: int = 10
     OTP_RESEND_COOLDOWN_SECONDS: int = 30
@@ -115,7 +118,10 @@ class Settings(BaseSettings):
     VECTOR_EMBEDDING_DIM: int = 768
 
     # ── Redis / Celery settings ──────────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = Field(
+        default="",
+        description="Redis URL. Must be set via env var in production. Empty defaults to redis://localhost:6379/0 in local dev only.",
+    )
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     CELERY_TASK_SOFT_TIME_LIMIT: int = 300
@@ -247,23 +253,34 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in cleaned.split(",") if origin.strip()]
         return value
 
-    @field_validator("SECRET_KEY")
+    @field_validator("SECRET_KEY", mode="before")
     @classmethod
-    def validate_secret_key(cls, value: SecretStr) -> SecretStr:
-        """Validate secret strength."""
-
-        secret = value.get_secret_value()
-        if len(secret) < 32:
-            raise ValueError("SECRET_KEY must be at least 32 characters long")
+    def validate_secret_key(cls, value: Any) -> str:
+        """Validate secret strength - must be provided via env, no default."""
+        if isinstance(value, str):
+            val = value.strip().strip('"').strip("'")
+            if not val:
+                raise ValueError("SECRET_KEY must be set via environment variable (32+ characters)")
+            if len(val) < 32:
+                raise ValueError("SECRET_KEY must be at least 32 characters long")
+            return val
         return value
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
-        """Prevent default secrets in deployed environments."""
+        """Prevent default/empty secrets in deployed environments."""
 
         if self.ENVIRONMENT.lower() in {"production", "prod", "staging"}:
-            if self.SECRET_KEY.get_secret_value() == DEFAULT_SECRET_KEY:
-                raise ValueError("SECRET_KEY must be changed outside local development")
+            secret_val = self.SECRET_KEY.get_secret_value()
+            if not secret_val or len(secret_val) < 32:
+                raise ValueError("SECRET_KEY must be set via environment variable (32+ characters) in production")
+            if not self.DATABASE_URL or not self.DATABASE_URL.startswith("postgresql+asyncpg://"):
+                raise ValueError("DATABASE_URL must be set via environment variable in production")
+            if not self.REDIS_URL or not self.REDIS_URL.strip():
+                raise ValueError("REDIS_URL must be set via environment variable in production")
+            # Validate Redis URL format
+            if not (self.REDIS_URL.startswith("redis://") or self.REDIS_URL.startswith("rediss://")):
+                raise ValueError("REDIS_URL must start with redis:// or rediss://")
         return self
 
 
