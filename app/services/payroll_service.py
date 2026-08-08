@@ -291,7 +291,7 @@ class PayrollService:
         return await self._process_pay_cycle(cycle)
 
     async def _process_pay_cycle(self, cycle: PayCycle) -> PayCycle:
-        """Process full salary computation for a PayCycle."""
+        """Process full salary computation for a PayCycle - OPTIMIZED with batch loading."""
         config_stmt = select(StatutoryComplianceConfig).where(
             StatutoryComplianceConfig.is_active == True  # noqa: E712
         )
@@ -323,6 +323,48 @@ class PayrollService:
         emp_res = await self.db.execute(emp_stmt)
         employees = emp_res.scalars().all()
 
+        if not employees:
+            cycle.status = "VALIDATED"
+            cycle.total_employees = 0
+            cycle.total_gross = Decimal("0.00")
+            cycle.total_deductions = Decimal("0.00")
+            cycle.total_net = Decimal("0.00")
+            cycle.total_bonuses = Decimal("0.00")
+            cycle.total_reimbursements = Decimal("0.00")
+            await self.db.commit()
+            await self.db.refresh(cycle)
+            return cycle
+
+        # Extract employee IDs for batch loading
+        employee_ids = [emp.id for emp in employees]
+
+        # BATCH LOAD all required data upfront
+        total_days = calendar.monthrange(cycle.period_year, cycle.period_month)[1]
+        financial_year = f"{cycle.period_year}-{cycle.period_year + 1}"
+
+        # Batch load all required data in parallel
+        salary_structures_map = await self.repo.batch_get_salary_structures(employee_ids)
+        attendance_inputs_map = await self.repo.batch_get_payroll_attendance_inputs(
+            employee_ids, cycle.period_month, cycle.period_year
+        )
+        overtime_entries_map = await self.repo.batch_get_overtime_entries_for_period(
+            employee_ids, cycle.period_month, cycle.period_year
+        )
+        bonus_awards_map = await self.repo.batch_get_bonus_awards_for_cycle(
+            employee_ids, cycle.id
+        )
+        reimbursement_claims_map = await self.repo.batch_get_reimbursement_claims_for_cycle(
+            employee_ids, cycle.id
+        )
+        voluntary_deductions_map = await self.repo.batch_get_voluntary_deductions(
+            employee_ids, cycle.id
+        )
+        active_loans_map = await self.repo.batch_get_active_loans(employee_ids)
+        investment_declarations_map = await self.repo.batch_get_investment_declarations(
+            employee_ids, f"{cycle.period_year}-{cycle.period_year + 1}"
+        )
+        bank_accounts_map = await self.repo.batch_get_primary_bank_accounts(employee_ids)
+
         total_days = calendar.monthrange(cycle.period_year, cycle.period_month)[1]
         total_employees = 0
         total_gross = Decimal("0.00")
@@ -334,27 +376,18 @@ class PayrollService:
         payslip_count_res = await self.db.execute(select(func.count(Payslip.id)))
         payslip_serial_base = payslip_count_res.scalar() or 0
 
+        # Prepare batch insert collections
+        payslips_to_create = []
+        loan_installments_to_create = []
+
         for emp in employees:
-            sal_stmt = select(SalaryStructure).where(
-                SalaryStructure.employee_id == emp.id,
-                SalaryStructure.is_active == True,  # noqa: E712
-            )
-            sal_res = await self.db.execute(sal_stmt)
-            sal_struct = sal_res.scalar_one_or_none()
+            sal_struct = salary_structures_map.get(emp.id)
             if not sal_struct:
                 logger.warning("Skipping employee %s: no active salary structure.", emp.id)
                 continue
 
-            # Attendance / LOP
-            from app.models.payroll import PayrollAttendanceInput
-            att_stmt = select(PayrollAttendanceInput).where(
-                PayrollAttendanceInput.employee_id == emp.id,
-                PayrollAttendanceInput.period_month == cycle.period_month,
-                PayrollAttendanceInput.period_year == cycle.period_year,
-            )
-            att_res = await self.db.execute(att_stmt)
-            att_input = att_res.scalar_one_or_none()
-
+            # Attendance / LOP - use batched data
+            att_input = attendance_inputs_map.get(emp.id)
             lop_days = Decimal("0.0")
             arrears = Decimal("0.00")
             one_time_bonus = Decimal("0.00")
@@ -363,35 +396,15 @@ class PayrollService:
                 arrears = Decimal(str(att_input.arrears))
                 one_time_bonus = Decimal(str(att_input.one_time_bonus))
 
-            # OT
-            ot_stmt = select(OvertimeEntry).where(
-                OvertimeEntry.employee_id == emp.id,
-                OvertimeEntry.period_month == cycle.period_month,
-                OvertimeEntry.period_year == cycle.period_year,
-                OvertimeEntry.status.in_(["APPROVED", "PUSHED"]),
-            )
-            ot_res = await self.db.execute(ot_stmt)
-            ot_entry = ot_res.scalar_one_or_none()
+            # Overtime - use batched data
+            ot_entry = overtime_entries_map.get(emp.id)
             ot_amount = Decimal(str(ot_entry.ot_amount)) if ot_entry else Decimal("0.00")
 
-            # Bonus awards queued for this cycle
-            bonus_stmt = select(BonusAward).where(
-                BonusAward.employee_id == emp.id,
-                BonusAward.pay_cycle_id == cycle.id,
-                BonusAward.status == "QUEUED",
-            )
-            bonus_res = await self.db.execute(bonus_stmt)
-            bonus_awards = bonus_res.scalars().all()
-            queued_bonus = sum(Decimal(str(b.amount)) for b in bonus_awards)
+            # Bonus awards - use batched data
+            queued_bonus = bonus_awards_map.get(emp.id, Decimal("0.00"))
 
-            # Reimbursements queued for this cycle
-            reimb_stmt = select(ReimbursementClaim).where(
-                ReimbursementClaim.employee_id == emp.id,
-                ReimbursementClaim.pay_cycle_id == cycle.id,
-                ReimbursementClaim.status == "QUEUED",
-            )
-            reimb_res = await self.db.execute(reimb_stmt)
-            queued_reimb = sum(Decimal(str(r.amount)) for r in reimb_res.scalars().all())
+            # Reimbursements - use batched data
+            queued_reimb = reimbursement_claims_map.get(emp.id, Decimal("0.00"))
 
             paid_days = max(Decimal("0.0"), Decimal(str(total_days)) - lop_days)
             ratio = paid_days / Decimal(str(total_days))
@@ -433,13 +446,8 @@ class PayrollService:
                 if basic > Decimal("15000.00"):
                     tds = ((basic - Decimal("15000.00")) * Decimal("0.10")).quantize(Decimal("0.01"))
             else:
-                dec_res = await self.db.execute(
-                    select(EmployeeInvestmentDeclaration).where(
-                        EmployeeInvestmentDeclaration.employee_id == emp.id,
-                        EmployeeInvestmentDeclaration.financial_year == f"{cycle.period_year}-{cycle.period_year + 1}",
-                    )
-                )
-                decl = dec_res.scalar_one_or_none()
+                # Use batched investment declarations
+                decl = investment_declarations_map.get(emp.id)
                 deductions_val = Decimal("0.00")
                 if decl:
                     deductions_val = decl.section_80c + decl.section_80d + decl.section_80ccd1b_nps
@@ -447,24 +455,11 @@ class PayrollService:
                 if taxable_basic > Decimal("15000.00"):
                     tds = ((taxable_basic - Decimal("15000.00")) * Decimal("0.10")).quantize(Decimal("0.01"))
 
-            # Voluntary deductions
-            vol_ded_res = await self.db.execute(
-                select(DeductionComponent).where(
-                    DeductionComponent.employee_id == emp.id,
-                    DeductionComponent.pay_cycle_id == cycle.id,
-                    DeductionComponent.deduction_type.notin_(["PF", "ESI", "PT", "TDS"]),
-                )
-            )
-            vol_deductions = sum(Decimal(str(d.amount)) for d in vol_ded_res.scalars().all())
+            # Voluntary deductions - use batched data
+            vol_deductions = voluntary_deductions_map.get(emp.id, Decimal("0.00"))
 
-            # Active loan EMIs
-            loan_res = await self.db.execute(
-                select(AdvanceLoan).where(
-                    AdvanceLoan.employee_id == emp.id,
-                    AdvanceLoan.status == "ACTIVE",
-                )
-            )
-            loans = loan_res.scalars().all()
+            # Active loan EMIs - use batched data
+            loans = active_loans_map.get(emp.id, [])
             loan_emi_total = Decimal("0.00")
             for loan in loans:
                 if loan.outstanding_balance > 0 and loan.installments_paid < loan.total_installments:
@@ -481,7 +476,7 @@ class PayrollService:
                         balance_after=loan.outstanding_balance - emi,
                         status="DEDUCTED",
                     )
-                    self.db.add(inst)
+                    loan_installments_to_create.append(inst)
                     loan.outstanding_balance -= emi
                     loan.installments_paid += 1
                     if loan.outstanding_balance <= 0:
@@ -526,7 +521,7 @@ class PayrollService:
                 net_pay_words=f"{net_pay} Only",
                 payment_status="PENDING",
             )
-            self.db.add(payslip)
+            payslips_to_create.append(payslip)
 
             total_employees += 1
             total_gross += gross_earnings
@@ -534,6 +529,12 @@ class PayrollService:
             total_net += net_pay
             total_bonuses += total_bonus
             total_reimbursements += queued_reimb
+
+        # BATCH INSERT all payslips and loan installments
+        if payslips_to_create:
+            await self.repo.batch_create_payslips(payslips_to_create)
+        if loan_installments_to_create:
+            await self.repo.batch_create_loan_installments(loan_installments_to_create)
 
         cycle.total_employees = total_employees
         cycle.total_gross = total_gross

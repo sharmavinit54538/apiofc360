@@ -28,6 +28,7 @@ from app.models.payroll import (
     OvertimeEntry,
     OvertimePolicy,
     PayCycle,
+    PayrollAttendanceInput,
     PayrollAuditLog,
     Payslip,
     ReimbursementClaim,
@@ -654,3 +655,355 @@ class PayrollRepository:
             }
             for r in rows
         ]
+
+    # ------------------------------------------------------------------
+    # BATCH LOADING METHODS FOR PAYROLL PROCESSING OPTIMIZATION
+    # ------------------------------------------------------------------
+
+    async def batch_get_salary_structures(
+        self, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, SalaryStructure]:
+        """Batch load salary structures for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(SalaryStructure).where(
+            and_(
+                SalaryStructure.employee_id.in_(employee_ids),
+                SalaryStructure.is_active == True,  # noqa: E712
+            )
+        )
+        res = await self.session.execute(stmt)
+        structures = res.scalars().all()
+        return {s.employee_id: s for s in structures}
+
+    async def batch_get_attendance_inputs(
+        self, employee_ids: list[uuid.UUID], period_month: int, period_year: int
+    ) -> dict[uuid.UUID, PayrollAttendanceInput]:
+        """Batch load attendance inputs for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(PayrollAttendanceInput).where(
+            and_(
+                PayrollAttendanceInput.employee_id.in_(employee_ids),
+                PayrollAttendanceInput.period_month == period_month,
+                PayrollAttendanceInput.period_year == period_year,
+            )
+        )
+        res = await self.session.execute(stmt)
+        inputs = res.scalars().all()
+        return {i.employee_id: i for i in inputs}
+
+    async def batch_get_overtime_entries(
+        self, employee_ids: list[uuid.UUID], period_month: int, period_year: int
+    ) -> dict[uuid.UUID, OvertimeEntry]:
+        """Batch load overtime entries for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(OvertimeEntry).where(
+            and_(
+                OvertimeEntry.employee_id.in_(employee_ids),
+                OvertimeEntry.period_month == period_month,
+                OvertimeEntry.period_year == period_year,
+                OvertimeEntry.status.in_(["APPROVED", "PUSHED"]),
+            )
+        )
+        res = await self.session.execute(stmt)
+        entries = res.scalars().all()
+        return {e.employee_id: e for e in entries}
+
+    async def batch_get_bonus_awards(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load bonus awards for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(BonusAward.employee_id, BonusAward.amount).where(
+            and_(
+                BonusAward.employee_id.in_(employee_ids),
+                BonusAward.pay_cycle_id == pay_cycle_id,
+                BonusAward.status == "QUEUED",
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        # Sum amounts per employee
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_reimbursement_claims(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load reimbursement claims for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(ReimbursementClaim.employee_id, ReimbursementClaim.amount).where(
+            and_(
+                ReimbursementClaim.employee_id.in_(employee_ids),
+                ReimbursementClaim.pay_cycle_id == pay_cycle_id,
+                ReimbursementClaim.status == "QUEUED",
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_voluntary_deductions(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load voluntary deductions for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(DeductionComponent.employee_id, DeductionComponent.amount).where(
+            and_(
+                DeductionComponent.employee_id.in_(employee_ids),
+                DeductionComponent.pay_cycle_id == pay_cycle_id,
+                DeductionComponent.deduction_type.notin_(["PF", "ESI", "PT", "TDS"]),
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_active_loans(
+        self, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[AdvanceLoan]]:
+        """Batch load active loans for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(AdvanceLoan).where(
+            and_(
+                AdvanceLoan.employee_id.in_(employee_ids),
+                AdvanceLoan.status == "ACTIVE",
+            )
+        )
+        res = await self.session.execute(stmt)
+        loans = res.scalars().all()
+        result = {}
+        for loan in loans:
+            if loan.employee_id not in result:
+                result[loan.employee_id] = []
+            result[loan.employee_id].append(loan)
+        return result
+
+    async def batch_get_investment_declarations(
+        self, employee_ids: list[uuid.UUID], financial_year: str
+    ) -> dict[uuid.UUID, EmployeeInvestmentDeclaration]:
+        """Batch load investment declarations for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(EmployeeInvestmentDeclaration).where(
+            and_(
+                EmployeeInvestmentDeclaration.employee_id.in_(employee_ids),
+                EmployeeInvestmentDeclaration.financial_year == financial_year,
+            )
+        )
+        res = await self.session.execute(stmt)
+        declarations = res.scalars().all()
+        return {d.employee_id: d for d in declarations}
+
+    async def batch_get_bank_accounts(
+        self, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, EmployeeBankAccount]:
+        """Batch load primary bank accounts for multiple employees."""
+        if not employee_ids:
+            return {}
+        from sqlalchemy import select
+        from app.models.employee_bank_account import EmployeeBankAccount
+        stmt = select(EmployeeBankAccount).where(
+            and_(
+                EmployeeBankAccount.employee_id.in_(employee_ids),
+                EmployeeBankAccount.is_primary == True,  # noqa: E712
+            )
+        )
+        res = await self.session.execute(stmt)
+        accounts = res.scalars().all()
+        return {a.employee_id: a for a in accounts}
+
+    async def batch_create_payslips(self, payslips: list[Payslip]) -> None:
+        """Batch insert payslips using add_all."""
+        if not payslips:
+            return
+        self.session.add_all(payslips)
+        await self.session.flush()
+
+    async def batch_create_loan_installments(self, installments: list[AdvanceLoanInstallment]) -> None:
+        """Batch insert loan installments using add_all."""
+        if not installments:
+            return
+        self.session.add_all(installments)
+        await self.session.flush()
+
+    async def batch_get_payroll_attendance_inputs(
+        self, employee_ids: list[uuid.UUID], period_month: int, period_year: int
+    ) -> dict[uuid.UUID, PayrollAttendanceInput]:
+        """Batch load payroll attendance inputs for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(PayrollAttendanceInput).where(
+            and_(
+                PayrollAttendanceInput.employee_id.in_(employee_ids),
+                PayrollAttendanceInput.period_month == period_month,
+                PayrollAttendanceInput.period_year == period_year,
+            )
+        )
+        res = await self.session.execute(stmt)
+        inputs = res.scalars().all()
+        return {i.employee_id: i for i in inputs}
+
+    async def batch_get_overtime_entries_for_period(
+        self, employee_ids: list[uuid.UUID], period_month: int, period_year: int
+    ) -> dict[uuid.UUID, OvertimeEntry]:
+        """Batch load overtime entries for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(OvertimeEntry).where(
+            and_(
+                OvertimeEntry.employee_id.in_(employee_ids),
+                OvertimeEntry.period_month == period_month,
+                OvertimeEntry.period_year == period_year,
+                OvertimeEntry.status.in_(["APPROVED", "PUSHED"]),
+            )
+        )
+        res = await self.session.execute(stmt)
+        entries = res.scalars().all()
+        return {e.employee_id: e for e in entries}
+
+    async def batch_get_bonus_awards_for_cycle(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load bonus awards for multiple employees for a specific cycle."""
+        if not employee_ids:
+            return {}
+        stmt = select(BonusAward.employee_id, BonusAward.amount).where(
+            and_(
+                BonusAward.employee_id.in_(employee_ids),
+                BonusAward.pay_cycle_id == pay_cycle_id,
+                BonusAward.status == "QUEUED",
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_reimbursement_claims_for_cycle(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load reimbursement claims for multiple employees for a specific cycle."""
+        if not employee_ids:
+            return {}
+        stmt = select(ReimbursementClaim.employee_id, ReimbursementClaim.amount).where(
+            and_(
+                ReimbursementClaim.employee_id.in_(employee_ids),
+                ReimbursementClaim.pay_cycle_id == pay_cycle_id,
+                ReimbursementClaim.status == "QUEUED",
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_voluntary_deductions(
+        self, employee_ids: list[uuid.UUID], pay_cycle_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """Batch load voluntary deductions for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(DeductionComponent.employee_id, DeductionComponent.amount).where(
+            and_(
+                DeductionComponent.employee_id.in_(employee_ids),
+                DeductionComponent.pay_cycle_id == pay_cycle_id,
+                DeductionComponent.deduction_type.notin_(["PF", "ESI", "PT", "TDS"]),
+            )
+        )
+        res = await self.session.execute(stmt)
+        results = res.fetchall()
+        result = {}
+        for emp_id, amount in results:
+            if emp_id in result:
+                result[emp_id] += Decimal(str(amount))
+            else:
+                result[emp_id] = Decimal(str(amount))
+        return result
+
+    async def batch_get_active_loans(
+        self, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[AdvanceLoan]]:
+        """Batch load active loans for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(AdvanceLoan).where(
+            and_(
+                AdvanceLoan.employee_id.in_(employee_ids),
+                AdvanceLoan.status == "ACTIVE",
+            )
+        )
+        res = await self.session.execute(stmt)
+        loans = res.scalars().all()
+        result = {}
+        for loan in loans:
+            if loan.employee_id not in result:
+                result[loan.employee_id] = []
+            result[loan.employee_id].append(loan)
+        return result
+
+    async def batch_get_investment_declarations(
+        self, employee_ids: list[uuid.UUID], financial_year: str
+    ) -> dict[uuid.UUID, EmployeeInvestmentDeclaration]:
+        """Batch load investment declarations for multiple employees."""
+        if not employee_ids:
+            return {}
+        stmt = select(EmployeeInvestmentDeclaration).where(
+            and_(
+                EmployeeInvestmentDeclaration.employee_id.in_(employee_ids),
+                EmployeeInvestmentDeclaration.financial_year == financial_year,
+            )
+        )
+        res = await self.session.execute(stmt)
+        declarations = res.scalars().all()
+        return {d.employee_id: d for d in declarations}
+
+    async def batch_get_primary_bank_accounts(
+        self, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, EmployeeBankAccount]:
+        """Batch load primary bank accounts for multiple employees."""
+        if not employee_ids:
+            return {}
+        from app.models.employee_bank_account import EmployeeBankAccount
+        stmt = select(EmployeeBankAccount).where(
+            and_(
+                EmployeeBankAccount.employee_id.in_(employee_ids),
+                EmployeeBankAccount.is_primary == True,  # noqa: E712
+            )
+        )
+        res = await self.session.execute(stmt)
+        accounts = res.scalars().all()
+        return {a.employee_id: a for a in accounts}
