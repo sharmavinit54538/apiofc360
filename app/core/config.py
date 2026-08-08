@@ -48,7 +48,6 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
 
-    # Global API rate limiting
     API_RATE_LIMIT_ENABLED: bool = True
     API_RATE_LIMIT_PER_MINUTE: int = 100
     API_RATE_LIMIT_PER_HOUR: int = 2000
@@ -140,33 +139,32 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
-    # ── Multi-Provider LLM settings ──────────────────────────────────────────
-    # OpenAI
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    OPENAI_MODEL: str = "gpt-4o-mini"
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    OPENAI_PRIORITY: int = 10
+    # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
+    # Cloud LLM providers are DISABLED. Only Ollama is supported.
+    # OPENAI_API_KEY: str = ""
+    # OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    # OPENAI_MODEL: str = "gpt-4o-mini"
+    # OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    # OPENAI_PRIORITY: int = 10
+    #
+    # # Anthropic Claude
+    # ANTHROPIC_API_KEY: str = ""
+    # ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
+    # ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    # ANTHROPIC_PRIORITY: int = 20
+    #
+    # # Google Gemini
+    # GOOGLE_AI_API_KEY: str = ""
+    # GOOGLE_AI_MODEL: str = "gemini-2.0-flash"
+    # GOOGLE_AI_EMBEDDING_MODEL: str = "text-embedding-004"
+    # GOOGLE_AI_PRIORITY: int = 15
+    #
+    # # OpenRouter (gateway for DeepSeek, Qwen, Mistral, etc.)
+    # OPENROUTER_API_KEY: str = ""
+    # OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
+    # OPENROUTER_PRIORITY: int = 30
 
-    # Anthropic Claude
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
-    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
-    ANTHROPIC_PRIORITY: int = 20
-
-    # Google Gemini
-    GOOGLE_AI_API_KEY: str = ""
-    GOOGLE_AI_MODEL: str = "gemini-2.0-flash"
-    GOOGLE_AI_EMBEDDING_MODEL: str = "text-embedding-004"
-    GOOGLE_AI_PRIORITY: int = 15
-
-    # OpenRouter (gateway for DeepSeek, Qwen, Mistral, etc.)
-    OPENROUTER_API_KEY: str = ""
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
-    OPENROUTER_PRIORITY: int = 30
-
-    # Ollama priority (lower = higher priority)
     OLLAMA_PRIORITY: int = 1
 
     # LLM Routing & Limits
@@ -278,9 +276,6 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():
                 raise ValueError("REDIS_URL must be set via environment variable in production")
-            # Validate Redis URL format
-            if not (self.REDIS_URL.startswith("redis://") or self.REDIS_URL.startswith("rediss://")):
-                raise ValueError("REDIS_URL must start with redis:// or rediss://")
         return self
 
 

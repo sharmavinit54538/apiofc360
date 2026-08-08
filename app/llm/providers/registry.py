@@ -1,4 +1,8 @@
-"""Provider registry — auto-discovers and manages all configured LLM providers."""
+"""Provider registry — manages the exclusive Ollama LLM provider.
+
+Only Ollama is supported as the production LLM provider.
+Cloud LLM providers (OpenAI, Anthropic, Google, OpenRouter) are DISABLED.
+"""
 
 from __future__ import annotations
 
@@ -11,14 +15,15 @@ from app.llm.providers.base import (
     ProviderCapability,
     ProviderConfig,
 )
+from app.llm.providers.ollama_provider import OllamaProvider
 
 logger = logging.getLogger(__name__)
 
 
 class ProviderRegistry:
-    """Discovers, initialises, and manages all configured LLM providers.
+    """Manages the exclusive Ollama LLM provider.
 
-    Providers are auto-enabled based on presence of API keys in settings.
+    Only Ollama is supported. No cloud LLM providers are registered.
     """
 
     def __init__(self) -> None:
@@ -26,10 +31,10 @@ class ProviderRegistry:
         self._initialised = False
 
     def _build_configs(self) -> list[ProviderConfig]:
-        """Build provider configurations from application settings (Ollama ONLY)."""
+        """Build provider configuration from application settings (Ollama ONLY)."""
         configs: list[ProviderConfig] = []
 
-        # Ollama — primary and exclusive LLM provider
+        # Ollama — exclusive LLM provider
         configs.append(ProviderConfig(
             name="ollama",
             base_url=getattr(settings, "OLLAMA_BASE_URL", getattr(settings, "OLLAMA_HOST", "http://127.0.0.1:11434")),
@@ -50,43 +55,29 @@ class ProviderRegistry:
 
         return configs
 
-
     def _create_provider(self, config: ProviderConfig) -> LLMProviderBase:
-        """Factory: instantiate the correct provider class."""
-        from app.llm.providers.ollama_provider import OllamaProvider
-        from app.llm.providers.openai_provider import OpenAIProvider
-        from app.llm.providers.anthropic_provider import AnthropicProvider
-        from app.llm.providers.google_provider import GoogleProvider
-        from app.llm.providers.openrouter_provider import OpenRouterProvider
-
-        factories: dict[str, type[LLMProviderBase]] = {
-            "ollama": OllamaProvider,
-            "openai": OpenAIProvider,
-            "anthropic": AnthropicProvider,
-            "google": GoogleProvider,
-            "openrouter": OpenRouterProvider,
-        }
-
-        factory = factories.get(config.name)
-        if not factory:
-            raise ValueError(f"Unknown provider: {config.name}")
-        return factory(config)
+        """Factory: instantiate the Ollama provider."""
+        if config.name != "ollama":
+            raise ValueError(f"Only Ollama provider is supported. Got: {config.name}")
+        return OllamaProvider(config)
 
     def initialise(self) -> None:
-        """Build and register all enabled providers from settings."""
+        """Build and register the Ollama provider from settings."""
         if self._initialised:
             return
 
         configs = self._build_configs()
         for cfg in configs:
             if not cfg.enabled:
+                logger.warning("Ollama provider is disabled via OLLAMA_ENABLED=false")
                 continue
             try:
                 provider = self._create_provider(cfg)
                 self._providers[cfg.name] = provider
                 logger.info("Registered LLM provider: %s (priority=%d, model=%s)", cfg.name, cfg.priority, cfg.default_model)
             except Exception as exc:
-                logger.error("Failed to initialise provider '%s': %s", cfg.name, exc)
+                logger.error("Failed to initialise Ollama provider: %s", exc)
+                raise
 
         self._initialised = True
         logger.info("Provider registry initialised with %d providers: %s", len(self._providers), list(self._providers.keys()))
