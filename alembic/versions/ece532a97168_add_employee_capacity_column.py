@@ -18,9 +18,30 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+from sqlalchemy import inspect
+
+
 def upgrade() -> None:
-    op.add_column('employees', sa.Column('employee_capacity', sa.Integer(), nullable=True, server_default=sa.text('100')))
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    
+    emp_cols = [c['name'] for c in inspector.get_columns('employees')]
+    if 'employee_capacity' not in emp_cols:
+        op.add_column('employees', sa.Column('employee_capacity', sa.Integer(), nullable=True, server_default=sa.text('100')))
+
+    dept_cols = [c['name'] for c in inspector.get_columns('departments')]
+    if 'employee_capacity' not in dept_cols:
+        op.add_column('departments', sa.Column('employee_capacity', sa.Integer(), nullable=True, server_default=sa.text('100')))
 
 
 def downgrade() -> None:
-    op.drop_column('employees', 'employee_capacity')
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    
+    emp_cols = [c['name'] for c in inspector.get_columns('employees')]
+    if 'employee_capacity' in emp_cols:
+        op.drop_column('employees', 'employee_capacity')
+        
+    dept_cols = [c['name'] for c in inspector.get_columns('departments')]
+    if 'employee_capacity' in dept_cols:
+        op.drop_column('departments', 'employee_capacity')
