@@ -6,6 +6,9 @@ on:
       - dev
   workflow_dispatch:
 
+env:
+  APP_DIR: /root/apiofc360
+
 jobs:
   deploy:
     name: Deploy to Dev Server
@@ -15,105 +18,104 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Sync Code to /root/apiofc360 & Verify Environment
+      - name: Sync Code to Target Directory & Verify Environment
         run: |
-          TARGET_DIR="/root/apiofc360"
-          if [ -d "$TARGET_DIR" ]; then
-            echo "[Deploy] Syncing checked out repository files to $TARGET_DIR..."
-            rsync -a --exclude='.env' --exclude='.git' ./ "$TARGET_DIR/" 2>/dev/null || cp -r ./* "$TARGET_DIR/" 2>/dev/null || true
-            cd "$TARGET_DIR"
-          fi
+          sudo bash -c "
+            mkdir -p ${{ env.APP_DIR }}
+            rsync -a --exclude='.env' --exclude='.git' ./ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
+            cd ${{ env.APP_DIR }}
 
-          if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-              echo "[Deploy] Creating .env from .env.example..."
-              cp .env.example .env
-            else
-              echo "[Deploy] Searching workspace for .env.example..."
-              cp "$GITHUB_WORKSPACE/.env.example" .env 2>/dev/null || true
+            if [ ! -f .env ]; then
+              if [ -f .env.example ]; then
+                echo '[Deploy] Creating .env from .env.example...'
+                cp .env.example .env
+              else
+                cp '$GITHUB_WORKSPACE/.env.example' .env 2>/dev/null || true
+              fi
             fi
-          fi
+          "
 
       - name: Start DB & Redis ONLY IF NOT Running (Zero-Touch if already running)
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
 
-          DB_RUNNING=$(docker inspect -f '{{.State.Running}}' ofc360_db 2>/dev/null || echo "false")
-          REDIS_RUNNING=$(docker inspect -f '{{.State.Running}}' ofc360_redis 2>/dev/null || echo "false")
+            DB_RUNNING=\$(docker inspect -f '{{.State.Running}}' ofc360_db 2>/dev/null || echo 'false')
+            REDIS_RUNNING=\$(docker inspect -f '{{.State.Running}}' ofc360_redis 2>/dev/null || echo 'false')
 
-          if [ "$DB_RUNNING" = "true" ] && [ "$REDIS_RUNNING" = "true" ]; then
-            echo "[Deploy] ✅ PostgreSQL (ofc360_db) and Redis (ofc360_redis) are ALREADY RUNNING."
-            echo "[Deploy] Skipping DB and Redis. Leaving them 100% untouched!"
-          else
-            echo "[Deploy] ⚠️ DB or Redis is not running. Starting DB & Redis containers..."
-            docker compose up -d db redis
-          fi
+            if [ \"\$DB_RUNNING\" = \"true\" ] && [ \"\$REDIS_RUNNING\" = \"true\" ]; then
+              echo '[Deploy] ✅ PostgreSQL (ofc360_db) and Redis (ofc360_redis) are ALREADY RUNNING.'
+              echo '[Deploy] Skipping DB and Redis. Leaving them 100% untouched!'
+            else
+              echo '[Deploy] ⚠️ DB or Redis is not running. Starting DB & Redis containers...'
+              docker compose up -d db redis
+            fi
+          "
 
       - name: Backup Current Running Container State
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
-
-          echo "[Deploy] Tagging current working containers for rollback fallback..."
-          docker tag apiofc360-api:latest apiofc360-api:rollback-backup 2>/dev/null || true
-          docker tag apiofc360-celery_worker:latest apiofc360-celery_worker:rollback-backup 2>/dev/null || true
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Tagging current working containers for rollback fallback...'
+            docker tag apiofc360-api:latest apiofc360-api:rollback-backup 2>/dev/null || true
+            docker tag apiofc360-celery_worker:latest apiofc360-celery_worker:rollback-backup 2>/dev/null || true
+          "
 
       - name: Force Fresh Docker Image Build on Every Trigger
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
-
-          echo "[Deploy] Building fresh Docker images without cache (commit: ${{ github.sha }})..."
-          docker compose build --no-cache api celery_worker
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Building fresh Docker images without cache (commit: ${{ github.sha }})...'
+            docker compose build --no-cache api celery_worker
+          "
 
       - name: Update Application Containers to New Build
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
-
-          echo "[Deploy] Starting new application containers (api, celery_worker)..."
-          docker compose up -d --no-deps api celery_worker
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Starting new application containers (api, celery_worker)...'
+            docker compose up -d --no-deps api celery_worker
+          "
 
       - name: Health Check & Automatic Rollback Probe
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Performing multi-retry health check probe on http://localhost:8000/health...'
+            HEALTH_OK=false
+            for i in {1..6}; do
+              echo \"[Deploy] Health check probe attempt \$i of 6...\"
+              if curl -sf http://localhost:8000/health > /dev/null; then
+                HEALTH_OK=true
+                echo '[Deploy] SUCCESS: Health check probe passed!'
+                break
+              fi
+              sleep 5
+            done
 
-          echo "[Deploy] Performing multi-retry health check probe on http://localhost:8000/health..."
-          HEALTH_OK=false
-          for i in {1..6}; do
-            echo "[Deploy] Health check probe attempt $i of 6..."
-            if curl -sf http://localhost:8000/health > /dev/null; then
-              HEALTH_OK=true
-              echo "[Deploy] SUCCESS: Health check probe passed!"
-              break
+            if [ \"\$HEALTH_OK\" = \"false\" ]; then
+              echo '[Deploy] ❌ ERROR: Health check probe failed!'
+              echo '[Deploy] Printing backend container logs for diagnosis:'
+              docker compose logs --tail 100 api celery_worker
+              
+              echo '[Deploy] 🔄 INITIATING AUTOMATIC ROLLBACK...'
+              if docker image inspect apiofc360-api:rollback-backup >/dev/null 2>&1; then
+                docker tag apiofc360-api:rollback-backup apiofc360-api:latest
+                docker tag apiofc360-celery_worker:rollback-backup apiofc360-celery_worker:latest
+                docker compose up -d --no-build --no-deps api celery_worker
+                echo '[Deploy] Rollback completed. Running container restored to previous working version.'
+              else
+                echo '[Deploy] Warning: No previous image backup found to restore.'
+              fi
+              exit 1
             fi
-            sleep 5
-          done
-
-          if [ "$HEALTH_OK" = "false" ]; then
-            echo "[Deploy] ❌ ERROR: Health check probe failed!"
-            echo "[Deploy] Printing backend container logs for diagnosis:"
-            docker compose logs --tail 100 api celery_worker
-            
-            echo "[Deploy] 🔄 INITIATING AUTOMATIC ROLLBACK..."
-            if docker image inspect apiofc360-api:rollback-backup >/dev/null 2>&1; then
-              docker tag apiofc360-api:rollback-backup apiofc360-api:latest
-              docker tag apiofc360-celery_worker:rollback-backup apiofc360-celery_worker:latest
-              docker compose up -d --no-build --no-deps api celery_worker
-              echo "[Deploy] Rollback completed. Running container restored to previous working version."
-            else
-              echo "[Deploy] Warning: No previous image backup found to restore."
-            fi
-            exit 1
-          fi
+          "
 
       - name: Clean Up Unused Build Images
         if: success()
         run: |
-          TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
-
-          echo "[Deploy] Deployment successful! Cleaning dangling docker images..."
-          docker image prune -f
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Deployment successful! Cleaning dangling docker images...'
+            docker image prune -f
+          "
