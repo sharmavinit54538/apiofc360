@@ -325,11 +325,15 @@ def create_app() -> FastAPI:
 
     # Allowed origins configuration
     allowed_origins_list = [
+        "https://www.ofc360.com",
+        "https://ofc360.com",
+        "https://api.ofc360.com",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
     ]
+
     
     if settings.ALLOWED_ORIGINS:
         allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
