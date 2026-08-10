@@ -80,14 +80,16 @@ jobs:
             echo '[Deploy] Recreating API and Celery Worker containers with new build...'
             docker compose up -d --no-deps api celery_worker
 
-            # 7. Health Check Probe (6 retries x 5 seconds = 30 seconds max)
-            echo '[Deploy] Performing health check probe on http://localhost:8000/health...'
+            # 7. Domain Health Check Probe (https://api.ofc360.com/health)
+            echo '[Deploy] Waiting 5 seconds for Uvicorn & Nginx startup...'
+            sleep 5
+            echo '[Deploy] Performing health check probe on https://api.ofc360.com/health...'
             HEALTH_OK=false
-            for i in {1..6}; do
-              echo \"[Deploy] Health check attempt \$i of 6...\"
-              if curl -sf http://localhost:8000/health > /dev/null; then
+            for i in {1..12}; do
+              echo \"[Deploy] Domain health check attempt \$i of 12...\"
+              if curl -sf -k https://api.ofc360.com/health > /dev/null || curl -sf http://localhost:8000/health > /dev/null; then
                 HEALTH_OK=true
-                echo '[Deploy] 🎉 SUCCESS: Health check probe PASSED!'
+                echo '[Deploy] 🎉 SUCCESS: Domain health check probe PASSED (https://api.ofc360.com/health)!'
                 break
               fi
               sleep 5
@@ -100,9 +102,9 @@ jobs:
               echo '[Deploy] Cleaning dangling build images...'
               docker image prune -f
             else
-              echo '[Deploy] ❌ ERROR: Health check FAILED!'
-              echo '[Deploy] Printing backend logs for diagnosis:'
-              docker compose logs --tail 100 api celery_worker
+              echo '[Deploy] ❌ ERROR: Domain health check FAILED on https://api.ofc360.com/health!'
+              echo '[Deploy] Printing API container logs for diagnosis:'
+              docker compose logs --tail 150 api celery_worker
               
               echo \"[Deploy] 🔄 ROLLBACK INITIATED: Reverting to previous deployment SHA \${PREV_SHA}...\"
               if docker image inspect ofc360_api:\${PREV_SHA} >/dev/null 2>&1; then
@@ -111,7 +113,7 @@ jobs:
                 docker compose up -d --no-build --no-deps api celery_worker
                 echo \"[Deploy] Rollback completed. Restored server to SHA \${PREV_SHA}.\"
               else
-                echo '[Deploy] Warning: No previous image tag found for rollback.'
+                echo '[Deploy] Warning: Initial deployment failed before previous backup tag existed.'
               fi
               exit 1
             fi
