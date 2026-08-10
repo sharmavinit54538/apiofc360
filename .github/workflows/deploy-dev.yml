@@ -12,25 +12,26 @@ jobs:
     runs-on: [self-hosted, dev]
 
     steps:
-      - name: Sync Code in /root/apiofc360
-        run: |
-          echo "[Deploy] Navigating to project directory /root/apiofc360..."
-          if [ -d "/root/apiofc360/.git" ]; then
-            cd /root/apiofc360
-            git fetch origin dev
-            git reset --hard origin/dev
-          else
-            echo "[Deploy] Directory /root/apiofc360 not found, using checkout workspace..."
-          fi
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Verify Environment File (.env)
+      - name: Sync Code to /root/apiofc360 & Verify Environment
         run: |
           TARGET_DIR="/root/apiofc360"
-          [ -d "$TARGET_DIR" ] && cd "$TARGET_DIR"
+          if [ -d "$TARGET_DIR" ]; then
+            echo "[Deploy] Syncing checked out repository files to $TARGET_DIR..."
+            rsync -a --exclude='.env' --exclude='.git' ./ "$TARGET_DIR/" 2>/dev/null || cp -r ./* "$TARGET_DIR/" 2>/dev/null || true
+            cd "$TARGET_DIR"
+          fi
 
           if [ ! -f .env ]; then
-            echo "[Deploy] WARNING: .env file missing. Copying from .env.example..."
-            cp .env.example .env
+            if [ -f .env.example ]; then
+              echo "[Deploy] Creating .env from .env.example..."
+              cp .env.example .env
+            else
+              echo "[Deploy] Searching workspace for .env.example..."
+              cp "$GITHUB_WORKSPACE/.env.example" .env 2>/dev/null || true
+            fi
           fi
 
       - name: Start DB & Redis ONLY IF NOT Running (Zero-Touch if already running)
