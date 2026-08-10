@@ -225,8 +225,42 @@ async def get_onboarding_progress(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POST /company  (Step 1)
+# GET & POST /company  (Step 1)
 # ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/company",
+    status_code=status.HTTP_200_OK,
+    response_model=OnboardingAPIResponse[dict],
+    summary="Get company details for onboarding (Step 1)",
+)
+async def get_onboarding_company(
+    claims: Annotated[dict, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> OnboardingAPIResponse[dict]:
+    """Retrieve saved company onboarding profile."""
+    company_id = _get_company_id(claims)
+    company = await _load_company(session, company_id)
+
+    svc = OnboardingService(session)
+    progress = await svc.get_or_create_progress(company_id)
+
+    data = {
+        "id": str(company.id),
+        "name": company.name,
+        "company_name": company.name,
+        "companyName": company.name,
+        **(company.company_profile or {}),
+    }
+
+    return OnboardingAPIResponse(
+        success=True,
+        message="Company profile retrieved successfully.",
+        current_step=progress.current_step,
+        onboarding_completed=progress.onboarding_completed,
+        data=data,
+    )
+
 
 @router.post(
     "/company",
@@ -234,6 +268,7 @@ async def get_onboarding_progress(
     response_model=OnboardingAPIResponse[dict],
     summary="Save company details (Step 1)",
 )
+
 async def save_onboarding_company(
     payload: CompanyStepInput,
     claims: Annotated[dict, Depends(require_admin)],
