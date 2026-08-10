@@ -1,40 +1,77 @@
 version: '3.8'
 
 services:
-  # Redis service for Celery broker & Caching
+  # PostgreSQL Database Service
+  db:
+    image: postgres:16-alpine
+    container_name: ofc360_db
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Service for Celery Broker & Caching
   redis:
     image: redis:7-alpine
+    container_name: ofc360_redis
     restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # FastAPI Web Application
   api:
     build: .
+    container_name: ofc360_api
     restart: always
     ports:
       - "8000:8000"
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
 
   # Celery Background Worker
   celery_worker:
     build: .
+    container_name: ofc360_celery_worker
     restart: always
-    command: celery -A app.core.celery_app worker --loglevel=info
+    command: celery -A app.workers.celery_app worker --loglevel=info
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
-      - api
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
     volumes:
       - ./uploads:/app/uploads
 
 volumes:
+  postgres_data:
   redis_data:
