@@ -408,7 +408,25 @@ def _generate_copilot_answer(prompt: str, ctx: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
+@router.get("/copilot/chat", response_model=APIResponse[dict], summary="Get payroll copilot status & history")
+async def get_payroll_copilot_chat(
+    claims: dict = Depends(get_current_user_claims_optional),
+    session: AsyncSession = Depends(get_db_session),
+) -> APIResponse[dict]:
+    """Retrieve current payroll copilot status and chat history for GET requests."""
+    user_id = str(claims.get("sub", "default_user")) if claims else "default_user"
+    messages = _copilot_sessions.get(user_id, [])
+
+    return APIResponse[dict](
+        success=True,
+        message="Payroll Copilot active.",
+        data={"status": "online", "messages": messages, "total": len(messages)},
+        errors=None,
+    )
+
+
 @router.post("/copilot/chat", response_model=APIResponse[dict], summary="Payroll AI copilot chat")
+
 async def payroll_copilot_chat(
     body: dict = Body(default={}),
     claims: dict = Depends(get_current_user_claims_optional),
