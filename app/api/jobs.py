@@ -64,8 +64,8 @@ async def create_job(
     summary="List all job postings",
 )
 async def list_jobs(
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
     status_filter: str | None = Query(None, alias="status", description="Filter by status (DRAFT/PUBLISHED/CLOSED)"),
     search: str | None = Query(None, description="Search by title or department"),
     department: str | None = Query(None, description="Filter by department"),
@@ -73,7 +73,9 @@ async def list_jobs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[JobListResponse]:
-    """List job postings with pagination and filters. Admin, HR, and Managers."""
+    """List job postings with pagination and filters. Public for candidates (published only) or Admin/HR/Manager."""
+    if claims is None and status_filter is None:
+        status_filter = "PUBLISHED"
     result = await service.list_jobs(
         status=status_filter,
         search=search,
@@ -97,10 +99,10 @@ async def list_jobs(
 )
 async def get_job(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
 ) -> APIResponse[JobResponse]:
-    """Retrieve details of a job posting. Admin and HR only."""
+    """Retrieve details of a job posting."""
     job = await service.get_job(id)
     return APIResponse[JobResponse](
         success=True,
