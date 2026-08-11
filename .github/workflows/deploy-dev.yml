@@ -98,17 +98,18 @@ jobs:
 
             HEALTH_OK=false
             for i in {1..12}; do
-              echo \"[Deploy] Domain health check probe attempt \$i of 12...\"
-              if curl -sf -k https://api.ofc360.com/health > /dev/null || curl -sf http://localhost:8000/health > /dev/null; then
+              echo \"[Deploy] Health check attempt \$i of 12...\"
+              if curl -sf http://127.0.0.1:8000/health > /dev/null || curl -sf -k https://api.ofc360.com/health > /dev/null; then
                 HEALTH_OK=true
-                echo '[Deploy] 🎉 SUCCESS: Domain health check probe PASSED!'
+                echo '[Deploy] 🎉 SUCCESS: Health check probe PASSED!'
                 break
               fi
               sleep 5
             done
 
             if [ \"\$HEALTH_OK\" = \"false\" ]; then
-              echo '[Deploy] ❌ ERROR: Domain health check FAILED on https://api.ofc360.com/health'
+              echo '[Deploy] ❌ ERROR: Health check FAILED! Printing API & Worker container logs:'
+              docker compose logs --tail 150 api celery_worker
               exit 1
             else
               SHORT_SHA='${GITHUB_SHA::7}'
@@ -122,9 +123,6 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             PREV_SHA=\$(cat .last_success_sha 2>/dev/null || echo 'previous_backup')
-            echo '[Deploy] ❌ Deployment Failed! Printing API & Worker logs for diagnosis:'
-            docker compose logs --tail 150 api celery_worker
-
             echo \"[Deploy] 🔄 INITIATING ROLLBACK: Reverting to SHA \${PREV_SHA}...\"
             if docker image inspect ofc360_api:\${PREV_SHA} >/dev/null 2>&1; then
               docker tag ofc360_api:\${PREV_SHA} apiofc360-api:latest
@@ -132,7 +130,7 @@ jobs:
               docker compose up -d --no-build --no-deps api celery_worker
               echo \"[Deploy] Rollback completed. Restored containers to working SHA \${PREV_SHA}.\"
             else
-              echo '[Deploy] Warning: No previous working image backup found for rollback.'
+              echo '[Deploy] Warning: Initial deployment failed before previous backup tag existed.'
             fi
           "
 
