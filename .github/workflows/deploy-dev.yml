@@ -74,8 +74,11 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             SHORT_SHA='${GITHUB_SHA::7}'
-            echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA} (--no-cache)...\"
-            docker compose build --no-cache api celery_worker
+            echo '[Deploy] Pruning unused docker containers, images, and build caches...'
+            docker system prune -af 2>/dev/null || docker image prune -af 2>/dev/null || true
+
+            echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
+            docker compose build api celery_worker
 
             docker tag apiofc360-api:latest ofc360_api:\${SHORT_SHA} 2>/dev/null || true
             docker tag apiofc360-celery_worker:latest ofc360_celery_worker:\${SHORT_SHA} 2>/dev/null || true
