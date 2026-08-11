@@ -59,6 +59,7 @@ from app.api.ai_insights import router as ai_insights_router, ai_analytics_route
 from app.api.settings import router as settings_api_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
+from app.api.super_admin import router as super_admin_router
 from app.api.onboarding import router as onboarding_router
 from app.api.employee_onboarding_api import router as employee_onboarding_api_router
 from app.api.employee_onboarding_admin_api import router as employee_onboarding_admin_api_router
@@ -421,6 +422,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
     app.include_router(onboarding_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_admin_api_router, prefix=settings.API_V1_PREFIX)
