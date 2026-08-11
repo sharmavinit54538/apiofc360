@@ -528,9 +528,10 @@ class AuthService:
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
         # Issue tokens
+        effective_role = "super_admin" if user.is_super_admin else (user.role.value if hasattr(user.role, "value") else str(user.role))
         access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
             user_id=user.id,
-            role=user.role,
+            role=effective_role,
             company_id=user.company_id,
             ip_address=ip_address,
             device=device,

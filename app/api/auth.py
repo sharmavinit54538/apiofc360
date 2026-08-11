@@ -175,12 +175,13 @@ async def login(
             onboarding_completed = bool(user.onboarding_completed)
 
 
+    effective_role = "super_admin" if user.is_super_admin else (user.role.value if hasattr(user.role, "value") else str(user.role))
     user_data = UserLoginPublic(
         id=user.id,
         name=user.name,
         email=user.email,
         phone=user.phone,
-        role=user.role,
+        role=effective_role,
         is_verified=user.is_verified,
         must_change_password=user.must_change_password,
         onboarding_completed=onboarding_completed,
