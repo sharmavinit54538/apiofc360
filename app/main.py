@@ -271,8 +271,11 @@ async def lifespan(app: FastAPI):
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
         logger.info("🚀 Server Running at: http://127.0.0.1:8000")
-        logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
-        logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
+        if settings.should_enable_docs:
+            logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
+            logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
+        else:
+            logger.info("🔒 Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
         asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
@@ -317,13 +320,33 @@ DefaultResponse = JSONResponse
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     configure_logging()
+    docs_url = "/docs" if settings.should_enable_docs else None
+    redoc_url = "/redoc" if settings.should_enable_docs else None
+    openapi_url = "/openapi.json" if settings.should_enable_docs else None
+
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         debug=settings.DEBUG,
         lifespan=lifespan,
         default_response_class=DefaultResponse,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
+
+    if not settings.should_enable_docs:
+        @app.get("/docs", include_in_schema=False)
+        @app.get("/redoc", include_in_schema=False)
+        @app.get("/openapi.json", include_in_schema=False)
+        @app.get("/api/v1/openapi.json", include_in_schema=False)
+        @app.get("/api/v2/openapi.json", include_in_schema=False)
+        async def disable_docs_explicitly():
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Not Found"},
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+            )
 
     # Allowed origins configuration
     allowed_origins_list = [
@@ -562,12 +585,14 @@ def create_app() -> FastAPI:
     @app.api_route("/", methods=["GET", "HEAD"], status_code=200, tags=["Root"])
     async def root():
         """Root endpoint returning API metadata."""
-        return {
+        data = {
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "status": "online",
-            "docs_url": "/docs"
         }
+        if settings.should_enable_docs:
+            data["docs_url"] = "/docs"
+        return data
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():

@@ -18,6 +18,20 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "local"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    ENABLE_DOCS: bool | None = Field(
+        default=None,
+        description="Explicitly enable or disable public API docs (/docs, /redoc, /openapi.json). Defaults to True in dev/local and False in production.",
+    )
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in {"production", "prod"} or not self.DEBUG
+
+    @property
+    def should_enable_docs(self) -> bool:
+        if self.ENABLE_DOCS is not None:
+            return self.ENABLE_DOCS
+        return not self.is_production
 
     DATABASE_URL: str = Field(
         default="",
