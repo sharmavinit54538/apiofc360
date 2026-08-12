@@ -33,14 +33,8 @@ jobs:
               rsync -a --exclude='.env' --exclude='.git' ./ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
             fi
 
-            if [ ! -f .env ]; then
-              if [ -f .env.example ]; then
-                echo '[Deploy] Creating .env from .env.example...'
-                cp .env.example .env
-              else
-                cp '$GITHUB_WORKSPACE/.env.example' .env 2>/dev/null || true
-              fi
-            fi
+            echo '[Deploy] Copying latest .env.example to .env for build and container creation...'
+            cp .env.example .env 2>/dev/null || cp "$GITHUB_WORKSPACE/.env.example" .env 2>/dev/null || true
           "
 
       - name: Check DB and Redis (Skip if running)
@@ -144,4 +138,13 @@ jobs:
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Deployment successful! Pruning dangling build images...'
             docker image prune -f
+          "
+
+      - name: Clean up temporary .env file
+        if: always()
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Cleaning up temporary .env file after deployment...'
+            rm -f .env
           "
