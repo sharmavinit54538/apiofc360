@@ -25,10 +25,16 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
+        """Check if environment is production (ENVIRONMENT in ('production', 'prod') or DEBUG is False)."""
         return self.ENVIRONMENT.lower() in {"production", "prod"} or not self.DEBUG
 
     @property
     def should_enable_docs(self) -> bool:
+        """
+        Determine whether API docs (/docs, /redoc, /openapi.json) should be enabled.
+        - If ENABLE_DOCS is explicitly set (True/False), use that value.
+        - Otherwise, enable in local/dev (True) and disable in production (False).
+        """
         if self.ENABLE_DOCS is not None:
             return self.ENABLE_DOCS
         return not self.is_production
