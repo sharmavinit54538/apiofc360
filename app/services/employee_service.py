@@ -524,18 +524,18 @@ class EmployeeService:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> EmployeeResponse:
+        update_data = payload.model_dump(exclude_unset=True)
         logger.info(
-            "update_employee | admin_id=%s | company_id=%s | employee_id=%s",
-            admin_id, company_id, employee_uuid,
+            "update_employee start | admin_id=%s | company_id=%s | employee_id=%s | update_fields=%s",
+            admin_id, company_id, employee_uuid, list(update_data.keys()),
         )
         try:
             employee = await self._require_employee_in_company(employee_uuid, company_id)
-            update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+
             if not update_data:
-                raise AppException(
-                    message="No fields provided to update.",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
+                logger.info("update_employee: no fields provided in PATCH payload, returning current record | employee_id=%s", employee_uuid)
+                full_employee = await self.repo.get_by_id(employee_uuid)
+                return EmployeeResponse.model_validate(full_employee)
 
             # Prevent overwriting immutable fields: id, company_id, created_at, user_id
             for immutable_field in ["id", "company_id", "created_at", "user_id"]:
@@ -543,52 +543,63 @@ class EmployeeService:
                     del update_data[immutable_field]
 
             if "reporting_manager_id" in update_data:
-                if update_data["reporting_manager_id"] == employee_uuid:
-                    raise AppException(
-                        message="An employee cannot be their own reporting manager.",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-                if not await self._resolve_reporting_manager(update_data["reporting_manager_id"], company_id):
-                    raise AppException(
-                        message="Reporting manager not found.",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-                update_data["manager_id"] = update_data["reporting_manager_id"]
+                rm_id = update_data["reporting_manager_id"]
+                if rm_id is not None:
+                    if rm_id == employee_uuid:
+                        raise AppException(
+                            message="An employee cannot be their own reporting manager.",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                    if not await self._resolve_reporting_manager(rm_id, company_id):
+                        raise AppException(
+                            message="Reporting manager not found.",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                    update_data["manager_id"] = rm_id
+                else:
+                    update_data["manager_id"] = None
 
             # Verify uniqueness constraints before updating
-            # IMPORTANT: skip the check if the value is identical to what the employee already has
-            if "personal_email" in update_data:
+            if "personal_email" in update_data and update_data["personal_email"] is not None:
                 personal_email = str(update_data["personal_email"]).strip().lower()
-                # Only check uniqueness if the email is actually being changed
                 if personal_email != (employee.personal_email or "").strip().lower():
                     existing = await self.repo.get_by_personal_email(personal_email)
                     if existing and existing.id != employee_uuid:
                         raise ConflictException(
-                            message="Email already exists.",
+                            message="Personal email already exists for another employee.",
                             field="personal_email",
-                            errors=[{"field": "personal_email", "message": "Email already in use."}],
+                            errors=[{"field": "personal_email", "message": "Personal email already in use."}],
                         )
 
-            if "company_email" in update_data:
+            if "company_email" in update_data and update_data["company_email"] is not None:
                 company_email = str(update_data["company_email"]).strip().lower()
-                # Only check uniqueness if the company email is actually being changed
                 if company_email != (employee.company_email or "").strip().lower():
                     existing = await self.repo.get_by_company_email_in_company(company_email, company_id)
                     if existing and existing.id != employee_uuid:
                         raise ConflictException(
-                            message="Company email already exists.",
+                            message="Company email already exists for another employee.",
                             field="company_email",
                             errors=[{"field": "company_email", "message": "Company email already in use."}],
                         )
 
-            if "employee_id" in update_data:
+            if "phone" in update_data and update_data["phone"] is not None:
+                phone_val = str(update_data["phone"]).strip()
+                if phone_val and phone_val != (employee.phone or "").strip():
+                    existing = await self.repo.get_by_phone_in_company(phone_val, company_id)
+                    if existing and existing.id != employee_uuid:
+                        raise ConflictException(
+                            message="Phone number already exists for another employee.",
+                            field="phone",
+                            errors=[{"field": "phone", "message": "Phone number already in use."}],
+                        )
+
+            if "employee_id" in update_data and update_data["employee_id"] is not None:
                 emp_id = str(update_data["employee_id"]).strip()
-                # Only check uniqueness if the employee_id is actually being changed
                 if emp_id != (employee.employee_id or "").strip():
                     existing = await self.repo.get_by_employee_id(emp_id)
                     if existing and existing.id != employee_uuid:
                         raise ConflictException(
-                            message="Employee ID already exists.",
+                            message="Employee ID already exists for another employee.",
                             field="employee_id",
                             errors=[{"field": "employee_id", "message": "Employee ID already in use."}],
                         )
@@ -623,7 +634,7 @@ class EmployeeService:
                         )
 
             # Merge role_metadata (don't replace, merge keys)
-            if "role_metadata" in update_data:
+            if "role_metadata" in update_data and update_data["role_metadata"] is not None:
                 existing_metadata = employee.role_metadata or {}
                 incoming_metadata = update_data["role_metadata"] or {}
                 merged = {**existing_metadata, **incoming_metadata}
@@ -653,7 +664,9 @@ class EmployeeService:
                 if old_val != val:
                     changed_fields.append(field)
 
-            await self.repo.update_employee(employee_uuid, **update_data)
+            logger.info("update_employee: executing db update | employee_id=%s | changed_fields=%s", employee_uuid, changed_fields)
+            if update_data:
+                await self.repo.update_employee(employee_uuid, **update_data)
 
             from sqlalchemy import delete
             
@@ -728,11 +741,20 @@ class EmployeeService:
                     await self.repo.create_bank_account(employee_uuid, ba)
                 changed_fields.append("bank_accounts")
 
-            # Write Audit log
+            # Write Audit log safely
             if changed_fields:
+                audit_user_id = admin_id
+                if audit_user_id:
+                    from sqlalchemy import select
+                    from app.models.user import User
+                    u_chk = await self.session.execute(select(User.id).where(User.id == audit_user_id))
+                    if not u_chk.scalar_one_or_none():
+                        audit_user_id = None
+
                 audit_log = AuditLog(
                     id=uuid.uuid4(),
-                    user_id=admin_id,
+                    user_id=audit_user_id,
+                    company_id=company_id,
                     action="Employee Updated",
                     details=f"Updated employee {employee_uuid}. Changed fields: {', '.join(changed_fields)}",
                     ip_address=ip_address,
@@ -741,38 +763,64 @@ class EmployeeService:
                 self.session.add(audit_log)
 
             await self.session.commit()
-            logger.info("update_employee: success | employee_id=%s", employee_uuid)
+            logger.info("update_employee: db commit success | employee_id=%s", employee_uuid)
             full_employee = await self.repo.get_by_id(employee_uuid)
             return EmployeeResponse.model_validate(full_employee)
         except AppException:
             await self.session.rollback()
             raise
+        except ValueError as exc:
+            await self.session.rollback()
+            logger.exception("ValueError in update_employee for employee_id=%s", employee_uuid, exc_info=exc)
+            raise AppException(message=str(exc), status_code=status.HTTP_400_BAD_REQUEST)
         except IntegrityError as exc:
             await self.session.rollback()
-            # Catch duplicate key value violates unique constraint gracefully
-            exc_str = str(exc)
-            if "personal_email" in exc_str:
+            logger.exception("IntegrityError in update_employee for employee_id=%s", employee_uuid, exc_info=exc)
+            orig_str = str(getattr(exc, "orig", exc))
+            orig_lower = orig_str.lower()
+            if "ix_employees_personal_email" in orig_lower or "personal_email_key" in orig_lower:
                 raise ConflictException(
-                    message="Email already exists.",
+                    message="Personal email already exists for another employee.",
                     field="personal_email",
-                    errors=[{"field": "personal_email", "message": "Email already in use."}],
+                    errors=[{"field": "personal_email", "message": "Personal email already in use."}],
                 )
-            if "employee_id" in exc_str:
+            if "ix_employees_company_email" in orig_lower or "company_email_key" in orig_lower:
                 raise ConflictException(
-                    message="Employee ID already exists.",
+                    message="Company email already exists for another employee.",
+                    field="company_email",
+                    errors=[{"field": "company_email", "message": "Company email already in use."}],
+                )
+            if "ix_employees_employee_id" in orig_lower or "employee_id_key" in orig_lower:
+                raise ConflictException(
+                    message="Employee ID already exists for another employee.",
                     field="employee_id",
                     errors=[{"field": "employee_id", "message": "Employee ID already in use."}],
                 )
-            logger.exception("IntegrityError in update_employee", exc_info=exc)
+            if "phone" in orig_lower and ("unique" in orig_lower or "key" in orig_lower):
+                raise ConflictException(
+                    message="Phone number already exists for another employee.",
+                    field="phone",
+                    errors=[{"field": "phone", "message": "Phone number already in use."}],
+                )
+            if "foreign key" in orig_lower or "fk_" in orig_lower:
+                raise ConflictException(
+                    message="Referenced record (department, manager, branch or user) does not exist.",
+                    field="unknown",
+                    errors=[{"field": "unknown", "message": "Foreign key constraint failed."}],
+                )
             raise ConflictException(
-                message="Unique constraint violation.",
+                message="Database constraint violation.",
                 field="unknown",
-                errors=[{"field": "unknown", "message": "Duplicate key value violates unique constraint."}]
+                errors=[{"field": "unknown", "message": orig_str}]
             )
         except SQLAlchemyError as exc:
             await self.session.rollback()
-            logger.exception("update_employee: db error", exc_info=exc)
+            logger.exception("update_employee: db error for employee_id=%s", employee_uuid, exc_info=exc)
             raise DatabaseException() from exc
+        except Exception as exc:
+            await self.session.rollback()
+            logger.exception("Unexpected exception in update_employee for employee_id=%s", employee_uuid, exc_info=exc)
+            raise
 
     # ------------------------------------------------------------------
     # Delete (soft)

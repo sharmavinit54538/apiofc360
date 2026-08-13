@@ -292,20 +292,28 @@ async def update_employee(
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     
-    employee = await service.update_employee(
-        admin_id=admin_id,
-        company_id=company_id,
-        employee_uuid=id,
-        payload=payload,
-        ip_address=ip_address,
-        user_agent=user_agent,
-    )
-    return APIResponse[EmployeeResponse](
-        success=True,
-        message="Employee updated successfully.",
-        data=employee,
-        errors=None,
-    )
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("PATCH /employees/%s received | admin_id=%s | company_id=%s", id, admin_id, company_id)
+
+    try:
+        employee = await service.update_employee(
+            admin_id=admin_id,
+            company_id=company_id,
+            employee_uuid=id,
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        return APIResponse[EmployeeResponse](
+            success=True,
+            message="Employee updated successfully.",
+            data=employee,
+            errors=None,
+        )
+    except Exception as exc:
+        logger.exception("Error during PATCH /employees/%s update: %s", id, str(exc), exc_info=exc)
+        raise
 
 
 @router.delete(
