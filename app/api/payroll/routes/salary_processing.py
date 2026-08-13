@@ -29,7 +29,7 @@ async def get_salary_processing_list(
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    claims: Claims = None,
+    claims: OptionalClaims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
@@ -62,7 +62,7 @@ async def get_salary_processing_list(
 async def get_salary_processing_hero(
     month: Optional[int] = Query(None),
     year: Optional[int] = Query(None),
-    claims: Claims = None,
+    claims: OptionalClaims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
@@ -72,7 +72,7 @@ async def get_salary_processing_hero(
 
 
 @router.get("/salary-processing/kpis", response_model=APIResponse[dict], summary="Get payroll health KPIs")
-async def get_salary_processing_kpis(claims: Claims = None, db: DB = None) -> APIResponse[dict]:
+async def get_salary_processing_kpis(claims: OptionalClaims = None, db: DB = None) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
     return success_response(
         {
@@ -84,7 +84,7 @@ async def get_salary_processing_kpis(claims: Claims = None, db: DB = None) -> AP
 
 
 @router.get("/salary-processing/approval-workflow", response_model=APIResponse[dict], summary="Get approval workflow")
-async def get_salary_processing_approval_workflow(claims: Claims = None, db: DB = None) -> APIResponse[dict]:
+async def get_salary_processing_approval_workflow(claims: OptionalClaims = None, db: DB = None) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
     now_str = datetime.now(timezone.utc).isoformat()
     steps = [
@@ -110,19 +110,20 @@ async def get_salary_processing_ai_insights(claims: OptionalClaims = None, db: D
 
 
 @router.get("/salary-processing/validations", response_model=APIResponse[dict], summary="Get validation panel error items")
-async def get_salary_processing_validations(claims: Claims = None, db: DB = None) -> APIResponse[dict]:
+async def get_salary_processing_validations(claims: OptionalClaims = None, db: DB = None) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
     return success_response({"items": [], "total": 0, "has_blockers": False}, "Validations retrieved.")
 
 
 @router.get("/salary-processing/analytics", response_model=APIResponse[dict], summary="Get analytics")
-async def get_salary_processing_analytics(claims: Claims = None, db: DB = None) -> APIResponse[dict]:
+async def get_salary_processing_analytics(claims: OptionalClaims = None, db: DB = None) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
     data = {
         "cost_trend": [], "department_distribution": [], "month_over_month_change": 0.0,
         "avg_salary": 0.0, "median_salary": 0.0, "total_ctc": 0.0,
     }
     return success_response(data, "Analytics retrieved.")
+
 
 
 @router.post("/salary-processing/run", response_model=APIResponse[dict], summary="Trigger payroll run")

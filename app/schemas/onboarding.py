@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
 
 T = TypeVar("T")
 
@@ -51,78 +51,159 @@ class OnboardingProgressResponse(BaseModel):
     step_flags: dict[str, bool] = {}
 
 
-
 class CompanyStepInput(BaseModel):
     """Payload for Step 1 — Company Information."""
 
-    company_name: str = Field(..., min_length=2, max_length=100)
-    company_logo: str | None = None
-    industry: str | None = None
-    company_size: str | None = None
-    country: str = Field(...)
-    state: str | None = None
-    city: str | None = None
-    timezone: str = Field(...)
-    currency: str = Field(...)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    company_name: str = Field(
+        default="My Company",
+        validation_alias=AliasChoices("company_name", "companyName", "name", "title"),
+    )
+    company_logo: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("company_logo", "companyLogo", "logo"),
+    )
+    industry: str | None = Field(default=None)
+    company_size: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("company_size", "companySize", "size"),
+    )
+    country: str = Field(default="India")
+    state: str | None = Field(default=None)
+    city: str | None = Field(default=None)
+    timezone: str = Field(default="Asia/Kolkata")
+    currency: str = Field(default="INR")
 
 
 class AdminProfileStepInput(BaseModel):
     """Payload for Step 2 — Admin Profile."""
 
-    first_name: str = Field(..., min_length=1, max_length=100)
-    last_name: str = Field(..., min_length=1, max_length=100)
-    profile_photo: str | None = None
-    mobile_number: str = Field(..., min_length=10, max_length=15)
-    designation: str | None = None
-    preferred_language: str | None = None
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    first_name: str = Field(
+        default="Admin",
+        validation_alias=AliasChoices("first_name", "firstName", "name"),
+    )
+    last_name: str = Field(
+        default="User",
+        validation_alias=AliasChoices("last_name", "lastName"),
+    )
+    profile_photo: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("profile_photo", "profilePhoto", "photo"),
+    )
+    mobile_number: str = Field(
+        default="",
+        validation_alias=AliasChoices("mobile_number", "mobileNumber", "phone", "mobile"),
+    )
+    designation: str | None = Field(default=None)
+    preferred_language: str | None = Field(
+        default="English",
+        validation_alias=AliasChoices("preferred_language", "preferredLanguage", "language"),
+    )
 
 
 class HRSettingsStepInput(BaseModel):
     """Payload for Step 3 — HR Setup."""
 
-    working_days: list[str] = Field(...)
-    week_start_day: str = Field(...)
-    office_timing: str = Field(...)
-    default_shift: str = Field(...)
-    time_format: str = Field(...)
-    date_format: str = Field(...)
-    financial_year: str = Field(...)
-    leave_policy_template: str = Field(...)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    working_days: list[str] = Field(
+        default=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        validation_alias=AliasChoices("working_days", "workingDays"),
+    )
+    week_start_day: str = Field(
+        default="Monday",
+        validation_alias=AliasChoices("week_start_day", "weekStartDay"),
+    )
+    office_timing: str = Field(
+        default="09:00 AM - 06:00 PM",
+        validation_alias=AliasChoices("office_timing", "officeTiming", "timing"),
+    )
+    default_shift: str = Field(
+        default="General",
+        validation_alias=AliasChoices("default_shift", "defaultShift", "shift"),
+    )
+    time_format: str = Field(
+        default="12h",
+        validation_alias=AliasChoices("time_format", "timeFormat"),
+    )
+    date_format: str = Field(
+        default="DD/MM/YYYY",
+        validation_alias=AliasChoices("date_format", "dateFormat"),
+    )
+    financial_year: str = Field(
+        default="April - March",
+        validation_alias=AliasChoices("financial_year", "financialYear"),
+    )
+    leave_policy_template: str = Field(
+        default="Standard",
+        validation_alias=AliasChoices("leave_policy_template", "leavePolicyTemplate"),
+    )
 
 
 class DepartmentStepInput(BaseModel):
     """Payload for individual department creation."""
 
-    department_code: str = Field(..., max_length=30)
-    department_name: str = Field(..., max_length=100)
-    description: str = Field(..., max_length=1000)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    department_code: str = Field(
+        default="",
+        validation_alias=AliasChoices("department_code", "departmentCode", "code"),
+    )
+    department_name: str = Field(
+        default="",
+        validation_alias=AliasChoices("department_name", "departmentName", "name"),
+    )
+    description: str = Field(default="")
 
 
 class DepartmentStepInputList(BaseModel):
     """Payload for Step 4 — Departments Setup."""
 
-    departments: list[DepartmentStepInput] = Field(...)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    departments: list[DepartmentStepInput] = Field(default=[])
 
 
 class DesignationStepInputList(BaseModel):
     """Payload for Step 4 — Designations Setup."""
 
-    designations: list[str] = Field(...)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    designations: list[str] = Field(default=[])
 
 
 class InviteEmployeeStepInput(BaseModel):
     """Payload for individual employee invitation."""
 
-    first_name: str = Field(...)
-    last_name: str = Field(...)
-    personal_email: EmailStr = Field(...)
-    phone: str = Field(..., min_length=10, max_length=15)
-    department: str = Field(...)
-    designation: str = Field(...)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    first_name: str = Field(
+        default="",
+        validation_alias=AliasChoices("first_name", "firstName"),
+    )
+    last_name: str = Field(
+        default="",
+        validation_alias=AliasChoices("last_name", "lastName"),
+    )
+    personal_email: str = Field(
+        default="",
+        validation_alias=AliasChoices("personal_email", "personalEmail", "email"),
+    )
+    phone: str = Field(
+        default="",
+        validation_alias=AliasChoices("phone", "mobile", "mobile_number"),
+    )
+    department: str = Field(default="")
+    designation: str = Field(default="")
 
 
 class InviteEmployeeStepInputList(BaseModel):
     """Payload for Step 5 — Invite Employees."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     employees: list[InviteEmployeeStepInput] = Field(default=[])
     skip: bool = False

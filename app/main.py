@@ -46,6 +46,7 @@ from app.api.v1.ai_attendance import router as ai_attendance_router
 from app.api.v1.ai_performance import router as ai_performance_router
 from app.api.v1.ai_leave import router as ai_leave_router
 from app.api.v1.ai_payroll import router as ai_payroll_router
+from app.api.payroll.router import router as full_payroll_router
 from app.api.v1.ai_workforce import router as ai_workforce_router, ai_workforce_direct_router
 from app.api.v1.employee_health import router as employee_health_router
 from app.api.v1.policy_ai import router as policy_ai_router
@@ -58,6 +59,7 @@ from app.api.ai_insights import router as ai_insights_router, ai_analytics_route
 from app.api.settings import router as settings_api_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
+from app.api.super_admin import router as super_admin_router
 from app.api.onboarding import router as onboarding_router
 from app.api.employee_onboarding_api import router as employee_onboarding_api_router
 from app.api.employee_onboarding_admin_api import router as employee_onboarding_admin_api_router
@@ -269,8 +271,11 @@ async def lifespan(app: FastAPI):
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
         logger.info("🚀 Server Running at: http://127.0.0.1:8000")
-        logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
-        logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
+        if settings.should_enable_docs:
+            logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
+            logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
+        else:
+            logger.info("🔒 Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
         asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
@@ -315,22 +320,53 @@ DefaultResponse = JSONResponse
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     configure_logging()
+    docs_url = "/docs" if settings.should_enable_docs else None
+    redoc_url = "/redoc" if settings.should_enable_docs else None
+    openapi_url = "/openapi.json" if settings.should_enable_docs else None
+
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         debug=settings.DEBUG,
         lifespan=lifespan,
         default_response_class=DefaultResponse,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
+
+    if not settings.should_enable_docs:
+        @app.get("/docs", include_in_schema=False)
+        @app.get("/redoc", include_in_schema=False)
+        @app.get("/openapi.json", include_in_schema=False)
+        @app.get("/api/v1/openapi.json", include_in_schema=False)
+        @app.get("/api/v2/openapi.json", include_in_schema=False)
+        async def disable_docs_explicitly():
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Not Found"},
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+            )
 
     # Allowed origins configuration
     allowed_origins_list = [
+        "https://www.ofc360.com",
+        "https://ofc360.com",
+        "https://api.ofc360.com",
+        "https://ofc360.vercel.app",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
+        "http://192.168.31.230:8080",
+        "http://192.168.31.235:8080",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://192.168.31.230:5173",
+        "http://192.168.31.235:5173",
+        "http://localhost:3000",
+        "http://192.168.31.230:3000",
+        "http://192.168.31.235:3000",
     ]
-    
+
     if settings.ALLOWED_ORIGINS:
         allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
     if settings.BACKEND_CORS_ORIGINS:
@@ -402,6 +438,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_leave_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_payroll_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(full_payroll_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_workforce_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_workforce_direct_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_health_router, prefix=settings.API_V1_PREFIX)
@@ -415,6 +452,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
     app.include_router(onboarding_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employee_onboarding_admin_api_router, prefix=settings.API_V1_PREFIX)
@@ -550,12 +588,14 @@ def create_app() -> FastAPI:
     @app.api_route("/", methods=["GET", "HEAD"], status_code=200, tags=["Root"])
     async def root():
         """Root endpoint returning API metadata."""
-        return {
+        data = {
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "status": "online",
-            "docs_url": "/docs"
         }
+        if settings.should_enable_docs:
+            data["docs_url"] = "/docs"
+        return data
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():

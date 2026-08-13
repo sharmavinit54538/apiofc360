@@ -1,0 +1,150 @@
+name: CI/CD Dev Server Deployment
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+env:
+  APP_DIR: /root/apiofc360
+
+jobs:
+  deploy:
+    name: Deploy to Dev Server
+    runs-on: [self-hosted, dev]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Pull latest code
+        run: |
+          sudo bash -c "
+            mkdir -p ${{ env.APP_DIR }}
+            cd ${{ env.APP_DIR }}
+
+            if [ -d '.git' ]; then
+              echo '[Deploy] Pulling latest code from origin/dev...'
+              git fetch origin dev
+              git reset --hard origin/dev
+            else
+              echo '[Deploy] Syncing repository files...'
+              rsync -a --exclude='.env' --exclude='.git' ./ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
+            fi
+
+            echo '[Deploy] Copying latest .env.example to .env for build and container creation...'
+            cp .env.example .env 2>/dev/null || cp "$GITHUB_WORKSPACE/.env.example" .env 2>/dev/null || true
+          "
+
+      - name: Check DB and Redis (Skip if running)
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+
+            DB_RUNNING=\$(docker inspect -f '{{.State.Running}}' ofc360_db 2>/dev/null || echo 'false')
+            REDIS_RUNNING=\$(docker inspect -f '{{.State.Running}}' ofc360_redis 2>/dev/null || echo 'false')
+
+            if [ \"\$DB_RUNNING\" = \"true\" ] && [ \"\$REDIS_RUNNING\" = \"true\" ]; then
+              echo '[Deploy] ✅ PostgreSQL & Redis are ALREADY RUNNING. Skipping start (100% Untouched)!'
+            else
+              echo '[Deploy] ⚠️ DB or Redis is not running. Starting DB & Redis containers...'
+              docker compose up -d db redis
+            fi
+          "
+
+      - name: Tag current image for rollback
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            PREV_SHA=\$(cat .last_success_sha 2>/dev/null || echo 'previous_backup')
+            echo \"[Deploy] Backup working image tagged as: \${PREV_SHA}\"
+            docker tag apiofc360-api:latest ofc360_api:\${PREV_SHA} 2>/dev/null || true
+            docker tag apiofc360-celery_worker:latest ofc360_celery_worker:\${PREV_SHA} 2>/dev/null || true
+          "
+
+      - name: Build new Docker image
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            SHORT_SHA='${GITHUB_SHA::7}'
+            echo '[Deploy] Pruning unused docker containers, images, and build caches...'
+            docker system prune -af 2>/dev/null || docker image prune -af 2>/dev/null || true
+
+            echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
+            docker compose build api celery_worker
+
+            docker tag apiofc360-api:latest ofc360_api:\${SHORT_SHA} 2>/dev/null || true
+            docker tag apiofc360-celery_worker:latest ofc360_celery_worker:\${SHORT_SHA} 2>/dev/null || true
+          "
+
+      - name: Restart app containers
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Recreating API & Celery Worker containers...'
+            docker compose up -d --no-deps api celery_worker
+          "
+
+      - name: Health check
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Waiting 5s for Uvicorn & Nginx startup...'
+            sleep 5
+
+            HEALTH_OK=false
+            for i in {1..12}; do
+              echo \"[Deploy] Health check attempt \$i of 12...\"
+              if curl -sf http://127.0.0.1:8000/health > /dev/null || curl -sf -k https://api.ofc360.com/health > /dev/null; then
+                HEALTH_OK=true
+                echo '[Deploy] 🎉 SUCCESS: Health check probe PASSED!'
+                break
+              fi
+              sleep 5
+            done
+
+            if [ \"\$HEALTH_OK\" = \"false\" ]; then
+              echo '[Deploy] ❌ ERROR: Health check FAILED! Printing API & Worker container logs:'
+              docker compose logs --tail 150 api celery_worker
+              exit 1
+            else
+              SHORT_SHA='${GITHUB_SHA::7}'
+              echo \"\${SHORT_SHA}\" > .last_success_sha
+            fi
+          "
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            PREV_SHA=\$(cat .last_success_sha 2>/dev/null || echo 'previous_backup')
+            echo \"[Deploy] 🔄 INITIATING ROLLBACK: Reverting to SHA \${PREV_SHA}...\"
+            if docker image inspect ofc360_api:\${PREV_SHA} >/dev/null 2>&1; then
+              docker tag ofc360_api:\${PREV_SHA} apiofc360-api:latest
+              docker tag ofc360_celery_worker:\${PREV_SHA} apiofc360-celery_worker:latest
+              docker compose up -d --no-build --no-deps api celery_worker
+              echo \"[Deploy] Rollback completed. Restored containers to working SHA \${PREV_SHA}.\"
+            else
+              echo '[Deploy] Warning: Initial deployment failed before previous backup tag existed.'
+            fi
+          "
+
+      - name: Clean up old images
+        if: success()
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Deployment successful! Pruning dangling build images...'
+            docker image prune -f
+          "
+
+      - name: Clean up temporary .env file
+        if: always()
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            echo '[Deploy] Cleaning up temporary .env file after deployment...'
+            rm -f .env
+          "

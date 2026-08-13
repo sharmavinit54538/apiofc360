@@ -18,6 +18,26 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "local"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    ENABLE_DOCS: bool | None = Field(
+        default=None,
+        description="Explicitly enable or disable public API docs (/docs, /redoc, /openapi.json). Defaults to True in dev/local and False in production.",
+    )
+
+    @property
+    def is_production(self) -> bool:
+        """Check if environment is production (ENVIRONMENT in ('production', 'prod') or DEBUG is False)."""
+        return self.ENVIRONMENT.lower() in {"production", "prod"} or not self.DEBUG
+
+    @property
+    def should_enable_docs(self) -> bool:
+        """
+        Determine whether API docs (/docs, /redoc, /openapi.json) should be enabled.
+        - If ENABLE_DOCS is explicitly set (True/False), use that value.
+        - Otherwise, enable in local/dev (True) and disable in production (False).
+        """
+        if self.ENABLE_DOCS is not None:
+            return self.ENABLE_DOCS
+        return not self.is_production
 
     DATABASE_URL: str = Field(
         default="",
@@ -42,8 +62,31 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     BCRYPT_ROUNDS: int = 12
-    BACKEND_CORS_ORIGINS: list[str] = ["https://ofc360.com", "https://www.ofc360.com", "https://ofc360.vercel.app", "http://localhost:3000", "http://localhost:8000", "http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:3000"]
-    ALLOWED_ORIGINS: list[str] = ["https://ofc360.com", "https://www.ofc360.com", "https://ofc360.vercel.app", "http://localhost:8080", "http://127.0.0.1:8080", "http://192.168.31.230:8080", "http://localhost:5173", "http://127.0.0.1:5173"]
+    BACKEND_CORS_ORIGINS: list[str] = [
+        "https://api.ofc360.com",
+        "https://ofc360.com",
+        "https://www.ofc360.com",
+        "https://ofc360.vercel.app",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://192.168.31.230:8080",
+        "http://192.168.31.235:8080",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000"
+    ]
+    ALLOWED_ORIGINS: list[str] = [
+        "https://api.ofc360.com",
+        "https://ofc360.com",
+        "https://www.ofc360.com",
+        "https://ofc360.vercel.app",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://192.168.31.230:8080",
+        "http://192.168.31.235:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ]
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
@@ -165,6 +208,9 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen3:30b"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_PRIORITY: int = 1
 
     # LLM Routing & Limits
