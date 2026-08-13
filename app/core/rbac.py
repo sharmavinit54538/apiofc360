@@ -9,13 +9,16 @@ from app.middleware.auth import get_current_user_claims
 
 logger = logging.getLogger(__name__)
 
-ROLE_ADMIN = "admin"
-ROLE_HR = "hr"
+ROLE_SUPER_ADMIN = "super_admin"
+ROLE_HR_ADMIN = "hr_admin"
+ROLE_IT_ADMIN = "it_admin"
+ROLE_EXECUTIVE = "executive"
 ROLE_MANAGER = "manager"
 ROLE_EMPLOYEE = "employee"
 
-ADMIN_ROLES = {ROLE_ADMIN, ROLE_HR, "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-ADMIN_MANAGER_ROLES = {ROLE_ADMIN, ROLE_HR, ROLE_MANAGER, "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+ADMIN_ROLES = {"super_admin", "hr_admin", "it_admin", "executive", "admin", "hr"}
+ADMIN_MANAGER_ROLES = {"super_admin", "hr_admin", "it_admin", "executive", "manager", "admin", "hr"}
+
 
 
 def require_admin(

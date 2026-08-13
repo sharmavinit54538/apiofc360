@@ -36,8 +36,9 @@ async def test_production_backend_database_and_security_suite():
     assert not verify_password("WrongPassword!", hashed)
 
     test_user_id = str(uuid.uuid4())
-    token = create_access_token({"sub": test_user_id, "role": UserRole.ADMIN})
+    token = create_access_token({"sub": test_user_id, "role": UserRole.SUPER_ADMIN})
     assert token is not None
+
     assert len(token) > 20
 
     # 3. Real Database CRUD Transaction

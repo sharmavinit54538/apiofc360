@@ -6,14 +6,10 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
+    HR_ADMIN = "hr_admin"
     MANAGER = "manager"
     EMPLOYEE = "employee"
-    CEO = "ceo"
-    CFO = "cfo"
-    CTO = "cto"
-    COO = "coo"
-    CMO = "cmo"
-    CLO = "clo"
-    CISO = "ciso"
-    CIO = "cio"
+    EXECUTIVE = "executive"
+    IT_ADMIN = "it_admin"
+

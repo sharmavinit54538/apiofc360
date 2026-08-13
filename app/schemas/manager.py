@@ -25,7 +25,7 @@ MANAGER_STATUS_VALUES = {
     "DRAFT", "CREATED", "INVITED", "INVITATION_SENT", "EMAIL_VERIFIED",
     "PASSWORD_CREATED", "ACTIVE", "INACTIVE", "TERMINATED",
 }
-ROLE_VALUES = {"manager", "admin"}
+from app.schemas.employee.constants import ROLE_VALUES
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +372,9 @@ class ManagerCreate(BaseModel):
     def validate_role(cls, v: str) -> str:
         v = v.lower()
         if v not in ROLE_VALUES:
-            raise ValueError("role must be manager or admin")
+            raise ValueError("role must be one of: super_admin, hr_admin, manager, employee, executive, it_admin")
         return v
+
 
 
 class ManagerUpdate(BaseModel):

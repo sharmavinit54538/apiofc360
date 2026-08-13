@@ -64,15 +64,17 @@ class EmployeeValidatorsMixin:
             raise ValueError("marital_status must be one of: " + ", ".join(MARITAL_STATUS_VALUES))
         return v
 
-    @field_validator("role")
+    @field_validator("role", check_fields=False)
     @classmethod
     def validate_role(cls, v: str | None) -> str | None:
         if v is None or str(v).strip() == "":
             return None
-        v = v.lower()
-        if v not in ROLE_VALUES:
-            raise ValueError("role must be one of: " + ", ".join(ROLE_VALUES))
-        return v
+        v_str = str(v).strip()
+        v_lower = v_str.lower()
+        if v_lower in ROLE_VALUES:
+            return v_lower
+        raise ValueError("role must be one of: super_admin, hr_admin, manager, employee, executive, it_admin")
+
 
     @field_validator("status", check_fields=False)
     @classmethod

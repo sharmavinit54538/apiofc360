@@ -155,14 +155,17 @@ async def run_tests():
         print("==================================================")
         # Create second employee
         emp2_id = uuid.uuid4()
+        emp2_code = f"EMP-TEST-{uuid.uuid4().hex[:6]}"
+        emp2_email = f"other_unique_{uuid.uuid4().hex[:6]}@gmail.com"
+        emp2_phone = f"09{uuid.uuid4().int % 1000000009:09d}"
         emp2 = Employee(
             id=emp2_id,
             company_id=company_id,
-            employee_id="EMP-TEST-002",
+            employee_id=emp2_code,
             first_name="Other",
             last_name="User",
-            personal_email="other_unique_123@gmail.com",
-            phone="09999999999",
+            personal_email=emp2_email,
+            phone=emp2_phone,
             department="Sales",
             designation="Manager",
             joining_date=date(2026, 1, 1),
@@ -176,7 +179,7 @@ async def run_tests():
                 admin_id=admin_id,
                 company_id=company_id,
                 employee_uuid=target_id,
-                payload=EmployeeUpdate(personal_email="other_unique_123@gmail.com")
+                payload=EmployeeUpdate(personal_email=emp2_email)
             )
             print("FAILED: Should have raised ConflictException for duplicate personal email")
         except ConflictException as e:
@@ -191,7 +194,7 @@ async def run_tests():
                 admin_id=admin_id,
                 company_id=company_id,
                 employee_uuid=target_id,
-                payload=EmployeeUpdate(phone="09999999999")
+                payload=EmployeeUpdate(phone=emp2_phone)
             )
             print("FAILED: Should have raised ConflictException for duplicate phone")
         except ConflictException as e:

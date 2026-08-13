@@ -17,9 +17,9 @@ security = HTTPBearer(auto_error=False)
 
 
 def _get_permissions_for_role(role: str) -> dict[str, Any]:
-    role_lower = (role or "admin").lower()
+    role_lower = (role or "super_admin").lower()
 
-    if role_lower in {"admin", "superadmin", "super_admin", "ceo", "cfo", "cto", "coo", "owner"}:
+    if role_lower in {"super_admin", "executive", "it_admin", "admin"}:
         perms = [
             "all",
             "dashboard:read",
@@ -40,7 +40,8 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
             "leaves": True, "payroll": True, "documents": True,
             "settings": True, "exports": True, "analytics": True
         }
-    elif role_lower in {"hr", "hr_manager", "hr_head"}:
+    elif role_lower in {"hr_admin", "hr", "hr_manager", "hr_head"}:
+
         perms = [
             "dashboard:read",
             "employees:read", "employees:write", "employees:create",

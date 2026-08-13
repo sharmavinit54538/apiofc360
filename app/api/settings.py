@@ -95,7 +95,8 @@ class ProfilePayload(BaseModel):
 # --- Helper functions ---
 def check_admin_or_manager(claims: dict):
     role = str(claims.get("role") or "").lower()
-    if not role or role not in ["admin", "hr", "manager", "ceo", "cfo", "cto", "coo", "ciso", "cio", "administrator", "owner"]:
+    if not role or role not in ["super_admin", "hr_admin", "manager", "executive", "it_admin", "admin", "hr"]:
+
         from app.core.exceptions import AppException
         raise AppException(
             message="Access denied. Administrator privileges required.",

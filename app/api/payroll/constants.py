@@ -5,10 +5,11 @@ from __future__ import annotations
 _JOB_STORE: dict[str, dict] = {}
 
 # Role groupings
-ADMIN_ROLES = ("admin", "ceo", "cfo")
+ADMIN_ROLES = ("super_admin", "hr_admin", "it_admin", "executive")
 ADMIN_OR_MANAGER_ROLES = (
-    "admin", "manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"
+    "super_admin", "hr_admin", "it_admin", "executive", "manager"
 )
+
 
 # Status constants
 PAY_CYCLE_STATUSES = ("DRAFT", "LOCKED", "APPROVED", "DISBURSED", "VOID")
