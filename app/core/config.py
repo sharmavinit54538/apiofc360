@@ -208,6 +208,9 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen3:30b"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_PRIORITY: int = 1
 
     # LLM Routing & Limits
