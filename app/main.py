@@ -353,17 +353,20 @@ def create_app() -> FastAPI:
         "https://www.ofc360.com",
         "https://ofc360.com",
         "https://api.ofc360.com",
+        "https://ofc360.vercel.app",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
+        "http://192.168.31.230:8080",
         "http://192.168.31.235:8080",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://192.168.31.230:5173",
         "http://192.168.31.235:5173",
         "http://localhost:3000",
+        "http://192.168.31.230:3000",
         "http://192.168.31.235:3000",
     ]
 
-    
     if settings.ALLOWED_ORIGINS:
         allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
     if settings.BACKEND_CORS_ORIGINS:
