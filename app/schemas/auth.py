@@ -199,9 +199,9 @@ class UserLoginPublic(BaseModel):
     """Safe user fields returned inside login response."""
 
     id: UUID
-    name: str
+    name: str | None = "User"
     email: EmailStr
-    phone: str
+    phone: str | None = None
     role: str
     is_verified: bool
     must_change_password: bool = False

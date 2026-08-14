@@ -152,18 +152,21 @@ async def login(
     effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     user_role_str = str(effective_role).lower()
 
-    # Sync onboarding_completed flag with company's status (Admin only)
-    if user_role_str in ("super_admin", "hr_admin") and user.company and getattr(user.company, "onboarding_completed", False) and not user.onboarding_completed:
-        try:
-            user.onboarding_completed = True
-            user.onboarding_step = 7
-            auth_service.session.add(user)
-            await auth_service.session.commit()
-        except Exception as err:
-            logger.warning("Failed to sync admin onboarding status: %s", err)
-
-    onboarding_completed = bool(user.onboarding_completed)
-    if user_role_str == "employee":
+    # Sync onboarding_completed flag safely
+    if user_role_str == "super_admin":
+        onboarding_completed = True
+    elif user_role_str == "hr_admin":
+        if getattr(user, "company", None) and getattr(user.company, "onboarding_completed", False) and not user.onboarding_completed:
+            try:
+                user.onboarding_completed = True
+                user.onboarding_step = 7
+                auth_service.session.add(user)
+                await auth_service.session.commit()
+            except Exception as err:
+                logger.warning("Failed to sync admin onboarding status: %s", err)
+        onboarding_completed = bool(user.onboarding_completed)
+    elif user_role_str == "employee":
+        onboarding_completed = bool(user.onboarding_completed)
         try:
             from sqlalchemy import select
             from app.models.employee import Employee
@@ -178,10 +181,12 @@ async def login(
                 onboarding_completed = bool(emp.employee_onboarding_completed)
         except Exception as err:
             logger.warning("Failed to check employee onboarding status: %s", err)
+    else:
+        onboarding_completed = bool(user.onboarding_completed)
 
     # Safely resolve company name without triggering lazy-load errors
     company_name = None
-    if user.company:
+    if getattr(user, "company", None):
         try:
             company_name = user.company.name
         except Exception:
@@ -200,12 +205,12 @@ async def login(
 
     user_data = UserLoginPublic(
         id=user.id,
-        name=user.name,
+        name=user.name or "User",
         email=user.email,
-        phone=user.phone,
+        phone=user.phone or None,
         role=effective_role,
-        is_verified=user.is_verified,
-        must_change_password=user.must_change_password,
+        is_verified=bool(user.is_verified),
+        must_change_password=bool(getattr(user, "must_change_password", False)),
         onboarding_completed=onboarding_completed,
         company_id=user.company_id,
         company_name=company_name,
@@ -256,7 +261,7 @@ async def google_auth(
 
     # Safely resolve company name without triggering lazy-load errors
     company_name = None
-    if user.company:
+    if getattr(user, "company", None):
         try:
             company_name = user.company.name
         except Exception:
@@ -275,13 +280,13 @@ async def google_auth(
 
     user_data = UserLoginPublic(
         id=user.id,
-        name=user.name,
+        name=user.name or "User",
         email=user.email,
-        phone=user.phone,
+        phone=user.phone or None,
         role=effective_role,
-        is_verified=user.is_verified,
-        must_change_password=user.must_change_password,
-        onboarding_completed=user.onboarding_completed,
+        is_verified=bool(user.is_verified),
+        must_change_password=bool(getattr(user, "must_change_password", False)),
+        onboarding_completed=bool(getattr(user, "onboarding_completed", True)),
         company_id=user.company_id,
         company_name=company_name,
     )
