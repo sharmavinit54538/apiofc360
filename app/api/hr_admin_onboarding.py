@@ -49,38 +49,51 @@ def _get_store(company_id: str) -> Dict[str, List[Dict[str, Any]]]:
 
 
 async def _get_company_and_user(session: AsyncSession, claims: dict):
-    company_id_str = claims.get("company_id")
-    company = None
-    if company_id_str:
-        try:
-            cid = uuid.UUID(company_id_str)
-            comp_res = await session.execute(select(Company).where(Company.id == cid))
-            company = comp_res.scalar_one_or_none()
-        except ValueError:
-            company = None
-
-    if not company:
-        comp_res = await session.execute(select(Company).limit(1))
-        company = comp_res.scalar_one_or_none()
-
+    """Retrieve authenticated User and associated Company cleanly without cross-tenant leakage."""
     user_id_str = claims.get("sub")
     user = None
     if user_id_str:
         try:
-            uid = uuid.UUID(user_id_str)
+            uid = uuid.UUID(str(user_id_str))
             user_res = await session.execute(select(User).where(User.id == uid))
             user = user_res.scalar_one_or_none()
-        except ValueError:
-            pass
+        except (ValueError, TypeError):
+            user = None
+
+    company_id_str = claims.get("company_id")
+    company = None
+    if company_id_str and str(company_id_str).lower() != "default":
+        try:
+            cid = uuid.UUID(str(company_id_str))
+            comp_res = await session.execute(select(Company).where(Company.id == cid))
+            company = comp_res.scalar_one_or_none()
+        except (ValueError, TypeError):
+            company = None
+
+    # Fallback to company_id on user record if not in token claims
+    if not company and user and user.company_id:
+        comp_res = await session.execute(select(Company).where(Company.id == user.company_id))
+        company = comp_res.scalar_one_or_none()
 
     return company, user
 
 
 def _build_onboarding_data(company: Company | None, user: User | None) -> Dict[str, Any]:
     prof = (company.company_profile or {}) if company else {}
+    step = 0
+    completed = False
+
+    if company:
+        completed = bool(getattr(company, "onboarding_completed", False))
+        step = int(getattr(company, "onboarding_step", 0) or 0)
+    if user and user.onboarding_completed:
+        completed = True
+        step = 4
+
     return {
-        "current_step": getattr(company, "onboarding_step", 0) or 0,
-        "completed": getattr(company, "onboarding_completed", False) or False,
+        "current_step": step,
+        "completed": completed,
+        "onboarding_completed": completed,
         "completed_at": prof.get("completed_at"),
         "companyName": (company.name if company else None) or prof.get("companyName") or prof.get("company_name") or "",
         "logo": prof.get("logo") or prof.get("logo_url") or "",
@@ -112,21 +125,35 @@ async def get_onboarding_status(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get onboarding completion status."""
-    company, _ = await _get_company_and_user(session, claims)
-    completed = getattr(company, "onboarding_completed", False) or False
-    step = getattr(company, "onboarding_step", 0) or 0
+    company, user = await _get_company_and_user(session, claims)
+    
+    completed = False
+    step = 0
+
+    if (company and getattr(company, "onboarding_completed", False)) or (user and getattr(user, "onboarding_completed", False)):
+        completed = True
+        step = 4
+    elif company:
+        step = int(getattr(company, "onboarding_step", 0) or 0)
+    elif user:
+        step = int(getattr(user, "onboarding_step", 0) or 0)
+
     return APIResponse(
         success=True,
         message="Onboarding status retrieved successfully.",
         data={
             "completed": completed,
+            "onboarding_completed": completed,
+            "status": "completed" if completed else "in_progress",
             "current_step": step,
             "total_steps": 4,
+            "completed_steps": list(range(step)) if not completed else [0, 1, 2, 3],
         },
     )
 
 
 @router.get("", response_model=APIResponse[Dict[str, Any]])
+@router.get("/", response_model=APIResponse[Dict[str, Any]])
 async def get_onboarding_data(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
@@ -141,6 +168,70 @@ async def get_onboarding_data(
     )
 
 
+@router.post("", response_model=APIResponse[Dict[str, Any]])
+@router.post("/", response_model=APIResponse[Dict[str, Any]])
+async def save_onboarding_wizard(
+    payload: Dict[str, Any],
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Save full or top-level onboarding wizard data."""
+    company, user = await _get_company_and_user(session, claims)
+
+    if not company and user:
+        company_name = str(payload.get("companyName") or payload.get("name") or "My Company").strip()
+        company = Company(
+            name=company_name,
+            onboarding_completed=False,
+            onboarding_step=1,
+            company_profile={},
+        )
+        session.add(company)
+        await session.flush()
+        user.company_id = company.id
+
+    if company:
+        prof = company.company_profile or {}
+        prof.update(payload)
+
+        if "companyName" in payload and payload["companyName"]:
+            company.name = str(payload["companyName"]).strip()
+            prof["name"] = company.name
+
+        step_val = payload.get("current_step") or payload.get("step")
+        if step_val is not None:
+            try:
+                company.onboarding_step = int(step_val)
+            except (ValueError, TypeError):
+                pass
+
+        if payload.get("completed") is True or payload.get("onboarding_completed") is True:
+            company.onboarding_completed = True
+            if user:
+                user.onboarding_completed = True
+
+        company.company_profile = prof
+        flag_modified(company, "company_profile")
+
+    if user:
+        if "fullName" in payload and payload["fullName"]:
+            user.name = str(payload["fullName"]).strip()
+        if "phone" in payload and payload["phone"]:
+            user.phone = str(payload["phone"]).strip()
+        if company:
+            user.onboarding_step = company.onboarding_step
+            user.onboarding_completed = company.onboarding_completed
+
+    await session.commit()
+
+    updated_data = _build_onboarding_data(company, user)
+    return APIResponse(
+        success=True,
+        message="Onboarding data saved successfully.",
+        data=updated_data,
+    )
+
+
 @router.post("/step/{step_index}", response_model=APIResponse[Dict[str, Any]])
 async def save_onboarding_step(
     step_index: int,
@@ -150,6 +241,18 @@ async def save_onboarding_step(
 ):
     """Save an onboarding step payload (Step 0, 1, 2, 3)."""
     company, user = await _get_company_and_user(session, claims)
+
+    if not company and user:
+        company_name = str(payload.get("companyName") or "My Company").strip()
+        company = Company(
+            name=company_name,
+            onboarding_completed=False,
+            onboarding_step=1,
+            company_profile={},
+        )
+        session.add(company)
+        await session.flush()
+        user.company_id = company.id
 
     if company:
         prof = company.company_profile or {}
@@ -171,6 +274,8 @@ async def save_onboarding_step(
             user.name = str(payload["fullName"]).strip()
         if "phone" in payload and payload["phone"]:
             user.phone = str(payload["phone"]).strip()
+        if company:
+            user.onboarding_step = company.onboarding_step
 
     await session.commit()
 
@@ -200,10 +305,8 @@ async def complete_onboarding(
         flag_modified(company, "company_profile")
 
     if user:
-        if hasattr(user, "is_onboarding_completed"):
-            user.is_onboarding_completed = True
-        if hasattr(user, "onboarding_step"):
-            user.onboarding_step = 4
+        user.onboarding_completed = True
+        user.onboarding_step = 4
 
     await session.commit()
 
@@ -234,7 +337,7 @@ async def create_workflow(payload: Dict[str, Any], claims: dict = Depends(get_cu
         "id": f"wf-{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "New Workflow"),
         "description": payload.get("description", ""),
-        "stepsCount": payload.get("stepsCount", 1),
+        "stepsCount": payload.get("stepsCount", 3),
         "targetRole": payload.get("targetRole", "ALL"),
         "isDefault": payload.get("isDefault", False),
         "createdAt": datetime.now().isoformat(),
@@ -252,7 +355,7 @@ async def delete_workflow(workflow_id: str, claims: dict = Depends(get_current_u
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. New Hires Onboarding
+# 3. Onboarding New Hires
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/new-hires", response_model=APIResponse[List[Dict[str, Any]]])
