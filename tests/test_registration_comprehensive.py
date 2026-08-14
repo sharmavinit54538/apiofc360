@@ -30,13 +30,13 @@ def test_register_payload_with_all_aliases():
         "name": "vinit sharma",
         "full_name": "vinit sharma",
         "company_name": "EquinoxSphere",
-        "email": "user@example.com",
-        "password": "SecurePass@123456",
+        "email": "test@example.com",
+        "password": "Test@123456",
         "phone": "9999999999",
     }
     req = RegisterRequest.model_validate(payload_data)
     assert req.name == "vinit sharma"
-    assert req.email == "user@example.com"
+    assert req.email == "test@example.com"
     assert req.phone == "9999999999"
     assert req.company_name == "EquinoxSphere"
 
@@ -128,6 +128,7 @@ def test_register_payload_missing_required_fields():
 async def test_auth_service_successful_registration_flow():
     """Test full registration logic: Company, User, Employee, Departments, Leave Policies, OTP, Email."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_repo = AsyncMock()
     mock_email_svc = AsyncMock()
     mock_token_svc = AsyncMock()
@@ -154,13 +155,10 @@ async def test_auth_service_successful_registration_flow():
         "phone": "9999999999",
     })
 
-    added_objects = []
-    def capture_add(obj):
-        added_objects.append(obj)
-    mock_session.add.side_effect = capture_add
-
     with patch("app.utils.employee.generate_employee_id", new=AsyncMock(return_value="EMP-202608-0001")):
         await service.register_user(payload)
+
+    added_objects = [c.args[0] for c in mock_session.add.call_args_list]
 
     # 1. Verify Company was created
     companies = [obj for obj in added_objects if isinstance(obj, Company)]
