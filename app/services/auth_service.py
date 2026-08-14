@@ -73,47 +73,46 @@ class AuthService:
             # Check duplicate email
             existing_email = await self.auth_repository.get_user_by_email(str(payload.email))
             if existing_email:
-                if not existing_email.is_verified:
+                if existing_email.is_verified:
+                    logger.info("Registration failed: email already exists", extra=log_context)
+                    raise ConflictException(
+                        message="Email already exists.",
+                        errors=[{"field": "email", "message": "Email already exists."}],
+                    )
+                else:
                     logger.info("Cleaning up unverified user with duplicate email: %s", payload.email, extra=log_context)
                     if existing_email.company_id:
-                        from app.models.company import Company
                         company = await self.session.get(Company, existing_email.company_id)
                         if company:
                             await self.session.delete(company)
                     else:
                         await self.session.delete(existing_email)
                     await self.session.flush()
-                else:
-                    logger.info("Registration failed: email already exists", extra=log_context)
-                    raise ConflictException(
-                        message="Email already exists.",
-                        errors=[{"field": "email", "message": "Email already exists."}],
-                    )
 
             # Check duplicate phone
             existing_phone = await self.auth_repository.get_user_by_phone(payload.phone)
             if existing_phone:
-                if not existing_phone.is_verified:
-                    logger.info("Cleaning up unverified user with duplicate phone: %s", payload.phone, extra=log_context)
-                    if existing_phone.company_id:
-                        from app.models.company import Company
-                        company = await self.session.get(Company, existing_phone.company_id)
-                        if company:
-                            await self.session.delete(company)
-                    else:
-                        await self.session.delete(existing_phone)
-                    await self.session.flush()
-                else:
+                if existing_phone.is_verified:
                     logger.info("Registration failed: phone already exists", extra=log_context)
                     raise ConflictException(
                         message="Phone already exists.",
                         errors=[{"field": "phone", "message": "Phone already exists."}],
                     )
+                else:
+                    if existing_phone not in self.session.deleted:
+                        logger.info("Cleaning up unverified user with duplicate phone: %s", payload.phone, extra=log_context)
+                        if existing_phone.company_id:
+                            company = await self.session.get(Company, existing_phone.company_id)
+                            if company and company not in self.session.deleted:
+                                await self.session.delete(company)
+                        else:
+                            await self.session.delete(existing_phone)
+                        await self.session.flush()
 
             # 1. Create a new Company/Tenant
             company = Company(
                 id=uuid.uuid4(),
-                name=payload.company_name
+                name=payload.company_name,
             )
             self.session.add(company)
             await self.session.flush()
@@ -156,7 +155,7 @@ class AuthService:
                 status="ACTIVE",
                 department="Management",
                 designation="Company Owner",
-                joining_date=datetime.now(timezone.utc).date()
+                joining_date=datetime.now(timezone.utc).date(),
             )
             self.session.add(employee)
             await self.session.flush()
@@ -170,7 +169,7 @@ class AuthService:
                 description="Executive leadership and administrative department",
                 location="Headquarters",
                 status="ACTIVE",
-                manager_id=user.id
+                manager_id=user.id,
             )
             self.session.add(mgmt_dept)
 
@@ -181,7 +180,7 @@ class AuthService:
                 department_name="Engineering",
                 description="Software development and product engineering",
                 location="Tech Hub",
-                status="ACTIVE"
+                status="ACTIVE",
             )
             self.session.add(eng_dept)
 
@@ -192,7 +191,7 @@ class AuthService:
                 department_name="Human Resources",
                 description="People management, recruiting and onboarding",
                 location="Headquarters",
-                status="ACTIVE"
+                status="ACTIVE",
             )
             self.session.add(hr_dept)
             await self.session.flush()
@@ -208,7 +207,7 @@ class AuthService:
                 total_days=Decimal("12.0"),
                 used_days=Decimal("0.0"),
                 carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date()
+                effective_from=datetime.now(timezone.utc).date(),
             )
             self.session.add(sick_leave)
 
@@ -219,7 +218,7 @@ class AuthService:
                 total_days=Decimal("12.0"),
                 used_days=Decimal("0.0"),
                 carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date()
+                effective_from=datetime.now(timezone.utc).date(),
             )
             self.session.add(casual_leave)
 
@@ -251,6 +250,7 @@ class AuthService:
             )
 
             await self.session.commit()
+            await self.session.refresh(user)
             logger.info("Registration succeeded, verification email sent", extra=log_context)
 
         except AppException:
@@ -267,13 +267,13 @@ class AuthService:
         except IntegrityError as exc:
             await self.session.rollback()
             logger.info("Registration failed: unique constraint conflict", extra=log_context)
-            constraint_text = str(getattr(exc.orig, "diag", "")) + str(exc.orig)
-            if "ix_users_email" in constraint_text or "email" in constraint_text:
+            constraint_text = (str(getattr(exc.orig, "diag", "")) + " " + str(exc.orig) + " " + str(exc)).lower()
+            if "ix_users_email" in constraint_text or "users_email" in constraint_text or "personal_email" in constraint_text or "email" in constraint_text:
                 raise ConflictException(
                     message="Email already exists.",
                     errors=[{"field": "email", "message": "Email already exists."}],
                 ) from exc
-            if "ix_users_phone" in constraint_text or "phone" in constraint_text:
+            if "ix_users_phone" in constraint_text or "users_phone" in constraint_text or "phone" in constraint_text:
                 raise ConflictException(
                     message="Phone already exists.",
                     errors=[{"field": "phone", "message": "Phone already exists."}],
@@ -286,6 +286,10 @@ class AuthService:
             await self.session.rollback()
             logger.exception("Registration failed: database error", extra=log_context, exc_info=exc)
             raise DatabaseException() from exc
+        except Exception as exc:
+            await self.session.rollback()
+            logger.exception("Registration failed: unexpected error", extra=log_context, exc_info=exc)
+            raise
 
     async def verify_email(self, payload: VerifyEmailRequest) -> None:
         """Verify the user's email using the submitted OTP."""
