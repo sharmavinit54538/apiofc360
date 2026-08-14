@@ -19,7 +19,7 @@ security = HTTPBearer(auto_error=False)
 def _get_permissions_for_role(role: str) -> dict[str, Any]:
     role_lower = (role or "super_admin").lower()
 
-    if role_lower in {"super_admin", "executive", "it_admin", "admin"}:
+    if role_lower in {"super_admin", "hr_admin", "executive", "it_admin"}:
         perms = [
             "all",
             "dashboard:read",
@@ -138,13 +138,13 @@ async def get_sidebar_permissions(
     """Return permissions, enabled modules, and sidebar navigation menu items for the current user."""
     from app.core.cache import cache_get, cache_set
 
-    role = "admin"
+    role = "super_admin"
     try:
         claims = await get_current_user_claims(request=request, credentials=auth_credentials)
         if claims and isinstance(claims, dict):
-            role = claims.get("role", "admin")
+            role = claims.get("role", "super_admin")
     except Exception as exc:
-        logger.debug("Unauthenticated sidebar permissions call, returning default admin permissions: %s", exc)
+        logger.debug("Unauthenticated sidebar permissions call, returning default super_admin permissions: %s", exc)
 
     cache_key = f"sidebar_perms:{role}"
     cached_data = cache_get(cache_key)

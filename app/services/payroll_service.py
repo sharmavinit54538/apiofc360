@@ -763,7 +763,7 @@ class PayrollService:
     async def approve_bonus_award(
         self, award_id: uuid.UUID, actor_id: Optional[uuid.UUID], actor_role: Optional[str], reason: Optional[str]
     ) -> BonusAward:
-        if actor_role not in ("admin", "manager"):
+        if actor_role not in ("super_admin", "hr_admin", "manager"):
             raise BadRequestException("Only Admin or Manager can approve bonus awards.")
         award = await self.repo.get_bonus_award(award_id)
         if not award:
@@ -784,7 +784,7 @@ class PayrollService:
     async def reject_bonus_award(
         self, award_id: uuid.UUID, actor_id: Optional[uuid.UUID], actor_role: Optional[str], reason: Optional[str]
     ) -> BonusAward:
-        if actor_role not in ("admin", "manager"):
+        if actor_role not in ("super_admin", "hr_admin", "manager"):
             raise BadRequestException("Only Admin or Manager can reject bonus awards.")
         award = await self.repo.get_bonus_award(award_id)
         if not award:
@@ -853,7 +853,7 @@ class PayrollService:
             start_from_year=data["start_from_year"],
             status="ACTIVE",
             reason=data.get("reason"),
-            approved_by=actor_id if actor_role in ("admin", "manager") else None,
+            approved_by=actor_id if actor_role in ("super_admin", "hr_admin", "manager") else None,
             created_by=actor_id,
         )
         created = await self.repo.create_loan(loan)
@@ -890,7 +890,7 @@ class PayrollService:
     async def approve_reimbursement(
         self, claim_id: uuid.UUID, actor_id: Optional[uuid.UUID], actor_role: Optional[str], reason: Optional[str]
     ) -> ReimbursementClaim:
-        if actor_role not in ("admin", "manager"):
+        if actor_role not in ("super_admin", "hr_admin", "manager"):
             raise BadRequestException("Only Admin or Manager can approve reimbursements.")
         claim = await self.repo.get_reimbursement(claim_id)
         if not claim:
@@ -910,7 +910,7 @@ class PayrollService:
     async def reject_reimbursement(
         self, claim_id: uuid.UUID, actor_id: Optional[uuid.UUID], actor_role: Optional[str], reason: Optional[str]
     ) -> ReimbursementClaim:
-        if actor_role not in ("admin", "manager"):
+        if actor_role not in ("super_admin", "hr_admin", "manager"):
             raise BadRequestException("Only Admin or Manager can reject reimbursements.")
         claim = await self.repo.get_reimbursement(claim_id)
         if not claim:

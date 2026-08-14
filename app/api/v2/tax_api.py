@@ -27,12 +27,12 @@ Claims = Annotated[dict, Depends(get_current_user_claims)]
 
 
 def _require_admin_or_manager(claims: dict) -> None:
-    if claims.get("role") not in ("super_admin", "hr_admin", "manager", "executive", "it_admin", "admin", "hr"):
+    if claims.get("role") not in ("super_admin", "hr_admin", "manager"):
         raise BadRequestException("Admin or Manager role required.")
 
 
 def _require_admin(claims: dict) -> None:
-    if claims.get("role") not in ("super_admin", "hr_admin", "it_admin", "executive", "admin", "hr"):
+    if claims.get("role") not in ("super_admin", "hr_admin"):
         raise BadRequestException("Admin role required.")
 
 

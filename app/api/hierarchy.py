@@ -102,7 +102,7 @@ async def check_access_to_employee(
         raise NotFoundException("Employee not found.")
 
     # 2. Admin / HR / Executive bypass
-    allowed_roles = {"admin", "hr", "hr_manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+    allowed_roles = {"super_admin", "hr_admin", "executive"}
     if role in allowed_roles:
         return
 
@@ -147,7 +147,7 @@ async def get_hierarchy(
     company_uuid = None if is_super else _get_company_id_safe(claims)
 
     root_id = None
-    allowed_admin_roles = {"admin", "hr", "hr_manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
     if not is_super and role not in allowed_admin_roles:
         if role == "manager":
             caller_emp = await get_current_employee(claims, service)
@@ -229,7 +229,7 @@ async def get_hierarchy_chart(
     company_uuid = None if is_super else _get_company_id_safe(claims)
 
     root_id = None
-    allowed_admin_roles = {"admin", "hr", "hr_manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
     if not is_super and role not in allowed_admin_roles:
         if role == "manager":
             caller_emp = await get_current_employee(claims, service)
@@ -351,7 +351,7 @@ async def assign_manager(
 ) -> APIResponse[HierarchyNodeResponse]:
     """Set employee manager, executing circular references and active manager validations. Admin/HR only."""
     role = claims.get("role")
-    if role not in {"admin", "hr", "hr_manager"}:
+    if role not in {"super_admin", "hr_admin"}:
         raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
 
     user_uuid = uuid.UUID(claims["sub"])
@@ -377,7 +377,7 @@ async def change_manager(
 ) -> APIResponse[HierarchyNodeResponse]:
     """Change employee reporting manager. Admin/HR only."""
     role = claims.get("role")
-    if role not in {"admin", "hr", "hr_manager"}:
+    if role not in {"super_admin", "hr_admin"}:
         raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
 
     user_uuid = uuid.UUID(claims["sub"])
@@ -403,7 +403,7 @@ async def remove_manager(
 ) -> APIResponse[HierarchyNodeResponse]:
     """Remove employee's manager (orphaning or upgrading employee to top level). Admin/HR only."""
     role = claims.get("role")
-    if role not in {"admin", "hr", "hr_manager"}:
+    if role not in {"super_admin", "hr_admin"}:
         raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
 
     user_uuid = uuid.UUID(claims["sub"])

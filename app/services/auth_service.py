@@ -128,8 +128,7 @@ class AuthService:
                 email=str(payload.email),
                 phone=payload.phone,
                 password_hash=password_hash,
-                role=UserRole.ADMIN,
-                is_super_admin=True,
+                role=UserRole.SUPER_ADMIN,
                 is_active=False,
                 is_verified=False,
                 first_login=False,
@@ -153,7 +152,7 @@ class AuthService:
                 personal_email=str(payload.email),
                 company_email=str(payload.email),
                 phone=payload.phone,
-                role="admin",
+                role="super_admin",
                 status="ACTIVE",
                 department="Management",
                 designation="Company Owner",
@@ -528,7 +527,7 @@ class AuthService:
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
         # Issue tokens
-        effective_role = "super_admin" if user.is_super_admin else (user.role.value if hasattr(user.role, "value") else str(user.role))
+        effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
         access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
             user_id=user.id,
             role=effective_role,
@@ -654,7 +653,7 @@ class AuthService:
 
         # STRICT ROLE CHECK: Reject employees and company members
         user_role = (user.role or "").lower()
-        if user_role not in ("admin", "super_admin"):
+        if user_role not in ("super_admin", "hr_admin", "it_admin"):
             logger.warning("Google login rejected for non-admin user | user_id=%s | role=%s | email=%s", user.id, user.role, normalized_email)
             raise AppException(
                 message="Access Restricted: Google login is permitted exclusively for Company Admins. Employees and company members must sign in using their work email and password.",

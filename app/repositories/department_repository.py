@@ -209,7 +209,7 @@ class DepartmentRepository:
         from sqlalchemy import select
 
         # 1. Try resolving directly as a User
-        allowed_roles = {"manager", "admin", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+        allowed_roles = {"super_admin", "hr_admin", "manager", "executive"}
         result = await self.session.execute(
             select(User).where(and_(User.id == user_id, User.role.in_(allowed_roles)))
         )

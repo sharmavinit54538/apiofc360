@@ -32,12 +32,11 @@ class SecuritySettingService:
             # Seed Default Enterprise Roles
             default_roles = [
                 ("Super Admin", "SUPER_ADMIN", "Full unrestricted enterprise access to all modules and system settings", True),
-                ("CEO / Executive", "CEO", "Executive dashboard access, financial overview, and high-level approval sign-offs", True),
-                ("HR Head", "HR_HEAD", "Complete management of employees, leaves, attendance, and HR policies", True),
-                ("Finance Head", "FINANCE_HEAD", "Payroll processing, bank disbursements, tax filings, and financial journals", True),
-                ("Payroll Manager", "PAYROLL_MANAGER", "Daily payroll calculations, allowances, deductions, and payslip generation", True),
-                ("HR Executive", "HR_EXEC", "Employee onboarding, basic profile updates, and attendance verification", True),
+                ("HR Admin", "HR_ADMIN", "Complete management of employees, leaves, attendance, and HR policies", True),
+                ("Manager", "MANAGER", "Team management, leave approvals, attendance tracking, and performance reviews", True),
                 ("Employee", "EMPLOYEE", "Self-service access to view personal payslips, tax sheets, and leave requests", True),
+                ("Executive", "EXECUTIVE", "Executive dashboard access, financial overview, and high-level approval sign-offs", True),
+                ("IT Admin", "IT_ADMIN", "System configuration, user accounts, and technical administration", True),
             ]
 
             for r_name, r_code, r_desc, is_sys in default_roles:

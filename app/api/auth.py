@@ -150,7 +150,7 @@ async def login(
     )
 
     # Sync onboarding_completed flag with company's status (Admin only)
-    if user.role == "admin" and user.company and user.company.onboarding_completed and not user.onboarding_completed:
+    if user.role in ("super_admin", "hr_admin") and user.company and user.company.onboarding_completed and not user.onboarding_completed:
         user.onboarding_completed = True
         user.onboarding_step = 7
         auth_service.session.add(user)
@@ -175,7 +175,7 @@ async def login(
             onboarding_completed = bool(user.onboarding_completed)
 
 
-    effective_role = "super_admin" if user.is_super_admin else (user.role.value if hasattr(user.role, "value") else str(user.role))
+    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     user_data = UserLoginPublic(
         id=user.id,
         name=user.name,

@@ -104,7 +104,7 @@ async def get_pending(
     db: Any = Depends(get_db_session)
 ) -> APIResponse[list[LeaveRequestResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("admin", "manager", "super_admin"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
     
     company_id_raw = claims.get("company_id")
@@ -134,7 +134,7 @@ async def review_leave(
     db: Any = Depends(get_db_session)
 ) -> APIResponse[LeaveRequestResponse]:
     role = claims.get("role", "").lower()
-    if role not in ("admin", "manager", "super_admin"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
     
     user_id = uuid.UUID(claims["sub"])
@@ -164,7 +164,7 @@ async def get_employee_balances(
     db: Any = Depends(get_db_session)
 ) -> APIResponse[list[LeaveBalanceResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("admin", "manager", "super_admin"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise AppException(message="Access denied. Admin or Manager only.", status_code=status.HTTP_403_FORBIDDEN)
     
     service = LeaveService(db)

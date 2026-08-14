@@ -55,8 +55,7 @@ class AccountService:
                 logger.warning("get_profile: user not found | user_id=%s | file=account_service.py | func=get_profile", user_id)
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            # Sync onboarding_completed flag with company's status (Admin only)
-            if user.role == "admin" and user.company and user.company.onboarding_completed and not user.onboarding_completed:
+            if user.role in ("super_admin", "hr_admin") and user.company and user.company.onboarding_completed and not user.onboarding_completed:
                 user.onboarding_completed = True
                 user.onboarding_step = 7
                 self.session.add(user)

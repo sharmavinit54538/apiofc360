@@ -26,8 +26,8 @@ def upgrade() -> None:
     op.execute("""
         UPDATE employees
         SET role = CASE
-            WHEN LOWER(role) IN ('admin', 'super_admin', 'superadmin') THEN 'super_admin'
-            WHEN LOWER(role) IN ('hr', 'hr_admin', 'hr_manager') THEN 'hr_admin'
+            WHEN LOWER(role) IN ('super_admin', 'superadmin') THEN 'super_admin'
+            WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
             WHEN LOWER(role) = 'manager' THEN 'manager'
             WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
             WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
@@ -42,18 +42,37 @@ def upgrade() -> None:
         op.execute("ALTER TABLE users ALTER COLUMN role DROP DEFAULT")
         op.execute("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR")
 
-    op.execute("""
-        UPDATE users
-        SET role = CASE
-            WHEN LOWER(role) IN ('admin', 'super_admin', 'superadmin') THEN 'super_admin'
-            WHEN LOWER(role) IN ('hr', 'hr_admin', 'hr_manager') THEN 'hr_admin'
-            WHEN LOWER(role) = 'manager' THEN 'manager'
-            WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
-            WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
-            ELSE 'employee'
-        END
-        WHERE role IS NOT NULL;
-    """)
+    # Check if is_super_admin column exists on users table
+    has_is_super_admin = bind.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='is_super_admin'"
+    )).scalar()
+
+    if has_is_super_admin:
+        op.execute("""
+            UPDATE users
+            SET role = CASE
+                WHEN is_super_admin = TRUE THEN 'super_admin'
+                WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+                WHEN LOWER(role) = 'manager' THEN 'manager'
+                WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
+                WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
+                ELSE 'employee'
+            END;
+        """)
+        op.drop_column('users', 'is_super_admin')
+    else:
+        op.execute("""
+            UPDATE users
+            SET role = CASE
+                WHEN LOWER(role) IN ('super_admin', 'superadmin') THEN 'super_admin'
+                WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+                WHEN LOWER(role) = 'manager' THEN 'manager'
+                WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
+                WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
+                ELSE 'employee'
+            END
+            WHERE role IS NOT NULL;
+        """)
 
     if has_enum:
         # Recreate type user_role with new values

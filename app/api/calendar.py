@@ -29,7 +29,7 @@ router = APIRouter(prefix="/calendar", tags=["Calendar Management"])
 # Helper dependency to enforce Manager, HR or Admin role
 async def require_manager_or_hr_or_admin(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = claims.get("role")
-    if role not in {"admin", "hr", "manager"}:
+    if role not in {"super_admin", "hr_admin", "manager"}:
         from app.core.exceptions import AppException
         raise AppException(message="Access denied.", status_code=status.HTTP_403_FORBIDDEN)
     return claims

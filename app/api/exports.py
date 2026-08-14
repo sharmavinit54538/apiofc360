@@ -27,11 +27,11 @@ def require_export_permission(
     """Ensure that only authorized roles can export data (admin, super_admin, hr_manager)."""
     role = claims.get("role", "").lower()
     # Check if user has permission to export
-    if role not in {"admin", "super_admin", "hr_manager"}:
+    if role not in {"super_admin", "hr_admin"}:
         logger.warning("Unauthorized export attempt | role=%s | user_id=%s", role, claims.get("sub"))
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only ADMIN, SUPER_ADMIN, or HR_MANAGER can export reports.",
+            detail="Only SUPER_ADMIN or HR_ADMIN can export reports.",
         )
     return claims
 
