@@ -660,6 +660,21 @@ class ConnectService:
             call_data,
         )
 
+        # Create persistent notification record for callee
+        try:
+            await self.repo.create_notification(
+                company_id=company_id,
+                recipient_id=target_user_id,
+                sender_id=user.id,
+                notification_type="call",
+                title=f"Incoming {call_type.capitalize()} Call",
+                body=f"{user.name} is calling you ({call_type.capitalize()}).",
+                resource_type="call",
+                resource_id=str(call.id),
+            )
+        except Exception as e:
+            logger.warning("Failed to create call notification: %s", e)
+
         return call_data
 
     async def update_call_status(
@@ -687,6 +702,22 @@ class ConnectService:
             "call_status_changed",
             {"call_id": call_id, "status": new_status, "duration_seconds": updated.duration_seconds},
         )
+
+        # Create missed call notification if callee missed it
+        if new_status == "missed":
+            try:
+                await self.repo.create_notification(
+                    company_id=company_id,
+                    recipient_id=call.callee_id,
+                    sender_id=call.caller_id,
+                    notification_type="call",
+                    title=f"Missed {call.call_type.capitalize()} Call",
+                    body=f"You missed a {call.call_type} call from {user.name}.",
+                    resource_type="call",
+                    resource_id=str(call.id),
+                )
+            except Exception as e:
+                logger.warning("Failed to create missed call notification: %s", e)
 
         return {
             "id": updated.id,
