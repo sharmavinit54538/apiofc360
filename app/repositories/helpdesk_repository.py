@@ -506,6 +506,17 @@ class HelpdeskRepository:
         await self.db.refresh(ticket)
         return ticket
 
+    async def get_user_by_id(self, user_id: uuid.UUID, company_id: uuid.UUID) -> User | None:
+        """Fetch user by ID within company."""
+        stmt = select(User).where(
+            and_(
+                User.id == user_id,
+                User.company_id == company_id,
+            )
+        )
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def assign_ticket_agent(
         self,
         ticket: HelpdeskTicket,

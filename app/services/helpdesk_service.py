@@ -580,13 +580,7 @@ class HelpdeskService:
             raise NotFoundException(message=f"Ticket '{ticket_id}' not found.")
 
         # Validate target user belongs to same company
-        target_stmt = select(User).where(
-            and_(
-                User.id == assigned_to_user_id,
-                User.company_id == company_id,
-            )
-        )
-        target_user = (await self.db.execute(target_stmt)).scalar_one_or_none()
+        target_user = await self.repo.get_user_by_id(assigned_to_user_id, company_id)
         if not target_user:
             raise NotFoundException(message="Assigned agent user not found in this company.")
 

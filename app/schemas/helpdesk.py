@@ -67,42 +67,42 @@ class PaginationMeta(BaseModel):
 # ===========================================================================
 
 class CreateTicketRequest(BaseModel):
-    category: str = Field(..., min_length=1, max_length=50, example="Payroll & Salary")
-    priority: str = Field("Medium", example="High")
-    subject: str = Field(..., min_length=1, max_length=255, example="July Tax Deduction mismatch")
-    description: str = Field(..., min_length=1, example="Detailed problem description")
+    category: str = Field(..., min_length=1, max_length=50, json_schema_extra={"example": "Payroll & Salary"})
+    priority: str = Field("Medium", json_schema_extra={"example": "High"})
+    subject: str = Field(..., min_length=1, max_length=255, json_schema_extra={"example": "July Tax Deduction mismatch"})
+    description: str = Field(..., min_length=1, json_schema_extra={"example": "Detailed problem description"})
     attachmentIds: list[uuid.UUID] | None = Field(default=None)
 
 
 class UpdateTicketStatusRequest(BaseModel):
-    status: str = Field(..., example="Resolved")
-    resolutionNotes: str | None = Field(default=None, example="Issue fixed successfully.")
+    status: str = Field(..., json_schema_extra={"example": "Resolved"})
+    resolutionNotes: str | None = Field(default=None, json_schema_extra={"example": "Issue fixed successfully."})
 
 
 class AssignTicketRequest(BaseModel):
     assignedToUserId: uuid.UUID = Field(...)
-    department: str | None = Field(default=None, example="IT Support")
+    department: str | None = Field(default=None, json_schema_extra={"example": "IT Support"})
 
 
 class AddTicketCommentRequest(BaseModel):
-    message: str = Field(..., min_length=1, example="I have tried the suggested solution.")
+    message: str = Field(..., min_length=1, json_schema_extra={"example": "I have tried the suggested solution."})
     attachments: list[uuid.UUID] | None = Field(default=None)
 
 
 class InternalNoteRequest(BaseModel):
-    note: str = Field(..., min_length=1, example="RMA initiated with Dell support.")
+    note: str = Field(..., min_length=1, json_schema_extra={"example": "RMA initiated with Dell support."})
 
 
 class UpsertFAQRequest(BaseModel):
     id: uuid.UUID | None = Field(default=None)
-    category: str = Field(..., min_length=1, max_length=50, example="IT Support")
-    question: str = Field(..., min_length=1, example="How do I configure VPN?")
-    answer: str = Field(..., min_length=1, example="Follow the company VPN setup instructions.")
+    category: str = Field(..., min_length=1, max_length=50, json_schema_extra={"example": "IT Support"})
+    question: str = Field(..., min_length=1, json_schema_extra={"example": "How do I configure VPN?"})
+    answer: str = Field(..., min_length=1, json_schema_extra={"example": "Follow the company VPN setup instructions."})
     is_public: bool = Field(True)
 
 
 class AIChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, example="How many casual leaves can I carry forward?")
+    message: str = Field(..., min_length=1, json_schema_extra={"example": "How many casual leaves can I carry forward?"})
     conversationHistory: list[dict[str, Any]] | None = Field(default=None)
 
 

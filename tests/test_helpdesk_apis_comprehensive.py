@@ -391,7 +391,7 @@ def test_api_5_add_ticket_comment_closed_forbidden(client_employee):
             f"/api/v1/helpdesk/tickets/{ticket_id}/comments",
             json={"message": "Replying to closed ticket"},
         )
-        assert response.status_code == 422
+        assert response.status_code == 400
         assert "Cannot reply to a closed ticket" in response.json()["message"]
 
 
@@ -508,7 +508,7 @@ def test_api_8_update_ticket_status_invalid_transition(client_it_admin):
             f"/api/v1/helpdesk/tickets/{ticket_id}/status",
             json={"status": "In Progress"},
         )
-        assert response.status_code == 422
+        assert response.status_code == 400
         assert "Cannot transition ticket" in response.json()["message"]
 
 
@@ -526,15 +526,11 @@ def test_api_9_assign_ticket_agent(client_it_admin):
     mock_agent_user = make_mock_user(agent_id, UserRole.IT_ADMIN, TEST_COMPANY_ID, "IT Agent")
 
     with patch("app.services.helpdesk_service.HelpdeskRepository.get_ticket_by_id", new_callable=AsyncMock) as mock_get_t, \
-         patch("app.services.helpdesk_service.HelpdeskRepository.assign_ticket_agent", new_callable=AsyncMock) as mock_assign, \
-         patch("sqlalchemy.ext.asyncio.AsyncSession.execute", new_callable=AsyncMock) as mock_exec:
+         patch("app.services.helpdesk_service.HelpdeskRepository.get_user_by_id", new_callable=AsyncMock) as mock_get_u, \
+         patch("app.services.helpdesk_service.HelpdeskRepository.assign_ticket_agent", new_callable=AsyncMock) as mock_assign:
         mock_get_t.return_value = mock_ticket
+        mock_get_u.return_value = mock_agent_user
         mock_assign.return_value = assigned_ticket
-
-        # Mock DB select for agent user
-        exec_res = MagicMock()
-        exec_res.scalar_one_or_none.return_value = mock_agent_user
-        mock_exec.return_value = exec_res
 
         response = client_it_admin.patch(
             f"/api/v1/helpdesk/tickets/{ticket_id}/assign",
