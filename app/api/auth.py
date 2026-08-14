@@ -149,33 +149,55 @@ async def login(
         device=device,
     )
 
-    # Sync onboarding_completed flag with company's status (Admin only)
-    if user.role in ("super_admin", "hr_admin") and user.company and user.company.onboarding_completed and not user.onboarding_completed:
-        user.onboarding_completed = True
-        user.onboarding_step = 7
-        auth_service.session.add(user)
-        await auth_service.session.commit()
-        # Reload user to keep instance state active and avoid lazy loading
-        user = await auth_service.auth_repository.get_user_by_id(user.id)
-
-    onboarding_completed = user.onboarding_completed
-    if user.role == "employee":
-        from sqlalchemy import select
-        from app.models.employee import Employee
-        stmt = select(Employee).where(
-            (Employee.user_id == user.id) |
-            (Employee.personal_email == user.email.lower().strip()) |
-            (Employee.company_email == user.email.lower().strip())
-        )
-        emp_res = await auth_service.session.execute(stmt)
-        emp = emp_res.scalars().first()
-        if emp:
-            onboarding_completed = bool(emp.employee_onboarding_completed)
-        else:
-            onboarding_completed = bool(user.onboarding_completed)
-
-
     effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    user_role_str = str(effective_role).lower()
+
+    # Sync onboarding_completed flag with company's status (Admin only)
+    if user_role_str in ("super_admin", "hr_admin") and user.company and getattr(user.company, "onboarding_completed", False) and not user.onboarding_completed:
+        try:
+            user.onboarding_completed = True
+            user.onboarding_step = 7
+            auth_service.session.add(user)
+            await auth_service.session.commit()
+        except Exception as err:
+            logger.warning("Failed to sync admin onboarding status: %s", err)
+
+    onboarding_completed = bool(user.onboarding_completed)
+    if user_role_str == "employee":
+        try:
+            from sqlalchemy import select
+            from app.models.employee import Employee
+            stmt = select(Employee).where(
+                (Employee.user_id == user.id) |
+                (Employee.personal_email == user.email.lower().strip()) |
+                (Employee.company_email == user.email.lower().strip())
+            ).execution_options(bypass_tenant=True)
+            emp_res = await auth_service.session.execute(stmt)
+            emp = emp_res.scalars().first()
+            if emp and hasattr(emp, "employee_onboarding_completed"):
+                onboarding_completed = bool(emp.employee_onboarding_completed)
+        except Exception as err:
+            logger.warning("Failed to check employee onboarding status: %s", err)
+
+    # Safely resolve company name without triggering lazy-load errors
+    company_name = None
+    if user.company:
+        try:
+            company_name = user.company.name
+        except Exception:
+            company_name = None
+
+    if not company_name and user.company_id:
+        try:
+            from sqlalchemy import select
+            from app.models.company import Company
+            comp_res = await auth_service.session.execute(
+                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+            )
+            company_name = comp_res.scalar_one_or_none()
+        except Exception:
+            company_name = None
+
     user_data = UserLoginPublic(
         id=user.id,
         name=user.name,
@@ -186,7 +208,7 @@ async def login(
         must_change_password=user.must_change_password,
         onboarding_completed=onboarding_completed,
         company_id=user.company_id,
-        company_name=user.company.name if user.company else None,
+        company_name=company_name,
     )
 
     return LoginResponse(
@@ -230,17 +252,38 @@ async def google_auth(
         device=device,
     )
 
+    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    # Safely resolve company name without triggering lazy-load errors
+    company_name = None
+    if user.company:
+        try:
+            company_name = user.company.name
+        except Exception:
+            company_name = None
+
+    if not company_name and user.company_id:
+        try:
+            from sqlalchemy import select
+            from app.models.company import Company
+            comp_res = await auth_service.session.execute(
+                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+            )
+            company_name = comp_res.scalar_one_or_none()
+        except Exception:
+            company_name = None
+
     user_data = UserLoginPublic(
         id=user.id,
         name=user.name,
         email=user.email,
         phone=user.phone,
-        role=user.role,
+        role=effective_role,
         is_verified=user.is_verified,
         must_change_password=user.must_change_password,
         onboarding_completed=user.onboarding_completed,
         company_id=user.company_id,
-        company_name=user.company.name if user.company else None,
+        company_name=company_name,
     )
 
     return LoginResponse(

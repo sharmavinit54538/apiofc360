@@ -30,4 +30,4 @@ class UserRelationshipsMixin:
 
     @declared_attr
     def company(cls) -> Mapped[Company | None]:
-        return relationship("Company", lazy="select")
+        return relationship("Company", lazy="selectin")

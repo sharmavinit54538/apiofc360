@@ -485,11 +485,13 @@ class AuthService:
 
         try:
             user = await self.auth_repository.get_user_by_identifier(payload.identifier)
+        except AppException:
+            raise
         except Exception as exc:
-            logger.error("Authentication failed: database query failed | identifier=%s | error=%s", payload.identifier, str(exc), exc_info=exc)
+            logger.exception("Authentication failed: database lookup exception | identifier=%s", payload.identifier)
             raise AppException(
                 message="Invalid email or password.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
         # Security: constant-time password verification to mitigate timing attacks if user does not exist
@@ -656,7 +658,7 @@ class AuthService:
             )
 
         # STRICT ROLE CHECK: Reject employees and company members
-        user_role = (user.role or "").lower()
+        user_role = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()
         if user_role not in ("super_admin", "hr_admin", "it_admin"):
             logger.warning("Google login rejected for non-admin user | user_id=%s | role=%s | email=%s", user.id, user.role, normalized_email)
             raise AppException(
@@ -673,9 +675,10 @@ class AuthService:
 
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
+        effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
         access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
             user_id=user.id,
-            role=user.role,
+            role=effective_role,
             company_id=user.company_id,
             ip_address=ip_address,
             device=device,

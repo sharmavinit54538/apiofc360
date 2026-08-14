@@ -207,10 +207,17 @@ class ConnectMessage(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    parent_message: Mapped[ConnectMessage | None] = relationship(
+        "ConnectMessage",
+        foreign_keys=[parent_message_id],
+        remote_side=[id],
+        back_populates="thread_replies",
+        lazy="select",
+    )
     thread_replies: Mapped[list[ConnectMessage]] = relationship(
         "ConnectMessage",
         foreign_keys=[parent_message_id],
-        backref="parent_message",
+        back_populates="parent_message",
         cascade="all, delete-orphan",
         lazy="select",
     )

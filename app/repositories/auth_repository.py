@@ -28,10 +28,14 @@ class AuthRepository:
         result = await self.session.execute(
             select(User)
             .options(selectinload(User.company))
-            .where(func.lower(User.email) == func.lower(email.strip()))
+            .where(
+                func.lower(User.email) == func.lower(email.strip()),
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None))
+            )
+            .order_by(User.is_active.desc(), User.created_at.desc())
             .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_user_by_phone(self, phone: str) -> User | None:
         """Return a user by phone number, if one exists."""
@@ -48,12 +52,19 @@ class AuthRepository:
         elif clean_digits.startswith("0") and len(clean_digits) == 11:
             clean_digits = clean_digits[1:]
 
+        from sqlalchemy import or_
+        from sqlalchemy.orm import selectinload
         result = await self.session.execute(
             select(User)
-            .where((User.phone == trimmed) | (User.phone == clean_digits))
+            .options(selectinload(User.company))
+            .where(
+                or_(User.phone == trimmed, User.phone == clean_digits),
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None))
+            )
+            .order_by(User.is_active.desc(), User.created_at.desc())
             .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_user_by_identifier(self, identifier: str) -> User | None:
         """Locate user by email OR phone number (excluding deleted users)."""
@@ -61,7 +72,7 @@ class AuthRepository:
         if not identifier:
             return None
         trimmed = str(identifier).strip()
-        from sqlalchemy import func
+        from sqlalchemy import func, or_
         from sqlalchemy.orm import selectinload
 
         clean_digits = trimmed
@@ -79,38 +90,17 @@ class AuthRepository:
             select(User)
             .options(selectinload(User.company))
             .where(
-                (
-                    (func.lower(User.email) == func.lower(trimmed)) |
-                    (User.phone == trimmed) |
-                    (User.phone == clean_digits)
-                ) &
-                (User.is_deleted == False)
+                or_(
+                    func.lower(User.email) == func.lower(trimmed),
+                    User.phone == trimmed,
+                    User.phone == clean_digits,
+                ),
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None))
             )
+            .order_by(User.is_active.desc(), User.created_at.desc())
             .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
-
-    async def create_user(
-        self,
-        *,
-        name: str,
-        email: str,
-        phone: str,
-        password_hash: str,
-    ) -> User:
-        """Create an inactive user record."""
-
-        user = User(
-            name=name,
-            email=email,
-            phone=phone,
-            password_hash=password_hash,
-            is_active=False,
-            is_verified=False,
-        )
-        self.session.add(user)
-        await self.session.flush()
-        return user
+        return result.scalars().first()
 
     async def update_user_verification(self, user_id: uuid.UUID) -> None:
         """Update user verification status to active and verified."""
@@ -259,8 +249,9 @@ class AuthRepository:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,
             )
+            .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def revoke_refresh_token(self, token_id: uuid.UUID) -> None:
         """Revoke a specific refresh token."""
@@ -297,10 +288,11 @@ class AuthRepository:
             .options(selectinload(User.company))
             .where(
                 User.id == user_id,
-                User.is_deleted == False,
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
             )
+            .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_user_by_email_excluding(self, email: str, exclude_id: uuid.UUID) -> "User | None":
         """Check for duplicate email, ignoring the requesting user's own record."""
@@ -312,10 +304,11 @@ class AuthRepository:
             select(User).where(
                 func.lower(User.email) == func.lower(email.strip()),
                 User.id != exclude_id,
-                User.is_deleted == False,
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
             )
+            .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_user_by_phone_excluding(self, phone: str, exclude_id: uuid.UUID) -> "User | None":
         """Check for duplicate phone, ignoring the requesting user's own record."""
@@ -326,10 +319,11 @@ class AuthRepository:
             select(User).where(
                 User.phone == phone.strip(),
                 User.id != exclude_id,
-                User.is_deleted == False,
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
             )
+            .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def update_user_pending_email(self, user_id: uuid.UUID, pending_email: str) -> None:
         """Store the unverified new email address temporarily during change-email flow."""
@@ -461,8 +455,9 @@ class AuthRepository:
             select(PasswordResetToken)
             .options(selectinload(PasswordResetToken.user))
             .where(PasswordResetToken.hashed_token == hashed_token)
+            .execution_options(bypass_tenant=True)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def mark_password_reset_token_used(self, token_id: uuid.UUID) -> None:
         """Mark a password reset token as used."""
