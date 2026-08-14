@@ -326,7 +326,21 @@ from app.models.connect import (
     ConnectUserSoundSettings,
 )
 
+# Helpdesk module models
+from app.models.helpdesk import (
+    HelpdeskTicket,
+    HelpdeskComment,
+    HelpdeskInternalNote,
+    HelpdeskAttachment,
+    HelpdeskFAQ,
+)
+
 __all__ = [
+    "HelpdeskTicket",
+    "HelpdeskComment",
+    "HelpdeskInternalNote",
+    "HelpdeskAttachment",
+    "HelpdeskFAQ",
     "ConnectConversation",
     "ConnectConversationParticipant",
     "ConnectChannel",

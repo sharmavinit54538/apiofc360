@@ -99,6 +99,7 @@ from app.api.v2.enterprise_intelligence_apis import workforce_router, talent_rou
 from app.api.global_notifications import router as global_notifications_router
 from app.api.generate_api import router as generate_router
 from app.api.connect import router as connect_router
+from app.api.helpdesk import router as helpdesk_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -472,6 +473,7 @@ def create_app() -> FastAPI:
     app.include_router(ats_router, prefix=settings.API_V1_PREFIX)
     app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
     app.include_router(connect_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
 
     # ── API v2 routers ─────────────────────────────────────────────────────────
     app.include_router(doc_intel_router, prefix="/api/v2")
