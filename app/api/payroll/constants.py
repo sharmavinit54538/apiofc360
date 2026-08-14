@@ -5,9 +5,9 @@ from __future__ import annotations
 _JOB_STORE: dict[str, dict] = {}
 
 # Role groupings
-ADMIN_ROLES = ("super_admin", "hr_admin", "it_admin", "executive")
+ADMIN_ROLES = ("super_admin", "hr_admin")
 ADMIN_OR_MANAGER_ROLES = (
-    "super_admin", "hr_admin", "it_admin", "executive", "manager"
+    "super_admin", "hr_admin", "executive", "manager"
 )
 
 

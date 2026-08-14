@@ -21,20 +21,20 @@ from app.services.department_service import DepartmentService, get_department_se
 
 router = APIRouter(prefix="/departments", tags=["Department Management"])
 
-# Helper dependency to enforce Admin or HR for write operations
+# Helper dependency to enforce Admin, HR, or IT Admin for write operations
 async def require_admin_or_hr(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = str(claims.get("role") or "").lower()
-    if role not in {"super_admin", "hr_admin"}:
+    if role not in {"super_admin", "hr_admin", "it_admin"}:
         from app.core.exceptions import AppException
-        raise AppException(message="Only Super Admin and HR Admin can manage departments.", status_code=status.HTTP_403_FORBIDDEN)
+        raise AppException(message="Only Super Admin, HR Admin and IT Admin can manage departments.", status_code=status.HTTP_403_FORBIDDEN)
     return claims
 
 
 async def require_admin_or_hr_or_manager(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = str(claims.get("role") or "").lower()
-    if role not in {"super_admin", "hr_admin", "manager", "executive"}:
+    if role not in {"super_admin", "hr_admin", "manager", "executive", "it_admin"}:
         from app.core.exceptions import AppException
-        raise AppException(message="Admin, HR or Executive access required.", status_code=status.HTTP_403_FORBIDDEN)
+        raise AppException(message="Admin, HR, IT Admin or Executive access required.", status_code=status.HTTP_403_FORBIDDEN)
     return claims
 
 
