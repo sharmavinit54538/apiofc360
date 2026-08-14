@@ -253,31 +253,6 @@ class EmployeeService:
             else:
                 employee_id = await generate_employee_id(self.session)
 
-            # Check singleton roles uniqueness
-            role_lower = payload.role.strip().lower()
-            SINGLETON_ROLES = {"ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-            if role_lower in SINGLETON_ROLES:
-                from sqlalchemy import select, func
-                from app.models.employee import Employee
-                stmt = select(func.count()).select_from(Employee).where(
-                    Employee.company_id == company_id,
-                    Employee.role == role_lower,
-                    Employee.is_active == True,
-                    Employee.is_deleted == False,
-                )
-                res = await self.session.execute(stmt)
-                count = res.scalar() or 0
-                if count >= 1:
-                    ROLE_LABELS = {
-                        "ceo": "CEO", "cfo": "CFO", "cto": "CTO", "coo": "COO",
-                        "cmo": "CMO", "clo": "CLO / Legal Head", "ciso": "CISO", "cio": "CIO"
-                    }
-                    role_label = ROLE_LABELS.get(role_lower, role_lower.upper())
-                    raise ConflictException(
-                        message=f"{role_label} already exists for this organization. Edit or deactivate the existing record first.",
-                        field="role",
-                        errors=[{"field": "role", "message": f"{role_label} already exists for this organization. Edit or deactivate the existing record first."}],
-                    )
 
             if payload.reporting_manager_id:
                 if not await self._resolve_reporting_manager(payload.reporting_manager_id, company_id):
@@ -604,34 +579,6 @@ class EmployeeService:
                             errors=[{"field": "employee_id", "message": "Employee ID already in use."}],
                         )
 
-            # Check singleton roles uniqueness for updates
-            role_to_check = update_data.get("role")
-            if role_to_check:
-                role_lower = str(role_to_check).strip().lower()
-                SINGLETON_ROLES = {"ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-                if role_lower in SINGLETON_ROLES:
-                    from sqlalchemy import select, func
-                    from app.models.employee import Employee
-                    stmt = select(func.count()).select_from(Employee).where(
-                        Employee.company_id == company_id,
-                        Employee.role == role_lower,
-                        Employee.is_active == True,
-                        Employee.is_deleted == False,
-                        Employee.id != employee_uuid,
-                    )
-                    res = await self.session.execute(stmt)
-                    count = res.scalar() or 0
-                    if count >= 1:
-                        ROLE_LABELS = {
-                            "ceo": "CEO", "cfo": "CFO", "cto": "CTO", "coo": "COO",
-                            "cmo": "CMO", "clo": "CLO / Legal Head", "ciso": "CISO", "cio": "CIO"
-                        }
-                        role_label = ROLE_LABELS.get(role_lower, role_lower.upper())
-                        raise ConflictException(
-                            message=f"{role_label} already exists for this organization. Edit or deactivate the existing record first.",
-                            field="role",
-                            errors=[{"field": "role", "message": f"{role_label} already exists for this organization. Edit or deactivate the existing record first."}],
-                        )
 
             # Merge role_metadata (don't replace, merge keys)
             if "role_metadata" in update_data and update_data["role_metadata"] is not None:
@@ -1035,32 +982,6 @@ class EmployeeService:
 
             employee = await self._require_employee_in_company(employee_uuid, company_id)
 
-            # Check singleton roles uniqueness before activation
-            role_lower = (employee.role or "").strip().lower()
-            SINGLETON_ROLES = {"ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-            if role_lower in SINGLETON_ROLES:
-                from sqlalchemy import func
-                from app.models.employee import Employee
-                stmt = select(func.count()).select_from(Employee).where(
-                    Employee.company_id == company_id,
-                    Employee.role == role_lower,
-                    Employee.is_active == True,
-                    Employee.is_deleted == False,
-                    Employee.id != employee_uuid,
-                )
-                res = await self.session.execute(stmt)
-                count = res.scalar() or 0
-                if count >= 1:
-                    ROLE_LABELS = {
-                        "ceo": "CEO", "cfo": "CFO", "cto": "CTO", "coo": "COO",
-                        "cmo": "CMO", "clo": "CLO / Legal Head", "ciso": "CISO", "cio": "CIO"
-                    }
-                    role_label = ROLE_LABELS.get(role_lower, role_lower.upper())
-                    raise ConflictException(
-                        message=f"Cannot activate because another active {role_label} already exists for this organization. Deactivate the existing record first.",
-                        field="role",
-                        errors=[{"field": "role", "message": f"Cannot activate because another active {role_label} already exists."}],
-                    )
 
             employee.is_active = True
             employee.deactivated_at = None

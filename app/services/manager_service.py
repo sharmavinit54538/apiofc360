@@ -710,8 +710,7 @@ class ManagerService:
 
             # Create active user
             logger.info("activate_onboarding_manager: creating user | manager_id=%s", manager.manager_id)
-            from app.models.user import UserRole
-            db_role = UserRole.MANAGER if manager.role == "manager" else UserRole.ADMIN if manager.role == "admin" else UserRole.MANAGER
+            db_role = getattr(UserRole, manager.role.upper(), UserRole.MANAGER) if hasattr(UserRole, manager.role.upper()) else UserRole.MANAGER
             user = User(
                 company_id=manager.company_id,
                 name=f"{manager.first_name} {manager.last_name}".strip(),

@@ -27,5 +27,10 @@ class User(
         Index("ix_users_phone", "phone", unique=True),
     )
 
+    @property
+    def is_super_admin(self) -> bool:
+        """Derived read-only property for backward compatibility; role is the single source of truth."""
+        return self.role == UserRole.SUPER_ADMIN or getattr(self.role, "value", str(self.role)) == "super_admin"
+
 
 __all__ = ["User", "UserRole"]

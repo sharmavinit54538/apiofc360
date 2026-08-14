@@ -28,7 +28,7 @@ from app.services.recruitment_service import RecruitmentService, get_recruitment
 # Helper dependency to enforce Recruiter or HR or Admin
 async def require_recruiter_or_higher(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = claims.get("role", "").lower()
-    if role not in {"admin", "hr", "recruiter", "super_admin", "hr_manager"}:
+    if role not in {"super_admin", "hr_admin", "manager"}:
         from app.core.exceptions import AppException
         raise AppException(message="Access denied. Recruiter, HR or Admin permission required.", status_code=status.HTTP_403_FORBIDDEN)
     return claims

@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, File, UploadFile, Response, status, Request
 
 from app.core.exceptions import AppException
-from app.core.rbac import require_admin, require_admin_or_manager
+from app.core.rbac import require_admin, require_admin_or_manager, ADMIN_MANAGER_ROLES
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.employee import (
@@ -242,8 +242,7 @@ async def get_employee(
     user_id = uuid.UUID(claims["sub"])
     company_id = _get_company_id(claims)
 
-    allowed_roles = {"admin", "manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-    if user_role not in allowed_roles:
+    if user_role not in ADMIN_MANAGER_ROLES:
         # Employees may only view their own profile (within same company)
         employee = await service.get_employee(id, company_id)
         if employee.user_id != user_id:
@@ -539,8 +538,7 @@ async def get_onboarding_status(
     user_id = uuid.UUID(claims["sub"])
     company_id = _get_company_id(claims)
 
-    allowed_roles = {"admin", "manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
-    if user_role not in allowed_roles:
+    if user_role not in ADMIN_MANAGER_ROLES:
         employee = await service.get_employee(id, company_id)
         if employee.user_id != user_id:
             raise AppException(

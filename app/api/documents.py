@@ -76,7 +76,7 @@ async def list_categories(
 # Helper dependency to enforce Manager, HR or Admin role
 async def require_manager_or_hr_or_admin(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = claims.get("role")
-    if role not in {"admin", "hr", "manager", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}:
+    if role not in {"super_admin", "hr_admin", "manager", "executive"}:
         from app.core.exceptions import AppException
         raise AppException(message="Access denied.", status_code=status.HTTP_403_FORBIDDEN)
     return claims
@@ -152,7 +152,7 @@ async def list_employee_documents(
     role = (claims.get("role") or "").lower()
     user_id = uuid.UUID(claims["sub"])
     
-    allowed_exec_roles = {"admin", "hr", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio", "manager"}
+    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
     if role not in allowed_exec_roles:
         # Fetch current user's employee profile
         from app.repositories.employee_repository import EmployeeRepository
@@ -198,7 +198,7 @@ async def get_employee_document(
     
     # Check permissions
     role = claims.get("role")
-    allowed_exec_roles = {"admin", "hr", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
     if role not in allowed_exec_roles:
         from app.repositories.employee_repository import EmployeeRepository
         emp_repo = EmployeeRepository(service.session)
@@ -231,7 +231,7 @@ async def download_employee_document(
     
     # Enforce permissions
     role = claims.get("role")
-    allowed_exec_roles = {"admin", "hr", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
     if role not in allowed_exec_roles:
         from app.repositories.employee_repository import EmployeeRepository
         emp_repo = EmployeeRepository(service.session)

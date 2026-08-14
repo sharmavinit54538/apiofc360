@@ -17,7 +17,7 @@ EMPLOYEE_STATUS_VALUES = {
     "LEAVE_OF_ABSENCE", "ON_LEAVE", "ONBOARDING", "PENDING", "CONFIRMED",
 }
 ONBOARDING_STEP_STATUS_VALUES = {"PENDING", "SUBMITTED", "VERIFIED", "REJECTED"}
-ROLE_VALUES = {"employee", "manager", "admin", "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"}
+ROLE_VALUES = {"super_admin", "hr_admin", "manager", "employee", "executive", "it_admin"}
 
 VERIFICATION_STATUS_VALUES = {
     "PENDING_ADMIN_CREATED", "PENDING_SELF_ONBOARDING", "VERIFIED", "CERTIFIED",
@@ -25,33 +25,13 @@ VERIFICATION_STATUS_VALUES = {
 
 # Allowed metadata keys per role (used for validation in schema)
 ROLE_METADATA_KEYS: dict[str, set[str]] = {
-    "employee": set(),
-    "admin": set(),
+    "super_admin": set(),
+    "hr_admin": set(),
     "manager": {
         "budget_authority_limit", "approval_levels",
     },
-    "ceo": {
-        "board_reporting", "signing_authority", "equity_percentage",
-    },
-    "cfo": {
-        "signing_authority", "financial_systems_access", "audit_committee_member",
-    },
-    "cto": {
-        "tech_stack_oversight", "infra_access_level", "production_deploy_access",
-    },
-    "coo": {
-        "operational_units_managed", "vendor_approval_limit",
-    },
-    "cmo": {
-        "marketing_budget_authority", "brand_approval_rights",
-    },
-    "clo": {
-        "bar_council_number", "legal_jurisdiction", "contract_signing_authority",
-    },
-    "ciso": {
-        "security_clearance_level", "incident_response_authority", "access_to_prod_secrets",
-    },
-    "cio": {
-        "it_infra_ownership", "data_governance_authority", "system_admin_access",
-    },
+    "employee": set(),
+    "executive": set(),
+    "it_admin": set(),
 }
+

@@ -27,14 +27,14 @@ Claims = Annotated[dict, Depends(get_current_user_claims)]
 
 
 def _require_admin_or_manager(claims: dict) -> None:
-    if claims.get("role") not in ("admin", "manager", "hr", "hr_admin", "payroll_admin", "finance",
-                                   "ceo", "cfo", "cto", "coo", "cmo", "clo", "ciso", "cio"):
+    if claims.get("role") not in ("super_admin", "hr_admin", "manager"):
         raise BadRequestException("Admin or Manager role required.")
 
 
 def _require_admin(claims: dict) -> None:
-    if claims.get("role") not in ("admin", "hr", "hr_admin", "payroll_admin", "finance", "ceo", "cfo"):
+    if claims.get("role") not in ("super_admin", "hr_admin"):
         raise BadRequestException("Admin role required.")
+
 
 
 @router.get("/profile/{employee_id}", response_model=APIResponse[dict], summary="Get employee tax profile")

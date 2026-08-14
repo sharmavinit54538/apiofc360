@@ -214,7 +214,7 @@ async def hr_copilot_stats(
     """Dashboard aggregator overview for HR managers."""
     # Strict RBAC verification check
     role = claims.get("role", "employee") if claims else "employee"
-    if role not in ("hr", "admin", "manager"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="RBAC authorization failed. Access restricted to HR administrators."

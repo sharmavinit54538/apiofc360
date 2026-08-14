@@ -214,7 +214,7 @@ async def get_super_admin_organization_detail(
                     "id": str(u.id),
                     "name": u.name,
                     "email": u.email,
-                    "role": "super_admin" if getattr(u, "is_super_admin", False) else str(u.role),
+                    "role": u.role.value if hasattr(u.role, "value") else str(u.role),
                     "is_active": getattr(u, "is_active", True),
                     "last_login_at": datetime.now(timezone.utc).isoformat(),
                 }
@@ -259,7 +259,7 @@ async def get_super_admin_users(db: AsyncSession = Depends(get_db_session)) -> l
                 "name": u.name,
                 "email": u.email,
                 "phone": u.phone,
-                "role": "super_admin" if getattr(u, "is_super_admin", False) else str(u.role),
+                "role": u.role.value if hasattr(u.role, "value") else str(u.role),
                 "company_name": u.company.name if getattr(u, "company", None) else "Global",
                 "is_active": getattr(u, "is_active", True),
                 "is_verified": getattr(u, "is_verified", True),

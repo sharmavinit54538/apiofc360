@@ -128,7 +128,7 @@ async def get_pending(
     db: Any = Depends(get_db_session)
 ) -> APIResponse[list[TimesheetResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("admin", "manager", "super_admin"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
     
     service = TimesheetService(db)
@@ -153,7 +153,7 @@ async def review_timesheet(
     db: Any = Depends(get_db_session)
 ) -> APIResponse[TimesheetResponse]:
     role = claims.get("role", "").lower()
-    if role not in ("admin", "manager", "super_admin"):
+    if role not in ("super_admin", "hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
     
     user_id = uuid.UUID(claims["sub"])

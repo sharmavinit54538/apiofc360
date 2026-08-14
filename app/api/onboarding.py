@@ -1018,12 +1018,7 @@ async def activate_onboarding_employee(
     # Create active user
     from app.models.user import UserRole
     logger.info("activate_onboarding: creating user | employee_id=%s", employee.employee_id)
-    db_role = (
-        UserRole.EMPLOYEE if employee.role == "employee"
-        else UserRole.MANAGER if employee.role == "manager"
-        else UserRole.ADMIN if employee.role == "admin"
-        else UserRole.EMPLOYEE
-    )
+    db_role = getattr(UserRole, (employee.role or "").upper(), UserRole.EMPLOYEE) if hasattr(UserRole, (employee.role or "").upper()) else UserRole.EMPLOYEE
     user = User(
         company_id=employee.company_id,
         name=f"{employee.first_name} {employee.last_name}".strip(),

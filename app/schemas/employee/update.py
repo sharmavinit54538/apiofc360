@@ -16,9 +16,10 @@ from app.schemas.employee.experience import EmployeeExperienceCreate
 from app.schemas.employee.skill import EmployeeSkillCreate
 from app.schemas.employee.emergency import EmployeeEmergencyContactCreate
 from app.schemas.employee.bank import EmployeeBankAccountCreate
+from app.schemas.employee.validators import EmployeeValidatorsMixin
 
 
-class EmployeeUpdate(BaseModel):
+class EmployeeUpdate(EmployeeValidatorsMixin, BaseModel):
     """Partial update payload — all fields optional."""
 
     first_name: str | None = Field(None, min_length=1, max_length=100)
@@ -45,13 +46,13 @@ class EmployeeUpdate(BaseModel):
     shift: str | None = None
     employee_capacity: int | None = None
     cost_center_id: str | None = None
-    ctc: Decimal | None = None
-    basic_salary: Decimal | None = None
-    hra: Decimal | None = None
-    bonus: Decimal | None = None
-    pf: Decimal | None = None
-    esi: Decimal | None = None
-    professional_tax: Decimal | None = None
+    ctc: Decimal | None = Field(None, ge=0)
+    basic_salary: Decimal | None = Field(None, ge=0)
+    hra: Decimal | None = Field(None, ge=0)
+    bonus: Decimal | None = Field(None, ge=0)
+    pf: Decimal | None = Field(None, ge=0)
+    esi: Decimal | None = Field(None, ge=0)
+    professional_tax: Decimal | None = Field(None, ge=0)
     role: str | None = None
     leave_group: str | None = None
 
