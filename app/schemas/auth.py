@@ -28,7 +28,7 @@ class APIResponse(BaseModel, Generic[DataT]):
 
 
 class RegisterRequest(BaseModel):
-    """Register API request payload."""
+    """Register API request payload for new organization and HR Admin."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -41,8 +41,13 @@ class RegisterRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def preprocess_register_payload(cls, data: Any) -> Any:
-        """Support field aliases (phone_number, contact_number, mobile) and name components (first_name, last_name, full_name)."""
+        """Support field aliases (phone_number, contact_number, mobile) and name components (first_name, last_name, full_name). Strips any client-provided role."""
         if isinstance(data, dict):
+            # SECURITY: Strip/ignore any client-provided role
+            data.pop("role", None)
+            data.pop("user_role", None)
+            data.pop("is_super_admin", None)
+
             # Normalize phone field alias if phone not provided
             if not data.get("phone"):
                 if data.get("phone_number"):
@@ -121,6 +126,8 @@ class UserPublic(BaseModel):
     phone: str
     role: str
     is_verified: bool
+    email_verified: bool = False
+    account_status: str = "PENDING_EMAIL_VERIFICATION"
     created_at: datetime
 
 
@@ -129,26 +136,41 @@ class RegisterResponse(APIResponse[None]):
 
 
 class VerifyEmailRequest(BaseModel):
-    """Verify Email API request payload."""
+    """Verify Email API request payload supporting token or email + OTP."""
 
-    email: EmailStr
-    otp: str = Field(..., min_length=6, max_length=6, examples=["384921"])
+    model_config = ConfigDict(extra="ignore")
+
+    token: str | None = Field(default=None, description="Secure email verification token from email link")
+    email: EmailStr | None = Field(default=None, description="User email for OTP verification")
+    otp: str | None = Field(default=None, description="6-digit OTP code")
 
     @field_validator("email", mode="before")
     @classmethod
-    def normalize_email_field(cls, value: str) -> str:
+    def normalize_email_field(cls, value: str | None) -> str | None:
         """Lowercase and trim email before RFC validation."""
-
+        if value is None:
+            return None
         return normalize_email(value)
 
     @field_validator("otp")
     @classmethod
-    def validate_otp_field(cls, value: str) -> str:
+    def validate_otp_field(cls, value: str | None) -> str | None:
         """Validate OTP characters."""
-
-        if not value.isdigit():
+        if value is None:
+            return None
+        clean_otp = value.strip()
+        if not clean_otp.isdigit():
             raise ValueError("OTP must contain only digits.")
-        return value
+        if len(clean_otp) != 6:
+            raise ValueError("OTP must be exactly 6 digits.")
+        return clean_otp
+
+    @model_validator(mode="after")
+    def validate_token_or_otp(self) -> "VerifyEmailRequest":
+        """Ensure either token or (email and otp) is supplied."""
+        if not self.token and not (self.email and self.otp):
+            raise ValueError("Either verification token or email and 6-digit OTP is required.")
+        return self
 
 
 class VerifyEmailResponse(APIResponse[None]):
@@ -156,7 +178,7 @@ class VerifyEmailResponse(APIResponse[None]):
 
 
 class ResendOTPRequest(BaseModel):
-    """Resend OTP API request payload."""
+    """Resend verification email / OTP API request payload."""
 
     email: EmailStr
 
@@ -204,6 +226,8 @@ class UserLoginPublic(BaseModel):
     phone: str | None = None
     role: str
     is_verified: bool
+    email_verified: bool = True
+    account_status: str = "ACTIVE"
     must_change_password: bool = False
     onboarding_completed: bool = True
     company_id: UUID | None = None
@@ -320,6 +344,8 @@ class UserProfileData(BaseModel):
     role: str
     is_active: bool
     is_verified: bool
+    email_verified: bool = True
+    account_status: str = "ACTIVE"
     onboarding_completed: bool
     company_id: UUID | None = None
     company_name: str | None = None

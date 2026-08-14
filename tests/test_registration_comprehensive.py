@@ -166,7 +166,7 @@ async def test_auth_service_successful_registration_flow():
     company = companies[0]
     assert company.name == "EquinoxSphere"
 
-    # 2. Verify User was created
+    # 2. Verify User was created as HR_ADMIN (pending email verification)
     users = [obj for obj in added_objects if isinstance(obj, User)]
     assert len(users) == 1
     user = users[0]
@@ -174,7 +174,9 @@ async def test_auth_service_successful_registration_flow():
     assert user.name == "vinit sharma"
     assert user.email == "vinit.sharma@example.com"
     assert user.phone == "9999999999"
-    assert user.role == UserRole.SUPER_ADMIN
+    assert user.role == UserRole.HR_ADMIN
+    assert user.account_status == "PENDING_EMAIL_VERIFICATION"
+    assert user.email_verification_token is not None
     assert user.is_active is False
     assert user.is_verified is False
     assert verify_password("SecurePassword@123456", user.password_hash)
@@ -187,7 +189,7 @@ async def test_auth_service_successful_registration_flow():
     assert employee.user_id == user.id
     assert employee.first_name == "vinit"
     assert employee.last_name == "sharma"
-    assert employee.role == "super_admin"
+    assert employee.role == "hr_admin"
     assert employee.status == "ACTIVE"
 
     # 4. Verify Departments were created

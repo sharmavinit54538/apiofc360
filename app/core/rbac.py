@@ -20,10 +20,28 @@ ADMIN_ROLES = {ROLE_SUPER_ADMIN, ROLE_HR_ADMIN, ROLE_IT_ADMIN}
 ADMIN_MANAGER_ROLES = {ROLE_SUPER_ADMIN, ROLE_HR_ADMIN, ROLE_IT_ADMIN, ROLE_MANAGER}
 
 
+def require_hr_admin(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Allow users with hr_admin or super_admin roles."""
+    user_role = (claims.get("role") or "").lower().strip()
+    if user_role not in {ROLE_HR_ADMIN, ROLE_SUPER_ADMIN}:
+        logger.warning(
+            "RBAC: HR Admin access required | user_role=%s | user_id=%s",
+            claims.get("role"),
+            claims.get("sub"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="HR Admin access required.",
+        )
+    return claims
+
+
 def require_admin(
     claims: Annotated[dict, Depends(get_current_user_claims)],
 ) -> dict:
-    """Allow users with administrative rights (super_admin, hr_admin)."""
+    """Allow users with administrative rights (super_admin, hr_admin, it_admin)."""
     user_role = (claims.get("role") or "").lower().strip()
     if user_role not in ADMIN_ROLES:
         logger.warning(

@@ -94,6 +94,18 @@ async def verify_email(
 
 
 @router.post(
+    "/resend-verification",
+    status_code=status.HTTP_200_OK,
+    response_model=ResendOTPResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Resend failed"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"model": APIResponse[None], "description": "Too many requests"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+@router.post(
     "/resend-otp",
     status_code=status.HTTP_200_OK,
     response_model=ResendOTPResponse,
@@ -109,7 +121,7 @@ async def resend_otp(
     payload: ResendOTPRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> ResendOTPResponse:
-    """Request a new email verification OTP code."""
+    """Request a new email verification link and OTP code."""
 
     await auth_service.resend_otp(payload)
     return ResendOTPResponse(

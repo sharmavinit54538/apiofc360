@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 # Routers Import
 from app.api.auth import router as auth_router
+from app.api.hr_admin import router as hr_admin_router
 from app.api.employees import router as employees_router
 from app.api.managers import router as managers_router
 from app.api.exports import router as exports_router
@@ -483,6 +484,7 @@ def create_app() -> FastAPI:
     install_exception_handlers(app)
     # ── API v1 routers ─────────────────────────────────────────────────────────
     app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(hr_admin_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employees_router, prefix=settings.API_V1_PREFIX)
     app.include_router(managers_router, prefix=settings.API_V1_PREFIX)
     app.include_router(departments_router, prefix=settings.API_V1_PREFIX)

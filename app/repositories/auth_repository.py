@@ -102,8 +102,24 @@ class AuthRepository:
         )
         return result.scalars().first()
 
+    async def get_user_by_verification_token(self, token: str) -> User | None:
+        """Find user by email verification token."""
+        if not token:
+            return None
+        from sqlalchemy.orm import selectinload
+        result = await self.session.execute(
+            select(User)
+            .options(selectinload(User.company))
+            .where(
+                User.email_verification_token == token.strip(),
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+            )
+            .execution_options(bypass_tenant=True)
+        )
+        return result.scalars().first()
+
     async def update_user_verification(self, user_id: uuid.UUID) -> None:
-        """Update user verification status to active and verified."""
+        """Update user verification status to active and verified, setting account_status to ACTIVE."""
 
         await self.session.execute(
             update(User)
@@ -111,7 +127,25 @@ class AuthRepository:
             .values(
                 is_verified=True,
                 is_active=True,
+                account_status="ACTIVE",
                 email_verified_at=datetime.now(timezone.utc),
+                email_verification_token=None,
+                email_verification_expires_at=None,
+            )
+        )
+        await self.session.flush()
+
+    async def set_user_verification_token(
+        self, user_id: uuid.UUID, token: str | None, expires_at: datetime | None
+    ) -> None:
+        """Set or update email verification token and expiration."""
+
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                email_verification_token=token,
+                email_verification_expires_at=expires_at,
             )
         )
         await self.session.flush()
@@ -380,10 +414,14 @@ class AuthRepository:
         role: UserRole = UserRole.EMPLOYEE,
         is_active: bool = False,
         is_verified: bool = False,
+        account_status: str = "PENDING_EMAIL_VERIFICATION",
+        email_verification_token: str | None = None,
+        email_verification_expires_at: datetime | None = None,
+        created_by: uuid.UUID | None = None,
         must_change_password: bool = True,
         company_id: uuid.UUID | None = None,
     ) -> User:
-        """Create a new User record (used by employee creation flow)."""
+        """Create a new User record."""
 
         user = User(
             name=name,
@@ -393,6 +431,10 @@ class AuthRepository:
             role=role,
             is_active=is_active,
             is_verified=is_verified,
+            account_status=account_status,
+            email_verification_token=email_verification_token,
+            email_verification_expires_at=email_verification_expires_at,
+            created_by=created_by,
             must_change_password=must_change_password,
             company_id=company_id,
         )

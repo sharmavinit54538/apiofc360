@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Index
 
 from app.db.base import Base
-from app.models.user.role import UserRole
+from app.models.user.role import UserRole, UserAccountStatus
 from app.models.user.mixins.columns import UserBasicColumnsMixin
 from app.models.user.mixins.system import UserSystemColumnsMixin
 from app.models.user.mixins.meta import UserMetaColumnsMixin
@@ -33,4 +33,4 @@ class User(
         return self.role == UserRole.SUPER_ADMIN or getattr(self.role, "value", str(self.role)) == "super_admin"
 
 
-__all__ = ["User", "UserRole"]
+__all__ = ["User", "UserRole", "UserAccountStatus"]
