@@ -23,11 +23,13 @@ class AppException(Exception):
         *,
         message: str,
         status_code: int = status.HTTP_400_BAD_REQUEST,
+        code: str | None = None,
         errors: ErrorList | None = None,
         field: str | None = None,
     ) -> None:
         self.message = message
         self.status_code = status_code
+        self.code = code
         self.errors = errors
         self.field = field
         super().__init__(message)
@@ -36,24 +38,25 @@ class AppException(Exception):
 class ValidationException(AppException):
     """Business validation failure."""
 
-    def __init__(self, *, message: str = "Validation failed.", errors: ErrorList | None = None, field: str | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_400_BAD_REQUEST, errors=errors, field=field)
+    def __init__(self, *, message: str = "Validation failed.", code: str = "VALIDATION_FAILED", errors: ErrorList | None = None, field: str | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_400_BAD_REQUEST, code=code, errors=errors, field=field)
 
 
 class ConflictException(AppException):
     """Resource conflict failure."""
 
-    def __init__(self, *, message: str, errors: ErrorList | None = None, field: str | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_409_CONFLICT, errors=errors, field=field)
+    def __init__(self, *, message: str, code: str = "CONFLICT", errors: ErrorList | None = None, field: str | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_409_CONFLICT, code=code, errors=errors, field=field)
 
 
 class DatabaseException(AppException):
     """Database operation failure."""
 
-    def __init__(self, *, message: str = "Internal server error.") -> None:
+    def __init__(self, *, message: str = "Internal server error.", code: str = "DATABASE_ERROR") -> None:
         super().__init__(
             message=message,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code=code,
             errors=[{"field": None, "message": message}],
         )
 
@@ -61,29 +64,29 @@ class DatabaseException(AppException):
 class NotFoundException(AppException):
     """Resource not found failure."""
 
-    def __init__(self, message: str, errors: ErrorList | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND, errors=errors)
+    def __init__(self, message: str = "Resource not found.", code: str = "NOT_FOUND", errors: ErrorList | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND, code=code, errors=errors)
 
 
 class BadRequestException(AppException):
     """Bad request exception."""
 
-    def __init__(self, message: str, errors: ErrorList | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_400_BAD_REQUEST, errors=errors)
+    def __init__(self, message: str, code: str = "BAD_REQUEST", errors: ErrorList | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_400_BAD_REQUEST, code=code, errors=errors)
 
 
 class ForbiddenException(AppException):
     """Forbidden access failure."""
 
-    def __init__(self, message: str = "Access forbidden.", errors: ErrorList | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_403_FORBIDDEN, errors=errors)
+    def __init__(self, message: str = "Access forbidden.", code: str = "FORBIDDEN", errors: ErrorList | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_403_FORBIDDEN, code=code, errors=errors)
 
 
 class UnauthorizedException(AppException):
     """Authentication required failure."""
 
-    def __init__(self, message: str = "Authentication required.", errors: ErrorList | None = None) -> None:
-        super().__init__(message=message, status_code=status.HTTP_401_UNAUTHORIZED, errors=errors)
+    def __init__(self, message: str = "Authentication required.", code: str = "UNAUTHORIZED", errors: ErrorList | None = None) -> None:
+        super().__init__(message=message, status_code=status.HTTP_401_UNAUTHORIZED, code=code, errors=errors)
 
 
 def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
@@ -114,17 +117,21 @@ def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
 def error_response_content(
     *,
     message: str,
+    code: str | None = None,
     errors: ErrorList | None = None,
     field: str | None = None,
 ) -> dict[str, Any]:
     """Build a common error response payload."""
 
-    response_data = {
+    response_data: dict[str, Any] = {
         "success": False,
         "message": message,
         "data": None,
         "errors": errors or [{"field": field, "message": message}],
     }
+    if code is not None:
+        response_data["code"] = code
+        response_data["error"] = {"code": code, "message": message}
     if field is not None:
         response_data["field"] = field
     return response_data
@@ -153,6 +160,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
         content=jsonable_encoder(
             error_response_content(
                 message=exc.message,
+                code=getattr(exc, "code", None),
                 errors=exc.errors,
                 field=getattr(exc, "field", None),
             )

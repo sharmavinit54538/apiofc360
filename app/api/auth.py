@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request, status
 
-from app.middleware.auth import get_current_user_claims
+from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.schemas.auth import (
     APIResponse,
     ChangeEmailRequest,
@@ -94,6 +94,18 @@ async def verify_email(
 
 
 @router.post(
+    "/resend-verification",
+    status_code=status.HTTP_200_OK,
+    response_model=ResendOTPResponse,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Resend failed"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"model": APIResponse[None], "description": "Too many requests"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+@router.post(
     "/resend-otp",
     status_code=status.HTTP_200_OK,
     response_model=ResendOTPResponse,
@@ -109,7 +121,7 @@ async def resend_otp(
     payload: ResendOTPRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> ResendOTPResponse:
-    """Request a new email verification OTP code."""
+    """Request a new email verification link and OTP code."""
 
     await auth_service.resend_otp(payload)
     return ResendOTPResponse(
@@ -210,6 +222,8 @@ async def login(
         phone=user.phone or None,
         role=effective_role,
         is_verified=bool(user.is_verified),
+        email_verified=bool(user.is_verified),
+        account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
         must_change_password=bool(getattr(user, "must_change_password", False)),
         onboarding_completed=onboarding_completed,
         company_id=user.company_id,
@@ -285,6 +299,8 @@ async def google_auth(
         phone=user.phone or None,
         role=effective_role,
         is_verified=bool(user.is_verified),
+        email_verified=bool(user.is_verified),
+        account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
         must_change_password=bool(getattr(user, "must_change_password", False)),
         onboarding_completed=bool(getattr(user, "onboarding_completed", True)),
         company_id=user.company_id,
@@ -389,17 +405,17 @@ async def refresh(
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
     responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Unauthorized access"},
+        status.HTTP_200_OK: {"model": APIResponse[None], "description": "Logged out successfully"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
     },
 )
 async def logout(
     payload: RefreshTokenRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> APIResponse[None]:
-    """Revoke user session and blacklist access token."""
+    """Revoke user session and blacklist access token without failing if access token has expired."""
 
     # Extract raw access token from authorization header
     access_token = ""

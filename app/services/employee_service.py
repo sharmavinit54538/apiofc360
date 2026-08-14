@@ -225,6 +225,20 @@ class EmployeeService:
 
             # Check: personal_email unique globally
             personal_email = str(payload.personal_email).strip().lower()
+            if personal_email == "superadmin@ofc360.com":
+                raise ConflictException(
+                    message="The platform Super Admin email cannot be used for company employee records.",
+                    field="personal_email",
+                    errors=[{"field": "personal_email", "message": "Super Admin email reserved."}],
+                )
+
+            if payload.role and payload.role.strip().lower() == "super_admin":
+                raise AppException(
+                    message="Company employees cannot be assigned the Super Admin role.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    errors=[{"field": "role", "message": "Super Admin role cannot be assigned."}],
+                )
+
             if await self.repo.get_by_personal_email(personal_email):
                 raise ConflictException(
                     message="Email already exists.",
@@ -517,6 +531,14 @@ class EmployeeService:
                 if immutable_field in update_data:
                     del update_data[immutable_field]
 
+            if "role" in update_data and update_data["role"]:
+                if str(update_data["role"]).strip().lower() == "super_admin":
+                    raise AppException(
+                        message="Company employees cannot be assigned the Super Admin role.",
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        errors=[{"field": "role", "message": "Super Admin role cannot be assigned."}],
+                    )
+
             if "reporting_manager_id" in update_data:
                 rm_id = update_data["reporting_manager_id"]
                 if rm_id is not None:
@@ -537,6 +559,12 @@ class EmployeeService:
             # Verify uniqueness constraints before updating
             if "personal_email" in update_data and update_data["personal_email"] is not None:
                 personal_email = str(update_data["personal_email"]).strip().lower()
+                if personal_email == "superadmin@ofc360.com":
+                    raise ConflictException(
+                        message="The platform Super Admin email cannot be used for company employee records.",
+                        field="personal_email",
+                        errors=[{"field": "personal_email", "message": "Super Admin email reserved."}],
+                    )
                 if personal_email != (employee.personal_email or "").strip().lower():
                     existing = await self.repo.get_by_personal_email(personal_email)
                     if existing and existing.id != employee_uuid:

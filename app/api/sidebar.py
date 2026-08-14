@@ -138,13 +138,22 @@ async def get_sidebar_permissions(
     """Return permissions, enabled modules, and sidebar navigation menu items for the current user."""
     from app.core.cache import cache_get, cache_set
 
-    role = "super_admin"
+    role = "employee"
     try:
         claims = await get_current_user_claims(request=request, credentials=auth_credentials)
         if claims and isinstance(claims, dict):
-            role = claims.get("role", "super_admin")
+            raw_role = (claims.get("role") or "").lower().strip()
+            raw_email = (claims.get("email") or "").lower().strip()
+            if raw_role == "super_admin":
+                if raw_email == "superadmin@ofc360.com":
+                    role = "super_admin"
+                else:
+                    role = "employee"
+            else:
+                role = raw_role or "employee"
     except Exception as exc:
-        logger.debug("Unauthenticated sidebar permissions call, returning default super_admin permissions: %s", exc)
+        logger.debug("Unauthenticated sidebar permissions call, returning default employee permissions: %s", exc)
+        role = "employee"
 
     cache_key = f"sidebar_perms:{role}"
     cached_data = cache_get(cache_key)

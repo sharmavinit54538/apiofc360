@@ -3,7 +3,7 @@
 import re
 
 
-NAME_PATTERN = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)*$")
+NAME_PATTERN = re.compile(r"^[A-Za-z\s\.\'\-]+$")
 PHONE_PATTERN = re.compile(r"^[6-9]\d{9}$")
 BCRYPT_MAX_PASSWORD_BYTES = 72
 
@@ -36,16 +36,16 @@ def normalize_spaces(value: str) -> str:
 
 
 def validate_name(value: str) -> str:
-    """Validate and normalize a human name."""
+    """Validate and normalize a human name (supporting spaces, hyphens, apostrophes, and dots)."""
 
     value = ensure_string(value, "Name")
     normalized = normalize_spaces(value)
     if not normalized:
         raise ValueError("Name is required")
-    if not 3 <= len(normalized) <= 100:
-        raise ValueError("Name must be between 3 and 100 characters")
-    if not NAME_PATTERN.fullmatch(normalized):
-        raise ValueError("Name can contain only alphabets and spaces")
+    if not 2 <= len(normalized) <= 100:
+        raise ValueError("Name must be between 2 and 100 characters")
+    if not NAME_PATTERN.fullmatch(normalized) or not re.search(r"[A-Za-z]", normalized):
+        raise ValueError("Name can contain only alphabetic characters, spaces, hyphens, apostrophes, and dots")
     return normalized
 
 

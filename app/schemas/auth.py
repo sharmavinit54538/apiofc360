@@ -28,7 +28,7 @@ class APIResponse(BaseModel, Generic[DataT]):
 
 
 class RegisterRequest(BaseModel):
-    """Register API request payload."""
+    """Register API request payload for new organization and HR Admin."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -41,8 +41,23 @@ class RegisterRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def preprocess_register_payload(cls, data: Any) -> Any:
-        """Support field aliases (phone_number, contact_number, mobile) and name components (first_name, last_name, full_name)."""
+        """Support field aliases and strictly reject any attempts to inject SUPER_ADMIN role."""
         if isinstance(data, dict):
+            # SECURITY: Explicitly reject any attempts to register as SUPER_ADMIN or escalate roles
+            for role_key in ("role", "user_role", "userRole"):
+                val = str(data.get(role_key) or "").strip().lower()
+                if "super" in val or "super_admin" in val or "superadmin" in val:
+                    raise ValueError("Registration with the SUPER_ADMIN role is strictly prohibited.")
+            if data.get("is_super_admin") or data.get("isSuperAdmin"):
+                raise ValueError("Registration with Super Admin privileges is strictly prohibited.")
+
+            # Strip any client-provided role fields so registration is exclusively HR Admin
+            data.pop("role", None)
+            data.pop("user_role", None)
+            data.pop("userRole", None)
+            data.pop("is_super_admin", None)
+            data.pop("isSuperAdmin", None)
+
             # Normalize phone field alias if phone not provided
             if not data.get("phone"):
                 if data.get("phone_number"):
@@ -86,9 +101,12 @@ class RegisterRequest(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email_field(cls, value: str) -> str:
-        """Lowercase and trim email before RFC validation."""
+        """Lowercase and trim email before RFC validation; reject Super Admin email registration."""
 
-        return normalize_email(value)
+        normalized = normalize_email(value)
+        if normalized == "superadmin@ofc360.com":
+            raise ValueError("The platform Super Admin email cannot be registered via public registration.")
+        return normalized
 
     @field_validator("phone", mode="before")
     @classmethod
@@ -121,6 +139,8 @@ class UserPublic(BaseModel):
     phone: str
     role: str
     is_verified: bool
+    email_verified: bool = False
+    account_status: str = "PENDING_EMAIL_VERIFICATION"
     created_at: datetime
 
 
@@ -129,26 +149,41 @@ class RegisterResponse(APIResponse[None]):
 
 
 class VerifyEmailRequest(BaseModel):
-    """Verify Email API request payload."""
+    """Verify Email API request payload supporting token or email + OTP."""
 
-    email: EmailStr
-    otp: str = Field(..., min_length=6, max_length=6, examples=["384921"])
+    model_config = ConfigDict(extra="ignore")
+
+    token: str | None = Field(default=None, description="Secure email verification token from email link")
+    email: EmailStr | None = Field(default=None, description="User email for OTP verification")
+    otp: str | None = Field(default=None, description="6-digit OTP code")
 
     @field_validator("email", mode="before")
     @classmethod
-    def normalize_email_field(cls, value: str) -> str:
+    def normalize_email_field(cls, value: str | None) -> str | None:
         """Lowercase and trim email before RFC validation."""
-
+        if value is None:
+            return None
         return normalize_email(value)
 
     @field_validator("otp")
     @classmethod
-    def validate_otp_field(cls, value: str) -> str:
+    def validate_otp_field(cls, value: str | None) -> str | None:
         """Validate OTP characters."""
-
-        if not value.isdigit():
+        if value is None:
+            return None
+        clean_otp = value.strip()
+        if not clean_otp.isdigit():
             raise ValueError("OTP must contain only digits.")
-        return value
+        if len(clean_otp) != 6:
+            raise ValueError("OTP must be exactly 6 digits.")
+        return clean_otp
+
+    @model_validator(mode="after")
+    def validate_token_or_otp(self) -> "VerifyEmailRequest":
+        """Ensure either token or (email and otp) is supplied."""
+        if not self.token and not (self.email and self.otp):
+            raise ValueError("Either verification token or email and 6-digit OTP is required.")
+        return self
 
 
 class VerifyEmailResponse(APIResponse[None]):
@@ -156,7 +191,9 @@ class VerifyEmailResponse(APIResponse[None]):
 
 
 class ResendOTPRequest(BaseModel):
-    """Resend OTP API request payload."""
+    """Resend verification email / OTP API request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
 
@@ -175,6 +212,8 @@ class ResendOTPResponse(APIResponse[None]):
 class LoginRequest(BaseModel):
     """Login API request payload."""
 
+    model_config = ConfigDict(extra="ignore")
+
     identifier: str = Field(..., examples=["john@example.com", "9876543210"])
     password: str = Field(..., examples=["Password@123"], repr=False)
 
@@ -192,11 +231,17 @@ class LoginRequest(BaseModel):
                     data["identifier"] = str(data["phone_number"])
                 elif data.get("contact_number"):
                     data["identifier"] = str(data["contact_number"])
+                elif data.get("mobile"):
+                    data["identifier"] = str(data["mobile"])
+                elif data.get("username"):
+                    data["identifier"] = str(data["username"])
         return data
 
 
 class UserLoginPublic(BaseModel):
     """Safe user fields returned inside login response."""
+
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     id: UUID
     name: str | None = "User"
@@ -204,6 +249,8 @@ class UserLoginPublic(BaseModel):
     phone: str | None = None
     role: str
     is_verified: bool
+    email_verified: bool = True
+    account_status: str = "ACTIVE"
     must_change_password: bool = False
     onboarding_completed: bool = True
     company_id: UUID | None = None
@@ -227,7 +274,21 @@ class LoginResponse(APIResponse[LoginResponseData]):
 class RefreshTokenRequest(BaseModel):
     """Refresh token rotation request payload."""
 
+    model_config = ConfigDict(extra="ignore")
+
     refresh_token: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_refresh_token(cls, data: Any) -> Any:
+        """Support camelCase 'refreshToken' or 'token' aliases."""
+        if isinstance(data, dict):
+            if not data.get("refresh_token"):
+                if data.get("refreshToken"):
+                    data["refresh_token"] = data["refreshToken"]
+                elif data.get("token"):
+                    data["refresh_token"] = data["token"]
+        return data
 
 
 class RefreshTokenResponseData(BaseModel):
@@ -246,6 +307,8 @@ class RefreshTokenResponse(APIResponse[RefreshTokenResponseData]):
 class ForgotPasswordRequest(BaseModel):
     """Forgot password request payload."""
 
+    model_config = ConfigDict(extra="ignore")
+
     email: EmailStr
 
     @field_validator("email", mode="before")
@@ -258,6 +321,8 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     """Reset password request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     token: str = Field(..., examples=["secure-reset-token"])
     password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
@@ -275,6 +340,8 @@ class ResetPasswordRequest(BaseModel):
 
 class VerifyResetOTPRequest(BaseModel):
     """Verify reset OTP request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
     otp: str = Field(..., min_length=6, max_length=6, examples=["123456"])
@@ -311,19 +378,21 @@ class VerifyResetOTPResponse(APIResponse[VerifyResetOTPResponseData]):
 class UserProfileData(BaseModel):
     """Full user profile returned by GET /me."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     id: UUID
-    name: str
+    name: str | None = "User"
     email: EmailStr
-    phone: str
+    phone: str | None = None
     role: str
-    is_active: bool
-    is_verified: bool
-    onboarding_completed: bool
+    is_active: bool = True
+    is_verified: bool = True
+    email_verified: bool = True
+    account_status: str = "ACTIVE"
+    onboarding_completed: bool = True
     company_id: UUID | None = None
     company_name: str | None = None
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class UserProfileResponse(APIResponse["UserProfileData"]):
@@ -332,6 +401,8 @@ class UserProfileResponse(APIResponse["UserProfileData"]):
 
 class ChangePasswordRequest(BaseModel):
     """PATCH /change-password request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     current_password: str = Field(..., examples=["OldPassword@123"], repr=False)
     new_password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
@@ -350,6 +421,8 @@ class ChangePasswordRequest(BaseModel):
 class ChangeEmailRequest(BaseModel):
     """PATCH /change-email request payload."""
 
+    model_config = ConfigDict(extra="ignore")
+
     new_email: EmailStr = Field(..., examples=["newemail@example.com"])
     password: str = Field(..., examples=["CurrentPassword@123"], repr=False)
 
@@ -363,6 +436,8 @@ class ChangeEmailRequest(BaseModel):
 
 class VerifyNewEmailRequest(BaseModel):
     """POST /verify-new-email request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     otp: str = Field(..., min_length=6, max_length=6, examples=["123456"])
 
@@ -378,6 +453,8 @@ class VerifyNewEmailRequest(BaseModel):
 
 class ChangePhoneRequest(BaseModel):
     """PATCH /change-phone request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     phone: str = Field(..., examples=["9876543210"])
     password: str = Field(..., examples=["CurrentPassword@123"], repr=False)
@@ -403,6 +480,8 @@ class ChangePhoneRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     """Google SSO Auth API request payload."""
+
+    model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
     name: str | None = None

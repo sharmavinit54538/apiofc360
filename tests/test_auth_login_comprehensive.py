@@ -54,6 +54,7 @@ async def test_auth_login_comprehensive_suite():
                 phone=f"99{user_id.int % 100000000:08d}",
                 password_hash=hash_password(raw_password),
                 role=UserRole.SUPER_ADMIN,
+                account_status="ACTIVE",
                 is_active=True,
                 is_verified=True,
                 onboarding_completed=False,

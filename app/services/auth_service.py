@@ -58,7 +58,7 @@ class AuthService:
         self.token_service = token_service
 
     async def register_user(self, payload: RegisterRequest) -> None:
-        """Register a new company and its Admin owner, who is activated immediately."""
+        """Register a new company and its HR Admin owner (pending email verification)."""
 
         import uuid
         from decimal import Decimal
@@ -66,12 +66,22 @@ class AuthService:
         from app.models.employee import Employee
         from app.models.department import Department
         from app.models.employee_leave_policy import EmployeeLeavePolicy
+        from app.models.user.role import UserRole, UserAccountStatus
         from app.utils.employee import generate_employee_id
 
         log_context = _registration_log_context(str(payload.email), payload.phone)
         try:
+            # Reject Super Admin email registration
+            clean_email = str(payload.email).strip().lower()
+            if clean_email == "superadmin@ofc360.com":
+                raise AppException(
+                    message="Registration with the Super Admin identity is prohibited.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    errors=[{"field": "email", "message": "Super Admin registration prohibited."}],
+                )
+
             # Check duplicate email
-            existing_email = await self.auth_repository.get_user_by_email(str(payload.email))
+            existing_email = await self.auth_repository.get_user_by_email(clean_email)
             if existing_email:
                 if existing_email.is_verified:
                     logger.info("Registration failed: email already exists", extra=log_context)
@@ -117,9 +127,13 @@ class AuthService:
             self.session.add(company)
             await self.session.flush()
 
-            # 2. Create the Admin user
+            # Generate secure verification token and OTP
+            verification_token = secrets.token_urlsafe(32)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+            otp_code = generate_otp()
+
+            # 2. Create the HR Admin user (FORCED to HR_ADMIN)
             password_hash = hash_password(payload.password)
-            from app.models.user import UserRole
             user = User(
                 id=uuid.uuid4(),
                 company_id=company.id,
@@ -127,7 +141,10 @@ class AuthService:
                 email=str(payload.email),
                 phone=payload.phone,
                 password_hash=password_hash,
-                role=UserRole.SUPER_ADMIN,
+                role=UserRole.HR_ADMIN,
+                account_status=UserAccountStatus.PENDING_EMAIL_VERIFICATION.value,
+                email_verification_token=verification_token,
+                email_verification_expires_at=expires_at,
                 is_active=False,
                 is_verified=False,
                 first_login=False,
@@ -135,7 +152,7 @@ class AuthService:
             self.session.add(user)
             await self.session.flush()
 
-            # 3. Create the Admin Employee record
+            # 3. Create the HR Admin Employee record
             employee_id_str = await generate_employee_id(self.session)
             first_name, _, last_name = payload.name.partition(" ")
             if not last_name:
@@ -151,10 +168,10 @@ class AuthService:
                 personal_email=str(payload.email),
                 company_email=str(payload.email),
                 phone=payload.phone,
-                role="super_admin",
+                role="hr_admin",
                 status="ACTIVE",
-                department="Management",
-                designation="Company Owner",
+                department="Human Resources",
+                designation="HR Administrator",
                 joining_date=datetime.now(timezone.utc).date(),
             )
             self.session.add(employee)
@@ -197,7 +214,7 @@ class AuthService:
             await self.session.flush()
 
             # Link employee to default department
-            employee.department_id = mgmt_dept.id
+            employee.department_id = hr_dept.id
 
             # 5. Create default leave policies
             sick_leave = EmployeeLeavePolicy(
@@ -222,17 +239,8 @@ class AuthService:
             )
             self.session.add(casual_leave)
 
-            # Log default system initializations
-            logger.info("Created default company settings for company_id=%s", company.id)
-            logger.info("Created default designations for company_id=%s", company.id)
-            logger.info("Created default attendance settings for company_id=%s", company.id)
-            logger.info("Created default roles and permissions for company_id=%s", company.id)
-
-            # Generate and store verification OTP
-            otp_code = generate_otp()
+            # Store verification OTP
             hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose="email_verification")
-            expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
-            
             await self.auth_repository.create_otp(
                 user_id=user.id,
                 otp_hash=hashed_otp,
@@ -251,7 +259,7 @@ class AuthService:
 
             await self.session.commit()
             await self.session.refresh(user)
-            logger.info("Registration succeeded, verification email sent", extra=log_context)
+            logger.info("Registration succeeded as HR_ADMIN, verification email sent", extra=log_context)
 
         except AppException:
             await self.session.rollback()
@@ -260,7 +268,7 @@ class AuthService:
             await self.session.rollback()
             logger.exception("Registration failed due to email sending failure", extra=log_context, exc_info=exc)
             raise AppException(
-                message="Failed to send OTP email.",
+                message="Failed to send verification email.",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 errors=[{"field": None, "message": str(exc)}],
             ) from exc
@@ -292,74 +300,111 @@ class AuthService:
             raise
 
     async def verify_email(self, payload: VerifyEmailRequest) -> None:
-        """Verify the user's email using the submitted OTP."""
+        """Verify the user's email using token or OTP and activate HR Admin account."""
 
-        user = await self.auth_repository.get_user_by_email(payload.email)
-        if not user:
-            raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
-
-        if user.is_verified:
-            raise AppException(message="Email already verified.", status_code=status.HTTP_400_BAD_REQUEST)
-
-        # Get latest unused OTP record
-        otp_record = await self.auth_repository.get_latest_otp(user.id, "email_verification")
-        if not otp_record:
-            raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
-
-        # Check expiry
         now = datetime.now(timezone.utc)
-        if now > otp_record.expires_at:
-            raise AppException(message="OTP has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+        user: User | None = None
 
-        # Verify hash
-        is_valid = verify_otp_hash(
-            otp=payload.otp,
-            otp_hash=otp_record.otp_hash,
-            user_id=user.id,
-            purpose="email_verification",
-        )
-
-        if not is_valid:
-            # Increment attempts
-            attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
-            if attempts >= settings.OTP_MAX_ATTEMPTS:
-                # Invalidate current OTP
-                await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
-                
-                # Generate a new OTP and send it
-                new_otp_code = generate_otp()
-                new_hashed_otp = hash_otp(otp=new_otp_code, user_id=user.id, purpose="email_verification")
-                new_expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
-                await self.auth_repository.create_otp(
-                    user_id=user.id,
-                    otp_hash=new_hashed_otp,
-                    purpose="email_verification",
-                    expires_at=new_expires_at,
-                )
-                await self.session.commit()
-
-                # Send email
-                await self.email_service.send_verification_email(
-                    email=user.email,
-                    name=user.name,
-                    otp=new_otp_code,
-                    expiry_minutes=settings.OTP_EXPIRE_MINUTES,
-                )
+        # Case 1: Token verification from email link
+        if payload.token:
+            user = await self.auth_repository.get_user_by_verification_token(payload.token)
+            if not user:
                 raise AppException(
-                    message="Too many wrong attempts. A new OTP has been sent to your email.",
+                    message="Invalid or expired verification token.",
                     status_code=status.HTTP_400_BAD_REQUEST,
+                    errors=[{"field": "token", "message": "Invalid or expired verification token."}]
                 )
-            
-            await self.session.commit()
-            raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+            if user.is_verified:
+                raise AppException(message="Email already verified.", status_code=status.HTTP_400_BAD_REQUEST)
+            if user.email_verification_expires_at:
+                exp = user.email_verification_expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if now > exp:
+                    raise AppException(
+                        message="Verification token has expired. Please request a new verification email.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        errors=[{"field": "token", "message": "Verification token has expired."}]
+                    )
+            # Invalidate any pending OTPs
+            await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
 
-        # Mark OTP as used and update user status to active and verified
-        await self.auth_repository.mark_otp_used(otp_record.id)
+        # Case 2: Email + 6-digit OTP verification
+        elif payload.email and payload.otp:
+            user = await self.auth_repository.get_user_by_email(str(payload.email))
+            if not user:
+                raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+            if user.is_verified:
+                raise AppException(message="Email already verified.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Get latest unused OTP record
+            otp_record = await self.auth_repository.get_latest_otp(user.id, "email_verification")
+            if not otp_record:
+                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Check expiry
+            if now > otp_record.expires_at:
+                raise AppException(message="OTP has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Verify hash
+            is_valid = verify_otp_hash(
+                otp=payload.otp,
+                otp_hash=otp_record.otp_hash,
+                user_id=user.id,
+                purpose="email_verification",
+            )
+
+            if not is_valid:
+                # Increment attempts
+                attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
+                if attempts >= settings.OTP_MAX_ATTEMPTS:
+                    # Invalidate current OTP
+                    await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
+                    
+                    # Generate a new OTP and token and send it
+                    new_otp_code = generate_otp()
+                    new_token = secrets.token_urlsafe(32)
+                    new_hashed_otp = hash_otp(otp=new_otp_code, user_id=user.id, purpose="email_verification")
+                    new_expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+                    await self.auth_repository.create_otp(
+                        user_id=user.id,
+                        otp_hash=new_hashed_otp,
+                        purpose="email_verification",
+                        expires_at=new_expires_at,
+                    )
+                    await self.auth_repository.set_user_verification_token(user.id, new_token, new_expires_at)
+                    await self.session.commit()
+
+                    # Send email
+                    await self.email_service.send_verification_email(
+                        email=user.email,
+                        name=user.name,
+                        otp=new_otp_code,
+                        expiry_minutes=settings.OTP_EXPIRE_MINUTES,
+                    )
+                    raise AppException(
+                        message="Too many wrong attempts. A new OTP has been sent to your email.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                
+                await self.session.commit()
+                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Mark OTP as used
+            await self.auth_repository.mark_otp_used(otp_record.id)
+        else:
+            raise AppException(message="Verification token or OTP is required.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Mark user as verified and active (account_status = ACTIVE)
         await self.auth_repository.update_user_verification(user.id)
         await self.session.commit()
 
         # Send Welcome email
-        await self.email_service.send_welcome_email(user.email, user.name)
+        try:
+            await self.email_service.send_welcome_email(user.email, user.name)
+        except Exception as mail_err:
+            logger.warning("Failed to send welcome email to %s: %s", user.email, mail_err)
 
     async def resend_otp(self, payload: ResendOTPRequest) -> None:
         """Invalidate previous OTPs and issue a new one, subject to rate-limiting."""
@@ -419,13 +464,14 @@ class AuthService:
             # Delete/invalidate any previous active OTP
             await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
 
-            # OTP Generation: secure random 6-digit OTP
+            # OTP & Token Generation: secure random 6-digit OTP and 32-byte urlsafe token
             new_otp_code = generate_otp()
-            logger.info("Resend OTP: OTP Generated | email=%s", email)
+            new_token = secrets.token_urlsafe(32)
+            logger.info("Resend OTP: OTP and Token Generated | email=%s", email)
 
             # OTP Hashing & storage with 5 minutes expiry
             hashed_otp = hash_otp(otp=new_otp_code, user_id=user.id, purpose="email_verification")
-            expires_at = now + timedelta(minutes=5)
+            expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
             await self.auth_repository.create_otp(
                 user_id=user.id,
@@ -433,7 +479,8 @@ class AuthService:
                 purpose="email_verification",
                 expires_at=expires_at,
             )
-            logger.info("Resend OTP: OTP Saved | email=%s", email)
+            await self.auth_repository.set_user_verification_token(user.id, new_token, expires_at)
+            logger.info("Resend OTP: OTP & Token Saved | email=%s", email)
 
             # Commit database transaction BEFORE sending email
             await self.session.commit()
@@ -456,8 +503,8 @@ class AuthService:
                 email=user.email,
                 name=user.name,
                 otp=new_otp_code,
-                expiry_minutes=5,
-                company_name=user.company.name if user.company else "Aurix HR",
+                expiry_minutes=settings.OTP_EXPIRE_MINUTES,
+                company_name=user.company.name if user.company else "OFC360",
             )
             logger.info("Resend OTP: Email Sent | email=%s", email)
         except RuntimeError as exc:
@@ -514,23 +561,38 @@ class AuthService:
             )
 
         # Verify email is verified
-        if not user.is_verified:
+        account_status_val = str(getattr(user, "account_status", "") or "").upper()
+        if not user.is_verified or account_status_val == "PENDING_EMAIL_VERIFICATION":
             logger.warning("Authentication failed: email not verified | user_id=%s | email=%s", user.id, user.email)
             raise AppException(
-                message="Invalid email or password.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                message="Email not verified. Please verify your email before logging in.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": "email", "message": "EMAIL_NOT_VERIFIED"}],
             )
 
         # Verify user is active
-        if not user.is_active:
+        if not user.is_active or account_status_val in ("SUSPENDED", "DEACTIVATED", "INVITED"):
             logger.warning("Authentication failed: inactive user | user_id=%s | email=%s", user.id, user.email)
             raise AppException(
-                message="Invalid email or password.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                message="Account is inactive or pending activation. Please contact your administrator.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": None, "message": "ACCOUNT_INACTIVE"}],
             )
 
         # Success - log audit details
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
+
+        # Enforce that only superadmin@ofc360.com can ever hold the SUPER_ADMIN role
+        user_role_str = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()
+        if user_role_str == "super_admin" and user.email.lower() != "superadmin@ofc360.com":
+            logger.warning(
+                "Security Alert: Non-authorized account %s has role super_admin in DB. Downgrading to employee.",
+                user.email,
+            )
+            from app.models.user.role import UserRole
+            user.role = UserRole.EMPLOYEE
+            self.session.add(user)
+            await self.session.commit()
 
         # Issue tokens
         effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
@@ -538,6 +600,7 @@ class AuthService:
             user_id=user.id,
             role=effective_role,
             company_id=user.company_id,
+            email=user.email,
             ip_address=ip_address,
             device=device,
         )
@@ -680,6 +743,7 @@ class AuthService:
             user_id=user.id,
             role=effective_role,
             company_id=user.company_id,
+            email=user.email,
             ip_address=ip_address,
             device=device,
         )

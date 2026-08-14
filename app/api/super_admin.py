@@ -6,46 +6,147 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rbac import require_super_admin
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/super-admin", tags=["Super Admin Owner Control Center"])
+router = APIRouter(
+    prefix="/super-admin",
+    tags=["Super Admin Platform Administration"],
+    dependencies=[Depends(require_super_admin)],
+)
 
 
+@router.get("/statistics")
 @router.get("/dashboard")
-async def get_super_admin_dashboard(db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
-    """Fetch SaaS Owner Control Center overview metrics, financials, and status distributions."""
-    total_orgs, active_orgs, total_users, total_employees = 1, 1, 1, 1
+async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
+    """Fetch platform-wide statistics, user breakdown across all roles, and status counts."""
+    total_orgs = 0
+    active_orgs = 0
+    total_users = 0
+    total_hr_admins = 0
+    total_employees = 0
+    total_managers = 0
+    total_executives = 0
+    total_it_admins = 0
+    total_super_admins = 0
+    active_users = 0
+    inactive_users = 0
+
     try:
-        total_orgs = (await db.execute(select(func.count(Company.id)))).scalar() or 1
-        active_orgs = (await db.execute(select(func.count(Company.id)).where(Company.onboarding_completed == True))).scalar() or 1
-        total_users = (await db.execute(select(func.count(User.id)))).scalar() or 1
-        total_employees = (await db.execute(select(func.count(Employee.id)))).scalar() or 1
+        # Organization counts
+        total_orgs = (await db.execute(select(func.count(Company.id)))).scalar() or 0
+        active_orgs = (
+            await db.execute(select(func.count(Company.id)).where(Company.onboarding_completed == True))
+        ).scalar() or 0
+
+        # User counts
+        total_users = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None))
+                )
+            )
+        ).scalar() or 0
+
+        total_hr_admins = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.HR_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        total_employees = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.EMPLOYEE,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        total_managers = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.MANAGER,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        total_executives = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.EXECUTIVE,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        total_it_admins = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.IT_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        total_super_admins = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == UserRole.SUPER_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        active_users = (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.is_active == True,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalar() or 0
+
+        inactive_users = max(0, total_users - active_users)
+
     except Exception as exc:
-        logger.warning("Error fetching counts for super admin dashboard: %s", exc)
+        logger.warning("Error fetching counts for super admin statistics: %s", exc)
 
     kpis = {
-        "total_organizations": max(total_orgs, 1),
-        "active_organizations": max(active_orgs, 1),
-        "paid_organizations": max(active_orgs, 1),
+        "total_organizations": total_orgs,
+        "active_organizations": active_orgs,
+        "total_users": total_users,
+        "total_hr_admins": total_hr_admins,
+        "total_employees": total_employees,
+        "total_managers": total_managers,
+        "total_executives": total_executives,
+        "total_it_admins": total_it_admins,
+        "total_super_admins": total_super_admins,
+        "active_users": active_users,
+        "inactive_users": inactive_users,
+        "paid_organizations": active_orgs,
         "complimentary_organizations": 0,
         "free_organizations": 0,
         "trial_organizations": 0,
         "suspended_organizations": 0,
         "expired_organizations": 0,
-        "total_users": max(total_users, 1),
-        "total_employees": max(total_employees, 1),
-        "dau": max(int(total_users * 0.7), 1),
-        "mau": max(total_users, 1),
+        "total_employees_count": total_employees,
+        "dau": max(int(total_users * 0.7), 0),
+        "mau": total_users,
     }
 
     financials = {
@@ -66,9 +167,8 @@ async def get_super_admin_dashboard(db: AsyncSession = Depends(get_db_session)) 
             {"month": "Jun", "revenue": 14400},
         ],
         "status_distribution": [
-            {"name": "Active", "value": max(active_orgs, 1), "color": "#10b981"},
-            {"name": "Trial", "value": 0, "color": "#f59e0b"},
-            {"name": "Suspended", "value": 0, "color": "#ef4444"},
+            {"name": "Active", "value": active_users, "color": "#10b981"},
+            {"name": "Inactive", "value": inactive_users, "color": "#ef4444"},
         ],
     }
 
@@ -90,17 +190,44 @@ async def get_super_admin_organizations(
     """Get all onboarded organizations summary list."""
     try:
         stmt = select(Company)
+        if search:
+            stmt = stmt.where(Company.name.ilike(f"%{search.strip()}%"))
         res = await db.execute(stmt)
         companies = res.scalars().all()
 
         items = []
         for c in companies:
             try:
-                user_cnt = (await db.execute(select(func.count(User.id)).where(User.company_id == c.id))).scalar() or 0
-                emp_cnt = (await db.execute(select(func.count(Employee.id)).where(Employee.company_id == c.id))).scalar() or 0
+                user_cnt = (
+                    await db.execute(
+                        select(func.count(User.id)).where(
+                            User.company_id == c.id,
+                            (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                        )
+                    )
+                ).scalar() or 0
+                emp_cnt = (
+                    await db.execute(
+                        select(func.count(Employee.id)).where(
+                            Employee.company_id == c.id,
+                            (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+                        )
+                    )
+                ).scalar() or 0
                 
-                owner_stmt = select(User).where(User.company_id == c.id)
+                # Fetch HR Admin owner
+                owner_stmt = select(User).where(
+                    User.company_id == c.id,
+                    User.role == UserRole.HR_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
                 owner = (await db.execute(owner_stmt)).scalars().first()
+                if not owner:
+                    owner_stmt = select(User).where(
+                        User.company_id == c.id,
+                        (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                    )
+                    owner = (await db.execute(owner_stmt)).scalars().first()
 
                 created_iso = datetime.now(timezone.utc).isoformat()
                 if hasattr(c, "created_at") and c.created_at:
@@ -113,8 +240,8 @@ async def get_super_admin_organizations(
                     "id": str(c.id),
                     "name": getattr(c, "name", "Corporate Tenant") or "Corporate Tenant",
                     "owner": {
-                        "name": getattr(owner, "name", "Super Admin") if owner else "Super Admin",
-                        "email": getattr(owner, "email", "superadmin@ofc360.com") if owner else "superadmin@ofc360.com",
+                        "name": getattr(owner, "name", "HR Admin") if owner else "HR Admin",
+                        "email": getattr(owner, "email", "admin@organization.com") if owner else "admin@organization.com",
                     },
                     "user_count": user_cnt,
                     "employee_count": emp_cnt,
@@ -248,11 +375,54 @@ async def super_admin_org_action(org_id: str, body: dict = None) -> dict[str, An
 
 
 @router.get("/users")
-async def get_super_admin_users(db: AsyncSession = Depends(get_db_session)) -> list[dict[str, Any]]:
-    """Get all platform users list."""
+async def get_super_admin_users(
+    role: Optional[str] = Query(None, description="Filter by role"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by account status or active status"),
+    organization_id: Optional[str] = Query(None, description="Filter by company organization ID"),
+    search: Optional[str] = Query(None, description="Search by name, email, or phone"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    """Get platform users across all organizations with role, status, and company details."""
     try:
-        res = await db.execute(select(User).options(selectinload(User.company)))
+        stmt = select(User).options(selectinload(User.company)).where(
+            (User.is_deleted.is_(False) | User.is_deleted.is_(None))
+        )
+
+        if role:
+            stmt = stmt.where(User.role == role.strip().lower())
+
+        if organization_id:
+            try:
+                org_uuid = uuid.UUID(organization_id.strip())
+                stmt = stmt.where(User.company_id == org_uuid)
+            except ValueError:
+                pass
+
+        if status_filter:
+            status_clean = status_filter.strip().upper()
+            if status_clean in ("ACTIVE", "INVITED", "SUSPENDED", "DEACTIVATED", "PENDING_EMAIL_VERIFICATION"):
+                stmt = stmt.where(User.account_status == status_clean)
+            elif status_clean == "INACTIVE":
+                stmt = stmt.where(User.is_active == False)
+
+        if search:
+            search_term = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    User.name.ilike(search_term),
+                    User.email.ilike(search_term),
+                    User.phone.ilike(search_term),
+                )
+            )
+
+        offset = max(0, (page - 1) * page_size)
+        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(page_size)
+
+        res = await db.execute(stmt)
         users = res.scalars().all()
+
         return [
             {
                 "id": str(u.id),
@@ -260,10 +430,17 @@ async def get_super_admin_users(db: AsyncSession = Depends(get_db_session)) -> l
                 "email": u.email,
                 "phone": u.phone,
                 "role": u.role.value if hasattr(u.role, "value") else str(u.role),
-                "company_name": u.company.name if getattr(u, "company", None) else "Global",
-                "is_active": getattr(u, "is_active", True),
-                "is_verified": getattr(u, "is_verified", True),
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "organization_id": str(u.company_id) if u.company_id else None,
+                "company_id": str(u.company_id) if u.company_id else None,
+                "company_name": u.company.name if getattr(u, "company", None) else "Global Platform",
+                "organization": u.company.name if getattr(u, "company", None) else "Global Platform",
+                "account_status": getattr(u, "account_status", "ACTIVE") or "ACTIVE",
+                "status": getattr(u, "account_status", "ACTIVE") or "ACTIVE",
+                "is_active": bool(getattr(u, "is_active", True)),
+                "is_verified": bool(getattr(u, "is_verified", True)),
+                "created_at": u.created_at.isoformat() if hasattr(u, "created_at") and u.created_at else datetime.now(timezone.utc).isoformat(),
+                "last_login": u.last_login_at.isoformat() if hasattr(u, "last_login_at") and u.last_login_at else None,
+                "last_login_at": u.last_login_at.isoformat() if hasattr(u, "last_login_at") and u.last_login_at else None,
             }
             for u in users
         ]

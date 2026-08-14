@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 # Routers Import
 from app.api.auth import router as auth_router
+from app.api.hr_admin import router as hr_admin_router
 from app.api.employees import router as employees_router
 from app.api.managers import router as managers_router
 from app.api.exports import router as exports_router
@@ -258,68 +259,83 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
 
 
 async def ensure_superadmin_provisioned():
-    """Guarantee that Super Admin accounts exist, are active and verified on every startup."""
+    """Guarantee that exactly ONE Super Admin (superadmin@ofc360.com) exists, active and verified.
+    
+    Safe Migration: Any other users in the DB previously assigned SUPER_ADMIN are safely
+    migrated to HR_ADMIN without deleting any user or organization data.
+    """
     import uuid
     from sqlalchemy import select
     from app.db.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.company import Company
-    from app.models.user import User, UserRole
+    from app.models.user import User, UserRole, UserAccountStatus
 
     logger = logging.getLogger("app.main")
-    logger.info("Verifying Super Admin accounts provisioning...")
+    logger.info("Verifying Single Fixed Super Admin security lock and provisioning...")
 
-    accounts = [
-        {"email": "superadmin@ofc360.com", "name": "Super Admin", "phone": "9999900000"},
-        {"email": "sharmavinit7348@gmail.com", "name": "vinit sharma", "phone": "9351608590"},
-    ]
-    password = "SuperAdmin@2026"
-    pwd_hash = hash_password(password)
+    super_admin_email = "superadmin@ofc360.com"
+    raw_password = (
+        settings.SUPER_ADMIN_PASSWORD.get_secret_value()
+        if hasattr(settings, "SUPER_ADMIN_PASSWORD") and settings.SUPER_ADMIN_PASSWORD
+        else "SuperAdmin@2026"
+    )
+    pwd_hash = hash_password(raw_password)
 
     try:
         async with AsyncSessionLocal() as session:
-            comp_res = await session.execute(select(Company).limit(1).execution_options(bypass_tenant=True))
-            comp = comp_res.scalars().first()
-            if not comp:
-                comp = Company(
-                    id=uuid.uuid4(),
-                    name="OFC360 Enterprise",
-                    onboarding_completed=True,
-                    onboarding_step=4,
+            # 1. Safe Migration / Cleanup of any duplicate or unauthorized Super Admin users
+            non_sa_res = await session.execute(
+                select(User).where(
+                    User.role == UserRole.SUPER_ADMIN,
+                    User.email != super_admin_email,
+                ).execution_options(bypass_tenant=True)
+            )
+            invalid_super_admins = non_sa_res.scalars().all()
+            for invalid_user in invalid_super_admins:
+                logger.warning(
+                    "Security Lock Migration: Safely demoting unauthorized super admin account %s (ID: %s) to HR_ADMIN.",
+                    invalid_user.email,
+                    invalid_user.id,
                 )
-                session.add(comp)
-                await session.flush()
+                invalid_user.role = UserRole.HR_ADMIN
+                session.add(invalid_user)
 
-            for acc in accounts:
-                res = await session.execute(
-                    select(User).where(User.email == acc["email"]).execution_options(bypass_tenant=True)
+            # 2. Provision or verify the single authorized Super Admin identity
+            sa_res = await session.execute(
+                select(User).where(User.email == super_admin_email).execution_options(bypass_tenant=True)
+            )
+            sa_user = sa_res.scalars().first()
+
+            if sa_user:
+                sa_user.password_hash = pwd_hash
+                sa_user.role = UserRole.SUPER_ADMIN
+                sa_user.is_active = True
+                sa_user.is_verified = True
+                sa_user.account_status = UserAccountStatus.ACTIVE.value
+                sa_user.must_change_password = False
+                sa_user.is_deleted = False
+                session.add(sa_user)
+                logger.info("Verified official Super Admin account: %s", super_admin_email)
+            else:
+                new_sa = User(
+                    id=uuid.uuid4(),
+                    name="Platform Super Admin",
+                    email=super_admin_email,
+                    phone="9999900000",
+                    password_hash=pwd_hash,
+                    role=UserRole.SUPER_ADMIN,
+                    account_status=UserAccountStatus.ACTIVE.value,
+                    is_active=True,
+                    is_verified=True,
+                    must_change_password=False,
+                    company_id=None,
                 )
-                user = res.scalars().first()
-                if user:
-                    user.password_hash = pwd_hash
-                    user.role = UserRole.SUPER_ADMIN
-                    user.is_active = True
-                    user.is_verified = True
-                    user.onboarding_completed = True
-                    user.is_deleted = False
-                    if not user.company_id and comp:
-                        user.company_id = comp.id
-                else:
-                    new_user = User(
-                        id=uuid.uuid4(),
-                        name=acc["name"],
-                        email=acc["email"],
-                        phone=acc["phone"],
-                        password_hash=pwd_hash,
-                        role=UserRole.SUPER_ADMIN,
-                        is_active=True,
-                        is_verified=True,
-                        onboarding_completed=True,
-                        company_id=comp.id if comp else None,
-                    )
-                    session.add(new_user)
+                session.add(new_sa)
+                logger.info("Created official Super Admin account: %s (ID: %s)", super_admin_email, new_sa.id)
+
             await session.commit()
-            logger.info("Super Admin accounts successfully provisioned and verified.")
+            logger.info("Super Admin single-identity security lock successfully enforced.")
     except Exception as e:
         logger.warning("Super Admin provisioning notice: %s", str(e))
 
@@ -483,6 +499,7 @@ def create_app() -> FastAPI:
     install_exception_handlers(app)
     # ── API v1 routers ─────────────────────────────────────────────────────────
     app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(hr_admin_router, prefix=settings.API_V1_PREFIX)
     app.include_router(employees_router, prefix=settings.API_V1_PREFIX)
     app.include_router(managers_router, prefix=settings.API_V1_PREFIX)
     app.include_router(departments_router, prefix=settings.API_V1_PREFIX)
