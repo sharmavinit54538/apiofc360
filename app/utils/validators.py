@@ -59,16 +59,46 @@ def normalize_email(value: str) -> str:
     return normalized
 
 
-def validate_phone(value: str) -> str:
-    """Validate a 10-digit Indian mobile number."""
+def validate_phone(value: object) -> str:
+    """Validate and normalize an Indian mobile number to 10 digits.
 
-    value = ensure_string(value, "Phone")
-    normalized = value.strip()
+    Supports strings and integers in formats such as:
+    - 9876543210
+    - +919876543210 / +91 9876543210 / +91-9876543210
+    - 919876543210
+    - 09876543210
+
+    Returns the normalized 10-digit string starting with 6-9.
+    """
+    if value is None:
+        raise ValueError("Phone is required")
+
+    if isinstance(value, (int, float)):
+        raw_str = str(int(value))
+    elif isinstance(value, str):
+        raw_str = value
+    else:
+        raise ValueError("Phone must be a string")
+
+    normalized = raw_str.strip()
     if not normalized:
         raise ValueError("Phone is required")
-    if not PHONE_PATTERN.fullmatch(normalized):
-        raise ValueError("Phone must be a valid 10-digit Indian mobile number")
-    return normalized
+
+    # Remove formatting characters (spaces, hyphens, parentheses, dots)
+    cleaned = re.sub(r"[\s\-\(\)\.]+", "", normalized)
+
+    # Normalize standard Indian country code / trunk prefixes
+    if cleaned.startswith("+91"):
+        cleaned = cleaned[3:]
+    elif cleaned.startswith("91") and len(cleaned) == 12:
+        cleaned = cleaned[2:]
+    elif cleaned.startswith("0") and len(cleaned) == 11:
+        cleaned = cleaned[1:]
+
+    if not PHONE_PATTERN.fullmatch(cleaned):
+        raise ValueError("Phone must be a valid 10-digit Indian mobile number (e.g. 9876543210 or +919876543210)")
+
+    return cleaned
 
 
 def validate_password_strength(
