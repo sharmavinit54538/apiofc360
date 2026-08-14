@@ -257,6 +257,73 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 return False
 
 
+async def ensure_superadmin_provisioned():
+    """Guarantee that Super Admin accounts exist, are active and verified on every startup."""
+    import uuid
+    from sqlalchemy import select
+    from app.db.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.company import Company
+    from app.models.user import User, UserRole
+
+    logger = logging.getLogger("app.main")
+    logger.info("Verifying Super Admin accounts provisioning...")
+
+    accounts = [
+        {"email": "superadmin@ofc360.com", "name": "Super Admin", "phone": "9999900000"},
+        {"email": "sharmavinit7348@gmail.com", "name": "vinit sharma", "phone": "9351608590"},
+    ]
+    password = "SuperAdmin@2026"
+    pwd_hash = hash_password(password)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            comp_res = await session.execute(select(Company).limit(1).execution_options(bypass_tenant=True))
+            comp = comp_res.scalars().first()
+            if not comp:
+                comp = Company(
+                    id=uuid.uuid4(),
+                    name="OFC360 Enterprise",
+                    onboarding_completed=True,
+                    onboarding_step=4,
+                )
+                session.add(comp)
+                await session.flush()
+
+            for acc in accounts:
+                res = await session.execute(
+                    select(User).where(User.email == acc["email"]).execution_options(bypass_tenant=True)
+                )
+                user = res.scalars().first()
+                if user:
+                    user.password_hash = pwd_hash
+                    user.role = UserRole.SUPER_ADMIN
+                    user.is_active = True
+                    user.is_verified = True
+                    user.onboarding_completed = True
+                    user.is_deleted = False
+                    if not user.company_id and comp:
+                        user.company_id = comp.id
+                else:
+                    new_user = User(
+                        id=uuid.uuid4(),
+                        name=acc["name"],
+                        email=acc["email"],
+                        phone=acc["phone"],
+                        password_hash=pwd_hash,
+                        role=UserRole.SUPER_ADMIN,
+                        is_active=True,
+                        is_verified=True,
+                        onboarding_completed=True,
+                        company_id=comp.id if comp else None,
+                    )
+                    session.add(new_user)
+            await session.commit()
+            logger.info("Super Admin accounts successfully provisioned and verified.")
+    except Exception as e:
+        logger.warning("Super Admin provisioning notice: %s", str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler with retry logic and graceful shutdown."""
@@ -271,6 +338,9 @@ async def lifespan(app: FastAPI):
             logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
+
+        # Automatically provision/verify Super Admin accounts
+        await ensure_superadmin_provisioned()
 
         logger.info("🚀 Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
