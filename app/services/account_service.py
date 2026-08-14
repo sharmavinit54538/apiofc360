@@ -77,18 +77,42 @@ class AccountService:
                 if emp:
                     onboarding_completed = bool(emp.employee_onboarding_completed)
 
+            # Safely resolve role string
+            role_val = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+            # Safely resolve company name without lazy-loading crash
+            company_name = None
+            if getattr(user, "company", None):
+                try:
+                    company_name = user.company.name
+                except Exception:
+                    company_name = None
+
+            if not company_name and user.company_id:
+                try:
+                    from sqlalchemy import select
+                    from app.models.company import Company
+                    comp_res = await self.session.execute(
+                        select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+                    )
+                    company_name = comp_res.scalar_one_or_none()
+                except Exception:
+                    company_name = None
+
             return UserProfileData(
                 id=user.id,
-                name=user.name,
+                name=user.name or "User",
                 email=user.email,
-                phone=user.phone,
-                role=user.role,
-                is_active=user.is_active,
-                is_verified=user.is_verified,
-                onboarding_completed=onboarding_completed,
+                phone=user.phone or None,
+                role=role_val,
+                is_active=bool(user.is_active),
+                is_verified=bool(user.is_verified),
+                email_verified=bool(user.is_verified),
+                account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
+                onboarding_completed=bool(onboarding_completed),
                 company_id=user.company_id,
-                company_name=user.company.name if user.company else None,
-                created_at=user.created_at,
+                company_name=company_name,
+                created_at=user.created_at or datetime.now(timezone.utc),
             )
 
         except AppException:
@@ -137,6 +161,16 @@ class AccountService:
             if not verify_password(payload.password, user.password_hash):
                 logger.warning("change_email: wrong password | user_id=%s | file=account_service.py | func=change_email", user_id)
                 raise AppException(message="Password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
+            if user.email.lower() == "superadmin@ofc360.com":
+                raise AppException(
+                    message="The platform Super Admin email identity is immutable and cannot be changed.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            if new_email.strip().lower() == "superadmin@ofc360.com":
+                raise AppException(
+                    message="Cannot change email to the platform Super Admin identity.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
             if new_email == user.email:
                 raise AppException(message="New email must be different from the current email.", status_code=status.HTTP_400_BAD_REQUEST)
             if await self.auth_repository.get_user_by_email_excluding(new_email, user_id):

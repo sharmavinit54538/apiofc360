@@ -124,4 +124,5 @@ async def run():
         await call_chat("Reports", "Test 15: General reports query")
         await call_chat("Analytics", "Test 16: Company headcount or CTC analytics")
 
-asyncio.run(run())
+if __name__ == "__main__":
+    asyncio.run(run())

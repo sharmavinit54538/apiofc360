@@ -1,6 +1,6 @@
 """Schemas for HR Admin internal user management."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 import uuid
@@ -43,7 +43,10 @@ class HRAdminCreateUserRequest(BaseModel):
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email_field(cls, value: str) -> str:
-        return normalize_email(value)
+        clean = normalize_email(value)
+        if clean == "superadmin@ofc360.com":
+            raise ValueError("HR Admins cannot create users with the Super Admin email address.")
+        return clean
 
     @field_validator("phone", mode="before")
     @classmethod

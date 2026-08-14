@@ -292,6 +292,7 @@ async def test_auth_service_duplicate_phone_returns_409():
 async def test_auth_service_transaction_rollback_on_db_error():
     """Test that when a database error occurs, rollback is performed and DatabaseException is raised."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_repo = AsyncMock()
     mock_email_svc = AsyncMock()
     mock_token_svc = AsyncMock()

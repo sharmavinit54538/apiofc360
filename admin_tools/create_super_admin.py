@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 async def create_super_admin(email: str, password: str, name: str, phone: str) -> None:
     """Create or update platform Super Admin account."""
     clean_email = email.strip().lower()
+    if clean_email != "superadmin@ofc360.com":
+        raise ValueError("Security Lock Violation: Only 'superadmin@ofc360.com' can be seeded as Super Admin.")
+
     async with AsyncSessionLocal() as session:
         res = await session.execute(
             select(User).where(User.email == clean_email).execution_options(bypass_tenant=True)
@@ -59,8 +62,8 @@ async def create_super_admin(email: str, password: str, name: str, phone: str) -
 
 def main():
     parser = argparse.ArgumentParser(description="Create platform Super Admin.")
-    parser.add_argument("--email", default="superadmin@ofc360.com", help="Email")
-    parser.add_argument("--password", default="SuperAdmin@OFC360#2026", help="Password")
+    parser.add_argument("--email", default="superadmin@ofc360.com", help="Email (must be superadmin@ofc360.com)")
+    parser.add_argument("--password", default="SuperAdmin@2026", help="Password")
     parser.add_argument("--name", default="Platform Super Admin", help="Name")
     parser.add_argument("--phone", default="9999999999", help="Phone")
     args = parser.parse_args()

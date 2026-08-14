@@ -5,6 +5,9 @@ from __future__ import annotations
 import enum
 
 
+OFFICIAL_SUPER_ADMIN_EMAIL = "superadmin@ofc360.com"
+
+
 class UserRole(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     HR_ADMIN = "hr_admin"

@@ -11,17 +11,24 @@ from app.models.user import User, UserRole, UserAccountStatus
 from seed_super_admin import seed_super_admin
 
 
-def test_require_super_admin_rbac():
-    """Test RBAC dependency strictly permits super_admin and rejects other roles."""
+@pytest.mark.asyncio
+async def test_require_super_admin_rbac():
+    """Test RBAC dependency strictly permits super_admin with superadmin@ofc360.com and rejects other roles/emails."""
     # Allowed
-    claims_super = {"sub": str(uuid.uuid4()), "role": "super_admin"}
-    assert require_super_admin(claims_super) == claims_super
+    claims_super = {"sub": str(uuid.uuid4()), "role": "super_admin", "email": "superadmin@ofc360.com"}
+    assert await require_super_admin(claims_super) == claims_super
 
-    # Rejected
+    # Rejected emails
+    claims_wrong_email = {"sub": str(uuid.uuid4()), "role": "super_admin", "email": "hacker@test.com"}
+    with pytest.raises(HTTPException) as exc_info:
+        await require_super_admin(claims_wrong_email)
+    assert exc_info.value.status_code == 403
+
+    # Rejected roles
     for role in ["hr_admin", "employee", "manager", "executive", "it_admin", "guest"]:
         claims = {"sub": str(uuid.uuid4()), "role": role}
         with pytest.raises(HTTPException) as exc_info:
-            require_super_admin(claims)
+            await require_super_admin(claims)
         assert exc_info.value.status_code == 403
         assert "Super Admin access required" in exc_info.value.detail
 

@@ -73,13 +73,14 @@ class TokenService:
         user_id: uuid.UUID,
         role: str,
         company_id: uuid.UUID | None = None,
+        email: str | None = None,
         ip_address: str | None = None,
         device: str | None = None,
     ) -> tuple[str, str, int]:
         """Issue access + refresh token package and save the refresh token hash."""
         from app.core.config import settings
 
-        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id)
+        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email)
         refresh_token = create_refresh_token(user_id=user_id)
         
         # Save refresh token hash to database
@@ -165,10 +166,12 @@ class TokenService:
         await self.auth_repository.revoke_refresh_token(token_record.id)
 
         # Generate a new pair
+        role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
         new_access_token, new_refresh_token, expires_in = await self.generate_auth_tokens(
             user_id=user.id,
-            role=user.role,
+            role=role_str,
             company_id=user.company_id,
+            email=user.email,
             ip_address=ip_address,
             device=device,
         )

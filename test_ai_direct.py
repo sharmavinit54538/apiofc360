@@ -47,4 +47,5 @@ async def run():
         async for chunk in generator:
             print("YIELD:", chunk)
 
-asyncio.run(run())
+if __name__ == "__main__":
+    asyncio.run(run())

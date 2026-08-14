@@ -71,8 +71,17 @@ class AuthService:
 
         log_context = _registration_log_context(str(payload.email), payload.phone)
         try:
+            # Reject Super Admin email registration
+            clean_email = str(payload.email).strip().lower()
+            if clean_email == "superadmin@ofc360.com":
+                raise AppException(
+                    message="Registration with the Super Admin identity is prohibited.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    errors=[{"field": "email", "message": "Super Admin registration prohibited."}],
+                )
+
             # Check duplicate email
-            existing_email = await self.auth_repository.get_user_by_email(str(payload.email))
+            existing_email = await self.auth_repository.get_user_by_email(clean_email)
             if existing_email:
                 if existing_email.is_verified:
                     logger.info("Registration failed: email already exists", extra=log_context)
@@ -573,12 +582,25 @@ class AuthService:
         # Success - log audit details
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
+        # Enforce that only superadmin@ofc360.com can ever hold the SUPER_ADMIN role
+        user_role_str = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()
+        if user_role_str == "super_admin" and user.email.lower() != "superadmin@ofc360.com":
+            logger.warning(
+                "Security Alert: Non-authorized account %s has role super_admin in DB. Downgrading to employee.",
+                user.email,
+            )
+            from app.models.user.role import UserRole
+            user.role = UserRole.EMPLOYEE
+            self.session.add(user)
+            await self.session.commit()
+
         # Issue tokens
         effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
         access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
             user_id=user.id,
             role=effective_role,
             company_id=user.company_id,
+            email=user.email,
             ip_address=ip_address,
             device=device,
         )
@@ -721,6 +743,7 @@ class AuthService:
             user_id=user.id,
             role=effective_role,
             company_id=user.company_id,
+            email=user.email,
             ip_address=ip_address,
             device=device,
         )

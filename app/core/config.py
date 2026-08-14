@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
+    SUPER_ADMIN_PASSWORD: SecretStr = Field(
+        default=SecretStr("SuperAdmin@2026"),
+        description="Platform Super Admin initial password used during provisioning.",
+    )
+
     BCRYPT_ROUNDS: int = 12
     BACKEND_CORS_ORIGINS: list[str] = [
         "https://api.ofc360.com",
@@ -296,6 +302,17 @@ class Settings(BaseSettings):
             cleaned = stripped.replace("[", "").replace("]", "").replace('"', '').replace("'", "")
             return [origin.strip() for origin in cleaned.split(",") if origin.strip()]
         return value
+
+    @field_validator("SUPER_ADMIN_EMAIL", mode="before")
+    @classmethod
+    def validate_super_admin_email(cls, value: Any) -> str:
+        """Enforce immutable single super admin identity."""
+        if isinstance(value, str):
+            clean_email = value.strip().lower()
+            if clean_email != "superadmin@ofc360.com":
+                raise ValueError("SUPER_ADMIN_EMAIL cannot be changed from 'superadmin@ofc360.com'.")
+            return clean_email
+        return "superadmin@ofc360.com"
 
     @field_validator("SECRET_KEY", mode="before")
     @classmethod

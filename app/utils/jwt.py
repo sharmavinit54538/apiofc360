@@ -14,7 +14,12 @@ _SECRET_KEY: str = settings.SECRET_KEY.get_secret_value()
 _JWT_ALGORITHM: str = settings.JWT_ALGORITHM
 
 
-def create_access_token(user_id: Any, role: str, company_id: Any | None = None) -> str:
+def create_access_token(
+    user_id: Any,
+    role: str,
+    company_id: Any | None = None,
+    email: str | None = None,
+) -> str:
     """Create a signed JWT access token valid for configured minutes."""
 
     now = datetime.now(timezone.utc)
@@ -27,6 +32,8 @@ def create_access_token(user_id: Any, role: str, company_id: Any | None = None) 
         "iat": int(now.timestamp()),
         "jti": str(uuid.uuid4()),
     }
+    if email:
+        payload["email"] = str(email).strip().lower()
     if company_id:
         payload["company_id"] = str(company_id)
     return jwt.encode(payload, _SECRET_KEY, algorithm=_JWT_ALGORITHM)
