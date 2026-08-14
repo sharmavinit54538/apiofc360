@@ -246,6 +246,7 @@ async def send_email(to_email: str, subject: str, html_content: str) -> None:
             f"{_html_to_plain(html_content)}\n"
             f"{'='*60}\n"
         )
+        return
 
     raise RuntimeError(
         f"Failed to send email to {to_email!r} after {max_attempts} attempts: {last_exc}"

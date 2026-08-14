@@ -135,13 +135,13 @@ def validate_password_strength(
     lowered_password = password.lower()
     if email:
         local_part = email.split("@", 1)[0].lower()
-        if local_part and len(local_part) >= 4 and local_part in lowered_password:
+        if local_part and len(local_part) >= 5 and local_part in lowered_password:
             raise ValueError("Password must not contain your email username")
     if phone and phone in password:
         raise ValueError("Password must not contain your phone number")
     if name:
         for part in name.lower().split():
-            if len(part) >= 4 and part in lowered_password:
+            if len(part) >= 5 and part in lowered_password:
                 raise ValueError("Password must not contain your name")
 
     return password

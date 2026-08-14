@@ -307,7 +307,55 @@ from app.models.travel import TravelRequest
 # Reports module models
 from app.models.report import Report
 
+# Connect module models
+from app.models.connect import (
+    ConnectConversation,
+    ConnectConversationParticipant,
+    ConnectChannel,
+    ConnectChannelMember,
+    ConnectMessage,
+    ConnectMessageReaction,
+    ConnectMessageAttachment,
+    ConnectCallLog,
+    ConnectMeeting,
+    ConnectMeetingParticipant,
+    ConnectMeetingMessage,
+    ConnectSharedFile,
+    ConnectUserPresence,
+    ConnectNotification,
+    ConnectUserSoundSettings,
+)
+
+# Helpdesk module models
+from app.models.helpdesk import (
+    HelpdeskTicket,
+    HelpdeskComment,
+    HelpdeskInternalNote,
+    HelpdeskAttachment,
+    HelpdeskFAQ,
+)
+
 __all__ = [
+    "HelpdeskTicket",
+    "HelpdeskComment",
+    "HelpdeskInternalNote",
+    "HelpdeskAttachment",
+    "HelpdeskFAQ",
+    "ConnectConversation",
+    "ConnectConversationParticipant",
+    "ConnectChannel",
+    "ConnectChannelMember",
+    "ConnectMessage",
+    "ConnectMessageReaction",
+    "ConnectMessageAttachment",
+    "ConnectCallLog",
+    "ConnectMeeting",
+    "ConnectMeetingParticipant",
+    "ConnectMeetingMessage",
+    "ConnectSharedFile",
+    "ConnectUserPresence",
+    "ConnectNotification",
+    "ConnectUserSoundSettings",
     "Company",
     "OTP",
     "User",

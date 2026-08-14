@@ -30,6 +30,8 @@ class APIResponse(BaseModel, Generic[DataT]):
 class RegisterRequest(BaseModel):
     """Register API request payload."""
 
+    model_config = ConfigDict(extra="ignore")
+
     name: str = Field(default="", examples=["John Doe"])
     email: EmailStr = Field(..., examples=["john@example.com"])
     phone: str = Field(..., examples=["9876543210"])
@@ -39,7 +41,7 @@ class RegisterRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def preprocess_register_payload(cls, data: Any) -> Any:
-        """Support field aliases (phone_number, contact_number) and name components (first_name, last_name)."""
+        """Support field aliases (phone_number, contact_number, mobile) and name components (first_name, last_name, full_name)."""
         if isinstance(data, dict):
             # Normalize phone field alias if phone not provided
             if not data.get("phone"):
@@ -47,14 +49,31 @@ class RegisterRequest(BaseModel):
                     data["phone"] = data["phone_number"]
                 elif data.get("contact_number"):
                     data["phone"] = data["contact_number"]
+                elif data.get("mobile"):
+                    data["phone"] = data["mobile"]
 
-            # Normalize name if first_name / last_name provided
-            if not data.get("name"):
-                first = str(data.get("first_name") or "").strip()
-                last = str(data.get("last_name") or "").strip()
-                full_name = f"{first} {last}".strip()
-                if full_name:
-                    data["name"] = full_name
+            # Normalize company_name alias
+            if not data.get("company_name"):
+                if data.get("company"):
+                    data["company_name"] = data["company"]
+                elif data.get("organization_name"):
+                    data["company_name"] = data["organization_name"]
+                elif data.get("organization"):
+                    data["company_name"] = data["organization"]
+
+            # Normalize name if name is empty or not provided
+            current_name = str(data.get("name") or "").strip()
+            if not current_name:
+                if data.get("full_name") and str(data.get("full_name")).strip():
+                    data["name"] = str(data.get("full_name")).strip()
+                else:
+                    first = str(data.get("first_name") or "").strip()
+                    last = str(data.get("last_name") or "").strip()
+                    full_name = f"{first} {last}".strip()
+                    if full_name:
+                        data["name"] = full_name
+            else:
+                data["name"] = current_name
         return data
 
     @field_validator("name")

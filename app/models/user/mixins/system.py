@@ -16,7 +16,14 @@ class UserSystemColumnsMixin:
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role", inherit_schema=True),
+        Enum(
+            UserRole,
+            name="user_role",
+            inherit_schema=True,
+            values_callable=lambda x: [e.value for e in x],
+            native_enum=True,
+            validate_strings=True,
+        ),
         nullable=False,
         default=UserRole.EMPLOYEE,
         server_default=text("'employee'"),
