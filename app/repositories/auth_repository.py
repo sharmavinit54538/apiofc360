@@ -38,9 +38,19 @@ class AuthRepository:
 
         if not phone:
             return None
+        trimmed = str(phone).strip()
+        import re
+        clean_digits = re.sub(r"[\s\-\(\)\.]+", "", trimmed)
+        if clean_digits.startswith("+91"):
+            clean_digits = clean_digits[3:]
+        elif clean_digits.startswith("91") and len(clean_digits) == 12:
+            clean_digits = clean_digits[2:]
+        elif clean_digits.startswith("0") and len(clean_digits) == 11:
+            clean_digits = clean_digits[1:]
+
         result = await self.session.execute(
             select(User)
-            .where(User.phone == phone.strip())
+            .where((User.phone == trimmed) | (User.phone == clean_digits))
             .execution_options(bypass_tenant=True)
         )
         return result.scalar_one_or_none()
@@ -50,16 +60,29 @@ class AuthRepository:
 
         if not identifier:
             return None
-        trimmed = identifier.strip()
+        trimmed = str(identifier).strip()
         from sqlalchemy import func
         from sqlalchemy.orm import selectinload
+
+        clean_digits = trimmed
+        if "@" not in trimmed:
+            import re
+            clean_digits = re.sub(r"[\s\-\(\)\.]+", "", trimmed)
+            if clean_digits.startswith("+91"):
+                clean_digits = clean_digits[3:]
+            elif clean_digits.startswith("91") and len(clean_digits) == 12:
+                clean_digits = clean_digits[2:]
+            elif clean_digits.startswith("0") and len(clean_digits) == 11:
+                clean_digits = clean_digits[1:]
+
         result = await self.session.execute(
             select(User)
             .options(selectinload(User.company))
             .where(
                 (
                     (func.lower(User.email) == func.lower(trimmed)) |
-                    (User.phone == trimmed)
+                    (User.phone == trimmed) |
+                    (User.phone == clean_digits)
                 ) &
                 (User.is_deleted == False)
             )
