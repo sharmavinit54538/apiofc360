@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
@@ -664,6 +665,7 @@ class EmployeeService:
                         )
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                    await redis_client.revoke_user_tokens(employee.user_id)
                 elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
@@ -861,6 +863,7 @@ class EmployeeService:
                     user.phone = new_user_phone
 
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
             await self.session.commit()
             logger.info("delete_employee: success | employee_id=%s", employee_uuid)
         except AppException:
@@ -996,6 +999,7 @@ class EmployeeService:
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
 
             # Write Audit log
             audit_log = AuditLog(
@@ -1260,6 +1264,7 @@ class EmployeeService:
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
             await self.session.commit()
             logger.info(
                 "reject_employee: success | employee_id=%s | reason=%s",

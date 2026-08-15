@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.models.user import User, UserRole
@@ -370,6 +371,7 @@ class ManagerService:
                         )
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
+                    await redis_client.revoke_user_tokens(manager.user_id)
                 elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == manager.user_id).values(
@@ -409,6 +411,7 @@ class ManagerService:
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
+                await redis_client.revoke_user_tokens(manager.user_id)
             await self.session.commit()
             logger.info("delete_manager: success | manager_id=%s", manager_uuid)
         except AppException:
@@ -849,6 +852,7 @@ class ManagerService:
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
+                await redis_client.revoke_user_tokens(manager.user_id)
             await self.session.commit()
             logger.info("deactivate_manager: success | manager_id=%s", manager_uuid)
         except AppException:

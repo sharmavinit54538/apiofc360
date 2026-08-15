@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password, verify_password
 from app.db.database import get_db_session
 from app.models.user import User
@@ -666,19 +667,22 @@ class AuthService:
         return user, access_token, refresh_token, expires_in
 
     async def logout(self, *, access_token: str, refresh_token: str) -> None:
-        """Revoke refresh token session and add access token to blacklist."""
+        """Revoke refresh token session and add access token to Redis blacklist."""
 
         # Revoke DB refresh token
         await self.token_service.revoke_refresh_token(refresh_token)
 
-        # Blacklist access token for its remaining lifetime
-        try:
-            claims = decode_token(access_token)
-            exp = claims.get("exp")
-            if exp:
-                blacklist_access_token(access_token, exp)
-        except Exception:
-            pass
+        # Blacklist access token for its remaining lifetime in Redis & fallback
+        if access_token:
+            try:
+                claims = decode_token(access_token)
+                exp = claims.get("exp")
+                if exp:
+                    ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+                    await redis_client.blacklist_token(access_token, ttl)
+                    blacklist_access_token(access_token, exp)
+            except Exception:
+                await redis_client.blacklist_token(access_token, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         await self.session.commit()
 
@@ -726,7 +730,7 @@ class AuthService:
             raise
 
     async def reset_password(self, payload: ResetPasswordRequest) -> None:
-        """Verify the secure password reset token and update credentials, revoking active sessions."""
+        """Verify the secure password reset token and update credentials, revoking active sessions and JWTs."""
 
         # Hash incoming token
         hashed_token = hashlib.sha256(payload.token.encode()).hexdigest()
@@ -752,11 +756,13 @@ class AuthService:
         # Update credentials
         new_password_hash = hash_password(payload.password)
         await self.auth_repository.update_user_password(user.id, new_password_hash)
-        await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+        await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
+        await redis_client.revoke_user_tokens(user.id)
         
         # Mark token as used
         await self.auth_repository.mark_password_reset_token_used(token_record.id)
         await self.session.commit()
+
 
     async def login_google(
         self,

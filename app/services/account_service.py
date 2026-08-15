@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password, verify_password
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
@@ -133,10 +134,11 @@ class AccountService:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
             if not verify_password(payload.current_password, user.password_hash):
                 logger.warning("change_password: wrong current password | user_id=%s | file=account_service.py | func=change_password", user_id)
-                raise AppException(message="Current password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if verify_password(payload.new_password, user.password_hash):
                 raise AppException(message="New password must be different from the current password.", status_code=status.HTTP_400_BAD_REQUEST)
             await self.auth_repository.update_user_password(user_id, hash_password(payload.new_password))
+            await self.auth_repository.revoke_all_user_refresh_tokens(user_id, reason="PASSWORD_CHANGE")
+            await redis_client.revoke_user_tokens(user_id)
             await self.session.commit()
             logger.info("change_password: success | user_id=%s | file=account_service.py | func=change_password", user_id)
         except AppException:

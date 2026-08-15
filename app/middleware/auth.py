@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redis_client import redis_client
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
@@ -46,8 +47,9 @@ async def get_current_user_claims(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if is_access_token_blacklisted(token):
-        logger.warning("Access Token rejected: Token has been blacklisted on logout.")
+    # 1. Check Redis token blocklist (and legacy fallback)
+    if await redis_client.is_token_blacklisted(token) or is_access_token_blacklisted(token):
+        logger.warning("Access Token rejected: Token has been blacklisted on logout or revocation.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired login session. Please login again.",
@@ -67,6 +69,21 @@ async def get_current_user_claims(
         user_id = claims.get("sub")
         role = claims.get("role")
         company_id = claims.get("company_id")
+        iat = claims.get("iat", 0)
+
+        # 2. Check user-level stateless revocation (e.g. from password update or admin lock)
+        if user_id:
+            revoked_before = await redis_client.get_user_revoked_before(user_id)
+            if revoked_before is not None and iat <= revoked_before:
+                logger.warning(
+                    "Access Token rejected: Token iat (%s) <= user revocation timestamp (%s) for user %s",
+                    iat, revoked_before, user_id
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired login session. Please login again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
         logger.debug("Access Token validated | user_id=%s | role=%s", user_id, role)
 

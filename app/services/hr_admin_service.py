@@ -444,11 +444,17 @@ class HRAdminService:
                 mgr.deactivated_by = None
                 mgr.deactivation_reason = None
 
-        if user.is_active is False:
+        if user.is_active is False or user.account_status in ("SUSPENDED", "DEACTIVATED"):
             from app.models.refresh_token import RefreshToken
+            from app.core.redis_client import redis_client
             await self.session.execute(
-                update(RefreshToken).where(RefreshToken.user_id == user.id).values(revoked=True)
+                update(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked == False).values(
+                    revoked=True,
+                    revoked_at=datetime.now(timezone.utc),
+                    revoked_reason="HR_ADMIN_LOCK"
+                )
             )
+            await redis_client.revoke_user_tokens(user.id)
 
         # Log audit
         audit = AuditLog(

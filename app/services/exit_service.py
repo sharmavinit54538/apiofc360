@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.employee_repository import EmployeeRepository
@@ -557,6 +558,7 @@ class ExitService:
                     .values(is_active=False, status="ARCHIVED", deactivated_at=now_utc)
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(exit_obj.employee.user_id)
+                await redis_client.revoke_user_tokens(exit_obj.employee.user_id)
 
             await self.session.commit()
             logger.info("complete_exit: success | deactivated user_id=%s", exit_obj.employee.user_id)
