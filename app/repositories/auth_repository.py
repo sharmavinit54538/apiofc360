@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.otp import OTP
@@ -257,21 +257,37 @@ class AuthRepository:
         await self.session.execute(
             update(OTP)
             .where(OTP.id == otp_id)
-            .values(is_used=True)
+            .values(is_used=True, updated_at=datetime.now(timezone.utc))
         )
         await self.session.flush()
 
-    async def invalidate_all_user_otps(self, user_id: uuid.UUID, purpose: str) -> None:
-        """Invalidate all existing active OTP records for a user and purpose."""
+    async def consume_otp_atomic(self, otp_id: uuid.UUID) -> bool:
+        """Atomically mark an OTP as used. Returns True only if successfully transitioned from is_used=False to is_used=True."""
+
+        result = await self.session.execute(
+            update(OTP)
+            .where(
+                and_(
+                    OTP.id == otp_id,
+                    OTP.is_used == False,  # noqa: E712
+                )
+            )
+            .values(is_used=True, updated_at=datetime.now(timezone.utc))
+        )
+        await self.session.flush()
+        return (result.rowcount or 0) > 0
+
+    async def invalidate_all_user_otps(self, user_id: uuid.UUID, purpose: str | None = None) -> None:
+        """Invalidate all existing active OTP records for a user and purpose (or all purposes if purpose is None)."""
+
+        filters = [OTP.user_id == user_id, OTP.is_used == False]  # noqa: E712
+        if purpose:
+            filters.append(OTP.purpose == purpose)
 
         await self.session.execute(
             update(OTP)
-            .where(
-                OTP.user_id == user_id,
-                OTP.purpose == purpose,
-                OTP.is_used == False,
-            )
-            .values(is_used=True)
+            .where(and_(*filters))
+            .values(is_used=True, updated_at=datetime.now(timezone.utc))
         )
         await self.session.flush()
 
@@ -570,6 +586,35 @@ class AuthRepository:
         await self.session.execute(
             update(PasswordResetToken)
             .where(PasswordResetToken.id == token_id)
+            .values(used_at=datetime.now(timezone.utc))
+        )
+        await self.session.flush()
+
+    async def consume_password_reset_token_atomic(self, token_id: uuid.UUID) -> bool:
+        """Atomically mark a password reset token as used. Returns True only if successfully updated from NULL used_at."""
+        result = await self.session.execute(
+            update(PasswordResetToken)
+            .where(
+                and_(
+                    PasswordResetToken.id == token_id,
+                    PasswordResetToken.used_at.is_(None),
+                )
+            )
+            .values(used_at=datetime.now(timezone.utc))
+        )
+        await self.session.flush()
+        return (result.rowcount or 0) > 0
+
+    async def invalidate_all_user_password_resets(self, user_id: uuid.UUID) -> None:
+        """Invalidate all pending password reset tokens for a user."""
+        await self.session.execute(
+            update(PasswordResetToken)
+            .where(
+                and_(
+                    PasswordResetToken.user_id == user_id,
+                    PasswordResetToken.used_at.is_(None),
+                )
+            )
             .values(used_at=datetime.now(timezone.utc))
         )
         await self.session.flush()

@@ -139,6 +139,9 @@ class AccountService:
             await self.auth_repository.update_user_password(user_id, hash_password(payload.new_password))
             await self.auth_repository.revoke_all_user_refresh_tokens(user_id, reason="PASSWORD_CHANGE")
             await redis_client.revoke_user_tokens(user_id)
+            # Immediately invalidate any outstanding password reset tokens and active OTPs
+            await self.auth_repository.invalidate_all_user_password_resets(user_id)
+            await self.auth_repository.invalidate_all_user_otps(user_id)
             await self.session.commit()
             logger.info("change_password: success | user_id=%s | file=account_service.py | func=change_password", user_id)
         except AppException:
@@ -153,14 +156,14 @@ class AccountService:
             raise DatabaseException() from exc
 
     async def change_email(self, user_id: uuid.UUID, payload: ChangeEmailRequest) -> None:
-        """Initiate email-change: verify password, check duplicates, send OTP to new email."""
+        """Initiate email-change: enforce mandatory password re-authentication, check duplicates, stage pending_email and send single-use OTP."""
         new_email = str(payload.new_email)
         logger.info("change_email | file=account_service.py | func=change_email | user_id=%s | new_email=%s", user_id, _mask_email(new_email))
         try:
             user = await self.auth_repository.get_user_by_id(user_id)
             if not user:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
-            if not verify_password(payload.password, user.password_hash):
+            if not payload.password or not verify_password(payload.password, user.password_hash):
                 logger.warning("change_email: wrong password | user_id=%s | file=account_service.py | func=change_email", user_id)
                 raise AppException(message="Password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if user.email.lower() == "superadmin@ofc360.com":
@@ -223,7 +226,7 @@ class AccountService:
             raise DatabaseException() from exc
 
     async def verify_new_email(self, user_id: uuid.UUID, payload: VerifyNewEmailRequest) -> None:
-        """Verify email-change OTP and atomically commit the new email address."""
+        """Verify email-change OTP and atomically commit the new email address with single-use invalidation."""
         logger.info("verify_new_email | file=account_service.py | func=verify_new_email | user_id=%s", user_id)
         try:
             user = await self.auth_repository.get_user_by_id(user_id)
@@ -254,9 +257,15 @@ class AccountService:
                     raise AppException(message="Too many incorrect OTP attempts. Please request a new email change.", status_code=status.HTTP_400_BAD_REQUEST)
                 await self.session.commit()
                 raise AppException(message="Invalid OTP. " + str(max(0, remaining)) + " attempt(s) remaining.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            # Atomically mark OTP as used to prevent replay or race conditions
+            consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
+            if not consumed:
+                raise AppException(message="OTP has already been used or is invalid.", status_code=status.HTTP_400_BAD_REQUEST)
+
             new_email = user.pending_email
             await self.auth_repository.update_user_email(user_id, new_email)
-            await self.auth_repository.mark_otp_used(otp_record.id)
+            await self.auth_repository.invalidate_all_user_otps(user_id, _PURPOSE_EMAIL_CHANGE)
             await self.session.commit()
             logger.info("verify_new_email: email updated | user_id=%s | new_email=%s | file=account_service.py | func=verify_new_email", user_id, _mask_email(new_email))
         except AppException:
