@@ -1,9 +1,12 @@
 """Authentication API routes."""
 
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request, status
+
+logger = logging.getLogger(__name__)
 
 from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.schemas.auth import (
