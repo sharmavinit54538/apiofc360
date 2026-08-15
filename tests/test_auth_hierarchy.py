@@ -38,7 +38,7 @@ async def test_public_registration_forces_hr_admin_and_strips_injected_role():
         token_service=mock_token_svc,
     )
 
-    # Attempt to inject super_admin role into payload
+    # Attempt to inject super_admin role into payload -> MUST reject with ValidationError
     malicious_payload_data = {
         "name": "Jane Doe",
         "company_name": "Acme Inc",
@@ -46,10 +46,19 @@ async def test_public_registration_forces_hr_admin_and_strips_injected_role():
         "password": "Password@123",
         "phone": "9876543210",
         "role": "super_admin",
-        "user_role": "SUPER_ADMIN",
-        "is_super_admin": True,
     }
-    payload = RegisterRequest.model_validate(malicious_payload_data)
+    with pytest.raises(ValidationError):
+        RegisterRequest.model_validate(malicious_payload_data)
+
+    # Valid registration payload -> must create user as HR_ADMIN
+    valid_payload_data = {
+        "name": "Jane Doe",
+        "company_name": "Acme Inc",
+        "email": "jane@acme.com",
+        "password": "Password@123",
+        "phone": "9876543210",
+    }
+    payload = RegisterRequest.model_validate(valid_payload_data)
 
     with patch("app.utils.employee.generate_employee_id", new=AsyncMock(return_value="EMP-202608-0001")):
         await service.register_user(payload)
