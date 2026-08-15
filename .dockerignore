@@ -1,6 +1,7 @@
 .git
 .gitignore
 .env
+.env.*
 .venv
 env/
 __pycache__/
@@ -14,3 +15,25 @@ uploads/
 tests/
 *.log
 README.md
+
+# Diagnostic and maintenance tools
+admin_tools/
+inspect_*.py
+check_*.py
+read_*.py
+fix_*.py
+reset_*.py
+seed_*.py
+test_*.py
+scratch_*.py
+apply_*.py
+add_*.py
+update_*.py
+verify_*.py
+migrate_*.py
+
+# API inventories and temporary reports
+api_inventory.json
+api_inventory_summary.md
+openapi.json
+
