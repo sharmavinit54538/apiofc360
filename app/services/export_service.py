@@ -421,6 +421,7 @@ class ExportService:
             log = AuditLog(
                 id=uuid.uuid4(),
                 user_id=user_id,
+                company_id=company_id,
                 action="EXPORT",
                 email=email,
                 ip_address=ip_address,

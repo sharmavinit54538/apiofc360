@@ -31,8 +31,8 @@ class DepartmentRepository:
         await self.session.flush()
         return department
 
-    async def get_by_id(self, department_uuid: uuid.UUID) -> Department | None:
-        result = await self.session.execute(
+    async def get_by_id(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = (
             select(Department)
             .where(and_(Department.id == department_uuid, self._active_filter()))
             .options(
@@ -41,37 +41,42 @@ class DepartmentRepository:
                 selectinload(Department.parent_department),
             )
         )
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id_raw(self, department_uuid: uuid.UUID) -> Department | None:
-        result = await self.session.execute(
-            select(Department).where(Department.id == department_uuid)
-        )
+    async def get_by_id_raw(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = select(Department).where(Department.id == department_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, name: str) -> Department | None:
-        result = await self.session.execute(
-            select(Department)
-            .where(and_(func.lower(Department.department_name) == name.lower(), self._active_filter()))
-        )
+    async def get_by_name(self, name: str, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = select(Department).where(and_(func.lower(Department.department_name) == name.lower(), self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_name_all(self, name: str) -> Department | None:
-        result = await self.session.execute(
-            select(Department)
-            .where(func.lower(Department.department_name) == name.lower())
-        )
+    async def get_by_name_all(self, name: str, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = select(Department).where(func.lower(Department.department_name) == name.lower())
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_code(self, code: str) -> Department | None:
-        result = await self.session.execute(
-            select(Department)
-            .where(and_(Department.department_code == code.upper(), self._active_filter()))
-        )
+    async def get_by_code(self, code: str, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = select(Department).where(and_(Department.department_code == code.upper(), self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_departments(
         self,
+        company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
         sort_by: str | None = None,
@@ -79,7 +84,11 @@ class DepartmentRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> list[Department]:
-        stmt = select(Department).where(self._active_filter()).options(
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Department.company_id == company_id)
+
+        stmt = select(Department).where(and_(*filters)).options(
             selectinload(Department.parent_department),
             selectinload(Department.manager_user),
         )
@@ -113,20 +122,19 @@ class DepartmentRepository:
 
         stmt = stmt.order_by(sort_column).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
-        items = list(result.scalars().all())
-
-        if not items:
-            fallback_res = await self.session.execute(stmt.execution_options(bypass_tenant=True))
-            items = list(fallback_res.scalars().all())
-
-        return items
+        return list(result.scalars().all())
 
     async def count_departments(
         self,
+        company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
     ) -> int:
-        stmt = select(func.count()).select_from(Department).where(self._active_filter())
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Department.company_id == company_id)
+
+        stmt = select(func.count()).select_from(Department).where(and_(*filters))
 
         if status and status.lower() != "all":
             stmt = stmt.where(Department.status == status.upper())
@@ -140,25 +148,19 @@ class DepartmentRepository:
             )
 
         result = await self.session.execute(stmt)
-        count = result.scalar_one()
+        return result.scalar_one()
 
-        if count == 0:
-            fallback_res = await self.session.execute(stmt.execution_options(bypass_tenant=True))
-            count = fallback_res.scalar_one()
+    async def update_department(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
+        stmt = update(Department).where(Department.id == department_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        await self.session.execute(stmt.values(**kwargs))
 
-        return count
-
-    async def update_department(self, department_uuid: uuid.UUID, **kwargs: Any) -> None:
-        await self.session.execute(
-            update(Department).where(Department.id == department_uuid).values(**kwargs)
-        )
-
-    async def soft_delete(self, department_uuid: uuid.UUID) -> None:
-        await self.session.execute(
-            update(Department)
-            .where(Department.id == department_uuid)
-            .values(is_deleted=True, deleted_at=func.now())
-        )
+    async def soft_delete(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Department).where(Department.id == department_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        await self.session.execute(stmt.values(is_deleted=True, deleted_at=func.now()))
 
     # ------------------------------------------------------------------
     # Employee count helpers

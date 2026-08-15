@@ -46,34 +46,38 @@ class ManagerRepository:
         await self.session.flush()
         return manager
 
-    async def get_by_id(self, manager_uuid: uuid.UUID) -> Manager | None:
+    async def get_by_id(self, manager_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Manager | None:
+        stmt = select(Manager).where(and_(Manager.id == manager_uuid, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
         result = await self.session.execute(
-            select(Manager)
-            .where(and_(Manager.id == manager_uuid, self._active_filter()))
-            .options(*self._with_relations())
+            stmt.options(*self._with_relations())
         )
         return result.scalar_one_or_none()
 
-    async def get_by_user_id(self, user_uuid: uuid.UUID) -> Manager | None:
+    async def get_by_user_id(self, user_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Manager | None:
+        stmt = select(Manager).where(and_(Manager.user_id == user_uuid, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
         result = await self.session.execute(
-            select(Manager)
-            .where(and_(Manager.user_id == user_uuid, self._active_filter()))
-            .options(*self._with_relations())
+            stmt.options(*self._with_relations())
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id_raw(self, manager_uuid: uuid.UUID) -> Manager | None:
-        result = await self.session.execute(
-            select(Manager).where(Manager.id == manager_uuid)
-        )
+    async def get_by_id_raw(self, manager_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Manager | None:
+        stmt = select(Manager).where(Manager.id == manager_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_manager_id(self, manager_id: str) -> Manager | None:
-        result = await self.session.execute(
-            select(Manager)
-            .where(and_(Manager.manager_id == manager_id, self._active_filter()))
-            .execution_options(bypass_tenant=True)
-        )
+    async def get_by_manager_id(self, manager_id: str, company_id: uuid.UUID | None = None) -> Manager | None:
+        stmt = select(Manager).where(and_(Manager.manager_id == manager_id, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
+        else:
+            stmt = stmt.execution_options(bypass_tenant=True)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_personal_email(self, email: str) -> Manager | None:
@@ -108,6 +112,7 @@ class ManagerRepository:
 
     async def list_managers(
         self,
+        company_id: uuid.UUID | None = None,
         department: str | None = None,
         status: str | None = None,
         employment_type: str | None = None,
@@ -115,7 +120,11 @@ class ManagerRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> list[Manager]:
-        stmt = select(Manager).where(self._active_filter()).options(selectinload(Manager.reporting_manager))
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Manager.company_id == company_id)
+
+        stmt = select(Manager).where(and_(*filters)).options(selectinload(Manager.reporting_manager))
 
         if department:
             stmt = stmt.where(Manager.department.ilike(f"%{department}%"))
@@ -146,12 +155,17 @@ class ManagerRepository:
 
     async def count_managers(
         self,
+        company_id: uuid.UUID | None = None,
         department: str | None = None,
         status: str | None = None,
         employment_type: str | None = None,
         search: str | None = None,
     ) -> int:
-        stmt = select(func.count()).select_from(Manager).where(self._active_filter())
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Manager.company_id == company_id)
+
+        stmt = select(func.count()).select_from(Manager).where(and_(*filters))
 
         if department:
             stmt = stmt.where(Manager.department.ilike(f"%{department}%"))
@@ -179,14 +193,15 @@ class ManagerRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
-    async def update_manager(self, manager_uuid: uuid.UUID, **kwargs: Any) -> None:
-        await self.session.execute(
-            update(Manager).where(Manager.id == manager_uuid).values(**kwargs)
-        )
+    async def update_manager(self, manager_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
+        stmt = update(Manager).where(Manager.id == manager_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
+        await self.session.execute(stmt.values(**kwargs))
 
-    async def soft_delete(self, manager_uuid: uuid.UUID, deleted_by: uuid.UUID | None = None) -> None:
+    async def soft_delete(self, manager_uuid: uuid.UUID, company_id: uuid.UUID | None = None, deleted_by: uuid.UUID | None = None) -> None:
         import uuid as py_uuid
-        manager = await self.get_by_id_raw(manager_uuid)
+        manager = await self.get_by_id_raw(manager_uuid, company_id=company_id)
         if manager:
             new_email = f"del_{py_uuid.uuid4().hex[:8]}_{manager.personal_email}"
             if len(new_email) > 255:
@@ -196,10 +211,14 @@ class ManagerRepository:
                 new_mgr_id = new_mgr_id[:20]
             new_phone = py_uuid.uuid4().hex[:10]
             
-            await self.session.execute(
+            stmt = (
                 update(Manager)
                 .where(Manager.id == manager_uuid)
-                .values(
+            )
+            if company_id is not None:
+                stmt = stmt.where(Manager.company_id == company_id)
+            await self.session.execute(
+                stmt.values(
                     is_deleted=True,
                     deleted_at=datetime.now(timezone.utc),
                     personal_email=new_email,
@@ -209,12 +228,11 @@ class ManagerRepository:
                 )
             )
 
-    async def update_status(self, manager_uuid: uuid.UUID, status: str) -> None:
-        await self.session.execute(
-            update(Manager)
-            .where(Manager.id == manager_uuid)
-            .values(status=status)
-        )
+    async def update_status(self, manager_uuid: uuid.UUID, status: str, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Manager).where(Manager.id == manager_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Manager.company_id == company_id)
+        await self.session.execute(stmt.values(status=status))
 
     # ------------------------------------------------------------------
     # Address/Document/Education etc. Creators
