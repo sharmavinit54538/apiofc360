@@ -160,6 +160,35 @@ class AuthRepository:
                 last_login_at=datetime.now(timezone.utc),
                 last_login_ip=ip,
                 last_login_device=device,
+                failed_login_attempts=0,
+                locked_until=None,
+            )
+        )
+        await self.session.flush()
+
+    async def record_failed_login_db(self, user_id: uuid.UUID, lock_until: datetime | None = None) -> None:
+        """Increment failed login attempts in DB and optionally set locked_until timestamp."""
+        values: dict = {
+            "failed_login_attempts": User.failed_login_attempts + 1,
+        }
+        if lock_until is not None:
+            values["locked_until"] = lock_until
+
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(**values)
+        )
+        await self.session.flush()
+
+    async def reset_failed_logins_db(self, user_id: uuid.UUID) -> None:
+        """Reset failed login attempts and clear lockout timestamp in DB."""
+        await self.session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                failed_login_attempts=0,
+                locked_until=None,
             )
         )
         await self.session.flush()

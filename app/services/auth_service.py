@@ -531,6 +531,19 @@ class AuthService:
     ) -> tuple[User, str, str, int]:
         """Verify user credentials and return a user model with access + refresh token set."""
 
+        # 1. Check Redis lockout for identifier and IP
+        is_locked, remaining_seconds = await redis_client.is_account_locked(payload.identifier, ip_address or "")
+        if is_locked:
+            logger.warning(
+                "Authentication blocked: account/IP is locked out | identifier=%s | ip=%s | retry_after=%ds",
+                payload.identifier, ip_address, remaining_seconds
+            )
+            raise AppException(
+                message="Account is temporarily locked due to multiple failed login attempts. Please try again later.",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                errors=[{"field": None, "message": "ACCOUNT_LOCKED", "retry_after": remaining_seconds}],
+            )
+
         try:
             user = await self.auth_repository.get_user_by_identifier(payload.identifier)
         except AppException:
@@ -542,11 +555,31 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Check DB locked_until fallback persistence
+        if user and getattr(user, "locked_until", None):
+            now = datetime.now(timezone.utc)
+            locked_until_dt = user.locked_until if user.locked_until.tzinfo else user.locked_until.replace(tzinfo=timezone.utc)
+            if locked_until_dt > now:
+                rem_sec = max(1, int((locked_until_dt - now).total_seconds()))
+                logger.warning("Authentication blocked: user DB locked_until active | user_id=%s | retry_after=%ds", user.id, rem_sec)
+                raise AppException(
+                    message="Account is temporarily locked due to multiple failed login attempts. Please try again later.",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    errors=[{"field": None, "message": "ACCOUNT_LOCKED", "retry_after": rem_sec}],
+                )
+
         # Security: constant-time password verification to mitigate timing attacks if user does not exist
         timing_mitigation_hash = "$2b$12$eImiTXuWVxfM37uY4JANjO7f.6.O1Nn6W71.u8M0bN71dJkZ5p6d6"
         if not user:
             verify_password(payload.password, timing_mitigation_hash)
             logger.warning("Authentication failed: user not found | identifier=%s", payload.identifier)
+            attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
+            if now_locked:
+                raise AppException(
+                    message="Account is temporarily locked due to multiple failed login attempts. Please try again later.",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    errors=[{"field": None, "message": "ACCOUNT_LOCKED", "retry_after": lock_sec}],
+                )
             raise AppException(
                 message="Invalid email or password.",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -556,10 +589,26 @@ class AuthService:
         is_password_valid = verify_password(payload.password, user.password_hash)
         if not is_password_valid:
             logger.warning("Authentication failed: password mismatch | user_id=%s | email=%s", user.id, user.email)
+            attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
+            lock_until_dt = (datetime.now(timezone.utc) + timedelta(seconds=lock_sec)) if now_locked else None
+            await self.auth_repository.record_failed_login_db(user.id, lock_until=lock_until_dt)
+            await self.session.commit()
+
+            if now_locked:
+                raise AppException(
+                    message="Account is temporarily locked due to multiple failed login attempts. Please try again later.",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    errors=[{"field": None, "message": "ACCOUNT_LOCKED", "retry_after": lock_sec}],
+                )
+
             raise AppException(
                 message="Invalid email or password.",
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
+
+        # Clear failed logins on successful credential verification
+        await redis_client.clear_failed_logins(payload.identifier, ip_address or "")
+        await self.auth_repository.reset_failed_logins_db(user.id)
 
         # Verify email is verified
         account_status_val = str(getattr(user, "account_status", "") or "").upper()

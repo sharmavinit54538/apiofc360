@@ -26,7 +26,7 @@ class RateLimitExceeded(HTTPException):
 
 
 class RateLimiter:
-    """Token bucket rate limiter with Redis backend."""
+    """Token bucket and sliding window rate limiter with Redis backend and in-memory fallback."""
 
     def __init__(self):
         self.redis = get_redis_client()
@@ -44,7 +44,7 @@ class RateLimiter:
                 return f"user:{user_id}"
 
         # Fallback to IP address
-        forwarded = request.headers.get("X-Forwarded-For")
+        forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
         if forwarded:
             client_ip = forwarded.split(",")[0].strip()
         else:
@@ -53,7 +53,7 @@ class RateLimiter:
 
     async def check_rate_limit(self, request: Request) -> tuple[bool, int, int]:
         """
-        Check if request is within rate limits.
+        Check if request is within global rate limits.
         Returns: (allowed, retry_after_seconds, remaining_requests)
         """
         if not self.enabled:
@@ -66,20 +66,20 @@ class RateLimiter:
         # Check minute window
         minute_key = f"ratelimit:{client_key}:minute:{int(now // 60)}"
         minute_count = await self.redis.get(minute_key)
-        minute_count = int(minute_count) if minute_count else 0
+        minute_count = int(minute_count) if minute_count and minute_count.isdigit() else 0
 
         if minute_count >= self.rate_per_minute:
             retry_after = 60 - int(now % 60)
-            return False, retry_after, 0
+            return False, max(1, retry_after), 0
 
         # Check hour window
         hour_key = f"ratelimit:{client_key}:hour:{int(now // 3600)}"
         hour_count = await self.redis.get(hour_key)
-        hour_count = int(hour_count) if hour_count else 0
+        hour_count = int(hour_count) if hour_count and hour_count.isdigit() else 0
 
         if hour_count >= self.rate_per_hour:
             retry_after = 3600 - int(now % 3600)
-            return False, retry_after, 0
+            return False, max(1, retry_after), 0
 
         # Increment counters
         await self.redis.set(minute_key, str(minute_count + 1), ttl_seconds=120)
@@ -88,12 +88,114 @@ class RateLimiter:
         remaining = min(self.rate_per_minute - minute_count - 1, self.rate_per_hour - hour_count - 1)
         return True, 0, max(0, remaining)
 
+    async def check_custom_rate_limit(
+        self,
+        request: Request,
+        scope: str,
+        limit: int,
+        window_seconds: int = 60,
+    ) -> tuple[bool, int, int]:
+        """
+        Check endpoint-specific rate limit with true sliding window in Redis.
+        Returns: (allowed, retry_after_seconds, remaining_requests)
+        """
+        if not self.enabled:
+            return True, 0, limit
+
+        await self.redis.connect()
+        client_key = self._get_client_key(request)
+        now = time.time()
+        rate_key = f"ratelimit:{scope}:{client_key}"
+
+        # Fetch existing timestamps
+        raw_val = await self.redis.get(rate_key)
+        timestamps: list[float] = []
+        if raw_val:
+            try:
+                import json
+                timestamps = json.loads(raw_val)
+            except Exception:
+                timestamps = []
+
+        # Filter out timestamps older than sliding window
+        cutoff = now - window_seconds
+        valid_timestamps = [t for t in timestamps if t > cutoff]
+
+        if len(valid_timestamps) >= limit:
+            oldest = valid_timestamps[0]
+            retry_after = int(window_seconds - (now - oldest))
+            return False, max(1, retry_after), 0
+
+        # Append current timestamp and save
+        valid_timestamps.append(now)
+        import json
+        await self.redis.set(rate_key, json.dumps(valid_timestamps), ttl_seconds=window_seconds * 2)
+
+        remaining = max(0, limit - len(valid_timestamps))
+        return True, 0, remaining
+
 
 rate_limiter = RateLimiter()
 
 
+# ---------------------------------------------------------------------------
+# Strict Endpoint Rate Limiter Dependencies
+# ---------------------------------------------------------------------------
+
+async def check_login_rate_limit(request: Request) -> None:
+    """Strict rate limit for /auth/login (5 requests per minute per IP)."""
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope="auth_login", limit=settings.LOGIN_RATE_LIMIT_LIMIT, window_seconds=settings.LOGIN_RATE_LIMIT_WINDOW
+    )
+    if not allowed:
+        logger.warning("Login rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Too many login attempts. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
+async def check_forgot_password_rate_limit(request: Request) -> None:
+    """Strict rate limit for /auth/forgot-password (3 requests per minute per IP)."""
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope="auth_forgot_pw", limit=3, window_seconds=60
+    )
+    if not allowed:
+        logger.warning("Forgot password rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Too many password reset requests. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
+async def check_otp_rate_limit(request: Request) -> None:
+    """Strict rate limit for OTP verification & resend endpoints (5 requests per minute per IP)."""
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope="auth_otp", limit=5, window_seconds=60
+    )
+    if not allowed:
+        logger.warning("OTP rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Too many OTP attempts. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
+async def check_onboarding_rate_limit(request: Request) -> None:
+    """Rate limit for onboarding actions (5 requests per minute per IP)."""
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope="onboarding", limit=5, window_seconds=60
+    )
+    if not allowed:
+        logger.warning("Onboarding rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Too many requests. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Global rate limiting middleware."""
+    """Global and path-aware rate limiting middleware."""
 
     # Paths excluded from rate limiting
     EXCLUDED_PATHS = {
@@ -106,26 +208,57 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
     }
 
+    # Specific path rate limits: path_suffix -> (limit, window_seconds, scope)
+    PATH_LIMITS = {
+        "/auth/login": (5, 60, "mw_auth_login"),
+        "/auth/forgot-password": (3, 60, "mw_auth_forgot_pw"),
+        "/auth/verify-email": (5, 60, "mw_auth_otp"),
+        "/auth/resend-verification": (5, 60, "mw_auth_otp"),
+        "/auth/resend-otp": (5, 60, "mw_auth_otp"),
+        "/auth/verify-new-email": (5, 60, "mw_auth_otp"),
+    }
+
     async def dispatch(self, request: Request, call_next) -> Response:
         # Skip rate limiting for excluded paths
-        if request.url.path in self.EXCLUDED_PATHS:
+        path = request.url.path
+        if path in self.EXCLUDED_PATHS:
             return await call_next(request)
 
         # Skip for static files
-        if request.url.path.startswith("/uploads/"):
+        if path.startswith("/uploads/"):
             return await call_next(request)
 
         # Skip for websocket connections
-        if request.url.path.startswith("/ws"):
+        if path.startswith("/ws"):
             return await call_next(request)
 
+        # Check path-specific strict limits
+        for path_suffix, (limit, window, scope) in self.PATH_LIMITS.items():
+            if path.endswith(path_suffix):
+                allowed, retry_after, remaining = await rate_limiter.check_custom_rate_limit(
+                    request, scope=scope, limit=limit, window_seconds=window
+                )
+                if not allowed:
+                    logger.warning(
+                        "Strict path rate limit exceeded for %s | path=%s | retry_after=%ds",
+                        rate_limiter._get_client_key(request),
+                        path,
+                        retry_after,
+                    )
+                    raise RateLimitExceeded(
+                        detail=f"Rate limit exceeded. Please try again in {retry_after} seconds.",
+                        retry_after=retry_after,
+                    )
+                break
+
+        # Check global limit
         allowed, retry_after, remaining = await rate_limiter.check_rate_limit(request)
 
         if not allowed:
             logger.warning(
                 "Rate limit exceeded for %s | path=%s | retry_after=%ds",
                 rate_limiter._get_client_key(request),
-                request.url.path,
+                path,
                 retry_after,
             )
             raise RateLimitExceeded(
