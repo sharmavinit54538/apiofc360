@@ -11,7 +11,7 @@ from app.models.user import User, UserRole, UserAccountStatus
 from seed_super_admin import seed_super_admin
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_require_super_admin_rbac():
     """Test RBAC dependency strictly permits super_admin with superadmin@ofc360.com and rejects other roles/emails."""
     # Allowed
@@ -33,7 +33,7 @@ async def test_require_super_admin_rbac():
         assert "Super Admin access required" in exc_info.value.detail
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_seed_super_admin_creates_platform_account():
     """Test seed_super_admin script logic creating a platform-level Super Admin."""
     mock_session = AsyncMock()

@@ -117,7 +117,7 @@ def test_validate_password_strength_rules():
 # 2. Register API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_register_endpoint_success_returns_201():
     """Valid registration returns 201 Created with clean response."""
     app = shared_app
@@ -146,7 +146,7 @@ async def test_register_endpoint_success_returns_201():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_register_endpoint_duplicate_email_returns_409():
     """Duplicate email returns 409 Conflict with EMAIL_ALREADY_EXISTS."""
     app = shared_app
@@ -177,7 +177,7 @@ async def test_register_endpoint_duplicate_email_returns_409():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_register_endpoint_invalid_input_returns_422():
     """Malformed email or missing required field returns 422 Unprocessable Entity."""
     app = shared_app
@@ -210,7 +210,7 @@ async def test_register_endpoint_invalid_input_returns_422():
 # 3. Login API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_endpoint_success_returns_200():
     """Correct credentials return 200 OK with tokens, user details, and organization info."""
     app = shared_app
@@ -261,7 +261,7 @@ async def test_login_endpoint_success_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_endpoint_wrong_credentials_returns_401():
     """Wrong password or unknown user returns 401 Unauthorized."""
     app = shared_app
@@ -286,7 +286,7 @@ async def test_login_endpoint_wrong_credentials_returns_401():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_endpoint_unverified_email_returns_403():
     """Unverified email login attempt returns 403 Forbidden with EMAIL_NOT_VERIFIED."""
     app = shared_app
@@ -314,7 +314,7 @@ async def test_login_endpoint_unverified_email_returns_403():
 # 4. Verify Email API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_verify_email_endpoint_via_token_success_returns_200():
     """Valid verification token returns 200 OK."""
     app = shared_app
@@ -333,7 +333,7 @@ async def test_verify_email_endpoint_via_token_success_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_verify_email_endpoint_via_otp_success_returns_200():
     """Valid email + 6-digit OTP returns 200 OK."""
     app = shared_app
@@ -351,7 +351,7 @@ async def test_verify_email_endpoint_via_otp_success_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_verify_email_invalid_token_returns_400():
     """Invalid token raises 400 Bad Request."""
     app = shared_app
@@ -378,7 +378,7 @@ async def test_verify_email_invalid_token_returns_400():
 # 5. Resend OTP API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_resend_verification_endpoint_success_returns_200():
     """Valid unverified user resend OTP returns 200 OK."""
     app = shared_app
@@ -397,7 +397,7 @@ async def test_resend_verification_endpoint_success_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_resend_verification_unknown_user_returns_404():
     """Non-existent user raises 404 Not Found."""
     app = shared_app
@@ -424,7 +424,7 @@ async def test_resend_verification_unknown_user_returns_404():
 # 6. Refresh Token API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_refresh_token_endpoint_success_returns_200():
     """Valid refresh token (including camelCase alias) returns 200 OK with new pair."""
     app = shared_app
@@ -453,7 +453,7 @@ async def test_refresh_token_endpoint_success_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_refresh_token_endpoint_invalid_returns_401():
     """Invalid or expired refresh token returns 401 Unauthorized."""
     app = shared_app
@@ -480,7 +480,7 @@ async def test_refresh_token_endpoint_invalid_returns_401():
 # 7. Logout API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_logout_endpoint_succeeds_even_if_access_token_expired():
     """Logout with expired access token revokes refresh token and returns 200 OK without false 401."""
     app = shared_app
@@ -509,7 +509,7 @@ async def test_logout_endpoint_succeeds_even_if_access_token_expired():
 # 8. Auth /me API Endpoint Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_get_me_endpoint_returns_200_with_full_profile():
     """Authenticated user /me returns 200 OK with id, name, email, role, company, email_verified, account_status."""
     app = shared_app
@@ -554,7 +554,7 @@ async def test_get_me_endpoint_returns_200_with_full_profile():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_get_me_endpoint_null_phone_and_company_does_not_crash_500():
     """User profile with null phone, null company_name serializes cleanly without 500."""
     user_id = uuid.uuid4()
@@ -579,7 +579,7 @@ async def test_get_me_endpoint_null_phone_and_company_does_not_crash_500():
     assert dumped["role"] == "employee"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_get_me_missing_token_returns_401():
     """GET /me without bearer token returns 401 Unauthorized."""
     app = shared_app
@@ -593,7 +593,7 @@ async def test_get_me_missing_token_returns_401():
 # 9. Password Recovery & Account Settings Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_forgot_password_endpoint_returns_200():
     """Forgot password request returns 200 OK without leaking existence."""
     app = shared_app
@@ -611,7 +611,7 @@ async def test_forgot_password_endpoint_returns_200():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_reset_password_endpoint_returns_200():
     """Valid reset token and password updates credentials and returns 200 OK."""
     app = shared_app
@@ -637,7 +637,7 @@ async def test_reset_password_endpoint_returns_200():
 # 10. RBAC & Internal User Creation Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_create_internal_users_returns_201():
     """HR Admin can create EMPLOYEE, MANAGER, EXECUTIVE, and IT_ADMIN accounts."""
     app = shared_app
@@ -689,7 +689,7 @@ async def test_hr_admin_create_internal_users_returns_201():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_employee_cannot_create_users_returns_403():
     """Employee attempting to create users receives 403 Forbidden."""
     app = shared_app

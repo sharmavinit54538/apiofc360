@@ -3,6 +3,7 @@ import uuid
 from httpx import AsyncClient, ASGITransport
 from datetime import datetime, timezone
 from sqlalchemy import select
+from unittest.mock import patch
 
 from app.main import create_app
 from app.db.database import AsyncSessionLocal
@@ -11,7 +12,7 @@ from app.models.company import Company
 from app.core.security import hash_password
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_login_comprehensive_suite():
     """Verify auth login route behavior:
     1. Returns 401 (not 500) for non-existent users.
@@ -26,7 +27,8 @@ async def test_auth_login_comprehensive_suite():
         # Test 1: Non-existent user
         non_existent_resp = await client.post(
             "/api/v1/auth/login",
-            json={"identifier": "nonexistent_random_user_12345@example.com", "password": "Password@123"}
+            json={"identifier": "nonexistent_random_user_12345@example.com", "password": "Password@123"},
+                headers={"X-Forwarded-For": str(uuid.uuid4())}
         )
         assert non_existent_resp.status_code == 401
         res_json = non_existent_resp.json()
@@ -53,7 +55,7 @@ async def test_auth_login_comprehensive_suite():
                 email=test_email,
                 phone=f"99{user_id.int % 100000000:08d}",
                 password_hash=hash_password(raw_password),
-                role=UserRole.SUPER_ADMIN,
+                role=UserRole.HR_ADMIN,
                 account_status="ACTIVE",
                 is_active=True,
                 is_verified=True,
@@ -67,7 +69,8 @@ async def test_auth_login_comprehensive_suite():
             # Test 3: Wrong password returns 401 (not 500)
             wrong_pw_resp = await client.post(
                 "/api/v1/auth/login",
-                json={"identifier": test_email, "password": "WrongPassword@999"}
+                json={"identifier": test_email, "password": "WrongPassword@999"},
+                headers={"X-Forwarded-For": str(uuid.uuid4())}
             )
             assert wrong_pw_resp.status_code == 401
             assert wrong_pw_resp.json()["success"] is False
@@ -75,7 +78,8 @@ async def test_auth_login_comprehensive_suite():
             # Test 4: Correct credentials returns 200 with tokens and user details
             login_resp = await client.post(
                 "/api/v1/auth/login",
-                json={"identifier": test_email, "password": raw_password}
+                json={"identifier": test_email, "password": raw_password},
+                headers={"X-Forwarded-For": str(uuid.uuid4())}
             )
             assert login_resp.status_code == 200
             login_data = login_resp.json()
@@ -83,7 +87,7 @@ async def test_auth_login_comprehensive_suite():
             assert "access_token" in login_data["data"]
             assert "refresh_token" in login_data["data"]
             assert login_data["data"]["user"]["email"] == test_email
-            assert login_data["data"]["user"]["role"] == "super_admin"
+            assert login_data["data"]["user"]["role"] == "hr_admin"
             assert login_data["data"]["user"]["company_name"] is not None
 
         finally:

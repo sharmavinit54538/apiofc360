@@ -19,7 +19,7 @@ from app.schemas.hr_admin import (
 from app.services.hr_admin_service import HRAdminService
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_can_create_employee():
     """Test HR Admin creating an EMPLOYEE user."""
     mock_session = AsyncMock()
@@ -64,7 +64,7 @@ async def test_hr_admin_can_create_employee():
     assert user_obj.created_by == admin_id
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_can_create_manager_executive_it_admin():
     """Test HR Admin can create MANAGER, EXECUTIVE, and IT_ADMIN roles."""
     for allowed_role in ["MANAGER", "EXECUTIVE", "IT_ADMIN"]:
@@ -96,7 +96,7 @@ def test_schema_rejects_super_admin_and_hr_admin_creation():
     assert "HR Admin" in str(exc_hr.value)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_cannot_update_role_to_super_admin():
     """Test that HR Admin cannot escalate a user's privileges to super_admin or hr_admin."""
     mock_session = AsyncMock()
@@ -125,7 +125,7 @@ async def test_hr_admin_cannot_update_role_to_super_admin():
         HRAdminUpdateUserRequest(role="SUPER_ADMIN")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_cannot_deactivate_self():
     """Test that HR Admin cannot deactivate their own account."""
     mock_session = AsyncMock()
@@ -143,7 +143,7 @@ async def test_hr_admin_cannot_deactivate_self():
     assert "cannot deactivate your own account" in exc_info.value.message.lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_cross_tenant_access_denied_returns_404():
     """Test that HR Admin in Company A cannot view or update user in Company B."""
     mock_session = AsyncMock()

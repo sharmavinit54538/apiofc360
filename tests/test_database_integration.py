@@ -11,7 +11,7 @@ from app.models.payroll import Payslip, PayrollRun
 from app.core.security import hash_password, verify_password, create_access_token
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_production_backend_database_and_security_suite():
     """Enterprise production integration test suite:
     1. Validates PostgreSQL connection & SQL COUNT(*) aggregations.
@@ -61,5 +61,3 @@ async def test_production_backend_database_and_security_suite():
         await session.delete(fetched_comp)
         await session.commit()
 
-    # Clean engine pool dispose
-    await engine.dispose()

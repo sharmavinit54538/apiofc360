@@ -196,7 +196,7 @@ def test_login_request_supports_phone_alias():
 # 4. Duplicate Email and Phone Conflict Tests in AuthService
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_duplicate_email_conflict():
     """Test AuthService raises ConflictException when email is already registered and verified."""
     mock_session = AsyncMock()
@@ -228,7 +228,7 @@ async def test_auth_service_duplicate_email_conflict():
         await service.register_user(payload)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_duplicate_phone_conflict():
     """Test AuthService raises ConflictException when phone is already registered and verified."""
     mock_session = AsyncMock()

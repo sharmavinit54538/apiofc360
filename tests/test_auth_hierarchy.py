@@ -19,7 +19,7 @@ from app.schemas.auth import LoginRequest, RegisterRequest, ResendOTPRequest, Ve
 from app.services.auth_service import AuthService
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_public_registration_forces_hr_admin_and_strips_injected_role():
     """Test that public registration strictly creates HR_ADMIN and ignores/strips client role injection."""
     mock_session = AsyncMock()
@@ -49,7 +49,15 @@ async def test_public_registration_forces_hr_admin_and_strips_injected_role():
         "user_role": "SUPER_ADMIN",
         "is_super_admin": True,
     }
-    payload = RegisterRequest.model_validate(malicious_payload_data)
+    with pytest.raises(ValidationError):
+        payload = RegisterRequest.model_validate(malicious_payload_data)
+
+    # Let's use a safe payload to test that the rest of the flow works
+    safe_payload_data = malicious_payload_data.copy()
+    safe_payload_data.pop("role")
+    safe_payload_data.pop("user_role")
+    safe_payload_data.pop("is_super_admin")
+    payload = RegisterRequest.model_validate(safe_payload_data)
 
     with patch("app.utils.employee.generate_employee_id", new=AsyncMock(return_value="EMP-202608-0001")):
         await service.register_user(payload)
@@ -74,7 +82,7 @@ async def test_public_registration_forces_hr_admin_and_strips_injected_role():
     assert employee.role == "hr_admin"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_email_verification_via_token_activates_account():
     """Test that email verification via link token marks user verified, active, and status ACTIVE."""
     mock_session = AsyncMock()
@@ -112,7 +120,7 @@ async def test_email_verification_via_token_activates_account():
     mock_session.commit.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_email_verification_via_otp_activates_account():
     """Test that email verification via 6-digit OTP activates account."""
     mock_session = AsyncMock()
@@ -162,7 +170,7 @@ async def test_email_verification_via_otp_activates_account():
     mock_repo.update_user_verification.assert_awaited_once_with(user_id)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_blocks_unverified_account_with_email_not_verified():
     """Test that login attempt on unverified account raises 403 EMAIL_NOT_VERIFIED."""
     mock_session = AsyncMock()
@@ -197,7 +205,7 @@ async def test_login_blocks_unverified_account_with_email_not_verified():
     assert "verify your email" in exc_info.value.message.lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_blocks_inactive_account_with_account_inactive():
     """Test that login attempt on suspended or inactive account raises 403 ACCOUNT_INACTIVE."""
     mock_session = AsyncMock()
@@ -232,7 +240,7 @@ async def test_login_blocks_inactive_account_with_account_inactive():
     assert "inactive" in exc_info.value.message.lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_succeeds_for_verified_active_hr_admin():
     """Test that login succeeds for verified active HR Admin and issues tokens."""
     mock_session = AsyncMock()
