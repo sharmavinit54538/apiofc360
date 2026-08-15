@@ -1,12 +1,21 @@
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 
-router = APIRouter(prefix="/cto", tags=["CTO Enterprise Hub"])
+router = APIRouter(
+    prefix="/cto",
+    tags=["CTO Enterprise Hub"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 @router.get("/dashboard")
-async def get_cto_dashboard_metrics(db: AsyncSession = Depends(get_db_session)):
+async def get_cto_dashboard_metrics(
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: AsyncSession = Depends(get_db_session),
+):
     """Fetch real-time enterprise CTO dashboard metrics, engineering KPIs, system health, and AI insights."""
     try:
         # Fetch actual employee/developer count from DB

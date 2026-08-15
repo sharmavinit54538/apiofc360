@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Query, UploadFile, status, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -22,7 +23,11 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/resume-parser", tags=["AI Resume Parser v2"])
+router = APIRouter(
+    prefix="/resume-parser",
+    tags=["AI Resume Parser v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 ALLOWED_EXTENSIONS = set(settings.ALLOWED_RESUME_EXTENSIONS)
 MAX_SIZE = settings.MAX_RESUME_SIZE_MB * 1024 * 1024

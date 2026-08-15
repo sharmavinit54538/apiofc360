@@ -170,7 +170,7 @@ class Employee(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     # --------------- Relationships ---------------
-    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id], back_populates=None, lazy="select")
+    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id], back_populates="employee", lazy="select")
     company: Mapped[Company | None] = relationship("Company", foreign_keys=[company_id], lazy="select")
     creator: Mapped[User | None] = relationship("User", foreign_keys=[created_by], back_populates=None, lazy="select")
     inviter: Mapped[User | None] = relationship("User", foreign_keys=[invited_by], back_populates=None, lazy="select")
@@ -200,4 +200,17 @@ class Employee(Base):
     department_rel: Mapped[Department | None] = relationship(
         "Department", back_populates="employees", foreign_keys=[department_id], lazy="select"
     )
+
+    @property
+    def is_deactivated(self) -> bool:
+        """Return True if the employee record is inactive, deactivated, archived, terminated, or deleted."""
+        if not self.is_active or self.is_deleted:
+            return True
+        status_upper = (self.status or "").upper()
+        if status_upper in {"DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED"}:
+            return True
+        emp_status_upper = (self.employment_status or "").upper()
+        if emp_status_upper in {"EXITED", "TERMINATED"}:
+            return True
+        return False
 

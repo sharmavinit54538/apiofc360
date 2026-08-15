@@ -256,11 +256,15 @@ class AuthRepository:
         expires_at: datetime,
         device: str | None = None,
         ip_address: str | None = None,
+        family_id: uuid.UUID | None = None,
+        parent_token_hash: str | None = None,
     ) -> RefreshToken:
-        """Save a hashed refresh token to the database."""
+        """Save a hashed refresh token to the database with family tracking."""
 
         refresh_token = RefreshToken(
             user_id=user_id,
+            family_id=family_id or uuid.uuid4(),
+            parent_token_hash=parent_token_hash,
             token_hash=token_hash,
             device=device,
             ip_address=ip_address,
@@ -287,26 +291,57 @@ class AuthRepository:
         )
         return result.scalars().first()
 
-    async def revoke_refresh_token(self, token_id: uuid.UUID) -> None:
-        """Revoke a specific refresh token."""
+    async def get_refresh_token_by_hash_raw(self, token_hash: str) -> RefreshToken | None:
+        """Retrieve a refresh token by SHA-256 hash regardless of revoked status (for reuse detection)."""
 
+        from sqlalchemy.orm import selectinload
+
+        result = await self.session.execute(
+            select(RefreshToken)
+            .options(selectinload(RefreshToken.user))
+            .where(
+                RefreshToken.token_hash == token_hash,
+            )
+            .execution_options(bypass_tenant=True)
+        )
+        return result.scalars().first()
+
+    async def revoke_refresh_token(self, token_id: uuid.UUID, reason: str | None = None) -> None:
+        """Revoke a specific refresh token with optional reason and timestamp."""
+
+        now = datetime.now(timezone.utc)
         await self.session.execute(
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
-            .values(revoked=True)
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
         )
         await self.session.flush()
 
-    async def revoke_all_user_refresh_tokens(self, user_id: uuid.UUID) -> None:
+    async def revoke_token_family(self, family_id: uuid.UUID, reason: str = "FAMILY_REUSE_DETECTED") -> None:
+        """Revoke all tokens in a token family upon compromised token reuse detection."""
+
+        now = datetime.now(timezone.utc)
+        await self.session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked == False,
+            )
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
+        )
+        await self.session.flush()
+
+    async def revoke_all_user_refresh_tokens(self, user_id: uuid.UUID, reason: str | None = "USER_SESSION_REVOCATION") -> None:
         """Revoke all refresh tokens for a user (forces logout on all devices)."""
 
+        now = datetime.now(timezone.utc)
         await self.session.execute(
             update(RefreshToken)
             .where(
                 RefreshToken.user_id == user_id,
                 RefreshToken.revoked == False,
             )
-            .values(revoked=True)
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
         )
         await self.session.flush()
 

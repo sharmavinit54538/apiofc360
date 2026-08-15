@@ -10,6 +10,7 @@ import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import Depends, status
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
@@ -643,6 +645,35 @@ class EmployeeService:
             if update_data:
                 await self.repo.update_employee(employee_uuid, **update_data)
 
+            # Synchronize User active state if employee active status or lifecycle changed
+            if employee.user_id:
+                from sqlalchemy import update as sa_update
+                from app.models.user import User
+                new_is_active = update_data.get("is_active", employee.is_active)
+                new_status = (update_data.get("status") or employee.status or "").upper()
+                new_emp_status = (update_data.get("employment_status") or employee.employment_status or "").upper()
+
+                if (
+                    new_is_active is False
+                    or new_status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+                    or new_emp_status in ("EXITED", "TERMINATED")
+                ):
+                    await self.session.execute(
+                        sa_update(User).where(User.id == employee.user_id).values(
+                            is_active=False,
+                            account_status="DEACTIVATED",
+                        )
+                    )
+                    await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                    await redis_client.revoke_user_tokens(employee.user_id)
+                elif new_is_active is True and new_status == "ACTIVE":
+                    await self.session.execute(
+                        sa_update(User).where(User.id == employee.user_id).values(
+                            is_active=True,
+                            account_status="ACTIVE",
+                        )
+                    )
+
             from sqlalchemy import delete
             
             # Update Addresses
@@ -826,11 +857,13 @@ class EmployeeService:
                         new_user_email = new_user_email[:255]
                     new_user_phone = py_uuid.uuid4().hex[:10]
                     user.is_active = False
+                    user.account_status = "DEACTIVATED"
                     user.is_deleted = True
                     user.email = new_user_email
                     user.phone = new_user_phone
 
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
             await self.session.commit()
             logger.info("delete_employee: success | employee_id=%s", employee_uuid)
         except AppException:
@@ -960,8 +993,13 @@ class EmployeeService:
                 from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
-                    sa_update(User).where(User.id == employee.user_id).values(is_active=False)
+                    sa_update(User).where(User.id == employee.user_id).values(
+                        is_active=False,
+                        account_status="DEACTIVATED",
+                    )
                 )
+                await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
 
             # Write Audit log
             audit_log = AuditLog(
@@ -1213,13 +1251,20 @@ class EmployeeService:
         )
         try:
             employee = await self._require_employee_in_company(employee_uuid, company_id)
+            employee.is_active = False
+            employee.status = "INACTIVE"
             await self.repo.update_status(employee_uuid, "INACTIVE")
             if employee.user_id:
                 from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
-                    sa_update(User).where(User.id == employee.user_id).values(is_active=False)
+                    sa_update(User).where(User.id == employee.user_id).values(
+                        is_active=False,
+                        account_status="DEACTIVATED",
+                    )
                 )
+                await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
+                await redis_client.revoke_user_tokens(employee.user_id)
             await self.session.commit()
             logger.info(
                 "reject_employee: success | employee_id=%s | reason=%s",

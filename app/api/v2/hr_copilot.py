@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -9,15 +10,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
-from app.schemas.auth import APIResponse
 from app.rag.hr_copilot_rag import HRCopilotRAG, get_hr_copilot
 from app.rag.retriever import get_retriever
-import logging
+from app.schemas.auth import APIResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/hr-copilot", tags=["HR Copilot RAG v2"])
+router = APIRouter(
+    prefix="/hr-copilot",
+    tags=["HR Copilot RAG v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 
 class CopilotQueryRequest(BaseModel):
@@ -46,28 +50,11 @@ class IndexJobRequest(BaseModel):
     "/query",
     response_model=APIResponse[dict],
     summary="Ask the HR Copilot a natural language question",
-    description="""
-Query your candidate database using natural language.
-
-**Example questions:**
-- *"Find the best Python developer with AWS experience"*
-- *"Show candidates with React and 5+ years experience"*
-- *"Compare top 3 candidates for the Data Engineer role"*
-- *"Which candidates are available within 30 days?"*
-- *"Who has an AWS Solutions Architect certification?"*
-
-The copilot:
-1. Classifies your intent (find/compare/analyze/skill search)
-2. Retrieves semantically matching candidates from vector store
-3. Grounds the LLM response in real candidate data
-4. Cites specific candidates in the answer
-5. Suggests follow-up queries
-""",
 )
 async def query_hr_copilot(
     body: CopilotQueryRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
-    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Ask the AI-powered HR Copilot a natural language question."""
     copilot = get_hr_copilot()
@@ -82,7 +69,7 @@ async def query_hr_copilot(
     # Log query to DB for analytics
     from app.models.ai_recruitment import HRCopilotQuery
     query_log = HRCopilotQuery(
-        user_id=uuid.UUID(claims["sub"]) if claims else uuid.uuid4(),
+        user_id=uuid.UUID(claims["sub"]) if claims and "sub" in claims else uuid.uuid4(),
         company_id=uuid.UUID(claims.get("company_id", str(uuid.uuid4()))) if claims else None,
         question=body.question,
         answer=response.answer,
@@ -109,7 +96,7 @@ async def query_hr_copilot(
 )
 async def index_candidate(
     body: IndexCandidateRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
 ) -> APIResponse[dict]:
     """Embed and index a candidate's resume for semantic search."""
     copilot = get_hr_copilot()
@@ -136,7 +123,7 @@ async def index_candidate(
 )
 async def index_job(
     body: IndexJobRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
 ) -> APIResponse[dict]:
     """Embed and index a job description for semantic search."""
     copilot = get_hr_copilot()
@@ -161,7 +148,7 @@ async def index_job(
     summary="Get vector store statistics",
 )
 async def get_vector_store_status(
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
 ) -> APIResponse[dict]:
     """Return the current state of the vector store."""
     from app.core.config import settings
@@ -188,7 +175,7 @@ async def get_vector_store_status(
 )
 async def remove_candidate_from_index(
     candidate_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
 ) -> APIResponse[dict]:
     """Remove a candidate's embedding from the vector store."""
     retriever = get_retriever()

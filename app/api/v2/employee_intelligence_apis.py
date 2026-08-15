@@ -5,13 +5,23 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
-from app.services.employee_intelligence_services import VoiceAssistantService, MoodDetectionService, CareerPathService, LearningRecommendationService
+from app.services.employee_intelligence_services import (
+    CareerPathService,
+    LearningRecommendationService,
+    MoodDetectionService,
+    VoiceAssistantService,
+)
 
 # ── Voice Assistant ────────────────────────────────────────
-voice_router = APIRouter(prefix="/voice", tags=["AI HR Voice Assistant v2"])
+voice_router = APIRouter(
+    prefix="/voice",
+    tags=["AI HR Voice Assistant v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 class VoiceCommandRequest(BaseModel):
     company_id: uuid.UUID
@@ -25,7 +35,11 @@ async def process_voice_command(body: VoiceCommandRequest, claims: Annotated[dic
     return APIResponse[dict](success=True, message="Voice command processed.", data={"log_id": str(log.id), "parsed_intent": log.parsed_intent, "tts_response": log.tts_response}, errors=None)
 
 # ── Mood Detection ─────────────────────────────────────────
-mood_router = APIRouter(prefix="/mood", tags=["AI Mood Detection Engine v2"])
+mood_router = APIRouter(
+    prefix="/mood",
+    tags=["AI Mood Detection Engine v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 class MoodDetectRequest(BaseModel):
     company_id: uuid.UUID
@@ -35,12 +49,16 @@ class MoodDetectRequest(BaseModel):
     model: Optional[str] = None
 
 @mood_router.post("/detect", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Detect employee mood from text input")
-async def detect_mood(body: MoodDetectRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
+async def detect_mood(body: MoodDetectRequest, claims: Annotated[dict, Depends(require_employee_or_above)], db: Annotated[AsyncSession, Depends(get_db_session)] = None):
     log = await MoodDetectionService(db).detect_mood(body.company_id, body.employee_id, body.input_source, body.input_text, body.model)
     return APIResponse[dict](success=True, message="Mood detected.", data={"log_id": str(log.id), "detected_mood": log.detected_mood, "confidence_score": log.confidence_score, "wellness_recommendations": log.wellness_recommendations}, errors=None)
 
 # ── Career Path ────────────────────────────────────────────
-career_router = APIRouter(prefix="/career-path", tags=["AI Career Path Generator v2"])
+career_router = APIRouter(
+    prefix="/career-path",
+    tags=["AI Career Path Generator v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 class CareerPathRequest(BaseModel):
     company_id: uuid.UUID
@@ -49,13 +67,13 @@ class CareerPathRequest(BaseModel):
     model: Optional[str] = None
 
 @career_router.post("/predict", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Predict AI career path for an employee")
-async def predict_career_path(body: CareerPathRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
+async def predict_career_path(body: CareerPathRequest, claims: Annotated[dict, Depends(require_employee_or_above)], db: Annotated[AsyncSession, Depends(get_db_session)] = None):
     pred = await CareerPathService(db).generate_career_path(body.company_id, body.employee_id, body.employee_profile, body.model)
     return APIResponse[dict](success=True, message="Career path predicted.", data={"prediction_id": str(pred.id), "predicted_next_role": pred.predicted_next_role, "promotion_timeline_months": pred.promotion_timeline_months, "career_growth_narrative": pred.career_growth_narrative}, errors=None)
 
 
 @career_router.get("/predictions", status_code=status.HTTP_200_OK, response_model=APIResponse[list[dict]], summary="Get saved career path predictions for the current employee")
-async def get_saved_career_paths(claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
+async def get_saved_career_paths(claims: Annotated[dict, Depends(require_employee_or_above)], db: Annotated[AsyncSession, Depends(get_db_session)] = None):
     from app.repositories.employee_repository import EmployeeRepository
     from app.models.career_path import CareerPathPrediction
     from sqlalchemy import select
@@ -88,7 +106,11 @@ async def get_saved_career_paths(claims: Annotated[dict, Depends(get_current_use
     )
 
 # ── Learning Recommendation ────────────────────────────────
-learning_router = APIRouter(prefix="/learning", tags=["AI Learning Recommendation v2"])
+learning_router = APIRouter(
+    prefix="/learning",
+    tags=["AI Learning Recommendation v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 class LearningRecRequest(BaseModel):
     company_id: uuid.UUID

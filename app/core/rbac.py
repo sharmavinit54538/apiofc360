@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Callable, Sequence
 import uuid
 
 from fastapi import Depends, HTTPException, status
@@ -11,20 +11,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
+from app.models.user.role import OFFICIAL_SUPER_ADMIN_EMAIL, RoleEnum, UserRole
 
 logger = logging.getLogger(__name__)
 
-OFFICIAL_SUPER_ADMIN_EMAIL = "superadmin@ofc360.com"
+# Re-export canonical RoleEnum and UserRole
+__all__ = [
+    "RoleEnum",
+    "UserRole",
+    "OFFICIAL_SUPER_ADMIN_EMAIL",
+    "ROLE_SUPER_ADMIN",
+    "ROLE_HR_ADMIN",
+    "ROLE_IT_ADMIN",
+    "ROLE_EXECUTIVE",
+    "ROLE_MANAGER",
+    "ROLE_EMPLOYEE",
+    "ROLE_INTERN",
+    "ADMIN_ROLES",
+    "ADMIN_MANAGER_ROLES",
+    "EXECUTIVE_ROLES",
+    "require_super_admin",
+    "require_admin",
+    "require_hr_admin",
+    "require_it_admin",
+    "require_admin_or_manager",
+    "require_executive",
+    "require_employee_or_above",
+    "require_roles",
+]
 
-ROLE_SUPER_ADMIN = "super_admin"
-ROLE_HR_ADMIN = "hr_admin"
-ROLE_IT_ADMIN = "it_admin"
-ROLE_EXECUTIVE = "executive"
-ROLE_MANAGER = "manager"
-ROLE_EMPLOYEE = "employee"
+ROLE_SUPER_ADMIN = RoleEnum.SUPER_ADMIN.value
+ROLE_HR_ADMIN = RoleEnum.HR_ADMIN.value
+ROLE_IT_ADMIN = RoleEnum.IT_ADMIN.value
+ROLE_EXECUTIVE = RoleEnum.EXECUTIVE.value
+ROLE_MANAGER = RoleEnum.MANAGER.value
+ROLE_EMPLOYEE = RoleEnum.EMPLOYEE.value
+ROLE_INTERN = RoleEnum.INTERN.value
 
 ADMIN_ROLES = {ROLE_HR_ADMIN, ROLE_IT_ADMIN}
-ADMIN_MANAGER_ROLES = {ROLE_HR_ADMIN, ROLE_IT_ADMIN, ROLE_MANAGER}
+ADMIN_MANAGER_ROLES = {ROLE_HR_ADMIN, ROLE_IT_ADMIN, ROLE_MANAGER, ROLE_EXECUTIVE}
+EXECUTIVE_ROLES = {ROLE_SUPER_ADMIN, ROLE_HR_ADMIN, ROLE_EXECUTIVE}
 
 
 def _is_valid_super_admin_claims(claims: dict) -> bool:
@@ -84,7 +110,7 @@ def require_admin(
 def require_admin_or_manager(
     claims: Annotated[dict, Depends(get_current_user_claims)],
 ) -> dict:
-    """Allow users with official super_admin, hr_admin, it_admin, or manager roles."""
+    """Allow users with official super_admin, hr_admin, it_admin, manager, or executive roles."""
     user_role = (claims.get("role") or "").lower().strip()
     if user_role in ADMIN_MANAGER_ROLES:
         return claims
@@ -100,6 +126,113 @@ def require_admin_or_manager(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Admin, HR, or Manager access required.",
     )
+
+
+def require_executive(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Allow users with executive, hr_admin, or official super_admin roles."""
+    user_role = (claims.get("role") or "").lower().strip()
+    if user_role in EXECUTIVE_ROLES:
+        if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super Admin access required.",
+            )
+        return claims
+
+    logger.warning(
+        "RBAC: Executive access required | user_role=%s | user_id=%s",
+        claims.get("role"),
+        claims.get("sub"),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Executive access required.",
+    )
+
+
+def require_it_admin(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Allow IT admin or official super_admin users."""
+    user_role = (claims.get("role") or "").lower().strip()
+    if user_role == ROLE_IT_ADMIN:
+        return claims
+    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+        return claims
+
+    logger.warning(
+        "RBAC: IT Admin access required | user_role=%s | user_id=%s",
+        claims.get("role"),
+        claims.get("sub"),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="IT Admin access required.",
+    )
+
+
+def require_employee_or_above(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Ensure request is from an authenticated user with a recognized platform role."""
+    user_role = (claims.get("role") or "").lower().strip()
+    all_valid_roles = {r.value for r in RoleEnum}
+    if user_role in all_valid_roles:
+        if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super Admin access required.",
+            )
+        return claims
+
+    logger.warning(
+        "RBAC: Valid role required | user_role=%s | user_id=%s",
+        claims.get("role"),
+        claims.get("sub"),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied.",
+    )
+
+
+def require_roles(*allowed_roles: RoleEnum | str) -> Callable[[dict], dict]:
+    """Dependency factory that restricts route access to specified roles."""
+    normalized_allowed: set[str] = set()
+    for r in allowed_roles:
+        if isinstance(r, RoleEnum):
+            normalized_allowed.add(r.value)
+        elif isinstance(r, str):
+            normalized_allowed.add(RoleEnum.from_str(r).value)
+
+    def _role_checker(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
+        user_role = (claims.get("role") or "").lower().strip()
+        if user_role in normalized_allowed:
+            if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Super Admin access required.",
+                )
+            return claims
+
+        # Super admin always allowed unless specifically disallowed
+        if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+            return claims
+
+        logger.warning(
+            "RBAC: Insufficient role permissions | required=%s | user_role=%s | user_id=%s",
+            normalized_allowed,
+            user_role,
+            claims.get("sub"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to access this resource.",
+        )
+
+    return _role_checker
 
 
 async def require_super_admin(
@@ -181,25 +314,3 @@ async def require_super_admin(
             )
 
     return claims
-
-
-def require_it_admin(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
-) -> dict:
-    """Allow IT admin or official super_admin users."""
-    user_role = (claims.get("role") or "").lower().strip()
-    if user_role == ROLE_IT_ADMIN:
-        return claims
-    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
-        return claims
-
-    logger.warning(
-        "RBAC: IT Admin access required | user_role=%s | user_id=%s",
-        claims.get("role"),
-        claims.get("sub"),
-    )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="IT Admin access required.",
-    )
-

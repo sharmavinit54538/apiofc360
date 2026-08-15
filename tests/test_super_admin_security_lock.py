@@ -543,3 +543,54 @@ async def test_ensure_superadmin_provisioned_safe_migration():
     assert sa_added[0].is_active is True
     assert sa_added[0].is_verified is True
 
+
+# ==============================================================================
+# 9. Administrative Security Locks & Immediate Token Invalidation
+# ==============================================================================
+
+@pytest.mark.asyncio
+async def test_admin_security_lock_invalidates_access_tokens():
+    """Verify administrative security lock / deactivation immediately invalidates JWT access tokens."""
+    import time
+    from app.core.redis_client import redis_client
+    from app.middleware.auth import get_current_user_claims
+    from app.utils.jwt import create_access_token
+
+    user_id = uuid.uuid4()
+    # Create valid access token
+    token = create_access_token(user_id=user_id, role="employee", email="employee@company.com")
+
+    # Before lock: token claims decode successfully
+    claims = await get_current_user_claims(credentials=MagicMock(credentials=token))
+    assert claims["sub"] == str(user_id)
+
+    # Apply administrative security lock on user
+    time.sleep(1)  # ensure cutoff timestamp > token iat
+    await redis_client.revoke_user_tokens(user_id)
+
+    # After lock: token is rejected by auth middleware with 401
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user_claims(credentials=MagicMock(credentials=token))
+    assert exc_info.value.status_code == 401
+    assert "Invalid or expired login session" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_admin_lock_token_blocklist_direct():
+    """Verify specific token blacklisting rejects immediate bearer authentication."""
+    from app.core.redis_client import redis_client
+    from app.middleware.auth import get_current_user_claims
+    from app.utils.jwt import create_access_token
+
+    user_id = uuid.uuid4()
+    token = create_access_token(user_id=user_id, role="employee", email="user@company.com")
+
+    # Blacklist token directly
+    await redis_client.blacklist_token(token, ttl_seconds=300)
+
+    # Attempt auth
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user_claims(credentials=MagicMock(credentials=token))
+    assert exc_info.value.status_code == 401
+
+

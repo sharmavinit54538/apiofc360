@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.redis_client import redis_client
 from app.core.security import hash_password, verify_password
 from app.db.database import get_db_session
 from app.models.user import User
@@ -579,6 +580,63 @@ class AuthService:
                 errors=[{"field": None, "message": "ACCOUNT_INACTIVE"}],
             )
 
+        # Verify employment / manager active lifecycle state
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.manager import Manager
+
+        emp_res = await self.session.execute(
+            select(Employee).where(
+                Employee.user_id == user.id,
+                Employee.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        emp = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") and callable(emp_res.scalar_one_or_none) else None
+        if isinstance(emp, Employee) and (
+            not emp.is_active
+            or emp.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(emp, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.warning(
+                "Authentication failed: Employee profile for user %s is deactivated/archived/terminated (status=%s, is_active=%s).",
+                user.id, emp.status, emp.is_active
+            )
+            user.is_active = False
+            user.account_status = "DEACTIVATED"
+            await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+            await self.session.commit()
+            raise AppException(
+                message="Account or employment profile is inactive or terminated. Please contact HR.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": None, "message": "EMPLOYEE_INACTIVE"}],
+            )
+
+        mgr_res = await self.session.execute(
+            select(Manager).where(
+                Manager.user_id == user.id,
+                Manager.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        mgr = mgr_res.scalar_one_or_none() if hasattr(mgr_res, "scalar_one_or_none") and callable(mgr_res.scalar_one_or_none) else None
+        if isinstance(mgr, Manager) and (
+            not mgr.is_active
+            or mgr.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(mgr, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.warning(
+                "Authentication failed: Manager profile for user %s is deactivated/archived/terminated (status=%s, is_active=%s).",
+                user.id, mgr.status, mgr.is_active
+            )
+            user.is_active = False
+            user.account_status = "DEACTIVATED"
+            await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+            await self.session.commit()
+            raise AppException(
+                message="Account or manager profile is inactive or terminated. Please contact HR.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": None, "message": "MANAGER_INACTIVE"}],
+            )
+
         # Success - log audit details
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
@@ -609,19 +667,22 @@ class AuthService:
         return user, access_token, refresh_token, expires_in
 
     async def logout(self, *, access_token: str, refresh_token: str) -> None:
-        """Revoke refresh token session and add access token to blacklist."""
+        """Revoke refresh token session and add access token to Redis blacklist."""
 
         # Revoke DB refresh token
         await self.token_service.revoke_refresh_token(refresh_token)
 
-        # Blacklist access token for its remaining lifetime
-        try:
-            claims = decode_token(access_token)
-            exp = claims.get("exp")
-            if exp:
-                blacklist_access_token(access_token, exp)
-        except Exception:
-            pass
+        # Blacklist access token for its remaining lifetime in Redis & fallback
+        if access_token:
+            try:
+                claims = decode_token(access_token)
+                exp = claims.get("exp")
+                if exp:
+                    ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
+                    await redis_client.blacklist_token(access_token, ttl)
+                    blacklist_access_token(access_token, exp)
+            except Exception:
+                await redis_client.blacklist_token(access_token, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         await self.session.commit()
 
@@ -669,7 +730,7 @@ class AuthService:
             raise
 
     async def reset_password(self, payload: ResetPasswordRequest) -> None:
-        """Verify the secure password reset token and update credentials, revoking active sessions."""
+        """Verify the secure password reset token and update credentials, revoking active sessions and JWTs."""
 
         # Hash incoming token
         hashed_token = hashlib.sha256(payload.token.encode()).hexdigest()
@@ -695,11 +756,13 @@ class AuthService:
         # Update credentials
         new_password_hash = hash_password(payload.password)
         await self.auth_repository.update_user_password(user.id, new_password_hash)
-        await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+        await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
+        await redis_client.revoke_user_tokens(user.id)
         
         # Mark token as used
         await self.auth_repository.mark_password_reset_token_used(token_record.id)
         await self.session.commit()
+
 
     async def login_google(
         self,

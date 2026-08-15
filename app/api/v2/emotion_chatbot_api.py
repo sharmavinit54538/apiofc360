@@ -17,16 +17,18 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
 from app.models.emotion_chatbot import EmotionAwareChatMessage
 from app.schemas.auth import APIResponse
 from app.services.emotion_chatbot_service import EmotionChatbotService
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/emotions", tags=["AI Emotion Aware Chatbot v2"])
+router = APIRouter(
+    prefix="/emotions",
+    tags=["AI Emotion Aware Chatbot v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

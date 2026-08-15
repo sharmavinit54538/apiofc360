@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -9,14 +10,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
-from app.schemas.auth import APIResponse
 from app.analytics.analytics_service import get_analytics_service
-import logging
+from app.core.rbac import require_admin_or_manager
+from app.db.database import get_db_session
+from app.schemas.auth import APIResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/analytics", tags=["Recruitment Analytics v2"])
+router = APIRouter(
+    prefix="/analytics",
+    tags=["Recruitment Analytics v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 
 @router.get(
@@ -26,7 +30,7 @@ router = APIRouter(prefix="/analytics", tags=["Recruitment Analytics v2"])
 )
 async def get_dashboard_summary(
     company_id: str | None = Query(None, description="Filter by company UUID"),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Get high-level recruitment dashboard metrics."""
@@ -44,7 +48,7 @@ async def get_hiring_funnel(
     company_id: str | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return hiring funnel: Applied → Shortlisted → Interviewed → Offered → Hired."""
@@ -61,7 +65,7 @@ async def get_hiring_funnel(
 async def get_offer_acceptance_rate(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365, description="Period in days"),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return offer acceptance/decline rates over a period."""
@@ -78,7 +82,7 @@ async def get_offer_acceptance_rate(
 async def get_time_to_hire(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return average, min, max, and median time from application to offer."""
@@ -95,7 +99,7 @@ async def get_time_to_hire(
 async def get_source_performance(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return per-source hire rate and shortlist rate."""
@@ -117,7 +121,7 @@ async def get_source_performance(
 async def get_recruiter_performance(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return per-recruiter job creation and pipeline metrics."""
@@ -139,7 +143,7 @@ async def get_recruiter_performance(
 async def get_department_analytics(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return hiring fill rate and applicant volume per department."""
@@ -161,7 +165,7 @@ async def get_department_analytics(
 async def get_interview_success_rate(
     company_id: str | None = Query(None),
     days: int = Query(90, ge=7, le=365),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Return interview completion rate and pass rate."""

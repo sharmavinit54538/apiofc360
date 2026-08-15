@@ -18,8 +18,7 @@ from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, UUID4, field_validator
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.models.wellness import WellnessEscalationRule
@@ -27,7 +26,11 @@ from app.schemas.auth import APIResponse
 from app.services.wellness_service import WellnessService
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/wellness", tags=["AI Wellness Coach v2"])
+router = APIRouter(
+    prefix="/wellness",
+    tags=["AI Wellness Coach v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,20 +1,33 @@
 """API v2 routers for: Workforce Forecasting, Talent Marketplace, Meeting Intelligence, Compliance Monitor, Employee Risk Engine, Executive Copilot."""
+
 from __future__ import annotations
+
 import uuid
 from typing import Annotated, Any, Optional
+
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.rbac import require_admin_or_manager, require_executive
 from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.services.enterprise_intelligence_services import (
-    WorkforceForecastService, TalentMarketplaceService, MeetingIntelligenceService,
-    ComplianceMonitorService, EmployeeRiskService, ExecutiveCopilotService
+    ComplianceMonitorService,
+    EmployeeRiskService,
+    ExecutiveCopilotService,
+    MeetingIntelligenceService,
+    TalentMarketplaceService,
+    WorkforceForecastService,
 )
 
 # ── Workforce Forecasting ─────────────────────────────────
-workforce_router = APIRouter(prefix="/workforce", tags=["AI Workforce Forecasting v2"])
+workforce_router = APIRouter(
+    prefix="/workforce",
+    tags=["AI Workforce Forecasting v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class WorkforceForecastRequest(BaseModel):
     company_id: uuid.UUID
@@ -22,13 +35,41 @@ class WorkforceForecastRequest(BaseModel):
     company_snapshot: dict[str, Any] = {}
     model: Optional[str] = None
 
-@workforce_router.post("/forecast", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Run AI workforce forecasting run")
-async def run_workforce_forecast(body: WorkforceForecastRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    run = await WorkforceForecastService(db).run_forecast(body.company_id, body.forecast_period, body.company_snapshot, body.model)
-    return APIResponse[dict](success=True, message="Workforce forecast completed.", data={"run_id": str(run.id), "predicted_hiring_needs": run.predicted_hiring_needs, "predicted_attrition_count": run.predicted_attrition_count, "workforce_plan_narrative": run.workforce_plan_narrative}, errors=None)
+
+@workforce_router.post(
+    "/forecast",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Run AI workforce forecasting run",
+)
+async def run_workforce_forecast(
+    body: WorkforceForecastRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    run = await WorkforceForecastService(db).run_forecast(
+        body.company_id, body.forecast_period, body.company_snapshot, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Workforce forecast completed.",
+        data={
+            "run_id": str(run.id),
+            "predicted_hiring_needs": run.predicted_hiring_needs,
+            "predicted_attrition_count": run.predicted_attrition_count,
+            "workforce_plan_narrative": run.workforce_plan_narrative,
+        },
+        errors=None,
+    )
+
 
 # ── Talent Marketplace ────────────────────────────────────
-talent_router = APIRouter(prefix="/talent", tags=["AI Talent Marketplace v2"])
+talent_router = APIRouter(
+    prefix="/talent",
+    tags=["AI Talent Marketplace v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class TalentMatchRequest(BaseModel):
     company_id: uuid.UUID
@@ -37,13 +78,47 @@ class TalentMatchRequest(BaseModel):
     opportunities: list[str]
     model: Optional[str] = None
 
-@talent_router.post("/match", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Match employee to internal opportunities")
-async def find_talent_matches(body: TalentMatchRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    matches = await TalentMarketplaceService(db).find_matches(body.company_id, body.employee_id, body.employee_profile, body.opportunities, body.model)
-    return APIResponse[dict](success=True, message=f"{len(matches)} talent matches found.", data={"match_count": len(matches), "matches": [{"match_id": str(m.id), "match_type": m.match_type, "match_title": m.match_title, "match_score": str(m.match_score)} for m in matches]}, errors=None)
+
+@talent_router.post(
+    "/match",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Match employee to internal opportunities",
+)
+async def find_talent_matches(
+    body: TalentMatchRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    matches = await TalentMarketplaceService(db).find_matches(
+        body.company_id, body.employee_id, body.employee_profile, body.opportunities, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message=f"{len(matches)} talent matches found.",
+        data={
+            "match_count": len(matches),
+            "matches": [
+                {
+                    "match_id": str(m.id),
+                    "match_type": m.match_type,
+                    "match_title": m.match_title,
+                    "match_score": str(m.match_score),
+                }
+                for m in matches
+            ],
+        },
+        errors=None,
+    )
+
 
 # ── Meeting Intelligence ──────────────────────────────────
-meetings_router = APIRouter(prefix="/meetings", tags=["AI Meeting Intelligence v2"])
+meetings_router = APIRouter(
+    prefix="/meetings",
+    tags=["AI Meeting Intelligence v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class MeetingAnalyzeRequest(BaseModel):
     company_id: uuid.UUID
@@ -51,13 +126,42 @@ class MeetingAnalyzeRequest(BaseModel):
     transcript: str
     model: Optional[str] = None
 
-@meetings_router.post("/analyze", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Analyze meeting transcript and extract MOM, actions, decisions")
-async def analyze_meeting(body: MeetingAnalyzeRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    log = await MeetingIntelligenceService(db).analyze_meeting(body.company_id, body.meeting_title, body.transcript, body.model)
-    return APIResponse[dict](success=True, message="Meeting analyzed.", data={"log_id": str(log.id), "summary": log.summary, "action_items": log.action_items, "decisions": log.decisions, "mom": log.mom}, errors=None)
+
+@meetings_router.post(
+    "/analyze",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Analyze meeting transcript and extract MOM, actions, decisions",
+)
+async def analyze_meeting(
+    body: MeetingAnalyzeRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    log = await MeetingIntelligenceService(db).analyze_meeting(
+        body.company_id, body.meeting_title, body.transcript, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Meeting analyzed.",
+        data={
+            "log_id": str(log.id),
+            "summary": log.summary,
+            "action_items": log.action_items,
+            "decisions": log.decisions,
+            "mom": log.mom,
+        },
+        errors=None,
+    )
+
 
 # ── Compliance Monitor ────────────────────────────────────
-compliance_router = APIRouter(prefix="/compliance", tags=["AI Compliance Monitor v2"])
+compliance_router = APIRouter(
+    prefix="/compliance",
+    tags=["AI Compliance Monitor v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class ComplianceAuditRequest(BaseModel):
     company_id: uuid.UUID
@@ -65,13 +169,41 @@ class ComplianceAuditRequest(BaseModel):
     data_snapshot: dict[str, Any] = {}
     model: Optional[str] = None
 
-@compliance_router.post("/audit", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Run AI compliance audit")
-async def run_compliance_audit(body: ComplianceAuditRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    log = await ComplianceMonitorService(db).run_audit(body.company_id, body.audit_scope, body.data_snapshot, body.model)
-    return APIResponse[dict](success=True, message="Compliance audit completed.", data={"log_id": str(log.id), "risk_level": log.risk_level, "findings": log.findings, "recommendations": log.recommendations}, errors=None)
+
+@compliance_router.post(
+    "/audit",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Run AI compliance audit",
+)
+async def run_compliance_audit(
+    body: ComplianceAuditRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    log = await ComplianceMonitorService(db).run_audit(
+        body.company_id, body.audit_scope, body.data_snapshot, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Compliance audit completed.",
+        data={
+            "log_id": str(log.id),
+            "risk_level": log.risk_level,
+            "findings": log.findings,
+            "recommendations": log.recommendations,
+        },
+        errors=None,
+    )
+
 
 # ── Employee Risk Engine ──────────────────────────────────
-risk_router = APIRouter(prefix="/risk", tags=["AI Employee Risk Engine v2"])
+risk_router = APIRouter(
+    prefix="/risk",
+    tags=["AI Employee Risk Engine v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class EmployeeRiskRequest(BaseModel):
     company_id: uuid.UUID
@@ -79,13 +211,42 @@ class EmployeeRiskRequest(BaseModel):
     employee_profile: dict[str, Any]
     model: Optional[str] = None
 
-@risk_router.post("/assess", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Compute AI employee risk profile")
-async def assess_employee_risk(body: EmployeeRiskRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    assessment = await EmployeeRiskService(db).assess_risk(body.company_id, body.employee_id, body.employee_profile, body.model)
-    return APIResponse[dict](success=True, message="Employee risk assessed.", data={"assessment_id": str(assessment.id), "overall_risk_level": assessment.overall_risk_level, "resignation_risk_score": assessment.resignation_risk_score, "burnout_risk_score": assessment.burnout_risk_score, "risk_narrative": assessment.risk_narrative}, errors=None)
+
+@risk_router.post(
+    "/assess",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Compute AI employee risk profile",
+)
+async def assess_employee_risk(
+    body: EmployeeRiskRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    assessment = await EmployeeRiskService(db).assess_risk(
+        body.company_id, body.employee_id, body.employee_profile, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Employee risk assessed.",
+        data={
+            "assessment_id": str(assessment.id),
+            "overall_risk_level": assessment.overall_risk_level,
+            "resignation_risk_score": assessment.resignation_risk_score,
+            "burnout_risk_score": assessment.burnout_risk_score,
+            "risk_narrative": assessment.risk_narrative,
+        },
+        errors=None,
+    )
+
 
 # ── Executive Copilot ─────────────────────────────────────
-copilot_router = APIRouter(prefix="/copilot", tags=["AI Executive Copilot v2"])
+copilot_router = APIRouter(
+    prefix="/copilot",
+    tags=["AI Executive Copilot v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
 
 class CopilotQueryRequest(BaseModel):
     company_id: uuid.UUID
@@ -94,7 +255,28 @@ class CopilotQueryRequest(BaseModel):
     context: dict[str, Any] = {}
     model: Optional[str] = None
 
-@copilot_router.post("/query", status_code=status.HTTP_201_CREATED, response_model=APIResponse[dict], summary="Ask strategic HR questions to Executive AI Copilot")
-async def ask_copilot(body: CopilotQueryRequest, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
-    log = await ExecutiveCopilotService(db).answer_query(body.company_id, body.user_id, body.query, body.context, body.model)
-    return APIResponse[dict](success=True, message="Executive query answered.", data={"log_id": str(log.id), "query": log.query_text, "ai_response": log.ai_response}, errors=None)
+
+@copilot_router.post(
+    "/query",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[dict],
+    summary="Ask strategic HR questions to Executive AI Copilot",
+)
+async def ask_copilot(
+    body: CopilotQueryRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    log = await ExecutiveCopilotService(db).answer_query(
+        body.company_id, body.user_id, body.query, body.context, body.model
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Executive query answered.",
+        data={
+            "log_id": str(log.id),
+            "query": log.query_text,
+            "ai_response": log.ai_response,
+        },
+        errors=None,
+    )

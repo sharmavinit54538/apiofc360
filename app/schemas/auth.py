@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.models.user.role import RoleEnum, UserRole
 from app.utils.validators import normalize_email, validate_name, validate_password_strength, validate_phone
 
 DataT = TypeVar("DataT")
@@ -137,11 +138,20 @@ class UserPublic(BaseModel):
     name: str
     email: EmailStr
     phone: str
-    role: str
+    role: RoleEnum = RoleEnum.EMPLOYEE
     is_verified: bool
     email_verified: bool = False
     account_status: str = "PENDING_EMAIL_VERIFICATION"
     created_at: datetime
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def validate_role_field(cls, value: Any) -> RoleEnum:
+        if isinstance(value, RoleEnum):
+            return value
+        if hasattr(value, "value"):
+            return RoleEnum.from_str(str(value.value))
+        return RoleEnum.from_str(str(value) if value is not None else None)
 
 
 class RegisterResponse(APIResponse[None]):
@@ -247,7 +257,7 @@ class UserLoginPublic(BaseModel):
     name: str | None = "User"
     email: EmailStr
     phone: str | None = None
-    role: str
+    role: RoleEnum = RoleEnum.EMPLOYEE
     is_verified: bool
     email_verified: bool = True
     account_status: str = "ACTIVE"
@@ -255,6 +265,15 @@ class UserLoginPublic(BaseModel):
     onboarding_completed: bool = True
     company_id: UUID | None = None
     company_name: str | None = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def validate_role_field(cls, value: Any) -> RoleEnum:
+        if isinstance(value, RoleEnum):
+            return value
+        if hasattr(value, "value"):
+            return RoleEnum.from_str(str(value.value))
+        return RoleEnum.from_str(str(value) if value is not None else None)
 
 
 class LoginResponseData(BaseModel):
@@ -384,7 +403,7 @@ class UserProfileData(BaseModel):
     name: str | None = "User"
     email: EmailStr
     phone: str | None = None
-    role: str
+    role: RoleEnum = RoleEnum.EMPLOYEE
     is_active: bool = True
     is_verified: bool = True
     email_verified: bool = True
@@ -393,6 +412,15 @@ class UserProfileData(BaseModel):
     company_id: UUID | None = None
     company_name: str | None = None
     created_at: datetime | None = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def validate_role_field(cls, value: Any) -> RoleEnum:
+        if isinstance(value, RoleEnum):
+            return value
+        if hasattr(value, "value"):
+            return RoleEnum.from_str(str(value.value))
+        return RoleEnum.from_str(str(value) if value is not None else None)
 
 
 class UserProfileResponse(APIResponse["UserProfileData"]):

@@ -1,15 +1,25 @@
 """Payroll Constants and Configuration defaults."""
 from __future__ import annotations
 
+from app.models.user.role import RoleEnum
+
 # Job store for async operations
 _JOB_STORE: dict[str, dict] = {}
 
-# Role groupings
-ADMIN_ROLES = ("super_admin", "hr_admin")
-ADMIN_OR_MANAGER_ROLES = (
-    "super_admin", "hr_admin", "executive", "manager"
+# Canonical Role groupings using RoleEnum
+ADMIN_ROLES = (
+    RoleEnum.SUPER_ADMIN.value,
+    RoleEnum.HR_ADMIN.value,
+    RoleEnum.IT_ADMIN.value,
 )
 
+ADMIN_OR_MANAGER_ROLES = (
+    RoleEnum.SUPER_ADMIN.value,
+    RoleEnum.HR_ADMIN.value,
+    RoleEnum.IT_ADMIN.value,
+    RoleEnum.EXECUTIVE.value,
+    RoleEnum.MANAGER.value,
+)
 
 # Status constants
 PAY_CYCLE_STATUSES = ("DRAFT", "LOCKED", "APPROVED", "DISBURSED", "VOID")

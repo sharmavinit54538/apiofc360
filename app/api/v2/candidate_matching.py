@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -16,7 +17,11 @@ from app.llm.client import get_llm_client
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/matching", tags=["AI Candidate Matching v2"])
+router = APIRouter(
+    prefix="/matching",
+    tags=["AI Candidate Matching v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 
 class MatchRequest(BaseModel):

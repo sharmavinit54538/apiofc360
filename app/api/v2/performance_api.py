@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update, func
 from sqlalchemy.orm import selectinload
 
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -22,7 +23,11 @@ from app.models.performance import PerformanceReview, PerformanceReviewCycle, Em
 from app.models.employee import Employee
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/performance", tags=["AI Performance Management v2"])
+router = APIRouter(
+    prefix="/performance",
+    tags=["AI Performance Management v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 # Helper for safe UUID conversion
 def safe_uuid(val: Any) -> uuid.UUID:
