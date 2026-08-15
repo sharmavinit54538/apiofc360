@@ -77,8 +77,8 @@ class DocumentRepository:
         await self.session.flush()
         return obj
 
-    async def get_employee_document_by_id(self, doc_uuid: uuid.UUID) -> EmployeeDocument | None:
-        result = await self.session.execute(
+    async def get_employee_document_by_id(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> EmployeeDocument | None:
+        stmt = (
             select(EmployeeDocument)
             .where(and_(EmployeeDocument.id == doc_uuid, self._emp_doc_active_filter()))
             .options(
@@ -89,10 +89,14 @@ class DocumentRepository:
                 selectinload(EmployeeDocument.verifications),
             )
         )
+        if company_id is not None:
+            stmt = stmt.join(Employee, EmployeeDocument.employee_id == Employee.id).where(Employee.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_employee_documents(
         self,
+        company_id: uuid.UUID | None = None,
         employee_id: uuid.UUID | None = None,
         category_id: uuid.UUID | None = None,
         status: str | None = None,
@@ -108,8 +112,12 @@ class DocumentRepository:
                 selectinload(EmployeeDocument.category),
                 selectinload(EmployeeDocument.employee),
             )
-            .execution_options(bypass_tenant=True)
         )
+
+        if company_id is not None:
+            stmt = stmt.join(Employee, EmployeeDocument.employee_id == Employee.id).where(Employee.company_id == company_id)
+        else:
+            stmt = stmt.execution_options(bypass_tenant=True)
 
         if employee_id:
             stmt = stmt.where(EmployeeDocument.employee_id == employee_id)
@@ -134,12 +142,20 @@ class DocumentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def update_employee_document(self, doc_uuid: uuid.UUID, **kwargs: Any) -> None:
+    async def update_employee_document(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
+        if company_id is not None:
+            doc = await self.get_employee_document_by_id(doc_uuid, company_id=company_id)
+            if not doc:
+                return
         await self.session.execute(
             update(EmployeeDocument).where(EmployeeDocument.id == doc_uuid).values(**kwargs)
         )
 
-    async def soft_delete_employee_document(self, doc_uuid: uuid.UUID) -> None:
+    async def soft_delete_employee_document(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        if company_id is not None:
+            doc = await self.get_employee_document_by_id(doc_uuid, company_id=company_id)
+            if not doc:
+                return
         await self.session.execute(
             update(EmployeeDocument)
             .where(EmployeeDocument.id == doc_uuid)
@@ -156,8 +172,8 @@ class DocumentRepository:
         await self.session.flush()
         return obj
 
-    async def get_company_document_by_id(self, doc_uuid: uuid.UUID) -> CompanyDocument | None:
-        result = await self.session.execute(
+    async def get_company_document_by_id(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> CompanyDocument | None:
+        stmt = (
             select(CompanyDocument)
             .where(and_(CompanyDocument.id == doc_uuid, self._company_doc_active_filter()))
             .options(
@@ -165,10 +181,14 @@ class DocumentRepository:
                 selectinload(CompanyDocument.versions),
             )
         )
+        if company_id is not None:
+            stmt = stmt.where(CompanyDocument.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_company_documents(
         self,
+        company_id: uuid.UUID | None = None,
         category_id: uuid.UUID | None = None,
         department: str | None = None,
         branch: str | None = None,
@@ -179,6 +199,8 @@ class DocumentRepository:
     ) -> list[CompanyDocument]:
         stmt = select(CompanyDocument).where(self._company_doc_active_filter())
 
+        if company_id is not None:
+            stmt = stmt.where(CompanyDocument.company_id == company_id)
         if category_id:
             stmt = stmt.where(CompanyDocument.category_id == category_id)
         if department:
@@ -200,17 +222,17 @@ class DocumentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def update_company_document(self, doc_uuid: uuid.UUID, **kwargs: Any) -> None:
-        await self.session.execute(
-            update(CompanyDocument).where(CompanyDocument.id == doc_uuid).values(**kwargs)
-        )
+    async def update_company_document(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
+        stmt = update(CompanyDocument).where(CompanyDocument.id == doc_uuid)
+        if company_id is not None:
+            stmt = stmt.where(CompanyDocument.company_id == company_id)
+        await self.session.execute(stmt.values(**kwargs))
 
-    async def soft_delete_company_document(self, doc_uuid: uuid.UUID) -> None:
-        await self.session.execute(
-            update(CompanyDocument)
-            .where(CompanyDocument.id == doc_uuid)
-            .values(is_deleted=True, deleted_at=func.now())
-        )
+    async def soft_delete_company_document(self, doc_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(CompanyDocument).where(CompanyDocument.id == doc_uuid)
+        if company_id is not None:
+            stmt = stmt.where(CompanyDocument.company_id == company_id)
+        await self.session.execute(stmt.values(is_deleted=True, deleted_at=func.now()))
 
     # ------------------------------------------------------------------
     # Document Templates CRUD
@@ -292,7 +314,7 @@ class DocumentRepository:
     # Expiry Tracking queries
     # ------------------------------------------------------------------
 
-    async def get_expiring_documents(self, threshold_date: date) -> list[EmployeeDocument]:
+    async def get_expiring_documents(self, threshold_date: date, company_id: uuid.UUID | None = None) -> list[EmployeeDocument]:
         """Get documents expiring within the threshold date that are active."""
         stmt = (
             select(EmployeeDocument)
@@ -306,10 +328,12 @@ class DocumentRepository:
             )
             .options(selectinload(EmployeeDocument.employee))
         )
+        if company_id is not None:
+            stmt = stmt.join(Employee, EmployeeDocument.employee_id == Employee.id).where(Employee.company_id == company_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_expired_documents(self) -> list[EmployeeDocument]:
+    async def get_expired_documents(self, company_id: uuid.UUID | None = None) -> list[EmployeeDocument]:
         """Get already expired documents."""
         stmt = (
             select(EmployeeDocument)
@@ -322,6 +346,8 @@ class DocumentRepository:
             )
             .options(selectinload(EmployeeDocument.employee))
         )
+        if company_id is not None:
+            stmt = stmt.join(Employee, EmployeeDocument.employee_id == Employee.id).where(Employee.company_id == company_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

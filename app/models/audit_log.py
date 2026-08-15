@@ -48,3 +48,26 @@ class AuditLog(Base):
     )
 
     user: Mapped[User | None] = relationship("User", lazy="select")
+
+
+def create_audit_entry(
+    action: str,
+    company_id: uuid.UUID | None,
+    user_id: uuid.UUID | None = None,
+    email: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    details: str | None = None,
+) -> AuditLog:
+    """Standardized factory to guarantee company_id and required metadata are captured on all security and data events."""
+    return AuditLog(
+        id=uuid.uuid4(),
+        action=action,
+        company_id=company_id,
+        user_id=user_id,
+        email=email,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details=details,
+    )
+

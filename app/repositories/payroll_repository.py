@@ -85,8 +85,11 @@ class PayrollRepository:
     # PAY CYCLE
     # ------------------------------------------------------------------
 
-    async def get_cycle(self, cycle_id: uuid.UUID) -> Optional[PayCycle]:
-        res = await self.session.execute(select(PayCycle).where(PayCycle.id == cycle_id))
+    async def get_cycle(self, cycle_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[PayCycle]:
+        stmt = select(PayCycle).where(PayCycle.id == cycle_id)
+        if company_id:
+            stmt = stmt.where(PayCycle.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def get_cycle_by_period(
@@ -127,7 +130,6 @@ class PayrollRepository:
             stmt = stmt.where(*filters)
             count_stmt = count_stmt.where(*filters)
 
-        import asyncio
         stmt = stmt.order_by(PayCycle.period_year.desc(), PayCycle.period_month.desc())
         stmt = stmt.offset((page - 1) * limit).limit(limit)
 
@@ -165,10 +167,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_ot_policy(self, policy_id: uuid.UUID) -> Optional[OvertimePolicy]:
-        res = await self.session.execute(
-            select(OvertimePolicy).where(OvertimePolicy.id == policy_id)
-        )
+    async def get_ot_policy(self, policy_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[OvertimePolicy]:
+        stmt = select(OvertimePolicy).where(OvertimePolicy.id == policy_id)
+        if company_id:
+            stmt = stmt.where(OvertimePolicy.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_ot_policy(self, policy: OvertimePolicy) -> OvertimePolicy:
@@ -205,10 +208,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_ot_entry(self, entry_id: uuid.UUID) -> Optional[OvertimeEntry]:
-        res = await self.session.execute(
-            select(OvertimeEntry).where(OvertimeEntry.id == entry_id)
-        )
+    async def get_ot_entry(self, entry_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[OvertimeEntry]:
+        stmt = select(OvertimeEntry).where(OvertimeEntry.id == entry_id)
+        if company_id:
+            stmt = stmt.where(OvertimeEntry.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def get_ot_entry_by_employee_period(
@@ -243,8 +247,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_bonus_plan(self, plan_id: uuid.UUID) -> Optional[BonusPlan]:
-        res = await self.session.execute(select(BonusPlan).where(BonusPlan.id == plan_id))
+    async def get_bonus_plan(self, plan_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[BonusPlan]:
+        stmt = select(BonusPlan).where(BonusPlan.id == plan_id)
+        if company_id:
+            stmt = stmt.where(BonusPlan.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_bonus_plan(self, plan: BonusPlan) -> BonusPlan:
@@ -274,8 +281,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_bonus_award(self, award_id: uuid.UUID) -> Optional[BonusAward]:
-        res = await self.session.execute(select(BonusAward).where(BonusAward.id == award_id))
+    async def get_bonus_award(self, award_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[BonusAward]:
+        stmt = select(BonusAward).where(BonusAward.id == award_id)
+        if company_id:
+            stmt = stmt.where(BonusAward.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_bonus_award(self, award: BonusAward) -> BonusAward:
@@ -309,10 +319,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_deduction(self, deduction_id: uuid.UUID) -> Optional[DeductionComponent]:
-        res = await self.session.execute(
-            select(DeductionComponent).where(DeductionComponent.id == deduction_id)
-        )
+    async def get_deduction(self, deduction_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[DeductionComponent]:
+        stmt = select(DeductionComponent).where(DeductionComponent.id == deduction_id)
+        if company_id:
+            stmt = stmt.where(DeductionComponent.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_deduction(self, ded: DeductionComponent) -> DeductionComponent:
@@ -320,8 +331,8 @@ class PayrollRepository:
         await self.session.flush()
         return ded
 
-    async def delete_deduction(self, deduction_id: uuid.UUID) -> bool:
-        ded = await self.get_deduction(deduction_id)
+    async def delete_deduction(self, deduction_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> bool:
+        ded = await self.get_deduction(deduction_id, company_id=company_id)
         if not ded:
             return False
         await self.session.delete(ded)
@@ -350,12 +361,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_loan(self, loan_id: uuid.UUID) -> Optional[AdvanceLoan]:
-        res = await self.session.execute(
-            select(AdvanceLoan)
-            .options(selectinload(AdvanceLoan.installments))
-            .where(AdvanceLoan.id == loan_id)
-        )
+    async def get_loan(self, loan_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[AdvanceLoan]:
+        stmt = select(AdvanceLoan).options(selectinload(AdvanceLoan.installments)).where(AdvanceLoan.id == loan_id)
+        if company_id:
+            stmt = stmt.where(AdvanceLoan.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_loan(self, loan: AdvanceLoan) -> AdvanceLoan:
@@ -420,10 +430,11 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_reimbursement(self, claim_id: uuid.UUID) -> Optional[ReimbursementClaim]:
-        res = await self.session.execute(
-            select(ReimbursementClaim).where(ReimbursementClaim.id == claim_id)
-        )
+    async def get_reimbursement(self, claim_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[ReimbursementClaim]:
+        stmt = select(ReimbursementClaim).where(ReimbursementClaim.id == claim_id)
+        if company_id:
+            stmt = stmt.where(ReimbursementClaim.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_reimbursement(self, claim: ReimbursementClaim) -> ReimbursementClaim:
@@ -440,12 +451,11 @@ class PayrollRepository:
         await self.session.flush()
         return f
 
-    async def get_advice_file(self, file_id: uuid.UUID) -> Optional[BankAdviceFile]:
-        res = await self.session.execute(
-            select(BankAdviceFile)
-            .options(selectinload(BankAdviceFile.disbursements))
-            .where(BankAdviceFile.id == file_id)
-        )
+    async def get_advice_file(self, file_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[BankAdviceFile]:
+        stmt = select(BankAdviceFile).options(selectinload(BankAdviceFile.disbursements)).where(BankAdviceFile.id == file_id)
+        if company_id:
+            stmt = stmt.where(BankAdviceFile.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def list_disbursements(
@@ -453,6 +463,7 @@ class PayrollRepository:
         advice_file_id: Optional[uuid.UUID] = None,
         pay_cycle_id: Optional[uuid.UUID] = None,
         employee_id: Optional[uuid.UUID] = None,
+        company_id: Optional[uuid.UUID] = None,
         status: Optional[str] = None,
         page: int = 1,
         limit: int = 100,
@@ -464,16 +475,19 @@ class PayrollRepository:
             stmt = stmt.where(BankDisbursementRecord.pay_cycle_id == pay_cycle_id)
         if employee_id:
             stmt = stmt.where(BankDisbursementRecord.employee_id == employee_id)
+        if company_id:
+            stmt = stmt.where(BankDisbursementRecord.company_id == company_id)
         if status:
             stmt = stmt.where(BankDisbursementRecord.status == status.upper())
         stmt = stmt.offset((page - 1) * limit).limit(limit)
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_disbursement(self, disbursement_id: uuid.UUID) -> Optional[BankDisbursementRecord]:
-        res = await self.session.execute(
-            select(BankDisbursementRecord).where(BankDisbursementRecord.id == disbursement_id)
-        )
+    async def get_disbursement(self, disbursement_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[BankDisbursementRecord]:
+        stmt = select(BankDisbursementRecord).where(BankDisbursementRecord.id == disbursement_id)
+        if company_id:
+            stmt = stmt.where(BankDisbursementRecord.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     # ------------------------------------------------------------------
@@ -484,12 +498,16 @@ class PayrollRepository:
         self,
         pay_cycle_id: Optional[uuid.UUID] = None,
         employee_id: Optional[uuid.UUID] = None,
+        company_id: Optional[uuid.UUID] = None,
         year: Optional[int] = None,
         page: int = 1,
         limit: int = 50,
     ) -> list[Payslip]:
+        from app.models.employee import Employee
         from sqlalchemy.orm import selectinload as sl
         stmt = select(Payslip).options(sl(Payslip.employee))
+        if company_id:
+            stmt = stmt.join(Employee, Payslip.employee_id == Employee.id).where(Employee.company_id == company_id)
         if pay_cycle_id:
             stmt = stmt.where(Payslip.payroll_run_id == pay_cycle_id)
         if employee_id:
@@ -501,11 +519,13 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_payslip(self, payslip_id: uuid.UUID) -> Optional[Payslip]:
+    async def get_payslip(self, payslip_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[Payslip]:
+        from app.models.employee import Employee
         from sqlalchemy.orm import selectinload as sl
-        res = await self.session.execute(
-            select(Payslip).options(sl(Payslip.employee)).where(Payslip.id == payslip_id)
-        )
+        stmt = select(Payslip).options(sl(Payslip.employee)).where(Payslip.id == payslip_id)
+        if company_id:
+            stmt = stmt.join(Employee, Payslip.employee_id == Employee.id).where(Employee.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     # ------------------------------------------------------------------
@@ -540,12 +560,15 @@ class PayrollRepository:
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
-    async def get_obligation(self, obligation_id: uuid.UUID) -> Optional[ComplianceObligation]:
-        res = await self.session.execute(
+    async def get_obligation(self, obligation_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> Optional[ComplianceObligation]:
+        stmt = (
             select(ComplianceObligation)
             .options(selectinload(ComplianceObligation.documents))
             .where(ComplianceObligation.id == obligation_id)
         )
+        if company_id:
+            stmt = stmt.where(ComplianceObligation.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def create_obligation(self, o: ComplianceObligation) -> ComplianceObligation:
@@ -563,14 +586,16 @@ class PayrollRepository:
     # ------------------------------------------------------------------
 
     async def get_declaration(
-        self, employee_id: uuid.UUID, financial_year: str
+        self, employee_id: uuid.UUID, financial_year: str, company_id: Optional[uuid.UUID] = None
     ) -> Optional[EmployeeInvestmentDeclaration]:
-        res = await self.session.execute(
-            select(EmployeeInvestmentDeclaration).where(
-                EmployeeInvestmentDeclaration.employee_id == employee_id,
-                EmployeeInvestmentDeclaration.financial_year == financial_year,
-            )
+        from app.models.employee import Employee
+        stmt = select(EmployeeInvestmentDeclaration).where(
+            EmployeeInvestmentDeclaration.employee_id == employee_id,
+            EmployeeInvestmentDeclaration.financial_year == financial_year,
         )
+        if company_id:
+            stmt = stmt.join(Employee, EmployeeInvestmentDeclaration.employee_id == Employee.id).where(Employee.company_id == company_id)
+        res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def list_declaration_proofs(self, declaration_id: uuid.UUID) -> list[TaxDeclarationProof]:
@@ -599,15 +624,19 @@ class PayrollRepository:
     # REPORTS / ANALYTICS
     # ------------------------------------------------------------------
 
-    async def get_payslips_for_cycle(self, pay_cycle_id: uuid.UUID) -> list[Payslip]:
+    async def get_payslips_for_cycle(self, pay_cycle_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> list[Payslip]:
         """Used for salary register export."""
+        from app.models.employee import Employee
         from sqlalchemy.orm import selectinload as sl
-        res = await self.session.execute(
+        stmt = (
             select(Payslip)
             .options(sl(Payslip.employee))
             .where(Payslip.payroll_run_id == pay_cycle_id)
-            .order_by(Payslip.employee_id)
         )
+        if company_id:
+            stmt = stmt.join(Employee, Payslip.employee_id == Employee.id).where(Employee.company_id == company_id)
+        stmt = stmt.order_by(Payslip.employee_id)
+        res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
     async def get_pay_cycles_for_analytics(
@@ -628,10 +657,9 @@ class PayrollRepository:
         return list(res.scalars().all())
 
     async def get_department_payroll_breakdown(
-        self, pay_cycle_id: uuid.UUID
+        self, pay_cycle_id: uuid.UUID, company_id: Optional[uuid.UUID] = None
     ) -> list[dict]:
         """Return [{department, headcount, total_net}] for a pay cycle."""
-        from sqlalchemy import text as sa_text
         from app.models.employee import Employee
         stmt = (
             select(
@@ -642,8 +670,10 @@ class PayrollRepository:
             )
             .join(Employee, Payslip.employee_id == Employee.id)
             .where(Payslip.payroll_run_id == pay_cycle_id)
-            .group_by(Employee.department)
         )
+        if company_id:
+            stmt = stmt.where(Employee.company_id == company_id)
+        stmt = stmt.group_by(Employee.department)
         res = await self.session.execute(stmt)
         rows = res.all()
         return [

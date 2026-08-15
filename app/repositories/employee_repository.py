@@ -76,29 +76,32 @@ class EmployeeRepository:
         await self.session.flush()  # get id without committing
         return employee
 
-    async def get_by_id(self, employee_uuid: uuid.UUID) -> Employee | None:
-        """Return employee with all relations, or None if not found."""
+    async def get_by_id(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Employee | None:
+        """Return employee with all relations, or None if not found. Strictly enforces company_id when provided."""
+        stmt = select(Employee).where(and_(Employee.id == employee_uuid, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
         result = await self.session.execute(
-            select(Employee)
-            .where(and_(Employee.id == employee_uuid, self._active_filter()))
-            .options(*self._with_relations())
+            stmt.options(*self._with_relations())
         )
         return result.scalar_one_or_none()
 
-    async def get_by_id_raw(self, employee_uuid: uuid.UUID) -> Employee | None:
-        """Return employee without eager-loading relations (lightweight)."""
-        result = await self.session.execute(
-            select(Employee).where(Employee.id == employee_uuid)
-        )
+    async def get_by_id_raw(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Employee | None:
+        """Return employee without eager-loading relations (lightweight). Strictly enforces company_id when provided."""
+        stmt = select(Employee).where(Employee.id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_employee_id(self, employee_id: str) -> Employee | None:
-        """Look up by string employee_id (e.g. EMP-202606-0001)."""
-        result = await self.session.execute(
-            select(Employee)
-            .where(and_(Employee.employee_id == employee_id, self._active_filter()))
-            .execution_options(bypass_tenant=True)
-        )
+    async def get_by_employee_id(self, employee_id: str, company_id: uuid.UUID | None = None) -> Employee | None:
+        """Look up by string employee_id (e.g. EMP-202606-0001). Strictly enforces company_id when provided."""
+        stmt = select(Employee).where(and_(Employee.employee_id == employee_id, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        else:
+            stmt = stmt.execution_options(bypass_tenant=True)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_personal_email(self, email: str) -> Employee | None:
@@ -187,17 +190,17 @@ class EmployeeRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_user_id(self, user_id: uuid.UUID) -> Employee | None:
-        """Look up employee by linked user_id."""
-        result = await self.session.execute(
-            select(Employee)
-            .where(and_(Employee.user_id == user_id, self._active_filter()))
-        )
+    async def get_by_user_id(self, user_id: uuid.UUID, company_id: uuid.UUID | None = None) -> Employee | None:
+        """Look up employee by linked user_id. Strictly enforces company_id when provided."""
+        stmt = select(Employee).where(and_(Employee.user_id == user_id, self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_employees(
         self,
-        company_id,
+        company_id: uuid.UUID | None = None,
         department: str | None = None,
         status: str | None = None,
         employment_type: str | None = None,
@@ -209,10 +212,12 @@ class EmployeeRepository:
         sort: str | None = None,
         order: str | None = "asc",
     ) -> list[Employee]:
-        """Return paginated, filtered, sorted list of employees scoped to company_id (no relations loaded)."""
-        stmt = select(Employee).where(
-            and_(Employee.company_id == company_id, self._active_filter())
-        )
+        """Return paginated, filtered, sorted list of employees strictly scoped to company_id (no relations loaded)."""
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        stmt = select(Employee).where(and_(*filters))
 
         if department and department.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.department == department)
@@ -274,24 +279,11 @@ class EmployeeRepository:
 
         stmt = stmt.order_by(*sort_exprs).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
-        items = list(result.scalars().all())
-
-        if not items:
-            fallback_res = await self.session.execute(
-                select(Employee)
-                .where(self._active_filter())
-                .order_by(Employee.created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .execution_options(bypass_tenant=True)
-            )
-            items = list(fallback_res.scalars().all())
-
-        return items
+        return list(result.scalars().all())
 
     async def count_employees(
         self,
-        company_id,
+        company_id: uuid.UUID | None = None,
         department: str | None = None,
         status: str | None = None,
         employment_type: str | None = None,
@@ -300,9 +292,11 @@ class EmployeeRepository:
         shift: str | None = None,
     ) -> int:
         """Count total employees matching filters within a company (for pagination)."""
-        stmt = select(func.count()).select_from(Employee).where(
-            and_(Employee.company_id == company_id, self._active_filter())
-        )
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        stmt = select(func.count()).select_from(Employee).where(and_(*filters))
 
         if department and department.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.department == department)
@@ -327,27 +321,21 @@ class EmployeeRepository:
             )
 
         result = await self.session.execute(stmt)
-        count = result.scalar_one()
+        return result.scalar_one()
 
-        if count == 0:
-            fallback_res = await self.session.execute(
-                select(func.count()).select_from(Employee).where(self._active_filter()).execution_options(bypass_tenant=True)
-            )
-            count = fallback_res.scalar_one()
+    async def update_employee(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
+        """Partial update of employee fields strictly scoped to company_id when provided."""
+        stmt = update(Employee).where(Employee.id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        await self.session.execute(stmt.values(**kwargs))
 
-        return count
-
-    async def update_employee(self, employee_uuid: uuid.UUID, **kwargs: Any) -> None:
-        """Partial update of employee fields."""
-        await self.session.execute(
-            update(Employee).where(Employee.id == employee_uuid).values(**kwargs)
-        )
-
-    async def soft_delete(self, employee_uuid: uuid.UUID, deleted_by: uuid.UUID | None = None) -> None:
-        """Mark employee as deleted (soft delete) and release unique fields."""
-        result = await self.session.execute(
-            select(Employee).where(Employee.id == employee_uuid)
-        )
+    async def soft_delete(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None, deleted_by: uuid.UUID | None = None) -> None:
+        """Mark employee as deleted (soft delete) and release unique fields strictly scoped to company_id when provided."""
+        stmt = select(Employee).where(Employee.id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        result = await self.session.execute(stmt)
         employee = result.scalar_one_or_none()
         if employee:
             import uuid as py_uuid
@@ -370,13 +358,12 @@ class EmployeeRepository:
             employee.status = "DELETED"
             await self.session.flush()
 
-    async def update_status(self, employee_uuid: uuid.UUID, status: str) -> None:
-        """Update the employee lifecycle status."""
-        await self.session.execute(
-            update(Employee)
-            .where(Employee.id == employee_uuid)
-            .values(status=status)
-        )
+    async def update_status(self, employee_uuid: uuid.UUID, status: str, company_id: uuid.UUID | None = None) -> None:
+        """Update the employee lifecycle status strictly scoped to company_id when provided."""
+        stmt = update(Employee).where(Employee.id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
+        await self.session.execute(stmt.values(status=status))
 
     # ------------------------------------------------------------------
     # Address
@@ -456,12 +443,13 @@ class EmployeeRepository:
         await self.session.flush()
         return steps
 
-    async def get_onboarding_steps(self, employee_uuid: uuid.UUID) -> list[EmployeeOnboarding]:
-        """Return all onboarding steps for an employee ordered by step_order."""
+    async def get_onboarding_steps(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> list[EmployeeOnboarding]:
+        """Return all onboarding steps for an employee ordered by step_order, scoped to company_id when provided."""
+        stmt = select(EmployeeOnboarding).where(EmployeeOnboarding.employee_id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.join(Employee, EmployeeOnboarding.employee_id == Employee.id).where(Employee.company_id == company_id)
         result = await self.session.execute(
-            select(EmployeeOnboarding)
-            .where(EmployeeOnboarding.employee_id == employee_uuid)
-            .order_by(EmployeeOnboarding.step_order)
+            stmt.order_by(EmployeeOnboarding.step_order)
         )
         return list(result.scalars().all())
 

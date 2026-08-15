@@ -1005,6 +1005,7 @@ class EmployeeService:
             audit_log = AuditLog(
                 id=uuid.uuid4(),
                 user_id=admin_id,
+                company_id=company_id or employee.company_id,
                 action="Employee Deactivated",
                 details=f"Deactivated employee {employee_uuid} (Role: {employee.role}). Reason: {reason}",
                 ip_address=None,
