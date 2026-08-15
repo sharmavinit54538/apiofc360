@@ -53,7 +53,7 @@ async def test_auth_login_comprehensive_suite():
                 email=test_email,
                 phone=f"99{user_id.int % 100000000:08d}",
                 password_hash=hash_password(raw_password),
-                role=UserRole.SUPER_ADMIN,
+                role=UserRole.HR_ADMIN,
                 account_status="ACTIVE",
                 is_active=True,
                 is_verified=True,
@@ -83,7 +83,7 @@ async def test_auth_login_comprehensive_suite():
             assert "access_token" in login_data["data"]
             assert "refresh_token" in login_data["data"]
             assert login_data["data"]["user"]["email"] == test_email
-            assert login_data["data"]["user"]["role"] == "super_admin"
+            assert login_data["data"]["user"]["role"] == "hr_admin"
             assert login_data["data"]["user"]["company_name"] is not None
 
         finally:
