@@ -36,7 +36,11 @@ from app.schemas.auth import (
 from app.services.account_service import AccountService, get_account_service
 from app.services.auth_service import AuthService, get_auth_service
 from app.services.token_service import TokenService, get_token_service
-from app.services.rate_limiter import check_login_rate_limit
+from app.core.rate_limiter import (
+    check_forgot_password_rate_limit,
+    check_login_rate_limit,
+    check_otp_rate_limit,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -71,6 +75,7 @@ async def register_user(
     "/verify-email",
     status_code=status.HTTP_200_OK,
     response_model=VerifyEmailResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Verification failed"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
@@ -97,6 +102,7 @@ async def verify_email(
     "/resend-verification",
     status_code=status.HTTP_200_OK,
     response_model=ResendOTPResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Resend failed"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
@@ -109,6 +115,7 @@ async def verify_email(
     "/resend-otp",
     status_code=status.HTTP_200_OK,
     response_model=ResendOTPResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Resend failed"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
@@ -249,6 +256,7 @@ async def login(
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
     summary="Google SSO for Company Admin Only",
+    dependencies=[Depends(check_login_rate_limit)],
     responses={
         status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Employees not allowed"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "Admin user not found"},
@@ -439,6 +447,7 @@ async def logout(
     "/forgot-password",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
+    dependencies=[Depends(check_forgot_password_rate_limit)],
     responses={
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
@@ -651,6 +660,7 @@ async def change_email(
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
     summary="Verify new email OTP",
+    dependencies=[Depends(check_otp_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid, expired, or exhausted OTP"},
         status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Invalid or expired token"},

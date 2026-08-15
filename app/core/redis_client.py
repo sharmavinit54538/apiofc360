@@ -248,6 +248,139 @@ class RedisClient:
                 except Exception as exc:
                     logger.debug("Failed releasing redis lock %s: %s", prefixed_key, exc)
 
+    async def get_ttl(self, key: str) -> int:
+        """Get remaining TTL in seconds for a key (0 if not exists or expired)."""
+        if self._connected and self._redis:
+            try:
+                ttl = await self._redis.ttl(key)
+                return max(0, int(ttl)) if ttl and ttl > 0 else 0
+            except Exception:
+                pass
+
+        if key in _in_memory_store:
+            val, expires = _in_memory_store[key]
+            if expires is None:
+                return -1
+            remaining = int(expires - time.time())
+            return max(0, remaining)
+        return 0
+
+    # ---------------------------------------------------------------------------
+    # Brute-Force Protection & Progressive Account Lockout Engine
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def normalize_identifier(identifier: str) -> str:
+        """Normalize email, phone, or username identifier for consistent key tracking."""
+        if not identifier:
+            return ""
+        trimmed = str(identifier).strip().lower()
+        if "@" not in trimmed:
+            import re
+            clean_digits = re.sub(r"[\s\-\(\)\.]+", "", trimmed)
+            if clean_digits.startswith("+91"):
+                clean_digits = clean_digits[3:]
+            elif clean_digits.startswith("91") and len(clean_digits) == 12:
+                clean_digits = clean_digits[2:]
+            elif clean_digits.startswith("0") and len(clean_digits) == 11:
+                clean_digits = clean_digits[1:]
+            return clean_digits
+        return trimmed
+
+    async def is_account_locked(self, identifier: str, ip: str = "") -> tuple[bool, int]:
+        """
+        Check if account or IP is locked out.
+        Returns: (is_locked, remaining_lockout_seconds)
+        """
+        norm_id = self.normalize_identifier(identifier)
+
+        # Check identifier lock
+        if norm_id:
+            id_lock_key = f"lockout:id:{norm_id}"
+            id_lock_val = await self.get(id_lock_key)
+            if id_lock_val is not None:
+                ttl = await self.get_ttl(id_lock_key)
+                return True, max(1, ttl)
+
+        # Check IP lock
+        if ip and ip != "unknown":
+            ip_lock_key = f"lockout:ip:{ip}"
+            ip_lock_val = await self.get(ip_lock_key)
+            if ip_lock_val is not None:
+                ttl = await self.get_ttl(ip_lock_key)
+                return True, max(1, ttl)
+
+        return False, 0
+
+    async def record_failed_login(
+        self,
+        identifier: str,
+        ip: str = "",
+        max_attempts: int = 5,
+        base_lockout_seconds: int = 900,
+    ) -> tuple[int, bool, int]:
+        """
+        Record a failed login attempt for an identifier and IP.
+        Enforces progressive lockout if max_attempts is reached.
+        Returns: (failed_attempts_count, is_locked_now, lockout_duration_seconds)
+        """
+        norm_id = self.normalize_identifier(identifier)
+        if not norm_id:
+            return 0, False, 0
+
+        # Increment identifier failure counter
+        attempt_key = f"failed_logins:id:{norm_id}"
+        curr_val = await self.get(attempt_key)
+        attempts = int(curr_val) + 1 if curr_val and curr_val.isdigit() else 1
+        # Set 30 minute failure window
+        await self.set(attempt_key, str(attempts), ttl_seconds=1800)
+
+        # Also increment IP failure counter if present
+        if ip and ip != "unknown":
+            ip_attempt_key = f"failed_logins:ip:{ip}"
+            ip_val = await self.get(ip_attempt_key)
+            ip_attempts = int(ip_val) + 1 if ip_val and ip_val.isdigit() else 1
+            await self.set(ip_attempt_key, str(ip_attempts), ttl_seconds=1800)
+
+        if attempts >= max_attempts:
+            # Progressive tier (Tier 1 = 15m, Tier 2 = 30m, Tier 3 = 60m, Tier 4 = 120m)
+            tier_key = f"lockout_tier:id:{norm_id}"
+            tier_val = await self.get(tier_key)
+            tier = int(tier_val) if tier_val and tier_val.isdigit() else 1
+            tier = min(4, max(1, tier))
+
+            multiplier = 1 if tier == 1 else (2 if tier == 2 else (4 if tier == 3 else 8))
+            lockout_seconds = base_lockout_seconds * multiplier
+
+            # Set lock keys
+            await self.set(f"lockout:id:{norm_id}", str(int(time.time() + lockout_seconds)), ttl_seconds=lockout_seconds)
+            if ip and ip != "unknown":
+                await self.set(f"lockout:ip:{ip}", str(int(time.time() + lockout_seconds)), ttl_seconds=lockout_seconds)
+
+            # Advance tier for 24h
+            await self.set(tier_key, str(min(4, tier + 1)), ttl_seconds=86400)
+
+            # Reset attempt counter so next period starts fresh
+            await self.delete(attempt_key)
+            if ip and ip != "unknown":
+                await self.delete(f"failed_logins:ip:{ip}")
+
+            return attempts, True, lockout_seconds
+
+        return attempts, False, 0
+
+    async def clear_failed_logins(self, identifier: str, ip: str = "") -> None:
+        """Clear failed attempts counter and active lockout on successful login."""
+        norm_id = self.normalize_identifier(identifier)
+        if norm_id:
+            await self.delete(f"failed_logins:id:{norm_id}")
+            await self.delete(f"lockout:id:{norm_id}")
+            await self.delete(f"lockout_tier:id:{norm_id}")
+
+        if ip and ip != "unknown":
+            await self.delete(f"failed_logins:ip:{ip}")
+            await self.delete(f"lockout:ip:{ip}")
+
     @property
     def is_connected(self) -> bool:
         return self._connected
