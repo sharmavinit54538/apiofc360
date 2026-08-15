@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.security import hash_password
 from app.db.database import get_db_session
+from app.models.user import User, UserRole
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.manager_repository import ManagerRepository
 from app.schemas.manager import (

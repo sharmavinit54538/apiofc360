@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -17,7 +18,11 @@ from app.services.hr_analytics_service import HRAnalyticsService
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/hr-analytics", tags=["HR Analytics Engine v2"])
+router = APIRouter(
+    prefix="/hr-analytics",
+    tags=["HR Analytics Engine v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 
 # Schemas

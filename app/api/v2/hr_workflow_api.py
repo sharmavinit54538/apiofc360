@@ -11,16 +11,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
+from app.models.hr_workflow import (
+    HRWorkflowDefinition,
+    HRWorkflowInstance,
+    HRWorkflowStepInstance,
+)
 from app.services.hr_workflow_service import HRWorkflowService
-from app.models.hr_workflow import HRWorkflowStepInstance
 
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/workflows", tags=["AI Workflow Automation v2"])
+router = APIRouter(
+    prefix="/workflows",
+    tags=["AI Workflow Automation v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 
 # Schemas

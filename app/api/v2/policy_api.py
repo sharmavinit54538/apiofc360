@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -17,7 +18,11 @@ from app.services.policy_service import PolicyService
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/policies", tags=["AI Policy Explainer v2"])
+router = APIRouter(
+    prefix="/policies",
+    tags=["AI Policy Explainer v2"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 
 # Requests

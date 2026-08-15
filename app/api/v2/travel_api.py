@@ -11,13 +11,18 @@ from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.models.employee import Employee
 from app.models.travel import TravelRequest
 from app.schemas.auth import APIResponse
 
-router = APIRouter(prefix="/travel", tags=["Travel Management"])
+router = APIRouter(
+    prefix="/travel",
+    tags=["Travel Management"],
+    dependencies=[Depends(require_employee_or_above)],
+)
 
 # ---------------- Pydantic Schemas ----------------
 class TravelRequestCreate(BaseModel):

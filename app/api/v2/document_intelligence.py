@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -21,7 +22,11 @@ from app.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/document-intelligence", tags=["Document Intelligence v2"])
+router = APIRouter(
+    prefix="/document-intelligence",
+    tags=["Document Intelligence v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 # Schema models
 class ClassifyRequest(BaseModel):

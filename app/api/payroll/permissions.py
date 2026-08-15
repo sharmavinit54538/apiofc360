@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.api.payroll.constants import ADMIN_OR_MANAGER_ROLES, ADMIN_ROLES
 from app.api.payroll.exceptions import ForbiddenException
+from app.models.user.role import RoleEnum
 
 
 def _uid(claims: dict) -> Optional[uuid.UUID]:
@@ -20,11 +21,13 @@ def _uid(claims: dict) -> Optional[uuid.UUID]:
 
 
 def _role(claims: dict) -> Optional[str]:
-    """Extract role string from JWT claims."""
+    """Extract and normalize role string from JWT claims using RoleEnum."""
     if not isinstance(claims, dict):
         return None
     role = claims.get("role")
-    return role.lower() if isinstance(role, str) else None
+    if not role:
+        return None
+    return RoleEnum.from_str(str(role)).value
 
 
 def _is_admin_or_manager(claims: dict | None) -> bool:

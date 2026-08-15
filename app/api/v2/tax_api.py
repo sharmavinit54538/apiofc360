@@ -22,17 +22,21 @@ from app.models.payroll import (
 
 router = APIRouter(prefix="/tax", tags=["Tax Management"])
 
+from app.core.rbac import ADMIN_MANAGER_ROLES, ADMIN_ROLES, RoleEnum
+
 DB = Annotated[AsyncSession, Depends(get_db_session)]
 Claims = Annotated[dict, Depends(get_current_user_claims)]
 
 
 def _require_admin_or_manager(claims: dict) -> None:
-    if claims.get("role") not in ("super_admin", "hr_admin", "manager"):
+    role = RoleEnum.from_str(claims.get("role")).value
+    if role not in ADMIN_MANAGER_ROLES:
         raise BadRequestException("Admin or Manager role required.")
 
 
 def _require_admin(claims: dict) -> None:
-    if claims.get("role") not in ("super_admin", "hr_admin"):
+    role = RoleEnum.from_str(claims.get("role")).value
+    if role not in ADMIN_ROLES:
         raise BadRequestException("Admin role required.")
 
 

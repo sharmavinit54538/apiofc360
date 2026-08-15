@@ -9,13 +9,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, or_, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.models.employee import Employee
 from app.models.report import Report
 from app.schemas.auth import APIResponse
 
-router = APIRouter(prefix="/reports", tags=["Reports Management"])
+router = APIRouter(
+    prefix="/reports",
+    tags=["Reports Management"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
 
 # ---------------- Pydantic Schemas ----------------
 class ReportCreate(BaseModel):
