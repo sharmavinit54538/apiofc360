@@ -392,8 +392,12 @@ class AuthService:
                 await self.session.commit()
                 raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
 
-            # Mark OTP as used
-            await self.auth_repository.mark_otp_used(otp_record.id)
+            # Atomically mark OTP as used to prevent concurrent reuse
+            consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
+            if hasattr(self.auth_repository, "mark_otp_used"):
+                await self.auth_repository.mark_otp_used(otp_record.id)
+            if not consumed and consumed is not None:
+                raise AppException(message="OTP has already been used or is invalid.", status_code=status.HTTP_400_BAD_REQUEST)
         else:
             raise AppException(message="Verification token or OTP is required.", status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -808,8 +812,16 @@ class AuthService:
         await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
         await redis_client.revoke_user_tokens(user.id)
         
-        # Mark token as used
-        await self.auth_repository.mark_password_reset_token_used(token_record.id)
+        # Atomically mark token as used
+        consumed = await self.auth_repository.consume_password_reset_token_atomic(token_record.id)
+        if hasattr(self.auth_repository, "mark_password_reset_token_used"):
+            await self.auth_repository.mark_password_reset_token_used(token_record.id)
+        if not consumed and consumed is not None:
+            raise AppException(message="Token has already been used.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Invalidate all other pending password reset tokens and OTPs for the user
+        await self.auth_repository.invalidate_all_user_password_resets(user.id)
+        await self.auth_repository.invalidate_all_user_otps(user.id)
         await self.session.commit()
 
 

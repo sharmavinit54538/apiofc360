@@ -45,3 +45,18 @@ class PasswordResetToken(Base):
     )
 
     user: Mapped[User] = relationship("User", back_populates="password_resets")
+
+    @property
+    def is_used(self) -> bool:
+        """Check if token has already been consumed."""
+        return self.used_at is not None
+
+    def is_expired(self, at: datetime | None = None) -> bool:
+        """Check if token is past its expiration time."""
+        from datetime import timezone
+        check_time = at or datetime.now(timezone.utc)
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return check_time > exp
+

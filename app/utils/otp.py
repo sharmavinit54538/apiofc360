@@ -10,6 +10,8 @@ from app.utils.security import secure_compare
 
 OTP_DIGITS = 6
 OTP_PURPOSE_EMAIL_VERIFICATION = "email_verification"
+OTP_PURPOSE_EMAIL_CHANGE = "email_change"
+OTP_PURPOSE_PASSWORD_RESET = "password_reset"
 
 
 def generate_otp() -> str:
@@ -27,7 +29,7 @@ def hash_otp(*, otp: str, user_id: uuid.UUID, purpose: str) -> str:
 
 
 def verify_otp_hash(*, otp: str, otp_hash: str, user_id: uuid.UUID, purpose: str) -> bool:
-    """Verify a user-provided OTP against a stored OTP hash."""
+    """Verify a user-provided OTP against a stored OTP hash in constant time."""
 
     expected_hash = hash_otp(otp=otp, user_id=user_id, purpose=purpose)
-    return secure_compare(expected_hash, otp_hash)
+    return secure_compare(expected_hash, otp_hash)
