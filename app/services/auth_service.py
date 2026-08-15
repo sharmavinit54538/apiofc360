@@ -579,6 +579,63 @@ class AuthService:
                 errors=[{"field": None, "message": "ACCOUNT_INACTIVE"}],
             )
 
+        # Verify employment / manager active lifecycle state
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.manager import Manager
+
+        emp_res = await self.session.execute(
+            select(Employee).where(
+                Employee.user_id == user.id,
+                Employee.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        emp = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") and callable(emp_res.scalar_one_or_none) else None
+        if isinstance(emp, Employee) and (
+            not emp.is_active
+            or emp.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(emp, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.warning(
+                "Authentication failed: Employee profile for user %s is deactivated/archived/terminated (status=%s, is_active=%s).",
+                user.id, emp.status, emp.is_active
+            )
+            user.is_active = False
+            user.account_status = "DEACTIVATED"
+            await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+            await self.session.commit()
+            raise AppException(
+                message="Account or employment profile is inactive or terminated. Please contact HR.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": None, "message": "EMPLOYEE_INACTIVE"}],
+            )
+
+        mgr_res = await self.session.execute(
+            select(Manager).where(
+                Manager.user_id == user.id,
+                Manager.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        mgr = mgr_res.scalar_one_or_none() if hasattr(mgr_res, "scalar_one_or_none") and callable(mgr_res.scalar_one_or_none) else None
+        if isinstance(mgr, Manager) and (
+            not mgr.is_active
+            or mgr.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(mgr, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.warning(
+                "Authentication failed: Manager profile for user %s is deactivated/archived/terminated (status=%s, is_active=%s).",
+                user.id, mgr.status, mgr.is_active
+            )
+            user.is_active = False
+            user.account_status = "DEACTIVATED"
+            await self.auth_repository.revoke_all_user_refresh_tokens(user.id)
+            await self.session.commit()
+            raise AppException(
+                message="Account or manager profile is inactive or terminated. Please contact HR.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                errors=[{"field": None, "message": "MANAGER_INACTIVE"}],
+            )
+
         # Success - log audit details
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 

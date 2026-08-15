@@ -155,8 +155,69 @@ class TokenService:
         user = token_record.user
         if not user or user.is_deleted or not user.is_active:
             logger.info("Token rotation rejected: user is deleted or inactive")
+            await self.auth_repository.revoke_refresh_token(token_record.id)
+            await self.session.commit()
             raise AppException(
                 message="Invalid or expired refresh token.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        account_status_val = str(getattr(user, "account_status", "") or "").upper()
+        if account_status_val in ("SUSPENDED", "DEACTIVATED", "INACTIVE", "TERMINATED", "EXITED"):
+            logger.info("Token rotation rejected: user account status is %s", account_status_val)
+            user.is_active = False
+            await self.auth_repository.revoke_refresh_token(token_record.id)
+            await self.session.commit()
+            raise AppException(
+                message="Invalid or expired refresh token.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Check associated employee active state
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.manager import Manager
+
+        emp_res = await self.session.execute(
+            select(Employee).where(
+                Employee.user_id == user.id,
+                Employee.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        emp = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") and callable(emp_res.scalar_one_or_none) else None
+        if isinstance(emp, Employee) and (
+            not emp.is_active
+            or emp.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(emp, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.info("Token rotation rejected: associated employee profile %s is deactivated/archived/terminated", emp.id)
+            user.is_active = False
+            await self.auth_repository.revoke_refresh_token(token_record.id)
+            await self.session.commit()
+            raise AppException(
+                message="User account or employment profile is inactive or terminated.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Check associated manager active state
+        mgr_res = await self.session.execute(
+            select(Manager).where(
+                Manager.user_id == user.id,
+                Manager.is_deleted == False,
+            ).execution_options(bypass_tenant=True)
+        )
+        mgr = mgr_res.scalar_one_or_none() if hasattr(mgr_res, "scalar_one_or_none") and callable(mgr_res.scalar_one_or_none) else None
+        if isinstance(mgr, Manager) and (
+            not mgr.is_active
+            or mgr.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            or (getattr(mgr, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
+        ):
+            logger.info("Token rotation rejected: associated manager profile %s is deactivated/archived/terminated", mgr.id)
+            user.is_active = False
+            await self.auth_repository.revoke_refresh_token(token_record.id)
+            await self.session.commit()
+            raise AppException(
+                message="User account or manager profile is inactive or terminated.",
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 

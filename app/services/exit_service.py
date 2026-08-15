@@ -526,20 +526,35 @@ class ExitService:
             # 1. Update exit status to COMPLETED
             await self.repo.update_exit_status(exit_uuid, "COMPLETED")
 
-            # 2. Deactivate employee profile
+            # 2. Deactivate and archive employee profile
             from sqlalchemy import update as sa_update
             from app.models.employee import Employee
+            from app.models.manager import Manager
+            from app.models.user import User
+
+            now_utc = datetime.now(timezone.utc)
             await self.session.execute(
                 sa_update(Employee)
                 .where(Employee.id == exit_obj.employee_id)
-                .values(employment_status="EXITED", status="ARCHIVED")
+                .values(
+                    employment_status="EXITED",
+                    status="ARCHIVED",
+                    is_active=False,
+                    deactivated_at=now_utc,
+                )
             )
 
             # 3. Deactivate User credentials & revoke JWT Refresh Tokens
             if exit_obj.employee.user_id:
-                await self.auth_repo.update_user_activation(
-                    exit_obj.employee.user_id,
-                    is_active=False,
+                await self.session.execute(
+                    sa_update(User)
+                    .where(User.id == exit_obj.employee.user_id)
+                    .values(is_active=False, account_status="DEACTIVATED")
+                )
+                await self.session.execute(
+                    sa_update(Manager)
+                    .where(Manager.user_id == exit_obj.employee.user_id)
+                    .values(is_active=False, status="ARCHIVED", deactivated_at=now_utc)
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(exit_obj.employee.user_id)
 

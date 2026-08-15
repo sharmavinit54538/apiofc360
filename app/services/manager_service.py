@@ -350,6 +350,33 @@ class ManagerService:
             if not update_data:
                 raise AppException(message="No fields provided to update.", status_code=status.HTTP_400_BAD_REQUEST)
             await self.repo.update_manager(manager_uuid, **update_data)
+
+            # Synchronize User active state if manager active status or lifecycle changed
+            if manager.user_id:
+                from sqlalchemy import update as sa_update
+                from app.models.user import User
+                new_is_active = update_data.get("is_active", manager.is_active)
+                new_status = (update_data.get("status") or manager.status or "").upper()
+
+                if (
+                    new_is_active is False
+                    or new_status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+                ):
+                    await self.session.execute(
+                        sa_update(User).where(User.id == manager.user_id).values(
+                            is_active=False,
+                            account_status="DEACTIVATED",
+                        )
+                    )
+                    await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
+                elif new_is_active is True and new_status == "ACTIVE":
+                    await self.session.execute(
+                        sa_update(User).where(User.id == manager.user_id).values(
+                            is_active=True,
+                            account_status="ACTIVE",
+                        )
+                    )
+
             await self.session.commit()
             logger.info("update_manager: success | manager_id=%s", manager_uuid)
             full_manager = await self.repo.get_by_id(manager_uuid)
@@ -368,8 +395,18 @@ class ManagerService:
             manager = await self.repo.get_by_id_raw(manager_uuid)
             if not manager:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
+            manager.is_active = False
             await self.repo.soft_delete(manager_uuid, deleted_by=admin_id)
             if manager.user_id:
+                from sqlalchemy import update as sa_update
+                from app.models.user import User
+                await self.session.execute(
+                    sa_update(User).where(User.id == manager.user_id).values(
+                        is_active=False,
+                        is_deleted=True,
+                        account_status="DEACTIVATED",
+                    )
+                )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
             await self.session.commit()
             logger.info("delete_manager: success | manager_id=%s", manager_uuid)
@@ -796,13 +833,21 @@ class ManagerService:
             manager = await self.repo.get_by_id_raw(manager_uuid)
             if not manager:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
+            manager.is_active = False
+            manager.deactivated_at = datetime.now(timezone.utc)
+            manager.deactivated_by = admin_id
+            manager.status = "DISABLED"
             await self.repo.update_status(manager_uuid, "DISABLED")
             if manager.user_id:
                 from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
-                    sa_update(User).where(User.id == manager.user_id).values(is_active=False)
+                    sa_update(User).where(User.id == manager.user_id).values(
+                        is_active=False,
+                        account_status="DEACTIVATED",
+                    )
                 )
+                await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
             await self.session.commit()
             logger.info("deactivate_manager: success | manager_id=%s", manager_uuid)
         except AppException:
@@ -819,12 +864,20 @@ class ManagerService:
             manager = await self.repo.get_by_id_raw(manager_uuid)
             if not manager:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
+            manager.is_active = True
+            manager.deactivated_at = None
+            manager.deactivated_by = None
+            manager.deactivation_reason = None
+            manager.status = "ACTIVE"
             await self.repo.update_status(manager_uuid, "ACTIVE")
             if manager.user_id:
                 from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
-                    sa_update(User).where(User.id == manager.user_id).values(is_active=True)
+                    sa_update(User).where(User.id == manager.user_id).values(
+                        is_active=True,
+                        account_status="ACTIVE",
+                    )
                 )
             await self.session.commit()
             logger.info("activate_manager_by_admin: success | manager_id=%s", manager_uuid)

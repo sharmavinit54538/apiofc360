@@ -404,8 +404,51 @@ class HRAdminService:
                 emp.phone = payload.phone
             if payload.role:
                 emp.role = payload.role.strip().lower()
-            if payload.is_active is False:
+            if payload.is_active is False or user.is_active is False:
+                emp.is_active = False
                 emp.status = "DEACTIVATED"
+                emp.deactivated_at = datetime.now(timezone.utc)
+                emp.deactivated_by = admin_id
+            elif payload.is_active is True and user.is_active is True:
+                emp.is_active = True
+                emp.status = "ACTIVE"
+                emp.deactivated_at = None
+                emp.deactivated_by = None
+                emp.deactivation_reason = None
+
+        # Sync Manager record if exists
+        mgr_res = await self.session.execute(
+            select(Manager).where(Manager.user_id == user.id, Manager.company_id == company_id)
+        )
+        mgr = mgr_res.scalars().first()
+        if mgr:
+            if payload.first_name is not None:
+                mgr.first_name = payload.first_name.strip()
+            if payload.last_name is not None:
+                mgr.last_name = payload.last_name.strip()
+            if payload.department is not None:
+                mgr.department = payload.department
+            if payload.designation is not None:
+                mgr.designation = payload.designation
+            if payload.phone is not None:
+                mgr.phone = payload.phone
+            if payload.is_active is False or user.is_active is False:
+                mgr.is_active = False
+                mgr.status = "DEACTIVATED"
+                mgr.deactivated_at = datetime.now(timezone.utc)
+                mgr.deactivated_by = admin_id
+            elif payload.is_active is True and user.is_active is True:
+                mgr.is_active = True
+                mgr.status = "ACTIVE"
+                mgr.deactivated_at = None
+                mgr.deactivated_by = None
+                mgr.deactivation_reason = None
+
+        if user.is_active is False:
+            from app.models.refresh_token import RefreshToken
+            await self.session.execute(
+                update(RefreshToken).where(RefreshToken.user_id == user.id).values(revoked=True)
+            )
 
         # Log audit
         audit = AuditLog(
@@ -445,7 +488,7 @@ class HRAdminService:
         company_id: uuid.UUID,
         target_user_id: uuid.UUID,
     ) -> None:
-        """Deactivate an internal company user. Blocks self-deactivation."""
+        """Deactivate an internal company user and all linked profiles. Blocks self-deactivation."""
 
         if admin_id == target_user_id:
             raise AppException(message="You cannot deactivate your own account.", status_code=status.HTTP_400_BAD_REQUEST)
@@ -461,6 +504,7 @@ class HRAdminService:
         if not user:
             raise AppException(message="User not found in your organization.", status_code=status.HTTP_404_NOT_FOUND)
 
+        now_utc = datetime.now(timezone.utc)
         user.is_active = False
         user.account_status = UserAccountStatus.DEACTIVATED.value
 
@@ -470,7 +514,21 @@ class HRAdminService:
         )
         emp = emp_res.scalars().first()
         if emp:
+            emp.is_active = False
             emp.status = "DEACTIVATED"
+            emp.deactivated_at = now_utc
+            emp.deactivated_by = admin_id
+
+        # Deactivate manager record
+        mgr_res = await self.session.execute(
+            select(Manager).where(Manager.user_id == user.id, Manager.company_id == company_id)
+        )
+        mgr = mgr_res.scalars().first()
+        if mgr:
+            mgr.is_active = False
+            mgr.status = "DEACTIVATED"
+            mgr.deactivated_at = now_utc
+            mgr.deactivated_by = admin_id
 
         # Revoke tokens
         from app.models.refresh_token import RefreshToken

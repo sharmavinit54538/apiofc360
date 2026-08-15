@@ -89,6 +89,14 @@ class Manager(Base):
     leave_group: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
 
+    # --------------- Role Metadata & Verification ---------------
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deactivated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    deactivation_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
     # --------------- Activation ---------------
     activation_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     activation_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -107,7 +115,7 @@ class Manager(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     # --------------- Relationships ---------------
-    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id], back_populates=None, lazy="select")
+    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id], back_populates="manager_profile", lazy="select")
     company: Mapped[Company | None] = relationship("Company", foreign_keys=[company_id], lazy="select")
     creator: Mapped[User | None] = relationship("User", foreign_keys=[created_by], back_populates=None, lazy="select")
     inviter: Mapped[User | None] = relationship("User", foreign_keys=[invited_by], back_populates=None, lazy="select")
@@ -189,4 +197,17 @@ class Manager(Base):
     @property
     def last_active(self) -> datetime | None:
         return self.last_login
+
+    @property
+    def is_deactivated(self) -> bool:
+        """Return True if the manager record is inactive, deactivated, archived, or deleted."""
+        if not self.is_active or self.is_deleted:
+            return True
+        status_upper = (self.status or "").upper()
+        if status_upper in {"DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED"}:
+            return True
+        emp_status_upper = (getattr(self, "employment_status", "") or "").upper()
+        if emp_status_upper in {"EXITED", "TERMINATED"}:
+            return True
+        return False
 
