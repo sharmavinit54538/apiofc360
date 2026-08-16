@@ -59,6 +59,11 @@ class RegisterRequest(BaseModel):
             data.pop("is_super_admin", None)
             data.pop("isSuperAdmin", None)
 
+            # Normalize email field alias: accept 'identifier' from frontend
+            if not data.get("email"):
+                if data.get("identifier"):
+                    data["email"] = data["identifier"]
+
             # Normalize phone field alias if phone not provided
             if not data.get("phone"):
                 if data.get("phone_number"):
@@ -159,12 +164,13 @@ class RegisterResponse(APIResponse[None]):
 
 
 class VerifyEmailRequest(BaseModel):
-    """Verify Email API request payload supporting token or email + OTP."""
+    """Verify Email API request payload supporting token or email/phone + OTP."""
 
     model_config = ConfigDict(extra="ignore")
 
     token: str | None = Field(default=None, description="Secure email verification token from email link")
     email: EmailStr | None = Field(default=None, description="User email for OTP verification")
+    identifier: str | None = Field(default=None, description="User email or phone for OTP verification")
     otp: str | None = Field(default=None, description="6-digit OTP code")
 
     @field_validator("email", mode="before")
@@ -174,6 +180,15 @@ class VerifyEmailRequest(BaseModel):
         if value is None:
             return None
         return normalize_email(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_identifier(cls, data: Any) -> Any:
+        """Allow 'identifier' to populate 'email' for backwards compatibility."""
+        if isinstance(data, dict):
+            if not data.get("email") and data.get("identifier"):
+                data["email"] = data["identifier"]
+        return data
 
     @field_validator("otp")
     @classmethod
@@ -206,13 +221,22 @@ class ResendOTPRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
+    identifier: str | None = Field(default=None, description="User email or phone for OTP verification")
 
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email_field(cls, value: str) -> str:
         """Lowercase and trim email before RFC validation."""
-
         return normalize_email(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_identifier(cls, data: Any) -> Any:
+        """Allow 'identifier' to populate 'email' for backwards compatibility."""
+        if isinstance(data, dict):
+            if not data.get("email") and data.get("identifier"):
+                data["email"] = data["identifier"]
+        return data
 
 
 class ResendOTPResponse(APIResponse[None]):
@@ -295,7 +319,7 @@ class RefreshTokenRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    refresh_token: str
+    refresh_token: str | None = Field(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -324,36 +348,74 @@ class RefreshTokenResponse(APIResponse[RefreshTokenResponseData]):
 
 
 class ForgotPasswordRequest(BaseModel):
-    """Forgot password request payload."""
+    """Forgot password request payload. Accepts email or phone as 'identifier'."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    identifier: str = Field(..., examples=["john@example.com", "9876543210"])
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_identifier(cls, data: Any) -> Any:
+        """Allow 'email', 'phone', or 'phone_number' field to be used as 'identifier' for backwards compatibility."""
+        if isinstance(data, dict):
+            if not data.get("identifier"):
+                if data.get("email"):
+                    data["identifier"] = data["email"]
+                elif data.get("phone"):
+                    data["identifier"] = str(data["phone"])
+                elif data.get("phone_number"):
+                    data["identifier"] = str(data["phone_number"])
+                elif data.get("contact_number"):
+                    data["identifier"] = str(data["contact_number"])
+                elif data.get("mobile"):
+                    data["identifier"] = str(data["mobile"])
+        return data
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password request payload - supports both OTP flow and token flow."""
 
     model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
+    identifier: str | None = Field(default=None, description="User email or phone")
+    otp: str | None = Field(default=None, min_length=6, max_length=6, examples=["123456"])
+    reset_token: str | None = Field(default=None, description="Reset token from verify-reset-otp step")
+    new_password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
+    confirm_password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
 
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email_field(cls, value: str) -> str:
-        """Lowercase and trim email before RFC validation."""
-
         return normalize_email(value)
 
+    @model_validator(mode="before")
+    @classmethod
+    def populate_identifier(cls, data: Any) -> Any:
+        """Allow 'identifier' to populate 'email' for backwards compatibility."""
+        if isinstance(data, dict):
+            if not data.get("email") and data.get("identifier"):
+                data["email"] = data["identifier"]
+        return data
 
-class ResetPasswordRequest(BaseModel):
-    """Reset password request payload."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    token: str = Field(..., examples=["secure-reset-token"])
-    password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
-    confirm_password: str = Field(..., min_length=8, max_length=64, examples=["NewPassword@123"], repr=False)
+    @field_validator("otp")
+    @classmethod
+    def validate_otp_field(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.isdigit():
+            raise ValueError("OTP must contain only digits.")
+        if len(value) != 6:
+            raise ValueError("OTP must be exactly 6 digits.")
+        return value
 
     @model_validator(mode="after")
     def validate_passwords(self) -> "ResetPasswordRequest":
         """Validate passwords match and meet strength requirements."""
-
-        if self.password != self.confirm_password:
+        if self.new_password != self.confirm_password:
             raise ValueError("Passwords do not match.")
-        self.password = validate_password_strength(self.password)
+        self.new_password = validate_password_strength(self.new_password)
         return self
 
 
@@ -363,12 +425,22 @@ class VerifyResetOTPRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     email: EmailStr
+    identifier: str | None = Field(default=None, description="User email or phone for OTP verification")
     otp: str = Field(..., min_length=6, max_length=6, examples=["123456"])
 
     @field_validator("email", mode="before")
     @classmethod
     def normalize_email_field(cls, value: str) -> str:
         return normalize_email(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_identifier(cls, data: Any) -> Any:
+        """Allow 'identifier' to populate 'email' for backwards compatibility."""
+        if isinstance(data, dict):
+            if not data.get("email") and data.get("identifier"):
+                data["email"] = data["identifier"]
+        return data
 
     @field_validator("otp")
     @classmethod

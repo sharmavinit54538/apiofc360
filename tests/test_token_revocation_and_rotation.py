@@ -204,7 +204,9 @@ async def test_auth_service_reset_password_invalidates_tokens_and_sessions():
     token_record.used_at = None
     token_record.expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
     token_record.user = user
+    token_record.user_id = user.id
     token_record.id = uuid.uuid4()
+    mock_repo.get_user_by_email.return_value = user
     mock_repo.get_password_reset_token.return_value = token_record
 
     service = AuthService(
@@ -215,8 +217,9 @@ async def test_auth_service_reset_password_invalidates_tokens_and_sessions():
     )
 
     payload = ResetPasswordRequest(
-        token="valid_reset_token_raw",
-        password="NewResetPass@2026",
+        email="reset@company.com",
+        reset_token="valid_reset_token_raw",
+        new_password="NewResetPass@2026",
         confirm_password="NewResetPass@2026",
     )
     await service.reset_password(payload)
