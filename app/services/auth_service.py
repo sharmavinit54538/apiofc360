@@ -23,6 +23,7 @@ from app.schemas.auth import (
     ResendOTPRequest,
     ResetPasswordRequest,
     VerifyEmailRequest,
+    VerifyResetOTPRequest,
 )
 from app.services.email_service import EmailService, get_email_service
 from app.services.token_service import TokenService, get_token_service, blacklist_access_token
@@ -527,6 +528,74 @@ class AuthService:
                 errors=[{"field": None, "message": "Unexpected sending error."}],
             )
 
+    async def verify_reset_otp(self, payload: VerifyResetOTPRequest) -> dict:
+        """Verify the password reset OTP and return a reset token for the reset-password step."""
+        
+        now = datetime.now(timezone.utc)
+        
+        # Lookup user by identifier (email or phone)
+        identifier = payload.email.strip().lower() if payload.email else ""
+        if not identifier:
+            raise AppException(message="Email is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        
+        user = await self.auth_repository.get_user_by_email(identifier)
+        if not user:
+            raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+        # Get latest unused OTP record for password_reset
+        otp_record = await self.auth_repository.get_latest_otp(user.id, "password_reset")
+        if not otp_record:
+            raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Check expiry
+        if now > otp_record.expires_at:
+            raise AppException(message="OTP has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Verify hash
+        is_valid = verify_otp_hash(
+            otp=payload.otp,
+            otp_hash=otp_record.otp_hash,
+            user_id=user.id,
+            purpose="password_reset",
+        )
+
+        if not is_valid:
+            # Increment attempts
+            attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
+            if attempts >= settings.OTP_MAX_ATTEMPTS:
+                # Invalidate current OTP
+                await self.auth_repository.invalidate_all_user_otps(user.id, "password_reset")
+                raise AppException(
+                    message="Too many wrong attempts. Please request a new OTP.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            await self.session.commit()
+            raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Atomically mark OTP as used
+        consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
+        if hasattr(self.auth_repository, "mark_otp_used"):
+            await self.auth_repository.mark_otp_used(otp_record.id)
+        if not consumed and consumed is not None:
+            raise AppException(message="OTP has already been used or is invalid.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Generate a secure reset session token (short-lived, for the reset-password step)
+        raw_token = secrets.token_urlsafe(32)
+        hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
+        reset_token_expires = now + timedelta(minutes=10)  # 10 minutes to complete password reset
+        
+        # Store reset token in PasswordResetToken table
+        await self.auth_repository.create_password_reset_token(
+            user_id=user.id,
+            role=user.role,
+            hashed_token=hashed_token,
+            expires_at=reset_token_expires,
+        )
+        await self.session.commit()
+
+        # Return the raw token for the frontend to use in reset-password
+        return {"success": True, "message": "OTP verified successfully", "reset_token": raw_token, "errors": None}
+
     async def login(
         self,
         payload: LoginRequest,
@@ -719,11 +788,15 @@ class AuthService:
         await self.session.commit()
         return user, access_token, refresh_token, expires_in
 
-    async def logout(self, *, access_token: str, refresh_token: str) -> None:
-        """Revoke refresh token session and add access token to Redis blacklist."""
+    async def logout(self, *, access_token: str, refresh_token: str | None = None) -> None:
+        """Revoke refresh token session and add access token to Redis blacklist.
+        
+        refresh_token is optional to support frontend calling logout without body.
+        """
 
-        # Revoke DB refresh token
-        await self.token_service.revoke_refresh_token(refresh_token)
+        # Revoke DB refresh token if provided
+        if refresh_token:
+            await self.token_service.revoke_refresh_token(refresh_token)
 
         # Blacklist access token for its remaining lifetime in Redis & fallback
         if access_token:
@@ -740,41 +813,57 @@ class AuthService:
         await self.session.commit()
 
     async def forgot_password(self, payload: ForgotPasswordRequest) -> None:
-        """Generate a secure password reset token and send reset link email, handling users defensively."""
-
-        user = await self.auth_repository.get_user_by_email(payload.email)
+        """Generate a password reset OTP and send it via email/SMS, handling users defensively.
         
-        # Defensively exit if user does not exist or is deleted
+        Supports both email and phone as identifier.
+        """
+
+        # Lookup user by identifier (email or phone)
+        identifier = payload.identifier.strip().lower() if payload.identifier else ""
+        if not identifier:
+            raise AppException(message="Identifier is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        
+        user = None
+        if "@" in identifier:
+            user = await self.auth_repository.get_user_by_email(identifier)
+        else:
+            user = await self.auth_repository.get_user_by_phone(identifier)
+        
+        # Defensively exit if user does not exist or is deleted (don't reveal user existence)
         if not user or user.is_deleted:
-            logger.info("Forgot password requested for non-existent or deleted email: %s", payload.email)
+            logger.info("Forgot password requested for non-existent or deleted identifier: %s", identifier)
             return
 
-        # Generate random secure token (32 bytes)
-        raw_token = secrets.token_urlsafe(32)
-        hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)  # Token expires in 15 minutes
+        # Generate OTP
+        otp_code = generate_otp()
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
         try:
-            # Save token to db
-            await self.auth_repository.create_password_reset_token(
+            # Invalidate any previous reset OTPs
+            await self.auth_repository.invalidate_all_user_otps(user.id, "password_reset")
+
+            # Store OTP
+            hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose="password_reset")
+            await self.auth_repository.create_otp(
                 user_id=user.id,
-                role=user.role,
-                hashed_token=hashed_token,
+                otp_hash=hashed_otp,
+                purpose="password_reset",
                 expires_at=expires_at,
             )
 
-            # Send password reset template with raw token
-            await self.email_service.send_password_reset_email(
+            # Send OTP via email
+            await self.email_service.send_password_reset_otp(
                 email=user.email,
                 name=user.name,
-                token=raw_token,
+                otp=otp_code,
+                expiry_minutes=settings.OTP_EXPIRE_MINUTES,
             )
             await self.session.commit()
         except RuntimeError as exc:
             await self.session.rollback()
-            logger.exception("Forgot password email sending failed", exc_info=exc)
+            logger.exception("Forgot password OTP sending failed", exc_info=exc)
             raise AppException(
-                message="Failed to send password reset email.",
+                message="Failed to send password reset OTP.",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 errors=[{"field": None, "message": str(exc)}],
             ) from exc
@@ -783,42 +872,92 @@ class AuthService:
             raise
 
     async def reset_password(self, payload: ResetPasswordRequest) -> None:
-        """Verify the secure password reset token and update credentials, revoking active sessions and JWTs."""
-
-        # Hash incoming token
-        hashed_token = hashlib.sha256(payload.token.encode()).hexdigest()
-
-        # Retrieve password reset token record
-        token_record = await self.auth_repository.get_password_reset_token(hashed_token)
-        if not token_record:
-            raise AppException(message="Invalid token.", status_code=status.HTTP_400_BAD_REQUEST)
-
-        # Check if already used
-        if token_record.used_at is not None:
-            raise AppException(message="Token has already been used.", status_code=status.HTTP_400_BAD_REQUEST)
-
-        # Check expiration
+        """Verify the password reset token or OTP and update credentials, revoking active sessions and JWTs."""
+        
         now = datetime.now(timezone.utc)
-        if now > token_record.expires_at:
-            raise AppException(message="Token has expired.", status_code=status.HTTP_400_BAD_REQUEST)
-
-        user = token_record.user
+        
+        # Lookup user by identifier (email or phone)
+        identifier = payload.email.strip().lower() if payload.email else ""
+        if not identifier:
+            raise AppException(message="Email is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        
+        user = await self.auth_repository.get_user_by_email(identifier)
         if not user or user.is_deleted:
             raise AppException(message="User account not found.", status_code=status.HTTP_404_NOT_FOUND)
 
+        # Flow 1: Reset token from verify-reset-otp step
+        if payload.reset_token:
+            hashed_token = hashlib.sha256(payload.reset_token.encode()).hexdigest()
+            token_record = await self.auth_repository.get_password_reset_token(hashed_token)
+            if not token_record:
+                raise AppException(message="Invalid reset token.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if already used
+            if token_record.used_at is not None:
+                raise AppException(message="Reset token has already been used.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            # Check expiration
+            if now > token_record.expires_at:
+                raise AppException(message="Reset token has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            # Verify token belongs to this user
+            if token_record.user_id != user.id:
+                raise AppException(message="Invalid reset token.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            # Atomically mark token as used
+            consumed = await self.auth_repository.consume_password_reset_token_atomic(token_record.id)
+            if hasattr(self.auth_repository, "mark_password_reset_token_used"):
+                await self.auth_repository.mark_password_reset_token_used(token_record.id)
+            if not consumed and consumed is not None:
+                raise AppException(message="Reset token has already been used.", status_code=status.HTTP_400_BAD_REQUEST)
+                
+        # Flow 2: OTP-based (backward compatibility - re-validate OTP)
+        elif payload.otp:
+            # Get latest unused OTP record for password_reset
+            otp_record = await self.auth_repository.get_latest_otp(user.id, "password_reset")
+            if not otp_record:
+                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Check expiry
+            if now > otp_record.expires_at:
+                raise AppException(message="OTP has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Verify hash
+            is_valid = verify_otp_hash(
+                otp=payload.otp,
+                otp_hash=otp_record.otp_hash,
+                user_id=user.id,
+                purpose="password_reset",
+            )
+
+            if not is_valid:
+                # Increment attempts
+                attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
+                if attempts >= settings.OTP_MAX_ATTEMPTS:
+                    # Invalidate current OTP
+                    await self.auth_repository.invalidate_all_user_otps(user.id, "password_reset")
+                    raise AppException(
+                        message="Too many wrong attempts. Please request a new OTP.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                await self.session.commit()
+                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Atomically mark OTP as used
+            consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
+            if hasattr(self.auth_repository, "mark_otp_used"):
+                await self.auth_repository.mark_otp_used(otp_record.id)
+            if not consumed and consumed is not None:
+                raise AppException(message="OTP has already been used or is invalid.", status_code=status.HTTP_400_BAD_REQUEST)
+        else:
+            raise AppException(message="Either reset_token or OTP is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         # Update credentials
-        new_password_hash = hash_password(payload.password)
+        new_password_hash = hash_password(payload.new_password)
         await self.auth_repository.update_user_password(user.id, new_password_hash)
         await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
         await redis_client.revoke_user_tokens(user.id)
         
-        # Atomically mark token as used
-        consumed = await self.auth_repository.consume_password_reset_token_atomic(token_record.id)
-        if hasattr(self.auth_repository, "mark_password_reset_token_used"):
-            await self.auth_repository.mark_password_reset_token_used(token_record.id)
-        if not consumed and consumed is not None:
-            raise AppException(message="Token has already been used.", status_code=status.HTTP_400_BAD_REQUEST)
-
         # Invalidate all other pending password reset tokens and OTPs for the user
         await self.auth_repository.invalidate_all_user_password_resets(user.id)
         await self.auth_repository.invalidate_all_user_otps(user.id)

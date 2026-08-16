@@ -161,10 +161,11 @@ async def test_reset_password_atomic_consumption_and_token_invalidation():
     )
     mock_token_record.user = mock_user
 
+    mock_auth_repo.get_user_by_email.return_value = mock_user
     mock_auth_repo.get_password_reset_token.return_value = mock_token_record
     mock_auth_repo.consume_password_reset_token_atomic.return_value = True
 
-    payload = ResetPasswordRequest(token="raw_reset_token", password="NewPassword@2026!", confirm_password="NewPassword@2026!")
+    payload = ResetPasswordRequest(email="user@example.com", reset_token="raw_reset_token", new_password="NewPassword@2026!", confirm_password="NewPassword@2026!")
 
     with patch("app.core.redis_client.redis_client.revoke_user_tokens", new_callable=AsyncMock) as mock_revoke_tokens:
         await service.reset_password(payload)
@@ -209,11 +210,12 @@ async def test_reset_password_rejects_replayed_token():
     )
     mock_token_record.user = mock_user
 
+    mock_auth_repo.get_user_by_email.return_value = mock_user
     mock_auth_repo.get_password_reset_token.return_value = mock_token_record
     # Simulate concurrent race where another process consumed it
     mock_auth_repo.consume_password_reset_token_atomic.return_value = False
 
-    payload = ResetPasswordRequest(token="raw_reset_token", password="NewPassword@2026!", confirm_password="NewPassword@2026!")
+    payload = ResetPasswordRequest(email="user@example.com", reset_token="raw_reset_token", new_password="NewPassword@2026!", confirm_password="NewPassword@2026!")
 
     with pytest.raises(AppException) as exc_info:
         await service.reset_password(payload)

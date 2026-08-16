@@ -421,21 +421,27 @@ async def refresh(
     },
 )
 async def logout(
-    payload: RefreshTokenRequest,
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    payload: RefreshTokenRequest | None = None,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)] = None,
     claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> APIResponse[None]:
-    """Revoke user session and blacklist access token without failing if access token has expired."""
+    """Revoke user session and blacklist access token without failing if access token has expired.
+    
+    Request body is optional - frontend may call without a body.
+    """
 
     # Extract raw access token from authorization header
     access_token = ""
     if authorization and authorization.lower().startswith("bearer "):
         access_token = authorization.split(" ", 1)[1]
 
+    # Extract refresh token from body if provided
+    refresh_token = payload.refresh_token if payload else None
+
     await auth_service.logout(
         access_token=access_token,
-        refresh_token=payload.refresh_token,
+        refresh_token=refresh_token,
     )
 
     return APIResponse[None](
@@ -472,6 +478,37 @@ async def forgot_password(
 
 
 @router.post(
+    "/verify-reset-otp",
+    status_code=status.HTTP_200_OK,
+    response_model=VerifyResetOTPResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid or expired OTP"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"model": APIResponse[None], "description": "Too many attempts"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+async def verify_reset_otp(
+    payload: VerifyResetOTPRequest,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> VerifyResetOTPResponse:
+    """Verify password reset OTP and return a reset token for the reset-password step."""
+
+    result = await auth_service.verify_reset_otp(payload)
+    return VerifyResetOTPResponse(
+        success=True,
+        message="OTP verified successfully.",
+        data=VerifyResetOTPResponseData(
+            email=payload.email or payload.identifier or "",
+            resetToken=result.get("reset_token", ""),
+        ),
+        errors=None,
+    )
+
+
+@router.post(
     "/reset-password",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
@@ -485,7 +522,7 @@ async def reset_password(
     payload: ResetPasswordRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> APIResponse[None]:
-    """Reset password credentials using the secure reset token."""
+    """Reset password credentials using the verified reset token or OTP."""
 
     await auth_service.reset_password(payload)
     return APIResponse[None](
