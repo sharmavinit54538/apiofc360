@@ -543,7 +543,9 @@ def test_api_19_to_22_calls_and_signaling(client_employee):
     with patch("app.services.connect_service.ConnectRepository.get_call_history", new_callable=AsyncMock) as mock_hist, \
          patch("app.services.connect_service.ConnectRepository.create_call_log", new_callable=AsyncMock) as mock_init, \
          patch("app.services.connect_service.ConnectRepository.get_call_by_id", new_callable=AsyncMock) as mock_get_call, \
-         patch("app.services.connect_service.ConnectRepository.update_call_status", new_callable=AsyncMock) as mock_upd_call:
+         patch("app.services.connect_service.ConnectRepository.update_call_status", new_callable=AsyncMock) as mock_upd_call, \
+         patch("app.services.connect_service.ConnectRepository.get_active_user_in_company", new_callable=AsyncMock) as mock_target, \
+         patch("app.services.connect_service.ConnectRepository.create_notification", new_callable=AsyncMock):
         mock_call = MagicMock()
         mock_call.id = call_id
         mock_call.caller_id = EMPLOYEE_USER_ID
@@ -563,6 +565,7 @@ def test_api_19_to_22_calls_and_signaling(client_employee):
         mock_init.return_value = mock_call
         mock_get_call.return_value = mock_call
         mock_upd_call.return_value = mock_call
+        mock_target.return_value = mock_call.callee
 
         # 19. GET call history
         res19 = client_employee.get("/api/v1/connect/calls/history")
