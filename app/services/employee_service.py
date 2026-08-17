@@ -398,10 +398,11 @@ class EmployeeService:
                     result_obj = EmployeeResponse.model_validate(full_employee)
                 else:
                     result_obj = EmployeeResponse.model_validate(employee)
-            except Exception as load_exc:
+            except SQLAlchemyError as load_exc:
                 logger.warning(
-                    "create_employee: post-commit eager-load failed (%s); building response from base employee record",
+                    "create_employee: post-commit eager-load failed (%s); building response from committed employee record",
                     load_exc,
+                    exc_info=True,
                 )
                 result_obj = EmployeeResponse.model_validate(employee)
 
