@@ -55,9 +55,17 @@ class Settings(BaseSettings):
 
     SECRET_KEY: SecretStr = Field(
         default="",
-        description="Secret key used for JWT signing and OTP hashing. Must be 32+ chars. Set via env var.",
+        description="Secret key used for OTP hashing and other symmetric operations. Must be 32+ chars. Set via env var.",
     )
-    JWT_ALGORITHM: str = "HS256"
+    JWT_ALGORITHM: str = "RS256"
+    JWT_PRIVATE_KEY: SecretStr = Field(
+        default="",
+        description="RSA private key (PEM format) for signing JWT tokens. Set via env var in production.",
+    )
+    JWT_PUBLIC_KEY: SecretStr = Field(
+        default="",
+        description="RSA public key (PEM format) for verifying JWT tokens. Set via env var in production.",
+    )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
@@ -327,6 +335,24 @@ class Settings(BaseSettings):
             return val
         return value
 
+    @field_validator("JWT_PRIVATE_KEY", mode="before")
+    @classmethod
+    def validate_jwt_private_key(cls, value: Any) -> str:
+        """Validate JWT private key is provided in production."""
+        if isinstance(value, str):
+            val = value.strip().strip('"').strip("'")
+            return val
+        return value
+
+    @field_validator("JWT_PUBLIC_KEY", mode="before")
+    @classmethod
+    def validate_jwt_public_key(cls, value: Any) -> str:
+        """Validate JWT public key is provided in production."""
+        if isinstance(value, str):
+            val = value.strip().strip('"').strip("'")
+            return val
+        return value
+
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         """Prevent default/empty secrets in deployed environments."""
@@ -339,6 +365,18 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():
                 raise ValueError("REDIS_URL must be set via environment variable in production")
+            # JWT keys required for RS256 in production
+            private_key = self.JWT_PRIVATE_KEY.get_secret_value()
+            public_key = self.JWT_PUBLIC_KEY.get_secret_value()
+            if not private_key or not private_key.strip():
+                raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production")
+            if not public_key or not public_key.strip():
+                raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production")
+            # Validate key format
+            if not private_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
+            if not public_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
         return self
 
 

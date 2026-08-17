@@ -3,15 +3,10 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jose import jwt
-from passlib.context import CryptContext
-
-from app.core.config import settings
-
-
 import bcrypt
 
 from app.core.config import settings
+from app.utils.jwt import create_access_token as _create_access_token
 
 
 def hash_password(password: str) -> str:
@@ -41,19 +36,17 @@ def create_access_token(
     expires_delta: timedelta | None = None,
     claims: dict[str, Any] | None = None,
 ) -> str:
-    """Create a signed JWT access token."""
+    """Create a signed JWT access token using RS256 via the centralized JWT utility."""
+    # Extract user_id from subject for the utility function
+    user_id = subject
+    role = claims.get("role", "employee") if claims else "employee"
+    company_id = claims.get("company_id") if claims else None
+    email = claims.get("email") if claims else None
 
-    now = datetime.now(UTC)
-    expire_at = now + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    payload: dict[str, Any] = {
-        "sub": subject,
-        "iat": int(now.timestamp()),
-        "exp": expire_at,
-    }
-    if claims:
-        payload.update(claims)
-    return jwt.encode(
-        payload,
-        settings.SECRET_KEY.get_secret_value(),
-        algorithm=settings.JWT_ALGORITHM,
+    # The utility function handles the actual token creation with RS256
+    return _create_access_token(
+        user_id=user_id,
+        role=role,
+        company_id=company_id,
+        email=email,
     )

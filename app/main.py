@@ -445,27 +445,14 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Allowed origins configuration
-    allowed_origins_list = [
-        "https://www.ofc360.com",
-        "https://ofc360.com",
-        "https://api.ofc360.com",
-        "https://ofc360.vercel.app",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://192.168.31.230:8080",
-        "http://192.168.31.235:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://192.168.31.230:5173",
-        "http://192.168.31.235:5173",
-        "http://localhost:3000",
-        "http://192.168.31.230:3000",
-        "http://192.168.31.235:3000",
-    ]
+    # Allowed origins configuration - production origins only
+    allowed_origins_list = list(settings.ALLOWED_ORIGINS)
 
-    if settings.ALLOWED_ORIGINS:
-        allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
+    # Add development origins only in non-production environments
+    if settings.ENVIRONMENT.lower() in {"local", "development", "dev"}:
+        allowed_origins_list.extend(settings.DEV_CORS_ORIGINS)
+
+    # Add any additional configured origins
     if settings.BACKEND_CORS_ORIGINS:
         allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
 
