@@ -89,13 +89,19 @@ class Manager(Base):
     leave_group: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
 
-    # --------------- Role Metadata & Verification ---------------
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
-    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    deactivated_by: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    deactivation_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # --------------- Role Metadata & Verification (Properties) ---------------
+    @property
+    def is_active(self) -> bool:
+        """Check if manager profile is active based on status and is_deleted."""
+        if getattr(self, "is_deleted", False):
+            return False
+        st = (getattr(self, "status", "") or "").upper()
+        return st not in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+
+    @is_active.setter
+    def is_active(self, value: bool) -> None:
+        self.status = "ACTIVE" if value else "INACTIVE"
+
 
     # --------------- Activation ---------------
     activation_token: Mapped[str | None] = mapped_column(String(128), nullable=True)

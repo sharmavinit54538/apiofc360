@@ -17,19 +17,6 @@ class UserSystemColumnsMixin:
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
-    account_status: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        default=UserAccountStatus.PENDING_EMAIL_VERIFICATION.value,
-        server_default=text("'PENDING_EMAIL_VERIFICATION'"),
-    )
-    email_verification_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    email_verification_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
     role: Mapped[UserRole] = mapped_column(
         Enum(
             UserRole,
@@ -56,3 +43,54 @@ class UserSystemColumnsMixin:
     def email_verified(self) -> bool:
         """Alias for is_verified."""
         return bool(self.is_verified)
+
+    @property
+    def account_status(self) -> str:
+        """Computed account status string based on user state."""
+        if getattr(self, "_account_status_override", None) is not None:
+            return self._account_status_override
+        if getattr(self, "is_deleted", False):
+            return "DEACTIVATED"
+        if not getattr(self, "is_verified", False):
+            return "PENDING_EMAIL_VERIFICATION"
+        if not getattr(self, "is_active", False):
+            return "SUSPENDED"
+        return "ACTIVE"
+
+    @account_status.setter
+    def account_status(self, value: str | None) -> None:
+        self._account_status_override = value
+        if value:
+            val_upper = str(value).upper()
+            if val_upper == "ACTIVE":
+                self.is_active = True
+                self.is_verified = True
+            elif val_upper in ("SUSPENDED", "DEACTIVATED", "INACTIVE"):
+                self.is_active = False
+            elif val_upper == "PENDING_EMAIL_VERIFICATION":
+                self.is_verified = False
+
+    @property
+    def email_verification_token(self) -> str | None:
+        return getattr(self, "_email_verification_token", None)
+
+    @email_verification_token.setter
+    def email_verification_token(self, value: str | None) -> None:
+        self._email_verification_token = value
+
+    @property
+    def email_verification_expires_at(self) -> datetime | None:
+        return getattr(self, "_email_verification_expires_at", None)
+
+    @email_verification_expires_at.setter
+    def email_verification_expires_at(self, value: datetime | None) -> None:
+        self._email_verification_expires_at = value
+
+    @property
+    def created_by(self) -> uuid.UUID | None:
+        return getattr(self, "_created_by", None)
+
+    @created_by.setter
+    def created_by(self, value: uuid.UUID | None) -> None:
+        self._created_by = value
+

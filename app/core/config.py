@@ -366,17 +366,18 @@ class Settings(BaseSettings):
             if not self.REDIS_URL or not self.REDIS_URL.strip():
                 raise ValueError("REDIS_URL must be set via environment variable in production")
             # JWT keys required for RS256 in production
-            private_key = self.JWT_PRIVATE_KEY.get_secret_value()
-            public_key = self.JWT_PUBLIC_KEY.get_secret_value()
-            if not private_key or not private_key.strip():
-                raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production")
-            if not public_key or not public_key.strip():
-                raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production")
-            # Validate key format
-            if not private_key.strip().startswith("-----BEGIN"):
-                raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
-            if not public_key.strip().startswith("-----BEGIN"):
-                raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            if self.JWT_ALGORITHM.upper().startswith("RS"):
+                private_key = self.JWT_PRIVATE_KEY.get_secret_value()
+                public_key = self.JWT_PUBLIC_KEY.get_secret_value()
+                if not private_key or not private_key.strip():
+                    raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production when using RS256")
+                if not public_key or not public_key.strip():
+                    raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production when using RS256")
+                # Validate key format
+                if not private_key.strip().startswith("-----BEGIN"):
+                    raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
+                if not public_key.strip().startswith("-----BEGIN"):
+                    raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
         return self
 
 
