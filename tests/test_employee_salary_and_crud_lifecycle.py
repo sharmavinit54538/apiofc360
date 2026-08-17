@@ -507,3 +507,45 @@ async def test_complete_crud_lifecycle_and_soft_delete():
     with pytest.raises(AppException) as not_found_exc:
         await service.get_employee(employee_uuid=emp_id, company_id=company_id)
     assert not_found_exc.value.status_code == 404
+
+
+# ==============================================================================
+# 9. EmployeeListItem serialization includes CTC & Salary for table views
+# ==============================================================================
+def test_employee_list_item_serialization_includes_ctc_and_salary():
+    """Verify EmployeeListItem serializes CTC, basic_salary, and salary aliases for table rendering."""
+    from app.schemas.employee.update import EmployeeListItem
+
+    emp_id = uuid.uuid4()
+    mock_emp = {
+        "id": emp_id,
+        "employee_id": "EMP-202608-0008",
+        "first_name": "Sunaina",
+        "last_name": "Mehra",
+        "personal_email": "sunaina.mehra@example.com",
+        "phone": "9876543210",
+        "department": "Engineering",
+        "designation": "Senior Frontend Engineer",
+        "employment_type": "FULL_TIME",
+        "status": "ACTIVE",
+        "joining_date": date(2026, 8, 17),
+        "created_at": datetime.now(timezone.utc),
+        "ctc": Decimal("1200000"),
+        "basic_salary": Decimal("600000"),
+        "hra": Decimal("300000"),
+        "bonus": Decimal("180000"),
+    }
+
+    item = EmployeeListItem.model_validate(mock_emp)
+    assert item.ctc == Decimal("1200000")
+    assert item.salary == Decimal("1200000")
+    assert item.annual_ctc == Decimal("1200000")
+    assert item.basic_salary == Decimal("600000")
+    assert item.hra == Decimal("300000")
+
+    # Serialized dump for JSON API response
+    data = item.model_dump()
+    assert data["ctc"] == Decimal("1200000")
+    assert data["salary"] == Decimal("1200000")
+    assert data["annual_ctc"] == Decimal("1200000")
+

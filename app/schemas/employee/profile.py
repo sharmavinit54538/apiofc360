@@ -63,6 +63,8 @@ class EmployeeResponse(BaseModel):
     pf: Decimal | None
     esi: Decimal | None
     professional_tax: Decimal | None
+    salary: Decimal | None = None
+    annual_ctc: Decimal | None = None
     role: str
     leave_group: str | None
     status: str
@@ -178,6 +180,10 @@ class EmployeeResponse(BaseModel):
                 ln = getattr(data, "last_name", "") or ""
                 data.full_name = f"{fn} {ln}".strip() or getattr(data, "company_email", None) or getattr(data, "personal_email", None)
                 data.email = getattr(data, "company_email", None) or getattr(data, "personal_email", None)
+                sal_ctc = getattr(data, "ctc", None) or getattr(data, "salary", None) or getattr(data, "annual_ctc", None)
+                data.ctc = sal_ctc
+                data.salary = sal_ctc
+                data.annual_ctc = sal_ctc
             except AttributeError:
                 pass
         if isinstance(data, dict) or not hasattr(data, "__dict__"):
@@ -211,6 +217,10 @@ class EmployeeResponse(BaseModel):
             ln = data.get("last_name", "") or ""
             data["full_name"] = f"{fn} {ln}".strip() or data.get("company_email") or data.get("personal_email")
             data["email"] = data.get("company_email") or data.get("personal_email")
+            sal_ctc = data.get("ctc") or data.get("salary") or data.get("annual_ctc")
+            data["ctc"] = sal_ctc
+            data["salary"] = sal_ctc
+            data["annual_ctc"] = sal_ctc
         return data
 
     # Relations

@@ -1644,3 +1644,4 @@ async def get_employee_service(
         auth_repository=AuthRepository(session),
         email_service=email_service,
     )
+

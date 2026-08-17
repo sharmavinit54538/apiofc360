@@ -208,6 +208,15 @@ class EmployeeListItem(BaseModel):
     email: str | None = None
     job_title: str | None = None
     role: str | None = None
+    ctc: Decimal | None = None
+    basic_salary: Decimal | None = None
+    hra: Decimal | None = None
+    bonus: Decimal | None = None
+    pf: Decimal | None = None
+    esi: Decimal | None = None
+    professional_tax: Decimal | None = None
+    salary: Decimal | None = None
+    annual_ctc: Decimal | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -310,6 +319,10 @@ class EmployeeListItem(BaseModel):
                 data.email = getattr(data, "company_email", None) or getattr(data, "personal_email", None)
                 data.job_title = getattr(data, "designation", None) or getattr(data, "job_title", None)
                 data.role = getattr(data, "role", None) or "EMPLOYEE"
+                sal_ctc = getattr(data, "ctc", None) or getattr(data, "salary", None) or getattr(data, "annual_ctc", None)
+                data.ctc = sal_ctc
+                data.salary = sal_ctc
+                data.annual_ctc = sal_ctc
             except AttributeError:
                 pass
         if isinstance(data, dict) or not hasattr(data, "__dict__"):
@@ -345,6 +358,10 @@ class EmployeeListItem(BaseModel):
             data["email"] = data.get("company_email") or data.get("personal_email")
             data["job_title"] = data.get("designation") or data.get("job_title")
             data["role"] = data.get("role") or "EMPLOYEE"
+            sal_ctc = data.get("ctc") or data.get("salary") or data.get("annual_ctc")
+            data["ctc"] = sal_ctc
+            data["salary"] = sal_ctc
+            data["annual_ctc"] = sal_ctc
         return data
     role_metadata: dict | None = None
     verification_status: str | None = None
