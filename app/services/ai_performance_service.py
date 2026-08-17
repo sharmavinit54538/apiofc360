@@ -86,17 +86,12 @@ class AIPerformanceService:
     ) -> TopPerformersResponse:
         """Fetch top performers."""
         employees = await self.repo.get_top_performers(company_id=company_id, department_id=department_id, limit=limit)
+        departments = await self.repo.get_top_departments(company_id=company_id, limit=5)
+        managers = await self.repo.get_top_managers(company_id=company_id, limit=5)
         return TopPerformersResponse(
             top_employees=[TopPerformerItem(**emp) for emp in employees],
-            top_departments=[
-                {"name": "Engineering", "score": 4.45, "attainment_pct": 89.0},
-                {"name": "Sales", "score": 4.38, "attainment_pct": 87.6},
-                {"name": "Operations", "score": 4.25, "attainment_pct": 85.0},
-            ],
-            top_managers=[
-                {"name": "Vinit Sharma", "department": "Engineering", "team_score": 4.52},
-                {"name": "Alice CEO", "department": "Management", "team_score": 4.48},
-            ],
+            top_departments=departments,
+            top_managers=managers,
         )
 
     async def get_employee_performance(

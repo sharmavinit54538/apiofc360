@@ -53,6 +53,7 @@ from app.api.v1.employee_health import router as employee_health_router
 from app.api.v1.policy_ai import router as policy_ai_router
 from app.api.v1.meeting_ai import router as meeting_ai_router
 from app.api.v1.compliance_monitor import router as compliance_monitor_router
+from app.api.v1.reports import router as reports_v1_router
 from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
@@ -586,6 +587,7 @@ def create_app() -> FastAPI:
     app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
     app.include_router(connect_router, prefix=settings.API_V1_PREFIX)
     app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(reports_v1_router, prefix=settings.API_V1_PREFIX)
 
     # ── API v2 routers ─────────────────────────────────────────────────────────
     app.include_router(doc_intel_router, prefix="/api/v2")

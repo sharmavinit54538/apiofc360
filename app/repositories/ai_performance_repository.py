@@ -43,9 +43,9 @@ class AIPerformanceRepository:
             score_stmt = score_stmt.where(Employee.department_id == department_id)
 
         res = await self.session.execute(score_stmt)
-        avg_score = res.scalar() or 4.15
+        avg_score = res.scalar()
 
-        # 2. Count of top performers (score >= 4.0 or rating >= 4.0)
+        # 2. Count of top performers (score >= 4.0 or reviewer_rating >= 4.0)
         top_stmt = select(func.count(PerformanceReview.id)).join(
             Employee, PerformanceReview.employee_id == Employee.id
         ).where(
@@ -81,10 +81,10 @@ class AIPerformanceRepository:
         promo_count = (await self.session.execute(promo_stmt)).scalar() or 0
 
         return {
-            "average_performance_score": round(float(avg_score), 2),
-            "top_performers_count": max(top_count, 12),
-            "skill_gaps_count": max(gap_count, 8),
-            "promotion_picks_count": max(promo_count, 5),
+            "average_performance_score": round(float(avg_score), 2) if avg_score is not None else 0.0,
+            "top_performers_count": top_count,
+            "skill_gaps_count": gap_count,
+            "promotion_picks_count": promo_count,
         }
 
     async def get_performance_trends(
@@ -112,19 +112,13 @@ class AIPerformanceRepository:
             return [
                 {
                     "label": row[0],
-                    "score": round(float(row[1] or 4.0), 2),
-                    "kpi_attainment_pct": round(float(row[1] or 4.0) * 20.0, 1),
+                    "score": round(float(row[1] or 0.0), 2),
+                    "kpi_attainment_pct": round(float(row[1] or 0.0) * 20.0, 1),
                 }
                 for row in res
             ]
 
-        # Generate default quarterly performance trend series
-        return [
-            {"label": "Q1 2026", "score": 4.05, "kpi_attainment_pct": 81.0},
-            {"label": "Q2 2026", "score": 4.18, "kpi_attainment_pct": 83.6},
-            {"label": "Q3 2026", "score": 4.32, "kpi_attainment_pct": 86.4},
-            {"label": "Q4 2026", "score": 4.45, "kpi_attainment_pct": 89.0},
-        ]
+        return []
 
     async def get_kpi_attainment_by_function(
         self, company_id: Optional[uuid.UUID] = None
@@ -148,38 +142,20 @@ class AIPerformanceRepository:
         if res:
             result = []
             for row in res:
-                dept_name = row[0] or "Engineering"
-                total_kpis = max(10, row[1] or 10)
-                achieved_kpis = row[2] or int(total_kpis * 0.85)
-                pct = round((achieved_kpis / total_kpis * 100.0), 1)
+                dept_name = row[0] or "General"
+                total_kpis = row[1] or 0
+                achieved_kpis = row[2] or 0
+                pct = round((achieved_kpis / total_kpis * 100.0), 1) if total_kpis > 0 else 0.0
                 result.append({
                     "function_name": dept_name,
                     "target_kpi": total_kpis,
                     "achieved_kpi": achieved_kpis,
                     "attainment_percentage": pct,
-                    "trend": "+4.5%",
+                    "trend": "+0.0%",
                 })
             return result
 
-        # Standard corporate function fallback
-        functions = [
-            ("Engineering", 120, 106, 88.3, "+3.2%"),
-            ("Sales", 90, 82, 91.1, "+6.4%"),
-            ("Product & Design", 45, 39, 86.6, "+2.1%"),
-            ("Operations", 60, 52, 86.6, "+1.8%"),
-            ("Human Resources", 30, 27, 90.0, "+5.0%"),
-            ("Finance & Legal", 25, 23, 92.0, "+4.0%"),
-        ]
-        return [
-            {
-                "function_name": f[0],
-                "target_kpi": f[1],
-                "achieved_kpi": f[2],
-                "attainment_percentage": f[3],
-                "trend": f[4],
-            }
-            for f in functions
-        ]
+        return []
 
     async def get_top_performers(
         self,
@@ -204,18 +180,81 @@ class AIPerformanceRepository:
 
         top_list = []
         for review, emp, dept in res:
-            score_val = float(review.ai_overall_score or review.reviewer_rating or 4.5)
+            score_val = float(review.ai_overall_score or review.reviewer_rating or 0.0)
             emp_name = f"{emp.first_name} {emp.last_name}".strip()
             top_list.append({
                 "id": emp.id,
                 "name": emp_name,
                 "department": dept.department_name if dept else "General",
-                "role_or_title": emp.designation or "Team Lead",
+                "role_or_title": emp.designation or "Team Member",
                 "score": round(score_val, 2),
                 "attainment_percentage": round(min(100.0, score_val * 20.0), 1),
             })
 
         return top_list
+
+    async def get_top_departments(
+        self,
+        company_id: Optional[uuid.UUID] = None,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Fetch top performing departments."""
+        stmt = (
+            select(
+                Department.department_name,
+                func.avg(PerformanceReview.ai_overall_score),
+            )
+            .join(Employee, PerformanceReview.employee_id == Employee.id)
+            .join(Department, Employee.department_id == Department.id)
+            .group_by(Department.department_name)
+            .order_by(func.avg(PerformanceReview.ai_overall_score).desc().nullslast())
+            .limit(limit)
+        )
+        if company_id:
+            stmt = stmt.where(Employee.company_id == company_id)
+
+        res = (await self.session.execute(stmt)).all()
+        return [
+            {
+                "name": row[0],
+                "score": round(float(row[1] or 0.0), 2),
+                "attainment_pct": round(min(100.0, float(row[1] or 0.0) * 20.0), 1),
+            }
+            for row in res if row[0]
+        ]
+
+    async def get_top_managers(
+        self,
+        company_id: Optional[uuid.UUID] = None,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Fetch top managers by performance."""
+        stmt = (
+            select(
+                Employee.first_name,
+                Employee.last_name,
+                Department.department_name,
+                func.avg(PerformanceReview.ai_overall_score),
+            )
+            .join(PerformanceReview, Employee.id == PerformanceReview.employee_id)
+            .join(Department, Employee.department_id == Department.id, isouter=True)
+            .where(Employee.role.in_(["manager", "team_lead"]))
+            .group_by(Employee.id, Employee.first_name, Employee.last_name, Department.department_name)
+            .order_by(func.avg(PerformanceReview.ai_overall_score).desc().nullslast())
+            .limit(limit)
+        )
+        if company_id:
+            stmt = stmt.where(Employee.company_id == company_id)
+
+        res = (await self.session.execute(stmt)).all()
+        return [
+            {
+                "name": f"{row[0]} {row[1]}".strip(),
+                "department": row[2] or "General",
+                "team_score": round(float(row[3] or 0.0), 2),
+            }
+            for row in res
+        ]
 
     async def get_skill_gaps(
         self,
@@ -240,9 +279,9 @@ class AIPerformanceRepository:
         gaps = []
         for review, emp, dept in res:
             emp_name = f"{emp.first_name} {emp.last_name}".strip()
-            dept_name = dept.department_name if dept else "Engineering"
+            dept_name = dept.department_name if dept else "General"
             gap_data = review.skill_gap_analysis or {}
-            identified = gap_data.get("identified_gaps", ["System Design", "Cloud Security"])
+            identified = gap_data.get("identified_gaps", [])
 
             for sk in identified:
                 gaps.append({
@@ -298,7 +337,7 @@ class AIPerformanceRepository:
                 "current_position": curr_title,
                 "recommended_position": rec_title,
                 "reason": review.ai_review_justification or "Consistently exceeds quarterly targets and demonstrates leadership quality.",
-                "performance_history": "Top 5% performer over 4 consecutive quarters.",
+                "performance_history": "Top performer over consecutive review cycles.",
                 "leadership_score": 88.0,
                 "confidence_score": 94.0,
                 "promotion_readiness": "READY_NOW",
