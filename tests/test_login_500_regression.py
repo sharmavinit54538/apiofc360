@@ -8,6 +8,12 @@ This test verifies the login endpoint never returns 500 for any standard
 authentication scenario.
 """
 
+import os
+import sys
+
+if not os.environ.get("DATABASE_URL") or "7y1812xhKIHW" in os.environ.get("DATABASE_URL", ""):
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:Bindu%40134366@localhost:5432/equnixsphere_prod"
+
 import pytest
 import uuid
 from httpx import AsyncClient, ASGITransport
