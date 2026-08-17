@@ -7,13 +7,10 @@ from app.models.password_reset import PasswordResetToken
 from app.models.audit_log import AuditLog
 from app.models.security_setting import (
     SecurityRole,
-    SecurityPermission,
-    RolePermission,
     SecurityPolicy,
     UserSession,
     IPWhitelist,
     SecurityAuditLog,
-    SecurityAlert,
 )
 from app.models.department import Department
 from app.models.company import Company
@@ -547,11 +544,8 @@ __all__ = [
     "Report",
     "DocumentOCRRecord",
     "SecurityRole",
-    "SecurityPermission",
-    "RolePermission",
     "SecurityPolicy",
     "UserSession",
     "IPWhitelist",
     "SecurityAuditLog",
-    "SecurityAlert",
 ]
