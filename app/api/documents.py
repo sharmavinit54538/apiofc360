@@ -760,10 +760,12 @@ async def get_document_ocr_detail(
     service: Annotated[DocumentUploadService, Depends(get_upload_service)],
 ) -> APIResponse[DocumentOCRDetailResponse]:
     """Retrieve metadata, extracted OCR text, entities, tables, confidence, and page details for a document."""
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
     company_id_raw = claims.get("company_id")
     company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
-    record = await service.get_document_details(document_id, company_id=company_id)
+    record = await service.get_document_details(document_id, company_id=company_id, is_super_admin=is_super_admin)
     return APIResponse[DocumentOCRDetailResponse](
         success=True,
         message="Document OCR details retrieved successfully.",
@@ -783,10 +785,12 @@ async def download_document_ocr_json(
     service: Annotated[DocumentUploadService, Depends(get_upload_service)],
 ):
     """Download full Google Document AI JSON extraction payload for document."""
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
     company_id_raw = claims.get("company_id")
     company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
-    record = await service.get_document_details(document_id, company_id=company_id)
+    record = await service.get_document_details(document_id, company_id=company_id, is_super_admin=is_super_admin)
     export_payload = {
         "document_id": str(record.id),
         "original_filename": record.original_filename,

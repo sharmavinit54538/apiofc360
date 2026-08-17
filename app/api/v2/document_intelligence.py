@@ -149,6 +149,11 @@ async def classify_document(
 ) -> APIResponse[dict]:
     """Execute classification checks (Resume, PAN, Aadhaar, Invoice, GST, Contract, etc.)."""
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    
     svc = DocumentIntelligenceService(db)
 
     try:
@@ -158,7 +163,10 @@ async def classify_document(
         # Index text in RAG vector store for QA & Search if successful
         if res.get("status") == "COMPLETED":
             from app.models.ai_document_analysis import AnalyzedDocument
-            doc_res = await db.execute(select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id))
+            stmt = select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id)
+            if not is_super_admin and company_id is not None:
+                stmt = stmt.where(AnalyzedDocument.company_id == company_id)
+            doc_res = await db.execute(stmt)
             doc = doc_res.scalar_one_or_none()
             if doc and doc.raw_text:
                 rag = get_rag_pipeline()
@@ -201,9 +209,16 @@ async def extract_document_fields(
     """Perform JSON field extraction matching custom user schema specifications."""
     from app.models.ai_document_analysis import AnalyzedDocument
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
-    # Load doc
-    res = await db.execute(select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id))
+    # Load doc with tenant isolation
+    stmt = select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id)
+    if not is_super_admin and company_id is not None:
+        stmt = stmt.where(AnalyzedDocument.company_id == company_id)
+    res = await db.execute(stmt)
     doc = res.scalar_one_or_none()
     if not doc or not doc.raw_text:
         raise HTTPException(status_code=404, detail="Document not classified or processed yet.")

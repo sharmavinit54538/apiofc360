@@ -1225,7 +1225,6 @@ async def update_profile(
 # ===========================================================================
 
 @router.get("/hr")
-@router.get("/settings/hr")
 async def get_hr_settings(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
@@ -1280,9 +1279,7 @@ async def get_hr_settings(
 
 
 @router.put("/hr")
-@router.put("/settings/hr")
 @router.post("/hr")
-@router.post("/settings/hr")
 async def update_hr_settings(
     payload: HRSettingsUpdatePayload,
     claims: Annotated[dict, Depends(get_current_user_claims)],
@@ -1376,7 +1373,6 @@ async def update_hr_settings(
 # ===========================================================================
 
 @router.post("/mfa/enable")
-@router.post("/settings/mfa/enable")
 async def enable_mfa(
     payload: Optional[MFAEnablePayload] = None,
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
@@ -1478,7 +1474,6 @@ async def enable_mfa(
 
 
 @router.post("/mfa/disable")
-@router.post("/settings/mfa/disable")
 async def disable_mfa(
     payload: Optional[MFADisablePayload] = None,
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
