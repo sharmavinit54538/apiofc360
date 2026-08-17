@@ -18,9 +18,9 @@ BLOOD_GROUP_VALUES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
 MARITAL_STATUS_VALUES = {"SINGLE", "MARRIED", "DIVORCED", "WIDOWED"}
 EMPLOYMENT_TYPE_VALUES = {"FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"}
 EMPLOYMENT_STATUS_VALUES = {"PROBATION", "CONFIRMED", "NOTICE_PERIOD"}
-DOCUMENT_TYPE_VALUES = {"AADHAAR", "PAN", "PASSPORT"}
+DOCUMENT_TYPE_VALUES = {"AADHAAR", "PAN", "PASSPORT", "DRIVING_LICENSE", "VOTER_ID", "OTHER"}
 ADDRESS_TYPE_VALUES = {"CURRENT", "PERMANENT"}
-PROFICIENCY_VALUES = {"BEGINNER", "INTERMEDIATE", "EXPERT"}
+PROFICIENCY_VALUES = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"}
 MANAGER_STATUS_VALUES = {
     "DRAFT", "CREATED", "INVITED", "INVITATION_SENT", "EMAIL_VERIFIED",
     "PASSWORD_CREATED", "ACTIVE", "INACTIVE", "TERMINATED",
@@ -33,7 +33,7 @@ from app.schemas.employee.constants import ROLE_VALUES
 # ---------------------------------------------------------------------------
 
 class ManagerAddressCreate(BaseModel):
-    address_type: str = Field(..., description="CURRENT or PERMANENT")
+    address_type: str = Field("CURRENT", description="CURRENT or PERMANENT")
     address_line_1: str = Field(..., min_length=1, max_length=255)
     address_line_2: str | None = Field(None, max_length=255)
     city: str = Field("Not Specified", max_length=100)
@@ -42,13 +42,38 @@ class ManagerAddressCreate(BaseModel):
     pincode: str = Field("400001", min_length=4, max_length=10)
     is_same_as_current: bool = False
 
-    @field_validator("address_type")
+    @model_validator(mode="before")
     @classmethod
-    def validate_address_type(cls, v: str) -> str:
-        v = v.upper()
-        if v not in ADDRESS_TYPE_VALUES:
-            raise ValueError("address_type must be CURRENT or PERMANENT")
-        return v
+    def normalize_address_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("address_line_1"):
+                data["address_line_1"] = data.get("address1") or data.get("address_1") or data.get("line1") or data.get("street") or ""
+            if isinstance(data.get("address_line_1"), str):
+                data["address_line_1"] = data["address_line_1"].strip()
+
+            if not data.get("address_line_2"):
+                data["address_line_2"] = data.get("address2") or data.get("address_2") or data.get("line2") or None
+            if data.get("address_line_2") is not None and str(data["address_line_2"]).strip() == "":
+                data["address_line_2"] = None
+            elif isinstance(data.get("address_line_2"), str):
+                data["address_line_2"] = data["address_line_2"].strip()
+
+            if not data.get("pincode"):
+                data["pincode"] = data.get("postal_code") or data.get("postalCode") or data.get("zip") or data.get("zipcode") or data.get("zip_code") or "400001"
+
+            if not data.get("address_type") or str(data.get("address_type")).strip() == "":
+                data["address_type"] = "CURRENT"
+        return data
+
+    @field_validator("address_type", mode="before")
+    @classmethod
+    def validate_address_type(cls, v: Any) -> str:
+        if v is None or not str(v).strip():
+            return "CURRENT"
+        v_upper = str(v).strip().upper()
+        if v_upper not in ADDRESS_TYPE_VALUES:
+            return "CURRENT"
+        return v_upper
 
     @field_validator("city", "state", mode="before")
     @classmethod
@@ -94,18 +119,37 @@ class ManagerAddressResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ManagerDocumentCreate(BaseModel):
-    document_type: str = Field(..., description="AADHAAR/PAN/PASSPORT")
+    document_type: str = Field(..., description="AADHAAR/PAN/PASSPORT/DRIVING_LICENSE")
     document_number: str | None = Field(None, max_length=100)
     document_url: str | None = Field(None, max_length=500)
     expiry_date: date | None = None
 
-    @field_validator("document_type")
+    @model_validator(mode="before")
     @classmethod
-    def validate_document_type(cls, v: str) -> str:
-        v = v.upper()
-        if v not in DOCUMENT_TYPE_VALUES:
-            raise ValueError("document_type must be one of AADHAAR, PAN, PASSPORT")
-        return v
+    def normalize_document_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for fld in ("document_number", "document_url", "expiry_date"):
+                if fld in data and (data[fld] is None or str(data[fld]).strip() == ""):
+                    data[fld] = None
+                elif isinstance(data.get(fld), str):
+                    data[fld] = data[fld].strip()
+        return data
+
+    @field_validator("document_type", mode="before")
+    @classmethod
+    def validate_document_type(cls, v: Any) -> str:
+        if v is None or not str(v).strip():
+            return "OTHER"
+        v_upper = str(v).strip().upper().replace(" ", "_")
+        if v_upper in {"AADHAR", "UIDAI"}:
+            return "AADHAAR"
+        if v_upper in {"DL", "DRIVERS_LICENSE", "DRIVER_LICENSE"}:
+            return "DRIVING_LICENSE"
+        if v_upper in {"VOTER", "VOTER_CARD", "EPIC"}:
+            return "VOTER_ID"
+        if v_upper in DOCUMENT_TYPE_VALUES:
+            return v_upper
+        return "OTHER"
 
 
 class ManagerDocumentResponse(BaseModel):
@@ -134,6 +178,36 @@ class ManagerEducationCreate(BaseModel):
     grade: str | None = Field(None, max_length=50)
     certificate_url: str | None = Field(None, max_length=500)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_education_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if isinstance(data.get("degree"), str):
+                data["degree"] = data["degree"].strip()
+            if isinstance(data.get("institution"), str):
+                data["institution"] = data["institution"].strip()
+
+            for year_fld in ("start_year", "end_year"):
+                val = data.get(year_fld)
+                if val is not None:
+                    s_val = str(val).strip()
+                    if not s_val:
+                        data[year_fld] = None
+                    elif s_val.isdigit():
+                        data[year_fld] = int(s_val)
+                    elif len(s_val) >= 4 and s_val[:4].isdigit():
+                        data[year_fld] = int(s_val[:4])
+                    else:
+                        try:
+                            data[year_fld] = int(float(s_val))
+                        except (ValueError, TypeError):
+                            data[year_fld] = None
+
+            for fld in ("field_of_study", "grade", "certificate_url"):
+                if fld in data and (data[fld] is None or str(data[fld]).strip() == ""):
+                    data[fld] = None
+        return data
+
 
 class ManagerEducationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -159,10 +233,34 @@ class ManagerExperienceCreate(BaseModel):
     company_name: str = Field(..., min_length=1, max_length=255)
     designation: str = Field(..., min_length=1, max_length=150)
     employment_type: str | None = Field(None, max_length=30)
-    start_date: date
+    start_date: date = Field(default_factory=date.today)
     end_date: date | None = None
     is_current: bool = False
     description: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_frontend_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "job_title" in data and ("designation" not in data or not data["designation"]):
+                data["designation"] = data["job_title"]
+            if isinstance(data.get("company_name"), str):
+                data["company_name"] = data["company_name"].strip()
+            if isinstance(data.get("designation"), str):
+                data["designation"] = data["designation"].strip()
+            if "start_date" in data and (data["start_date"] is None or str(data["start_date"]).strip() == ""):
+                data.pop("start_date", None)
+            if "end_date" in data and (data["end_date"] is None or str(data["end_date"]).strip() == ""):
+                data["end_date"] = None
+            if "employment_type" in data and (data["employment_type"] is None or str(data["employment_type"]).strip() == ""):
+                data["employment_type"] = None
+            if "description" in data and (data["description"] is None or str(data["description"]).strip() == ""):
+                data["description"] = None
+            if "tenure_months" in data and ("start_date" not in data or not data["start_date"]):
+                from datetime import date, timedelta
+                tenure = data.get("tenure_months", 12)
+                data["start_date"] = date.today() - timedelta(days=int(tenure) * 30)
+        return data
 
     @model_validator(mode="after")
     def validate_dates(self) -> ManagerExperienceCreate:
@@ -198,15 +296,49 @@ class ManagerSkillCreate(BaseModel):
     proficiency: str | None = Field(None)
     years_of_experience: int | None = Field(None, ge=0, le=50)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_skill_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "skill_name" not in data or not data["skill_name"]:
+                if "name" in data and data["name"]:
+                    data["skill_name"] = str(data["name"]).strip()
+                elif "skill" in data and data["skill"]:
+                    data["skill_name"] = str(data["skill"]).strip()
+            elif isinstance(data.get("skill_name"), str):
+                data["skill_name"] = data["skill_name"].strip()
+
+            yoe = data.get("years_of_experience") if "years_of_experience" in data else (data.get("experience_years") or data.get("years"))
+            if yoe is not None:
+                if str(yoe).strip() == "":
+                    data["years_of_experience"] = None
+                else:
+                    try:
+                        data["years_of_experience"] = int(float(str(yoe).strip()))
+                    except (ValueError, TypeError):
+                        data["years_of_experience"] = None
+        return data
+
     @field_validator("proficiency")
     @classmethod
-    def validate_proficiency(cls, v: str | None) -> str | None:
+    def validate_proficiency(cls, v: Any) -> str | None:
         if v is None:
-            return v
-        v = v.upper()
-        if v not in PROFICIENCY_VALUES:
-            raise ValueError("proficiency must be BEGINNER, INTERMEDIATE, or EXPERT")
-        return v
+            return None
+        v_str = str(v).strip()
+        if not v_str:
+            return None
+        v_upper = v_str.upper()
+        if v_upper in {"BEGINNER", "BASIC", "NOVICE", "ENTRY", "LEARNER", "JUNIOR"}:
+            return "BEGINNER"
+        if v_upper in {"INTERMEDIATE", "MID", "MEDIUM", "MED"}:
+            return "INTERMEDIATE"
+        if v_upper in {"ADVANCED", "SENIOR", "HIGH", "PROFICIENT"}:
+            return "ADVANCED"
+        if v_upper in {"EXPERT", "MASTER", "LEAD"}:
+            return "EXPERT"
+        if v_upper in PROFICIENCY_VALUES:
+            return v_upper
+        raise ValueError("proficiency must be BEGINNER, INTERMEDIATE, ADVANCED, or EXPERT")
 
 
 class ManagerSkillResponse(BaseModel):
@@ -232,6 +364,25 @@ class ManagerEmergencyContactCreate(BaseModel):
     alternate_phone: str | None = Field(None, max_length=15)
     email: EmailStr | None = None
     address: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_emergency_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("name"):
+                data["name"] = data.get("emergency_contact_name") or data.get("contact_name") or ""
+            if isinstance(data.get("name"), str):
+                data["name"] = data["name"].strip()
+
+            if not data.get("phone"):
+                data["phone"] = data.get("emergency_contact_phone") or data.get("contact_phone") or ""
+            if isinstance(data.get("phone"), str):
+                data["phone"] = data["phone"].strip()
+
+            for fld in ("alternate_phone", "email", "address"):
+                if fld in data and (data[fld] is None or str(data[fld]).strip() == ""):
+                    data[fld] = None
+        return data
 
 
 class ManagerEmergencyContactResponse(BaseModel):
@@ -277,6 +428,40 @@ class ManagerCreate(BaseModel):
                 rep_to_clean = rep_to.strip().lower()
                 if rep_to_clean in ("", "null", "undefined", "none"):
                     new_data["reporting_to"] = None
+
+            # Clean empty nested relations
+            if "skills" in new_data and isinstance(new_data["skills"], list):
+                new_data["skills"] = [
+                    sk for sk in new_data["skills"]
+                    if isinstance(sk, dict) and (sk.get("skill_name") or sk.get("name") or sk.get("skill"))
+                ]
+            if "documents" in new_data and isinstance(new_data["documents"], list):
+                new_data["documents"] = [
+                    doc for doc in new_data["documents"]
+                    if isinstance(doc, dict) and (doc.get("document_type") or doc.get("document_number"))
+                ]
+            if "addresses" in new_data and isinstance(new_data["addresses"], list):
+                new_data["addresses"] = [
+                    addr for addr in new_data["addresses"]
+                    if isinstance(addr, dict) and (
+                        addr.get("address_line_1") or addr.get("address1") or addr.get("address_1") or addr.get("line1") or addr.get("street")
+                    )
+                ]
+            if "education" in new_data and isinstance(new_data["education"], list):
+                new_data["education"] = [
+                    edu for edu in new_data["education"]
+                    if isinstance(edu, dict) and (edu.get("degree") or edu.get("institution"))
+                ]
+            if "experience" in new_data and isinstance(new_data["experience"], list):
+                new_data["experience"] = [
+                    exp for exp in new_data["experience"]
+                    if isinstance(exp, dict) and (exp.get("company_name") or exp.get("designation") or exp.get("job_title"))
+                ]
+            if "emergency_contacts" in new_data and isinstance(new_data["emergency_contacts"], list):
+                new_data["emergency_contacts"] = [
+                    ec for ec in new_data["emergency_contacts"]
+                    if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name") or ec.get("contact_name") or ec.get("contact_phone"))
+                ]
                 
             return new_data
         return data
@@ -344,26 +529,30 @@ class ManagerCreate(BaseModel):
 
     @field_validator("employment_type")
     @classmethod
-    def validate_employment_type(cls, v: str) -> str:
-        v = v.upper()
+    def validate_employment_type(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return "FULL_TIME"
+        v = str(v).strip().upper()
         if v not in EMPLOYMENT_TYPE_VALUES:
-            raise ValueError("employment_type must be one of: " + ", ".join(EMPLOYMENT_TYPE_VALUES))
+            return "FULL_TIME"
         return v
 
     @field_validator("employment_status")
     @classmethod
-    def validate_employment_status(cls, v: str) -> str:
-        v = v.upper()
+    def validate_employment_status(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return "PROBATION"
+        v = str(v).strip().upper()
         if v not in EMPLOYMENT_STATUS_VALUES:
-            raise ValueError("employment_status must be one of: " + ", ".join(EMPLOYMENT_STATUS_VALUES))
+            return "PROBATION"
         return v
 
     @field_validator("gender")
     @classmethod
     def validate_gender(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.upper()
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
         if v not in GENDER_VALUES:
             raise ValueError("gender must be MALE, FEMALE, or OTHER")
         return v
@@ -371,9 +560,9 @@ class ManagerCreate(BaseModel):
     @field_validator("blood_group")
     @classmethod
     def validate_blood_group(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.upper()
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
         if v not in BLOOD_GROUP_VALUES:
             raise ValueError("blood_group must be one of: " + ", ".join(BLOOD_GROUP_VALUES))
         return v
@@ -381,17 +570,19 @@ class ManagerCreate(BaseModel):
     @field_validator("marital_status")
     @classmethod
     def validate_marital_status(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.upper()
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
         if v not in MARITAL_STATUS_VALUES:
             raise ValueError("marital_status must be one of: " + ", ".join(MARITAL_STATUS_VALUES))
         return v
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, v: str) -> str:
-        v = v.lower()
+    def validate_role(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return "manager"
+        v = str(v).strip().lower()
         if v not in ROLE_VALUES:
             raise ValueError("role must be one of: super_admin, hr_admin, manager, employee, executive, it_admin")
         return v
@@ -422,6 +613,40 @@ class ManagerUpdate(BaseModel):
                 rep_to_clean = rep_to.strip().lower()
                 if rep_to_clean in ("", "null", "undefined", "none"):
                     new_data["reporting_to"] = None
+
+            # Clean empty nested relations
+            if "skills" in new_data and isinstance(new_data["skills"], list):
+                new_data["skills"] = [
+                    sk for sk in new_data["skills"]
+                    if isinstance(sk, dict) and (sk.get("skill_name") or sk.get("name") or sk.get("skill"))
+                ]
+            if "documents" in new_data and isinstance(new_data["documents"], list):
+                new_data["documents"] = [
+                    doc for doc in new_data["documents"]
+                    if isinstance(doc, dict) and (doc.get("document_type") or doc.get("document_number"))
+                ]
+            if "addresses" in new_data and isinstance(new_data["addresses"], list):
+                new_data["addresses"] = [
+                    addr for addr in new_data["addresses"]
+                    if isinstance(addr, dict) and (
+                        addr.get("address_line_1") or addr.get("address1") or addr.get("address_1") or addr.get("line1") or addr.get("street")
+                    )
+                ]
+            if "education" in new_data and isinstance(new_data["education"], list):
+                new_data["education"] = [
+                    edu for edu in new_data["education"]
+                    if isinstance(edu, dict) and (edu.get("degree") or edu.get("institution"))
+                ]
+            if "experience" in new_data and isinstance(new_data["experience"], list):
+                new_data["experience"] = [
+                    exp for exp in new_data["experience"]
+                    if isinstance(exp, dict) and (exp.get("company_name") or exp.get("designation") or exp.get("job_title"))
+                ]
+            if "emergency_contacts" in new_data and isinstance(new_data["emergency_contacts"], list):
+                new_data["emergency_contacts"] = [
+                    ec for ec in new_data["emergency_contacts"]
+                    if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name") or ec.get("contact_name") or ec.get("contact_phone"))
+                ]
                 
             return new_data
         return data

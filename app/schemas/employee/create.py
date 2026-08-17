@@ -116,6 +116,26 @@ class EmployeeCreate(EmployeeValidatorsMixin, BaseModel):
             # Convert empty string reporting_manager_id to None
             if "reporting_manager_id" in data and data["reporting_manager_id"] == "":
                 data["reporting_manager_id"] = None
+            # Clean skills
+            if "skills" in data and isinstance(data["skills"], list):
+                data["skills"] = [
+                    sk for sk in data["skills"]
+                    if isinstance(sk, dict) and (sk.get("skill_name") or sk.get("name") or sk.get("skill"))
+                ]
+            # Clean documents
+            if "documents" in data and isinstance(data["documents"], list):
+                data["documents"] = [
+                    doc for doc in data["documents"]
+                    if isinstance(doc, dict) and (doc.get("document_type") or doc.get("document_number"))
+                ]
+            # Clean addresses
+            if "addresses" in data and isinstance(data["addresses"], list):
+                data["addresses"] = [
+                    addr for addr in data["addresses"]
+                    if isinstance(addr, dict) and (
+                        addr.get("address_line_1") or addr.get("address1") or addr.get("address_1") or addr.get("line1") or addr.get("street")
+                    )
+                ]
             # Clean education
             if "education" in data and isinstance(data["education"], list):
                 data["education"] = [
@@ -138,7 +158,7 @@ class EmployeeCreate(EmployeeValidatorsMixin, BaseModel):
             if "emergency_contacts" in data and isinstance(data["emergency_contacts"], list):
                 data["emergency_contacts"] = [
                     ec for ec in data["emergency_contacts"]
-                    if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name"))
+                    if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name") or ec.get("contact_name") or ec.get("contact_phone"))
                 ]
         return data
 

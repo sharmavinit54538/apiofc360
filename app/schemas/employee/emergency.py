@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, EmailStr
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, model_validator
 
 
 class EmployeeEmergencyContactCreate(BaseModel):
@@ -15,6 +16,28 @@ class EmployeeEmergencyContactCreate(BaseModel):
     alternate_phone: str | None = Field(None, max_length=15)
     email: EmailStr | None = None
     address: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_emergency_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Aliases for name
+            if not data.get("name"):
+                data["name"] = data.get("emergency_contact_name") or data.get("contact_name") or ""
+            if isinstance(data.get("name"), str):
+                data["name"] = data["name"].strip()
+
+            # Aliases for phone
+            if not data.get("phone"):
+                data["phone"] = data.get("emergency_contact_phone") or data.get("contact_phone") or ""
+            if isinstance(data.get("phone"), str):
+                data["phone"] = data["phone"].strip()
+
+            # Clean empty strings to None
+            for fld in ("alternate_phone", "email", "address"):
+                if fld in data and (data[fld] is None or str(data[fld]).strip() == ""):
+                    data[fld] = None
+        return data
 
 
 class EmployeeEmergencyContactResponse(BaseModel):
