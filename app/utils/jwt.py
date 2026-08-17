@@ -1,55 +1,75 @@
-"""JWT generation, decoding, and hashing utilities."""
+"""JWT generation, decoding, and hashing utilities.
+
+Supports both HS256 (symmetric, using SECRET_KEY) and RS256 (asymmetric,
+using RSA PEM keys) based on the configured JWT_ALGORITHM setting.
+"""
 
 from datetime import datetime, timedelta, timezone
 import hashlib
 from typing import Any
 import uuid
 
-from cryptography.hazmat.primitives import serialization
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTClaimsError, JWTError
 
 from app.core.config import settings
 
 
-# Cache key values at module level to avoid SecretStr unwrap overhead per request
-_PRIVATE_KEY_PEM: str = settings.JWT_PRIVATE_KEY.get_secret_value()
-_PUBLIC_KEY_PEM: str = settings.JWT_PUBLIC_KEY.get_secret_value()
 _JWT_ALGORITHM: str = settings.JWT_ALGORITHM
+_IS_SYMMETRIC: bool = _JWT_ALGORITHM.upper().startswith("HS")
 
+# ---------------------------------------------------------------------------
+# Key helpers — lazy-loaded once on first use
+# ---------------------------------------------------------------------------
 
-def _load_private_key() -> Any:
-    """Load RSA private key from PEM string."""
-    return serialization.load_pem_private_key(
-        _PRIVATE_KEY_PEM.encode("utf-8"),
-        password=None,
-    )
+# Symmetric (HS256): signing key is the SECRET_KEY string
+_SYMMETRIC_KEY: str | None = None
 
-
-def _load_public_key() -> Any:
-    """Load RSA public key from PEM string."""
-    return serialization.load_pem_public_key(
-        _PUBLIC_KEY_PEM.encode("utf-8"),
-    )
-
-
-# Lazy-load keys to allow configuration validation at startup
+# Asymmetric (RS256): signing key is an RSA private key object
 _PRIVATE_KEY: Any = None
 _PUBLIC_KEY: Any = None
 
 
-def _get_private_key() -> Any:
+def _get_signing_key() -> Any:
+    """Return the key used to *sign* tokens (private RSA key or SECRET_KEY)."""
+    if _IS_SYMMETRIC:
+        global _SYMMETRIC_KEY
+        if _SYMMETRIC_KEY is None:
+            _SYMMETRIC_KEY = settings.SECRET_KEY.get_secret_value()
+        return _SYMMETRIC_KEY
+
     global _PRIVATE_KEY
     if _PRIVATE_KEY is None:
-        _PRIVATE_KEY = _load_private_key()
+        from cryptography.hazmat.primitives import serialization
+        pem = settings.JWT_PRIVATE_KEY.get_secret_value()
+        _PRIVATE_KEY = serialization.load_pem_private_key(
+            pem.encode("utf-8"),
+            password=None,
+        )
     return _PRIVATE_KEY
 
 
-def _get_public_key() -> Any:
+def _get_verification_key() -> Any:
+    """Return the key used to *verify* tokens (public RSA key or SECRET_KEY)."""
+    if _IS_SYMMETRIC:
+        global _SYMMETRIC_KEY
+        if _SYMMETRIC_KEY is None:
+            _SYMMETRIC_KEY = settings.SECRET_KEY.get_secret_value()
+        return _SYMMETRIC_KEY
+
     global _PUBLIC_KEY
     if _PUBLIC_KEY is None:
-        _PUBLIC_KEY = _load_public_key()
+        from cryptography.hazmat.primitives import serialization
+        pem = settings.JWT_PUBLIC_KEY.get_secret_value()
+        _PUBLIC_KEY = serialization.load_pem_public_key(
+            pem.encode("utf-8"),
+        )
     return _PUBLIC_KEY
+
+
+# ---------------------------------------------------------------------------
+# Token creation
+# ---------------------------------------------------------------------------
 
 
 def create_access_token(
@@ -58,7 +78,7 @@ def create_access_token(
     company_id: Any | None = None,
     email: str | None = None,
 ) -> str:
-    """Create a signed JWT access token valid for configured minutes using RS256."""
+    """Create a signed JWT access token valid for configured minutes."""
 
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -74,11 +94,11 @@ def create_access_token(
         payload["email"] = str(email).strip().lower()
     if company_id:
         payload["company_id"] = str(company_id)
-    return jwt.encode(payload, _get_private_key(), algorithm=_JWT_ALGORITHM)
+    return jwt.encode(payload, _get_signing_key(), algorithm=_JWT_ALGORITHM)
 
 
 def create_refresh_token(user_id: Any) -> str:
-    """Create a signed JWT refresh token valid for configured days using RS256."""
+    """Create a signed JWT refresh token valid for configured days."""
 
     now = datetime.now(timezone.utc)
     expire = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -89,20 +109,25 @@ def create_refresh_token(user_id: Any) -> str:
         "iat": int(now.timestamp()),
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(payload, _get_private_key(), algorithm=_JWT_ALGORITHM)
+    return jwt.encode(payload, _get_signing_key(), algorithm=_JWT_ALGORITHM)
+
+
+# ---------------------------------------------------------------------------
+# Token decoding / verification
+# ---------------------------------------------------------------------------
 
 
 def decode_token(token: str) -> dict[str, Any]:
     """Decode and validate a JWT token; returns token claims.
-    
-    Only accepts RS256 algorithm. Rejects HS256 and other algorithms.
+
+    Accepts only the configured algorithm (HS256 or RS256).
     """
 
     try:
         return jwt.decode(
             token,
-            _get_public_key(),
-            algorithms=[_JWT_ALGORITHM],  # Only allow RS256
+            _get_verification_key(),
+            algorithms=[_JWT_ALGORITHM],
             options={"verify_signature": True, "verify_exp": True, "verify_iat": True},
         )
     except ExpiredSignatureError as exc:
@@ -113,6 +138,11 @@ def decode_token(token: str) -> dict[str, Any]:
         raise ValueError(f"JWT claims invalid: {str(exc)}") from exc
     except JWTError as exc:
         raise ValueError("JWT decoding failed.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
 
 
 def hash_token(token: str) -> str:
