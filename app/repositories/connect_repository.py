@@ -65,6 +65,7 @@ class ConnectRepository:
             .where(
                 User.company_id == company_id,
                 User.is_active.is_(True),
+                User.is_deleted.is_(False),
             )
         )
 
@@ -108,6 +109,12 @@ class ConnectRepository:
 
         colleagues = []
         for user, emp, pres in rows:
+            avatar = (
+                getattr(user, "profile_photo_url", None)
+                or getattr(user, "profile_photo", None)
+                or (emp.profile_photo_url if emp else None)
+                or (getattr(emp, "avatar_url", None) if emp else None)
+            )
             colleagues.append({
                 "id": user.id,
                 "name": user.name,
@@ -116,7 +123,7 @@ class ConnectRepository:
                 "role": getattr(user.role, "value", str(user.role)) if user.role else "employee",
                 "department": emp.department if emp else None,
                 "designation": emp.designation if emp else None,
-                "avatar_url": getattr(user, "profile_photo", None) or (emp.avatar_url if emp else None),
+                "avatar_url": avatar,
                 "presence_status": pres.status if pres else "offline",
                 "custom_status": pres.custom_status if pres else None,
                 "last_seen_at": pres.last_seen_at if pres else user.created_at,
