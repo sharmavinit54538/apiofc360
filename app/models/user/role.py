@@ -18,6 +18,20 @@ class RoleEnum(str, enum.Enum):
     IT_ADMIN = "it_admin"
     INTERN = "intern"
 
+    # Executive & Admin roles present in production database
+    ADMIN = "admin"
+    COMPANY_ADMIN = "company_admin"
+    HR_MANAGER = "hr_manager"
+    CEO = "ceo"
+    CTO = "cto"
+    CFO = "cfo"
+    COO = "coo"
+    CMO = "cmo"
+    CLO = "clo"
+    CISO = "ciso"
+    CIO = "cio"
+
+
 
 
     @classmethod

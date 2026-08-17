@@ -119,7 +119,7 @@ class AuthRepository:
         return result.scalars().first()
 
     async def update_user_verification(self, user_id: uuid.UUID) -> None:
-        """Update user verification status to active and verified, setting account_status to ACTIVE."""
+        """Update user verification status to active and verified."""
 
         await self.session.execute(
             update(User)
@@ -127,10 +127,7 @@ class AuthRepository:
             .values(
                 is_verified=True,
                 is_active=True,
-                account_status="ACTIVE",
                 email_verified_at=datetime.now(timezone.utc),
-                email_verification_token=None,
-                email_verification_expires_at=None,
             )
         )
         await self.session.flush()
@@ -138,17 +135,10 @@ class AuthRepository:
     async def set_user_verification_token(
         self, user_id: uuid.UUID, token: str | None, expires_at: datetime | None
     ) -> None:
-        """Set or update email verification token and expiration."""
+        """Set or update email verification token in memory / associated record."""
+        # Tokens and OTPs are persisted in the otps table via create_otp
+        pass
 
-        await self.session.execute(
-            update(User)
-            .where(User.id == user_id)
-            .values(
-                email_verification_token=token,
-                email_verification_expires_at=expires_at,
-            )
-        )
-        await self.session.flush()
 
     async def update_login_audit(self, user_id: uuid.UUID, ip: str | None, device: str | None) -> None:
         """Log audit details on successful login."""
