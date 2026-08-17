@@ -14,9 +14,24 @@ from app.middleware.auth import get_current_user_claims
 from app.models.company import Company
 from app.models.employee import Employee
 from app.models.user import User
+from app.models.user_mfa import UserMFA
 from app.models.refresh_token import RefreshToken
 from app.models.audit_log import AuditLog
 from app.schemas.auth import APIResponse
+from app.schemas.settings_schemas import (
+    HRSettingsResponseData,
+    HRSettingsUpdatePayload,
+    MFAEnablePayload,
+    MFAEnableResponseData,
+    MFADisablePayload,
+    MFADisableResponseData,
+)
+from app.utils.totp import (
+    generate_totp_secret,
+    generate_provisioning_uri,
+    generate_qr_code_data_uri,
+    verify_totp_code,
+)
 
 router = APIRouter(prefix="/settings", tags=["Settings & Administration"])
 
@@ -1203,3 +1218,315 @@ async def update_profile(
         data=payload.model_dump(),
         errors=None,
     )
+
+
+# ===========================================================================
+# HR Settings Endpoints
+# ===========================================================================
+
+@router.get("/hr")
+@router.get("/settings/hr")
+async def get_hr_settings(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Return authenticated company's HR configuration."""
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    hr_config = hr_settings_data.get("hr_config") or {}
+    company_profile = company.company_profile or {}
+
+    from app.models.onboarding import CompanySettings
+    cs_stmt = select(CompanySettings).where(CompanySettings.company_id == company_id)
+    cs_res = await session.execute(cs_stmt)
+    cs = cs_res.scalar_one_or_none()
+
+    data = {
+        "hr_name": hr_config.get("hr_name") or company_profile.get("hr_name") or company_profile.get("contact_person") or "HR Department",
+        "hr_email": hr_config.get("hr_email") or company_profile.get("hr_email") or company_profile.get("email") or "hr@ofc360.com",
+        "hr_phone": hr_config.get("hr_phone") or company_profile.get("hr_phone") or company_profile.get("phone") or "+91 98765 43210",
+        "working_days": hr_config.get("working_days") or (cs.working_days.get("days") if cs and isinstance(cs.working_days, dict) else None) or ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        "working_hours_start": hr_config.get("working_hours_start") or "09:00",
+        "working_hours_end": hr_config.get("working_hours_end") or "18:00",
+        "timezone": hr_config.get("timezone") or (cs.timezone if cs else None) or company_profile.get("timezone") or "Asia/Kolkata",
+        "attendance_enabled": hr_config.get("attendance_enabled", True),
+        "leave_enabled": hr_config.get("leave_enabled", True),
+        "payroll_enabled": hr_config.get("payroll_enabled", True),
+        "week_start_day": hr_config.get("week_start_day") or (cs.week_start_day if cs else "Monday"),
+        "office_timing": hr_config.get("office_timing") or (cs.office_timing if cs else "09:00 AM - 06:00 PM"),
+        "default_shift": hr_config.get("default_shift") or (cs.default_shift if cs else "General"),
+        "time_format": hr_config.get("time_format") or (cs.time_format if cs else "12h"),
+        "date_format": hr_config.get("date_format") or (cs.date_format if cs else "DD/MM/YYYY"),
+        "financial_year": hr_config.get("financial_year") or (cs.financial_year if cs else "April - March"),
+        "leave_policy_template": hr_config.get("leave_policy_template") or (cs.leave_policy_template if cs else "Standard"),
+    }
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="HR settings retrieved successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.put("/hr")
+@router.put("/settings/hr")
+@router.post("/hr")
+@router.post("/settings/hr")
+async def update_hr_settings(
+    payload: HRSettingsUpdatePayload,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Update HR settings for the authenticated company."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    hr_config = hr_settings_data.get("hr_config") or {}
+
+    update_data = payload.model_dump(exclude_unset=True)
+    hr_config.update(update_data)
+    hr_settings_data["hr_config"] = hr_config
+    company.hr_settings = hr_settings_data
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(company, "hr_settings")
+
+    from app.models.onboarding import CompanySettings
+    cs_stmt = select(CompanySettings).where(CompanySettings.company_id == company_id)
+    cs_res = await session.execute(cs_stmt)
+    cs = cs_res.scalar_one_or_none()
+    if cs:
+        if payload.timezone:
+            cs.timezone = payload.timezone
+        if payload.working_days:
+            cs.working_days = {"days": payload.working_days}
+        if payload.week_start_day:
+            cs.week_start_day = payload.week_start_day
+        if payload.office_timing:
+            cs.office_timing = payload.office_timing
+        if payload.default_shift:
+            cs.default_shift = payload.default_shift
+        if payload.time_format:
+            cs.time_format = payload.time_format
+        if payload.date_format:
+            cs.date_format = payload.date_format
+        if payload.financial_year:
+            cs.financial_year = payload.financial_year
+        if payload.leave_policy_template:
+            cs.leave_policy_template = payload.leave_policy_template
+
+    await session.commit()
+
+    await create_audit_log(
+        session, claims, "UPDATE_HR_SETTINGS",
+        f"Updated HR settings configuration for company {company.name}."
+    )
+
+    response_data = {
+        "hr_name": hr_config.get("hr_name", "HR Department"),
+        "hr_email": hr_config.get("hr_email", "hr@ofc360.com"),
+        "hr_phone": hr_config.get("hr_phone", "+91 98765 43210"),
+        "working_days": hr_config.get("working_days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
+        "working_hours_start": hr_config.get("working_hours_start", "09:00"),
+        "working_hours_end": hr_config.get("working_hours_end", "18:00"),
+        "timezone": hr_config.get("timezone", "Asia/Kolkata"),
+        "attendance_enabled": hr_config.get("attendance_enabled", True),
+        "leave_enabled": hr_config.get("leave_enabled", True),
+        "payroll_enabled": hr_config.get("payroll_enabled", True),
+        "week_start_day": hr_config.get("week_start_day", "Monday"),
+        "office_timing": hr_config.get("office_timing", "09:00 - 18:00"),
+        "default_shift": hr_config.get("default_shift", "General"),
+        "time_format": hr_config.get("time_format", "12h"),
+        "date_format": hr_config.get("date_format", "DD/MM/YYYY"),
+        "financial_year": hr_config.get("financial_year", "April - March"),
+        "leave_policy_template": hr_config.get("leave_policy_template", "Standard"),
+    }
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="HR settings updated successfully.",
+        data=response_data,
+        errors=None,
+    )
+
+
+# ===========================================================================
+# MFA / 2FA Endpoints
+# ===========================================================================
+
+@router.post("/mfa/enable")
+@router.post("/settings/mfa/enable")
+async def enable_mfa(
+    payload: Optional[MFAEnablePayload] = None,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    session: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[Dict[str, Any]]:
+    """
+    Initiate or verify and enable TOTP Multi-Factor Authentication for the authenticated user.
+    """
+    user_id_str = claims.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Authentication credentials invalid or missing.")
+
+    user_id = uuid.UUID(user_id_str)
+    user_stmt = select(User).where(User.id == user_id)
+    user_res = await session.execute(user_stmt)
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    mfa_stmt = select(UserMFA).where(UserMFA.user_id == user_id)
+    mfa_res = await session.execute(mfa_stmt)
+    user_mfa = mfa_res.scalar_one_or_none()
+
+    code = payload.code if payload else None
+
+    # Complete / Verify branch
+    if code:
+        if not user_mfa or not user_mfa.mfa_secret:
+            raise HTTPException(
+                status_code=400,
+                detail="MFA setup has not been initiated for this account. Please initiate setup first."
+            )
+
+        is_valid = verify_totp_code(user_mfa.mfa_secret, code)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid MFA verification code. Please check your authenticator app and try again."
+            )
+
+        user_mfa.mfa_enabled = True
+        user_mfa.is_verified = True
+        await session.commit()
+
+        await create_audit_log(
+            session, claims, "MFA_ENABLED",
+            f"TOTP Two-Factor Authentication was enabled and verified for user {user.email}."
+        )
+
+        return APIResponse[Dict[str, Any]](
+            success=True,
+            message="MFA has been successfully enabled and verified.",
+            data={
+                "mfa_enabled": True,
+                "method": "totp",
+                "is_verified": True,
+            },
+            errors=None,
+        )
+
+    # Initiate branch
+    if not user_mfa:
+        secret = generate_totp_secret()
+        user_mfa = UserMFA(
+            user_id=user_id,
+            company_id=user.company_id,
+            mfa_enabled=False,
+            is_verified=False,
+            mfa_secret=secret,
+            method="totp",
+        )
+        session.add(user_mfa)
+        await session.commit()
+        await session.refresh(user_mfa)
+    else:
+        if not user_mfa.mfa_secret:
+            user_mfa.mfa_secret = generate_totp_secret()
+            user_mfa.mfa_enabled = False
+            user_mfa.is_verified = False
+            await session.commit()
+
+    secret = user_mfa.mfa_secret
+    account_label = user.email or user.name or "User"
+    provisioning_uri = generate_provisioning_uri(secret, account_label, issuer_name="OFC360")
+    qr_code_data_uri = generate_qr_code_data_uri(provisioning_uri)
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="MFA setup initiated. Scan QR code or enter secret into your authenticator app, then submit the 6-digit code to verify.",
+        data={
+            "mfa_enabled": bool(user_mfa.mfa_enabled),
+            "method": "totp",
+            "secret": secret,
+            "provisioning_uri": provisioning_uri,
+            "qr_code": qr_code_data_uri,
+        },
+        errors=None,
+    )
+
+
+@router.post("/mfa/disable")
+@router.post("/settings/mfa/disable")
+async def disable_mfa(
+    payload: Optional[MFADisablePayload] = None,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    session: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[Dict[str, Any]]:
+    """Disable TOTP Multi-Factor Authentication for the authenticated user."""
+    user_id_str = claims.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Authentication credentials invalid or missing.")
+
+    user_id = uuid.UUID(user_id_str)
+    user_stmt = select(User).where(User.id == user_id)
+    user_res = await session.execute(user_stmt)
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    from app.core.security import verify_password
+
+    mfa_stmt = select(UserMFA).where(UserMFA.user_id == user_id)
+    mfa_res = await session.execute(mfa_stmt)
+    user_mfa = mfa_res.scalar_one_or_none()
+
+    if payload:
+        if payload.password and user.password_hash:
+            if not verify_password(payload.password, user.password_hash):
+                raise HTTPException(status_code=400, detail="Incorrect password provided.")
+        if payload.code and user_mfa and user_mfa.mfa_secret:
+            if not verify_totp_code(user_mfa.mfa_secret, payload.code):
+                raise HTTPException(status_code=400, detail="Invalid MFA verification code.")
+
+    if user_mfa:
+        user_mfa.mfa_enabled = False
+        user_mfa.is_verified = False
+        user_mfa.mfa_secret = None
+        await session.commit()
+
+    await create_audit_log(
+        session, claims, "MFA_DISABLED",
+        f"TOTP Two-Factor Authentication was disabled for user {user.email}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="MFA has been successfully disabled.",
+        data={
+            "mfa_enabled": False,
+        },
+        errors=None,
+    )
+

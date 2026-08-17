@@ -671,6 +671,8 @@ async def list_documents_ocr(
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
 ) -> APIResponse[dict]:
     """Retrieve list of processed OCR documents with pagination and filter options."""
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
     company_id_raw = claims.get("company_id")
     company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
     offset = (page - 1) * limit
@@ -682,6 +684,7 @@ async def list_documents_ocr(
         search=search,
         limit=limit,
         offset=offset,
+        is_super_admin=is_super_admin,
     )
 
     items = [DocumentOCRListItem.model_validate(r).model_dump(mode="json") for r in records]
