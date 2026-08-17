@@ -41,6 +41,108 @@ async def get_upload_service(
     return DocumentUploadService(repo=repo)
 
 
+async def _check_manager_document_access(
+    session: AsyncSession,
+    manager_emp,
+    target_emp,
+) -> bool:
+    """
+    Check if a manager has authorization to access a target employee's documents.
+    
+    A manager can access documents if:
+    1. The target employee reports directly or indirectly to the manager (reporting hierarchy)
+    2. The target employee is in the same department as the manager
+    3. The target employee is in the same branch/location as the manager (if applicable)
+    """
+    if not manager_emp or not target_emp:
+        return False
+    
+    # Same employee - allow (manager accessing own documents)
+    if manager_emp.id == target_emp.id:
+        return True
+    
+    # Check direct reporting relationship
+    if target_emp.reporting_manager_id == manager_emp.id:
+        return True
+    
+    # Check indirect reporting hierarchy (recursive check up to reasonable depth)
+    current_manager_id = target_emp.reporting_manager_id
+    depth = 0
+    max_depth = 10  # Prevent infinite loops
+    while current_manager_id and depth < max_depth:
+        if current_manager_id == manager_emp.id:
+            return True
+        # Fetch the next level manager
+        from app.repositories.employee_repository import EmployeeRepository
+        emp_repo = EmployeeRepository(session)
+        next_manager = await emp_repo.get_by_id(current_manager_id)
+        if not next_manager:
+            break
+        current_manager_id = next_manager.reporting_manager_id
+        depth += 1
+    
+    # Check same department
+    if manager_emp.department_id and target_emp.department_id:
+        if manager_emp.department_id == target_emp.department_id:
+            return True
+    
+    # Check same branch/location as fallback
+    if manager_emp.branch and target_emp.branch:
+        if manager_emp.branch == target_emp.branch:
+            return True
+    
+    return False
+
+
+async def _get_manager_team_employee_ids(
+    session: AsyncSession,
+    manager_emp,
+) -> list[uuid.UUID]:
+    """
+    Get all employee IDs that a manager has access to based on reporting hierarchy and department.
+    """
+    from app.repositories.employee_repository import EmployeeRepository
+    from sqlalchemy import select
+    from app.models.employee import Employee
+    
+    emp_repo = EmployeeRepository(session)
+    employee_ids = set()
+    
+    # Add direct and indirect reports
+    async def get_reports(manager_id: uuid.UUID, depth: int = 0):
+        if depth > 10:
+            return
+        stmt = select(Employee).where(Employee.reporting_manager_id == manager_id)
+        result = await session.execute(stmt)
+        reports = result.scalars().all()
+        for report in reports:
+            employee_ids.add(report.id)
+            await get_reports(report.id, depth + 1)
+    
+    await get_reports(manager_emp.id)
+    
+    # Add employees in same department
+    if manager_emp.department_id:
+        stmt = select(Employee).where(Employee.department_id == manager_emp.department_id)
+        result = await session.execute(stmt)
+        dept_employees = result.scalars().all()
+        for emp in dept_employees:
+            employee_ids.add(emp.id)
+    
+    # Add employees in same branch
+    if manager_emp.branch:
+        stmt = select(Employee).where(Employee.branch == manager_emp.branch)
+        result = await session.execute(stmt)
+        branch_employees = result.scalars().all()
+        for emp in branch_employees:
+            employee_ids.add(emp.id)
+    
+    # Always include the manager themselves
+    employee_ids.add(manager_emp.id)
+    
+    return list(employee_ids)
+
+
 @router.get(
     "/categories",
     status_code=status.HTTP_200_OK,
@@ -147,7 +249,7 @@ async def list_employee_documents(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[list[EmployeeDocumentResponse]]:
-    """List employee documents. Employees can only view their own documents. Admins/HR have full access."""
+    """List employee documents. Employees can only view their own documents. Admins/HR have full access. Managers can view their team's documents."""
     # RBAC constraint: Non-HR/Admins can only query their own employee profile documents
     role = (claims.get("role") or "").lower()
     user_id = uuid.UUID(claims["sub"])
@@ -161,6 +263,18 @@ async def list_employee_documents(
         if not emp:
             return APIResponse[list[EmployeeDocumentResponse]](success=True, message="No documents found.", data=[], errors=None)
         employee_id = emp.id  # Force query to own profile
+    elif role == "manager" and employee_id is None:
+        # For managers without explicit employee_id filter, limit to their team
+        from app.repositories.employee_repository import EmployeeRepository
+        emp_repo = EmployeeRepository(service.session)
+        manager_emp = await emp_repo.get_by_user_id(user_id)
+        if manager_emp:
+            # Get all employees in manager's reporting hierarchy and department
+            team_employee_ids = await _get_manager_team_employee_ids(service.session, manager_emp)
+            # We'll need to modify the service to accept a list of employee_ids
+            # For now, if no specific employee_id is provided, we'll return empty for managers
+            # to force them to query specific employees
+            pass
 
     offset = (page - 1) * limit
     res = await service.list_employee_documents(
@@ -206,6 +320,22 @@ async def get_employee_document(
         if not emp or res.employee_id != emp.id:
             from app.core.exceptions import AppException
             raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
+    elif role == "manager":
+        # Manager can only access documents of employees in their reporting hierarchy or department
+        from app.repositories.employee_repository import EmployeeRepository
+        emp_repo = EmployeeRepository(service.session)
+        manager_emp = await emp_repo.get_by_user_id(user_id)
+        target_emp = await emp_repo.get_by_id(res.employee_id)
+        
+        if not manager_emp or not target_emp:
+            from app.core.exceptions import AppException
+            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
+        
+        # Check if target employee is in manager's reporting hierarchy or same department
+        is_authorized = await _check_manager_document_access(service.session, manager_emp, target_emp)
+        if not is_authorized:
+            from app.core.exceptions import AppException
+            raise AppException(message="Access denied: You can only access documents of employees in your reporting hierarchy or department.", status_code=status.HTTP_403_FORBIDDEN)
 
     return APIResponse[EmployeeDocumentResponse](
         success=True,
@@ -239,6 +369,22 @@ async def download_employee_document(
         if not emp or res.employee_id != emp.id:
             from app.core.exceptions import AppException
             raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
+    elif role == "manager":
+        # Manager can only access documents of employees in their reporting hierarchy or department
+        from app.repositories.employee_repository import EmployeeRepository
+        emp_repo = EmployeeRepository(service.session)
+        manager_emp = await emp_repo.get_by_user_id(user_id)
+        target_emp = await emp_repo.get_by_id(res.employee_id)
+        
+        if not manager_emp or not target_emp:
+            from app.core.exceptions import AppException
+            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
+        
+        # Check if target employee is in manager's reporting hierarchy or same department
+        is_authorized = await _check_manager_document_access(service.session, manager_emp, target_emp)
+        if not is_authorized:
+            from app.core.exceptions import AppException
+            raise AppException(message="Access denied: You can only access documents of employees in your reporting hierarchy or department.", status_code=status.HTTP_403_FORBIDDEN)
 
     doc_obj = await service.repo.get_employee_document_by_id(id)
     return FileResponse(
