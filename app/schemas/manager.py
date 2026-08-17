@@ -653,6 +653,9 @@ class ManagerUpdate(BaseModel):
 
     first_name: str | None = Field(None, min_length=1, max_length=100)
     last_name: str | None = Field(None, min_length=1, max_length=100)
+    phone: str | None = None
+    personal_email: EmailStr | None = None
+    company_email: EmailStr | None = None
     profile_photo_url: str | None = None
     gender: str | None = None
     date_of_birth: date | None = None
