@@ -25,12 +25,6 @@ class EmployeeExperience(Base):
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ctc: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    manager_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    reason_for_leaving: Mapped[str | None] = mapped_column(Text, nullable=True)
-    experience_certificate_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    relieving_letter_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    salary_slip_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

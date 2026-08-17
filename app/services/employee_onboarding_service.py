@@ -449,12 +449,6 @@ class EmployeeOnboardingService:
                 end_date=end_date,
                 is_current=exp_data.get("is_current", False),
                 description=exp_data.get("description"),
-                ctc=Decimal(str(exp_data["ctc"])) if exp_data.get("ctc") is not None else None,
-                manager_name=exp_data.get("manager_name"),
-                reason_for_leaving=exp_data.get("reason_for_leaving"),
-                experience_certificate_url=exp_data.get("experience_certificate_url"),
-                relieving_letter_url=exp_data.get("relieving_letter_url"),
-                salary_slip_url=exp_data.get("salary_slip_url")
             )
             self.db.add(exp)
 
@@ -483,13 +477,10 @@ class EmployeeOnboardingService:
             bank_acc = EmployeeBankAccount(employee_id=employee.id)
 
         bank_acc.bank_name = bank["bank_name"]
-        bank_acc.account_holder_name = bank["account_holder_name"]
+        bank_acc.account_holder_name = bank.get("account_holder_name")
         bank_acc.account_number = bank["account_number"]
         bank_acc.ifsc_code = bank["ifsc_code"]
-        bank_acc.branch = bank.get("branch")
-        bank_acc.upi_id = bank.get("upi_id")
-        bank_acc.cancelled_cheque_url = bank.get("cancelled_cheque_url")
-        bank_acc.passbook_url = bank.get("passbook_url")
+        bank_acc.account_type = bank.get("account_type", "SAVINGS") or "SAVINGS"
         bank_acc.is_primary = True
 
         self.db.add(bank_acc)

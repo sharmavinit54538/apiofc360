@@ -392,8 +392,19 @@ class EmployeeService:
                 "create_employee: success | employee_id=%s | email_sent=%s",
                 employee_id, email_sent,
             )
-            full_employee = await self.repo.get_by_id(employee.id)
-            result_obj = EmployeeResponse.model_validate(full_employee)
+            try:
+                full_employee = await self.repo.get_by_id(employee.id)
+                if full_employee is not None:
+                    result_obj = EmployeeResponse.model_validate(full_employee)
+                else:
+                    result_obj = EmployeeResponse.model_validate(employee)
+            except Exception as load_exc:
+                logger.warning(
+                    "create_employee: post-commit eager-load failed (%s); building response from base employee record",
+                    load_exc,
+                )
+                result_obj = EmployeeResponse.model_validate(employee)
+
             result_obj.email_sent = email_sent
             result_obj.__dict__["_email_sent"] = email_sent
             return result_obj
@@ -500,6 +511,12 @@ class EmployeeService:
             raise
         except SQLAlchemyError as exc:
             logger.exception("get_employee: db error", exc_info=exc)
+            try:
+                raw_employee = await self.repo.get_by_id_raw(employee_uuid, company_id=company_id)
+                if raw_employee:
+                    return EmployeeResponse.model_validate(raw_employee)
+            except Exception:
+                pass
             raise DatabaseException() from exc
 
     # ------------------------------------------------------------------
