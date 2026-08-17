@@ -329,6 +329,14 @@ class ChannelCreateRequest(BaseModel):
     isPrivate: bool = False
     memberIds: list[uuid.UUID] = []
 
+    @field_validator("name")
+    @classmethod
+    def validate_name_not_empty(cls, v: str) -> str:
+        trimmed = v.strip()
+        if not trimmed:
+            raise ValueError("Channel name cannot be empty or whitespace only.")
+        return trimmed
+
     @model_validator(mode="before")
     @classmethod
     def normalize_channel_create(cls, data: Any) -> Any:
@@ -349,6 +357,68 @@ class ChannelCreateRequest(BaseModel):
                 data["memberIds"] = members
             else:
                 data["memberIds"] = []
+        return data
+
+
+class ChannelUpdateRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=500)
+    isPrivate: bool | None = None
+    isArchived: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_if_present(cls, v: str | None) -> str | None:
+        if v is not None:
+            trimmed = v.strip()
+            if not trimmed:
+                raise ValueError("Channel name cannot be empty or whitespace only.")
+            return trimmed
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_channel_update(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "is_private" in data and "isPrivate" not in data:
+                data["isPrivate"] = bool(data["is_private"])
+            elif "private" in data and "isPrivate" not in data:
+                data["isPrivate"] = bool(data["private"])
+            if "is_archived" in data and "isArchived" not in data:
+                data["isArchived"] = bool(data["is_archived"])
+            elif "archived" in data and "isArchived" not in data:
+                data["isArchived"] = bool(data["archived"])
+        return data
+
+
+class ChannelAddMembersRequest(BaseModel):
+    memberIds: list[uuid.UUID] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_add_members(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            members = (
+                data.get("memberIds")
+                if "memberIds" in data
+                else (
+                    data.get("member_ids")
+                    or data.get("members")
+                    or data.get("participantIds")
+                    or data.get("participants")
+                    or data.get("userIds")
+                    or data.get("user_ids")
+                )
+            )
+            if members is not None:
+                if isinstance(members, (list, tuple)):
+                    data["memberIds"] = list(members)
+                else:
+                    data["memberIds"] = [members]
+            else:
+                data["memberIds"] = []
+        elif isinstance(data, (list, tuple)):
+            data = {"memberIds": list(data)}
         return data
 
 
@@ -491,17 +561,29 @@ class CallHistoryItemResponse(BaseModel):
     caller_id: uuid.UUID
     caller_name: str
     caller_avatar: str | None = None
+    caller: dict[str, Any] | None = None
     callee_id: uuid.UUID
     callee_name: str
     callee_avatar: str | None = None
+    callee: dict[str, Any] | None = None
     call_type: str
+    callType: str | None = None
+    type: str | None = None
     status: str
     room_id: str
+    roomId: str | None = None
     duration_seconds: int
+    duration: int | None = None
     started_at: datetime
+    startedAt: datetime | str | None = None
     connected_at: datetime | None = None
+    connectedAt: datetime | str | None = None
     ended_at: datetime | None = None
+    endedAt: datetime | str | None = None
     created_at: datetime
+    direction: str | None = None  # incoming | outgoing
+    callId: uuid.UUID | None = None
+    call_id: uuid.UUID | None = None
 
 
 class CallSignalRequest(BaseModel):
@@ -513,20 +595,64 @@ class CallSignalRequest(BaseModel):
     @classmethod
     def normalize_signal(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            signal_obj = data.get("signal") if "signal" in data else data.get("payload")
             raw_type = str(data.get("type") or data.get("signal_type") or data.get("signalType") or "").lower().strip()
+
+            if not raw_type and isinstance(signal_obj, dict):
+                raw_type = str(signal_obj.get("type") or signal_obj.get("signal_type") or "").lower().strip()
+                if not raw_type:
+                    if "candidate" in signal_obj:
+                        raw_type = "ice-candidate"
+                    elif "sdp" in signal_obj:
+                        sdp_val = signal_obj.get("sdp")
+                        if isinstance(sdp_val, dict):
+                            raw_type = str(sdp_val.get("type", "")).lower().strip()
+
+            if not raw_type:
+                if "candidate" in data:
+                    raw_type = "ice-candidate"
+                elif "sdp" in data:
+                    sdp_val = data.get("sdp")
+                    if isinstance(sdp_val, dict):
+                        raw_type = str(sdp_val.get("type", "")).lower().strip()
+
             if raw_type in ("candidate", "ice_candidate"):
                 raw_type = "ice-candidate"
             data["type"] = raw_type
 
-            target_id = data.get("targetUserId") or data.get("target_user_id") or data.get("recipientId") or data.get("recipient_id")
+            target_id = (
+                data.get("targetUserId")
+                or data.get("target_user_id")
+                or data.get("recipientId")
+                or data.get("recipient_id")
+                or data.get("to_user_id")
+                or data.get("toUserId")
+            )
             if target_id and str(target_id).strip() not in ("null", "undefined", ""):
                 data["targetUserId"] = target_id
             else:
                 data["targetUserId"] = None
 
             if "payload" not in data or data["payload"] is None:
-                data["payload"] = {}
+                if isinstance(signal_obj, dict):
+                    data["payload"] = signal_obj
+                elif "candidate" in data:
+                    data["payload"] = {"candidate": data.get("candidate")}
+                elif "sdp" in data:
+                    data["payload"] = {"sdp": data.get("sdp")}
+                else:
+                    data["payload"] = {}
         return data
+
+
+class IceServerItem(BaseModel):
+    urls: list[str] | str
+    username: str | None = None
+    credential: str | None = None
+
+
+class IceServersResponse(BaseModel):
+    iceServers: list[IceServerItem]
 
 
 # ===========================================================================

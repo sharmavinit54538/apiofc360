@@ -24,6 +24,18 @@ class EmployeeExperienceCreate(BaseModel):
         if isinstance(data, dict):
             if "job_title" in data and ("designation" not in data or not data["designation"]):
                 data["designation"] = data["job_title"]
+            if isinstance(data.get("company_name"), str):
+                data["company_name"] = data["company_name"].strip()
+            if isinstance(data.get("designation"), str):
+                data["designation"] = data["designation"].strip()
+            if "start_date" in data and (data["start_date"] is None or str(data["start_date"]).strip() == ""):
+                data.pop("start_date", None)
+            if "end_date" in data and (data["end_date"] is None or str(data["end_date"]).strip() == ""):
+                data["end_date"] = None
+            if "employment_type" in data and (data["employment_type"] is None or str(data["employment_type"]).strip() == ""):
+                data["employment_type"] = None
+            if "description" in data and (data["description"] is None or str(data["description"]).strip() == ""):
+                data["description"] = None
             if "tenure_months" in data and ("start_date" not in data or not data["start_date"]):
                 from datetime import date, timedelta
                 tenure = data.get("tenure_months", 12)

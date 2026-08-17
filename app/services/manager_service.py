@@ -344,14 +344,92 @@ class ManagerService:
         logger.info("update_manager | admin_id=%s | manager_id=%s", admin_id, manager_uuid)
         try:
             manager = await self.repo.get_by_id_raw(manager_uuid)
-            if not manager:
+            if not manager or manager.is_deleted:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
-            update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+            
+            update_data = payload.model_dump(exclude_unset=True)
+
+            # Prevent updating immutable fields
+            for immutable in ["id", "company_id", "created_at", "user_id", "created_by"]:
+                update_data.pop(immutable, None)
+
+            # Self-reporting prevention
+            if "reporting_to" in update_data and update_data["reporting_to"] == manager_uuid:
+                raise AppException(
+                    message="A manager cannot report to themselves.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    errors=[{"field": "reporting_to", "message": "Self-reporting is not allowed."}]
+                )
+
+            # Extract nested relations if present
+            addresses = update_data.pop("addresses", None)
+            documents = update_data.pop("documents", None)
+            education = update_data.pop("education", None)
+            experience = update_data.pop("experience", None)
+            skills = update_data.pop("skills", None)
+            emergency_contacts = update_data.pop("emergency_contacts", None)
+
+            # Duplicate uniqueness checks
+            if "personal_email" in update_data and update_data["personal_email"] is not None:
+                p_email = str(update_data["personal_email"]).strip().lower()
+                existing = await self.repo.get_by_personal_email(p_email)
+                if existing and existing.id != manager_uuid:
+                    raise ConflictException(
+                        message="Email already exists",
+                        field="personal_email",
+                        errors=[{"field": "personal_email", "message": "Email already in use."}]
+                    )
+                update_data["personal_email"] = p_email
+
+            if "company_email" in update_data and update_data["company_email"] is not None:
+                c_email = str(update_data["company_email"]).strip().lower()
+                existing = await self.repo.get_by_company_email(c_email)
+                if existing and existing.id != manager_uuid:
+                    raise ConflictException(
+                        message="Company email already exists",
+                        field="company_email",
+                        errors=[{"field": "company_email", "message": "Company email already in use."}]
+                    )
+                update_data["company_email"] = c_email
+
+            if "phone" in update_data and update_data["phone"] is not None:
+                phone_str = str(update_data["phone"]).strip()
+                existing = await self.repo.get_by_phone(phone_str)
+                if existing and existing.id != manager_uuid:
+                    raise ConflictException(
+                        message="Phone number already exists",
+                        field="phone",
+                        errors=[{"field": "phone", "message": "Phone number already in use."}]
+                    )
+                update_data["phone"] = phone_str
+
+            if "manager_id" in update_data and update_data["manager_id"] is not None:
+                m_code = str(update_data["manager_id"]).strip()
+                existing = await self.repo.get_by_manager_id(m_code)
+                if existing and existing.id != manager_uuid:
+                    raise ConflictException(
+                        message="Employee ID already exists",
+                        field="manager_id",
+                        errors=[{"field": "manager_id", "message": "Employee ID already in use."}]
+                    )
+                update_data["manager_id"] = m_code
+
             if "branch" in update_data:
                 update_data["office_location"] = update_data["branch"]
-            if not update_data:
-                raise AppException(message="No fields provided to update.", status_code=status.HTTP_400_BAD_REQUEST)
-            await self.repo.update_manager(manager_uuid, **update_data)
+
+            if not update_data and addresses is None and documents is None and education is None and experience is None and skills is None and emergency_contacts is None:
+                full_manager = await self.repo.get_by_id(manager_uuid)
+                return ManagerResponse.model_validate(full_manager)
+
+            if update_data:
+                await self.repo.update_manager(manager_uuid, **update_data)
+
+            # Process nested relations if provided
+            if addresses is not None:
+                for addr in addresses:
+                    addr_dict = addr if isinstance(addr, dict) else addr.model_dump()
+                    addr_type = addr_dict.pop("address_type", "CURRENT")
+                    await self.repo.upsert_address(manager_uuid, addr_type, addr_dict)
 
             # Synchronize User active state if manager active status or lifecycle changed
             if manager.user_id:
@@ -384,7 +462,7 @@ class ManagerService:
             logger.info("update_manager: success | manager_id=%s", manager_uuid)
             full_manager = await self.repo.get_by_id(manager_uuid)
             return ManagerResponse.model_validate(full_manager)
-        except AppException:
+        except (AppException, ConflictException):
             await self.session.rollback()
             raise
         except SQLAlchemyError as exc:
@@ -396,7 +474,7 @@ class ManagerService:
         logger.info("delete_manager | admin_id=%s | manager_id=%s", admin_id, manager_uuid)
         try:
             manager = await self.repo.get_by_id_raw(manager_uuid)
-            if not manager:
+            if not manager or manager.is_deleted:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
             manager.is_active = False
             await self.repo.soft_delete(manager_uuid, deleted_by=admin_id)

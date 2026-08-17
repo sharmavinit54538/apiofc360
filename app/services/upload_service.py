@@ -122,9 +122,10 @@ class DocumentUploadService:
         self,
         document_id: uuid.UUID,
         company_id: uuid.UUID | None = None,
+        is_super_admin: bool = False,
     ) -> DocumentOCRRecord:
         """Fetch complete document metadata and OCR result."""
-        record = await self.repo.get_by_id(document_id, company_id=company_id)
+        record = await self.repo.get_by_id(document_id, company_id=company_id, is_super_admin=is_super_admin)
         if not record:
             raise AppException(
                 message=f"Document '{document_id}' not found.",
@@ -140,6 +141,7 @@ class DocumentUploadService:
         search: str | None = None,
         limit: int = 20,
         offset: int = 0,
+        is_super_admin: bool = False,
     ) -> tuple[list[DocumentOCRRecord], int]:
         """Fetch list of OCR history records."""
         records, total = await self.repo.list_records(
@@ -149,5 +151,6 @@ class DocumentUploadService:
             search=search,
             limit=limit,
             offset=offset,
+            is_super_admin=is_super_admin,
         )
         return list(records), total

@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.employee.constants import ACCOUNT_TYPE_VALUES
 
@@ -18,13 +19,36 @@ class EmployeeBankAccountCreate(BaseModel):
     account_type: str = Field("SAVINGS")
     is_primary: bool = False
 
-    @field_validator("account_type")
+    @model_validator(mode="before")
     @classmethod
-    def validate_account_type(cls, v: str) -> str:
-        v = v.upper()
-        if v not in ACCOUNT_TYPE_VALUES:
-            raise ValueError("account_type must be SAVINGS or CURRENT")
-        return v
+    def normalize_bank_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if isinstance(data.get("bank_name"), str):
+                data["bank_name"] = data["bank_name"].strip()
+            if isinstance(data.get("account_number"), str):
+                data["account_number"] = data["account_number"].strip()
+            if "account_holder_name" in data and (data["account_holder_name"] is None or str(data["account_holder_name"]).strip() == ""):
+                data["account_holder_name"] = None
+            elif isinstance(data.get("account_holder_name"), str):
+                data["account_holder_name"] = data["account_holder_name"].strip()
+        return data
+
+    @field_validator("ifsc_code", mode="before")
+    @classmethod
+    def normalize_ifsc_code(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        return str(v).strip().upper().replace(" ", "").replace("-", "")
+
+    @field_validator("account_type", mode="before")
+    @classmethod
+    def validate_account_type(cls, v: Any) -> str:
+        if v is None or not str(v).strip():
+            return "SAVINGS"
+        v_upper = str(v).strip().upper()
+        if v_upper not in ACCOUNT_TYPE_VALUES:
+            return "SAVINGS"
+        return v_upper
 
 
 class EmployeeBankAccountResponse(BaseModel):

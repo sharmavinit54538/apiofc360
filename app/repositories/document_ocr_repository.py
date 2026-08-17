@@ -32,16 +32,23 @@ class DocumentOCRRepository:
         self,
         document_id: uuid.UUID,
         company_id: uuid.UUID | None = None,
+        is_super_admin: bool = False,
     ) -> DocumentOCRRecord | None:
-        """Fetch OCR record by UUID."""
+        """Fetch OCR record by UUID with tenant isolation.
+        
+        Args:
+            document_id: The document UUID to fetch
+            company_id: The company ID for tenant isolation (required for non-super-admin)
+            is_super_admin: If True, bypasses tenant isolation (Super Admin access)
+        """
+        if not is_super_admin and company_id is None:
+            raise ValueError("company_id is required for non-Super Admin access")
+        
         stmt = select(DocumentOCRRecord).where(DocumentOCRRecord.id == document_id)
-        if company_id is not None:
-            stmt = stmt.where(
-                or_(
-                    DocumentOCRRecord.company_id == company_id,
-                    DocumentOCRRecord.company_id.is_(None),
-                )
-            )
+        if not is_super_admin and company_id is not None:
+            stmt = stmt.where(DocumentOCRRecord.company_id == company_id)
+        # Super Admin bypasses tenant filter
+        
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -53,18 +60,23 @@ class DocumentOCRRepository:
         search: str | None = None,
         limit: int = 20,
         offset: int = 0,
+        is_super_admin: bool = False,
     ) -> tuple[Sequence[DocumentOCRRecord], int]:
-        """Fetch paginated OCR records with filters."""
+        """Fetch paginated OCR records with filters and tenant isolation.
+        
+        Args:
+            company_id: The company ID for tenant isolation (required for non-super-admin)
+            is_super_admin: If True, bypasses tenant isolation (Super Admin access)
+        """
+        if not is_super_admin and company_id is None:
+            raise ValueError("company_id is required for non-Super Admin access")
+        
         stmt = select(DocumentOCRRecord)
 
         conditions = []
-        if company_id is not None:
-            conditions.append(
-                or_(
-                    DocumentOCRRecord.company_id == company_id,
-                    DocumentOCRRecord.company_id.is_(None),
-                )
-            )
+        if not is_super_admin and company_id is not None:
+            conditions.append(DocumentOCRRecord.company_id == company_id)
+        # Super Admin bypasses tenant filter
         if document_type:
             conditions.append(DocumentOCRRecord.document_type == document_type)
         if status_filter:

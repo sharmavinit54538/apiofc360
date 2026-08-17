@@ -11,13 +11,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.exceptions import AppException
 from app.core.rbac import require_admin_or_manager
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.services.document_intelligence_service import DocumentIntelligenceService
+from app.services.storage_service import StorageService
 from app.rag.doc_rag_pipeline import get_rag_pipeline
-from app.core.config import settings
 
 import logging
 
@@ -76,34 +78,17 @@ async def upload_documents(
     company_id = uuid.UUID(claims.get("company_id")) if claims and claims.get("company_id") else None
 
     svc = DocumentIntelligenceService(db)
+    storage_service = StorageService()
     results = []
-    
-    # Save folder
-    os.makedirs(settings.RESUME_UPLOAD_DIR, exist_ok=True)  # Reuse configured uploads dir
 
     for file in files:
-        doc_id = uuid.uuid4()
-        _, ext = os.path.splitext(file.filename or "")
-        safe_name = f"{doc_id}{ext}"
-        file_path = os.path.join(settings.RESUME_UPLOAD_DIR, safe_name)
-
-        # Read content
-        content = await file.read()
-        if len(content) > settings.MAX_RESUME_SIZE_MB * 1024 * 1024:
-            results.append({
-                "filename": file.filename,
-                "status": "FAILED",
-                "error": f"File size exceeds limit of {settings.MAX_RESUME_SIZE_MB}MB."
-            })
-            continue
-
-        with open(file_path, "wb") as f:
-            f.write(content)
-
         try:
+            # Use secure storage service for validation and saving
+            saved_info = await storage_service.save_file(file)
+            
             registered_id, is_duplicate = await svc.register_document(
-                file_path=file_path,
-                file_name=file.filename or safe_name,
+                file_path=saved_info["file_path"],
+                file_name=saved_info["original_filename"],
                 uploaded_by=user_id,
                 company_id=company_id,
             )
@@ -111,7 +96,7 @@ async def upload_documents(
             # Clean up current uploaded file if it was a duplicate of a previously stored path
             if is_duplicate:
                 try:
-                    os.unlink(file_path)
+                    os.unlink(saved_info["file_path"])
                 except OSError:
                     pass
 
@@ -120,6 +105,13 @@ async def upload_documents(
                 "document_id": registered_id,
                 "status": "DUPLICATE" if is_duplicate else "REGISTERED",
                 "message": "Duplicate document detected. Metadata referenced to existing copy." if is_duplicate else "Successfully registered."
+            })
+        except AppException as exc:
+            logger.warning("File validation failed for %s: %s", file.filename, exc.message)
+            results.append({
+                "filename": file.filename,
+                "status": "FAILED",
+                "error": exc.message
             })
         except Exception as exc:
             logger.error("Failed to register document %s: %s", file.filename, exc)
@@ -149,6 +141,11 @@ async def classify_document(
 ) -> APIResponse[dict]:
     """Execute classification checks (Resume, PAN, Aadhaar, Invoice, GST, Contract, etc.)."""
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    
     svc = DocumentIntelligenceService(db)
 
     try:
@@ -158,7 +155,10 @@ async def classify_document(
         # Index text in RAG vector store for QA & Search if successful
         if res.get("status") == "COMPLETED":
             from app.models.ai_document_analysis import AnalyzedDocument
-            doc_res = await db.execute(select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id))
+            stmt = select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id)
+            if not is_super_admin and company_id is not None:
+                stmt = stmt.where(AnalyzedDocument.company_id == company_id)
+            doc_res = await db.execute(stmt)
             doc = doc_res.scalar_one_or_none()
             if doc and doc.raw_text:
                 rag = get_rag_pipeline()
@@ -201,9 +201,16 @@ async def extract_document_fields(
     """Perform JSON field extraction matching custom user schema specifications."""
     from app.models.ai_document_analysis import AnalyzedDocument
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
-    # Load doc
-    res = await db.execute(select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id))
+    # Load doc with tenant isolation
+    stmt = select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id)
+    if not is_super_admin and company_id is not None:
+        stmt = stmt.where(AnalyzedDocument.company_id == company_id)
+    res = await db.execute(stmt)
     doc = res.scalar_one_or_none()
     if not doc or not doc.raw_text:
         raise HTTPException(status_code=404, detail="Document not classified or processed yet.")
@@ -241,6 +248,10 @@ async def analyze_document(
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Execute risk audit, executive summary, and recommendations generator."""
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
     svc = DocumentIntelligenceService(db)
     try:
         report = await svc.analyze_document_compliance(doc_uuid=body.document_id, model=body.model)
@@ -266,6 +277,10 @@ async def compare_documents(
 ) -> APIResponse[dict]:
     """Analyze modifications, deletions, similarity score, and additions."""
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
     svc = DocumentIntelligenceService(db)
 
     try:
@@ -298,20 +313,21 @@ async def validate_document_fields(
     """Run integrity verification rules (Verhoeff Aadhaar, PAN, GSTIN regex)."""
     from app.models.ai_document_analysis import AnalyzedDocument
     user_id = uuid.UUID(claims["sub"]) if claims else None
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
-    # Load document
-    res = await db.execute(select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id))
+    # Load document with tenant isolation
+    stmt = select(AnalyzedDocument).where(AnalyzedDocument.id == body.document_id)
+    if not is_super_admin and company_id is not None:
+        stmt = stmt.where(AnalyzedDocument.company_id == company_id)
+    res = await db.execute(stmt)
     doc = res.scalar_one_or_none()
     if not doc or not doc.extracted_data:
         raise HTTPException(status_code=404, detail="Document extraction data not found.")
 
     val_results = DocumentValidator.validate_extracted_fields(doc.classification or "CUSTOM", doc.extracted_data)
-    
-    # Calculate state
-    invalid_count = sum(1 for v in val_results.values() if not v.get("valid", True))
-    status_str = "VALID" if invalid_count == 0 else "INVALID"
-
-    doc.validation_results = val_results
     doc.validation_status = status_str
     await db.commit()
 
@@ -415,25 +431,36 @@ async def get_insights(
 ) -> APIResponse[dict]:
     """Retrieve compliance stats, trends, risks, duplicate document lists, and health scores."""
     from app.models.ai_document_analysis import AnalyzedDocument
+    role = claims.get("role", "").lower()
+    is_super_admin = role == "super_admin"
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+
+    # Base query with tenant isolation
+    base_stmt = select(AnalyzedDocument)
+    if not is_super_admin and company_id is not None:
+        base_stmt = base_stmt.where(AnalyzedDocument.company_id == company_id)
 
     # Get totals
-    count_res = await db.execute(select(func.count(AnalyzedDocument.id)))
+    count_res = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
     total_docs = count_res.scalar() or 0
 
     # Get classification breakdown
     class_res = await db.execute(
         select(AnalyzedDocument.classification, func.count(AnalyzedDocument.id))
+        .select_from(base_stmt.subquery())
         .group_by(AnalyzedDocument.classification)
     )
     classifications = {row[0] or "UNCLASSIFIED": row[1] for row in class_res.all()}
 
     # Get health score average
-    avg_health_res = await db.execute(select(func.avg(AnalyzedDocument.health_score)))
+    avg_health_res = await db.execute(select(func.avg(AnalyzedDocument.health_score)).select_from(base_stmt.subquery()))
     avg_health = avg_health_res.scalar() or 1.0
 
     # Get validation status breakdown
     val_res = await db.execute(
         select(AnalyzedDocument.validation_status, func.count(AnalyzedDocument.id))
+        .select_from(base_stmt.subquery())
         .group_by(AnalyzedDocument.validation_status)
     )
     validation_stats = {row[0] or "UNVALIDATED": row[1] for row in val_res.all()}
@@ -441,6 +468,7 @@ async def get_insights(
     # Find duplicates count
     dup_res = await db.execute(
         select(AnalyzedDocument.file_checksum)
+        .select_from(base_stmt.subquery())
         .group_by(AnalyzedDocument.file_checksum)
         .having(func.count(AnalyzedDocument.id) > 1)
     )

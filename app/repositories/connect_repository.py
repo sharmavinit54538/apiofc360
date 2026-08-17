@@ -11,6 +11,8 @@ from sqlalchemy import and_, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.exceptions import NotFoundException
+
 from app.models.connect import (
     ConnectCallLog,
     ConnectChannel,
@@ -65,6 +67,7 @@ class ConnectRepository:
             .where(
                 User.company_id == company_id,
                 User.is_active.is_(True),
+                User.is_deleted.is_(False),
             )
         )
 
@@ -108,6 +111,12 @@ class ConnectRepository:
 
         colleagues = []
         for user, emp, pres in rows:
+            avatar = (
+                getattr(user, "profile_photo_url", None)
+                or getattr(user, "profile_photo", None)
+                or (emp.profile_photo_url if emp else None)
+                or (getattr(emp, "avatar_url", None) if emp else None)
+            )
             colleagues.append({
                 "id": user.id,
                 "name": user.name,
@@ -116,7 +125,7 @@ class ConnectRepository:
                 "role": getattr(user.role, "value", str(user.role)) if user.role else "employee",
                 "department": emp.department if emp else None,
                 "designation": emp.designation if emp else None,
-                "avatar_url": getattr(user, "profile_photo", None) or (emp.avatar_url if emp else None),
+                "avatar_url": avatar,
                 "presence_status": pres.status if pres else "offline",
                 "custom_status": pres.custom_status if pres else None,
                 "last_seen_at": pres.last_seen_at if pres else user.created_at,
@@ -313,7 +322,7 @@ class ConnectRepository:
             ConnectConversation.is_deleted.is_(False),
         )
         shared_res = await self.session.execute(shared_conv_ids_stmt)
-        existing_conv_id = shared_res.scalar_one_or_none()
+        existing_conv_id = shared_res.scalars().first()
 
         if existing_conv_id:
             conv = await self.get_conversation_by_id(existing_conv_id, company_id)
@@ -396,7 +405,7 @@ class ConnectRepository:
             .options(
                 selectinload(ConnectMessage.sender),
                 selectinload(ConnectMessage.reactions).selectinload(ConnectMessageReaction.user),
-                selectinload(ConnectMessageAttachment),
+                selectinload(ConnectMessage.attachments),
             )
             .where(
                 ConnectMessage.conversation_id == conversation_id,
@@ -546,7 +555,7 @@ class ConnectRepository:
         """Pin or unpin a message."""
         msg = await self.get_message_by_id(message_id, company_id)
         if not msg:
-            raise ValueError("Message not found.")
+            raise NotFoundException("Message not found.")
 
         msg.is_pinned = is_pinned
         msg.pinned_at = func.now() if is_pinned else None
@@ -648,7 +657,7 @@ class ConnectRepository:
         is_private: bool = False,
         member_ids: list[uuid.UUID] | None = None,
     ) -> ConnectChannel:
-        """Create team channel, assign creator as host, and add initial members."""
+        """Create team channel, assign creator as host, and add initial members with tenant isolation."""
         channel = ConnectChannel(
             company_id=company_id,
             name=name,
@@ -668,10 +677,19 @@ class ConnectRepository:
         )
         self.session.add(host_member)
 
-        # Add other initial members
+        # Add other initial members with company tenant filtering and deduplication
         added_members = {creator_id}
         if member_ids:
-            for m_id in member_ids:
+            valid_res = await self.session.execute(
+                select(User.id).where(
+                    User.id.in_(member_ids),
+                    User.company_id == company_id,
+                    User.is_active.is_(True),
+                    User.is_deleted.is_(False),
+                )
+            )
+            valid_ids = set(valid_res.scalars().all())
+            for m_id in valid_ids:
                 if m_id not in added_members:
                     self.session.add(
                         ConnectChannelMember(
@@ -706,6 +724,104 @@ class ConnectRepository:
         )
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
+
+    async def update_channel(
+        self,
+        channel_id: uuid.UUID,
+        company_id: uuid.UUID,
+        name: str | None = None,
+        description: str | None = None,
+        is_private: bool | None = None,
+        is_archived: bool | None = None,
+    ) -> ConnectChannel | None:
+        """Update channel details."""
+        values: dict[str, Any] = {"updated_at": func.now()}
+        if name is not None:
+            values["name"] = name
+        if description is not None:
+            values["description"] = description
+        if is_private is not None:
+            values["is_private"] = is_private
+        if is_archived is not None:
+            values["is_archived"] = is_archived
+
+        await self.session.execute(
+            update(ConnectChannel)
+            .where(
+                ConnectChannel.id == channel_id,
+                ConnectChannel.company_id == company_id,
+                ConnectChannel.is_deleted.is_(False),
+            )
+            .values(**values)
+        )
+        await self.session.commit()
+        return await self.get_channel_by_id(channel_id, company_id)
+
+    async def soft_delete_channel(
+        self,
+        channel_id: uuid.UUID,
+        company_id: uuid.UUID,
+    ) -> None:
+        """Soft delete a channel."""
+        await self.session.execute(
+            update(ConnectChannel)
+            .where(
+                ConnectChannel.id == channel_id,
+                ConnectChannel.company_id == company_id,
+                ConnectChannel.is_deleted.is_(False),
+            )
+            .values(is_deleted=True, deleted_at=func.now(), updated_at=func.now())
+        )
+        await self.session.commit()
+
+    async def add_channel_members(
+        self,
+        channel_id: uuid.UUID,
+        company_id: uuid.UUID,
+        user_ids: list[uuid.UUID],
+        role: str = "member",
+    ) -> ConnectChannel | None:
+        """Add members to a channel with company tenant isolation and duplicate prevention."""
+        if not user_ids:
+            return await self.get_channel_by_id(channel_id, company_id)
+
+        # 1. Fetch valid active company users
+        valid_users_res = await self.session.execute(
+            select(User.id).where(
+                User.id.in_(user_ids),
+                User.company_id == company_id,
+                User.is_active.is_(True),
+                User.is_deleted.is_(False),
+            )
+        )
+        valid_user_ids = set(valid_users_res.scalars().all())
+
+        # 2. Fetch existing channel members to avoid unique constraint violations
+        existing_res = await self.session.execute(
+            select(ConnectChannelMember.user_id).where(
+                ConnectChannelMember.channel_id == channel_id,
+                ConnectChannelMember.company_id == company_id,
+            )
+        )
+        existing_user_ids = set(existing_res.scalars().all())
+
+        new_members = []
+        for uid in valid_user_ids:
+            if uid not in existing_user_ids:
+                new_members.append(
+                    ConnectChannelMember(
+                        channel_id=channel_id,
+                        user_id=uid,
+                        company_id=company_id,
+                        role=role,
+                    )
+                )
+
+        if new_members:
+            self.session.add_all(new_members)
+            await self.session.commit()
+
+        return await self.get_channel_by_id(channel_id, company_id)
 
     async def get_channel_messages(
         self,
@@ -775,13 +891,14 @@ class ConnectRepository:
         channel_id: uuid.UUID,
         company_id: uuid.UUID,
         is_archived: bool = True,
-    ) -> ConnectChannel:
+    ) -> ConnectChannel | None:
         """Archive or unarchive a channel."""
         await self.session.execute(
             update(ConnectChannel)
             .where(
                 ConnectChannel.id == channel_id,
                 ConnectChannel.company_id == company_id,
+                ConnectChannel.is_deleted.is_(False),
             )
             .values(is_archived=is_archived, updated_at=func.now())
         )
@@ -869,7 +986,7 @@ class ConnectRepository:
         """Update status and timestamps for a call session."""
         call = await self.get_call_by_id(call_id, company_id)
         if not call:
-            raise ValueError("Call not found.")
+            raise NotFoundException("Call not found.")
 
         call.status = status
         if status == "connected" and not call.connected_at:
@@ -881,6 +998,22 @@ class ConnectRepository:
 
         await self.session.commit()
         return call
+
+    async def get_active_user_in_company(
+        self,
+        user_id: uuid.UUID,
+        company_id: uuid.UUID,
+    ) -> User | None:
+        """Fetch active non-deleted user belonging to company."""
+        stmt = select(User).where(
+            User.id == user_id,
+            User.company_id == company_id,
+            User.is_active.is_(True),
+            User.is_deleted.is_(False),
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
 
     # =========================================================================
     # E. Video Meetings
@@ -1069,7 +1202,7 @@ class ConnectRepository:
         """Mark participant as left or end meeting for all."""
         meeting = await self.get_meeting_by_id(meeting_id, company_id)
         if not meeting:
-            raise ValueError("Meeting not found.")
+            raise NotFoundException("Meeting not found.")
 
         if end_for_everyone:
             meeting.status = "ended"

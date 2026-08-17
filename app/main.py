@@ -58,6 +58,7 @@ from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
 from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
 from app.api.settings import router as settings_api_router
+from app.api.billing import router as billing_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
 from app.api.super_admin import router as super_admin_router
@@ -445,27 +446,14 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Allowed origins configuration
-    allowed_origins_list = [
-        "https://www.ofc360.com",
-        "https://ofc360.com",
-        "https://api.ofc360.com",
-        "https://ofc360.vercel.app",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://192.168.31.230:8080",
-        "http://192.168.31.235:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://192.168.31.230:5173",
-        "http://192.168.31.235:5173",
-        "http://localhost:3000",
-        "http://192.168.31.230:3000",
-        "http://192.168.31.235:3000",
-    ]
+    # Allowed origins configuration - production origins only
+    allowed_origins_list = list(settings.ALLOWED_ORIGINS)
 
-    if settings.ALLOWED_ORIGINS:
-        allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
+    # Add development origins only in non-production environments
+    if settings.ENVIRONMENT.lower() in {"local", "development", "dev"}:
+        allowed_origins_list.extend(settings.DEV_CORS_ORIGINS)
+
+    # Add any additional configured origins
     if settings.BACKEND_CORS_ORIGINS:
         allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
 
@@ -475,9 +463,13 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=allowed_origins_list,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
     )
+
+    # Security Headers Middleware
+    from app.middleware.security_headers import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # GZip compression for responses > 500 bytes (~60-70% size reduction)
     app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -497,12 +489,20 @@ def create_app() -> FastAPI:
             if hasattr(settings.SECRET_KEY, "get_secret_value") 
             else str(settings.SECRET_KEY)
         )
+        # Use __Host- prefix for secure cookies (requires Secure + Path=/ + no Domain)
+        # In production, always use secure cookies with SameSite=Strict
+        # In development, we still use Secure=True but may need localhost HTTPS (mkcert)
+        secure_cookie = settings.ENVIRONMENT.lower() not in {"local", "development", "dev"}
+        same_site_policy = "strict" if secure_cookie else "lax"
+        cookie_name = "__Host-ofc_session" if secure_cookie else "ofc_session"
+        
         app.add_middleware(
             SessionMiddleware,
             secret_key=session_secret,
-            session_cookie="ofc_session",
-            same_site="lax",
-            https_only=not settings.DEBUG,  # False for development/localhost, True for production
+            session_cookie=cookie_name,
+            same_site=same_site_policy,
+            https_only=secure_cookie,
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # Match refresh token expiry
         )
 
     install_exception_handlers(app)
@@ -548,6 +548,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_insights_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
     app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
@@ -617,6 +618,8 @@ def create_app() -> FastAPI:
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")
     app.include_router(generate_router, prefix="/api")
+    app.include_router(settings_api_router)
+    app.include_router(billing_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

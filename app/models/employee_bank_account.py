@@ -23,10 +23,6 @@ class EmployeeBankAccount(Base):
     ifsc_code: Mapped[str] = mapped_column(String(15), nullable=False)
     account_type: Mapped[str] = mapped_column(String(20), nullable=False, default="SAVINGS", server_default=text("'SAVINGS'"))
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
-    branch: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    upi_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    cancelled_cheque_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    passbook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

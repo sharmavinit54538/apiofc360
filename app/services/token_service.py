@@ -22,45 +22,6 @@ from app.utils.jwt import (
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory blacklist with throttled auto-pruning of expired tokens (fallback)
-_blacklisted_access_tokens: dict[str, int] = {}  # token_string -> exp_timestamp
-_last_prune_time: float = 0.0
-_PRUNE_INTERVAL: float = 60.0  # seconds between prune cycles
-
-
-def _prune_expired_tokens() -> None:
-    """Remove expired tokens from blacklist (called at most once per _PRUNE_INTERVAL)."""
-    import time
-    global _last_prune_time
-    now = time.monotonic()
-    if now - _last_prune_time < _PRUNE_INTERVAL:
-        return
-    _last_prune_time = now
-    ts_now = int(datetime.now(timezone.utc).timestamp())
-    expired = [t for t, ex in _blacklisted_access_tokens.items() if ex < ts_now]
-    for t in expired:
-        _blacklisted_access_tokens.pop(t, None)
-
-
-def blacklist_access_token(token: str, exp: int) -> None:
-    """Add an access token to the in-memory blacklist until it naturally expires."""
-    _blacklisted_access_tokens[token] = exp
-    _prune_expired_tokens()
-
-
-def is_access_token_blacklisted(token: str) -> bool:
-    """Return True if the access token has been blacklisted on logout."""
-    if token not in _blacklisted_access_tokens:
-        return False
-    # Check if it has expired (fast path)
-    now = int(datetime.now(timezone.utc).timestamp())
-    exp = _blacklisted_access_tokens.get(token, 0)
-    if exp < now:
-        _blacklisted_access_tokens.pop(token, None)
-        return False
-    _prune_expired_tokens()
-    return True
-
 
 class TokenService:
     """Service handling token generation, validation, rotation, locking, and reuse detection."""
@@ -155,17 +116,15 @@ class TokenService:
 
             # TOKEN FAMILY REUSE DETECTION:
             # If a refresh token was already revoked/used, someone is attempting to reuse a rotated token!
-            # Revoke the entire token family and user sessions immediately.
+            # Revoke only the compromised token family.
             if getattr(token_record, "revoked", False) is True:
                 logger.critical(
-                    "SECURITY ALERT: Token family reuse detected! User %s presented revoked token %s (family_id=%s). Revoking entire session family.",
+                    "SECURITY ALERT: Token family reuse detected! User %s presented revoked token %s (family_id=%s). Revoking compromised token family.",
                     getattr(token_record, "user_id", "unknown"), token_hash[:12], getattr(token_record, "family_id", None)
                 )
                 if getattr(token_record, "family_id", None):
                     await self.auth_repository.revoke_token_family(token_record.family_id, reason="REUSE_ATTEMPT_DETECTED")
-                if getattr(token_record, "user_id", None):
-                    await self.auth_repository.revoke_all_user_refresh_tokens(token_record.user_id, reason="REUSE_ATTEMPT_DETECTED")
-                    await redis_client.revoke_user_tokens(token_record.user_id)
+                # NOTE: We no longer revoke ALL user sessions - only the compromised family
                 await self.session.commit()
                 raise AppException(
                     message="Invalid or expired refresh token. Token family revoked due to reuse detection.",
@@ -291,4 +250,3 @@ async def get_token_service(session: AsyncSession = Depends(get_db_session)) -> 
     """Dependency provider for TokenService."""
 
     return TokenService(session=session, auth_repository=AuthRepository(session))
-

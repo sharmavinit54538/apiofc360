@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.employee.constants import DOCUMENT_TYPE_VALUES
 
@@ -16,13 +17,32 @@ class EmployeeDocumentCreate(BaseModel):
     document_url: str | None = Field(None, max_length=500)
     expiry_date: date | None = None
 
-    @field_validator("document_type")
+    @model_validator(mode="before")
     @classmethod
-    def validate_document_type(cls, v: str) -> str:
-        v = v.upper()
-        if v not in DOCUMENT_TYPE_VALUES:
-            raise ValueError("document_type must be one of: " + ", ".join(DOCUMENT_TYPE_VALUES))
-        return v
+    def normalize_document_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for fld in ("document_number", "document_url", "expiry_date"):
+                if fld in data and (data[fld] is None or str(data[fld]).strip() == ""):
+                    data[fld] = None
+                elif isinstance(data.get(fld), str):
+                    data[fld] = data[fld].strip()
+        return data
+
+    @field_validator("document_type", mode="before")
+    @classmethod
+    def validate_document_type(cls, v: Any) -> str:
+        if v is None or not str(v).strip():
+            return "OTHER"
+        v_upper = str(v).strip().upper().replace(" ", "_")
+        if v_upper in {"AADHAR", "UIDAI"}:
+            return "AADHAAR"
+        if v_upper in {"DL", "DRIVERS_LICENSE", "DRIVER_LICENSE"}:
+            return "DRIVING_LICENSE"
+        if v_upper in {"VOTER", "VOTER_CARD", "EPIC"}:
+            return "VOTER_ID"
+        if v_upper in DOCUMENT_TYPE_VALUES:
+            return v_upper
+        return "OTHER"
 
 
 class EmployeeDocumentResponse(BaseModel):
