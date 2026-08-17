@@ -688,6 +688,14 @@ class ManagerUpdate(BaseModel):
     can_manage_recruitment: bool | None = None
     can_manage_performance: bool | None = None
 
+    # Optional — Nested relations
+    addresses: list[ManagerAddressCreate] | None = None
+    documents: list[ManagerDocumentCreate] | None = None
+    education: list[ManagerEducationCreate] | None = None
+    experience: list[ManagerExperienceCreate] | None = None
+    skills: list[ManagerSkillCreate] | None = None
+    emergency_contacts: list[ManagerEmergencyContactCreate] | None = None
+
 
 class ManagerPermissionsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
