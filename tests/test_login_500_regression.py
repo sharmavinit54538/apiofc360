@@ -25,10 +25,8 @@ from app.models.company import Company
 from app.core.security import hash_password
 
 
-@pytest.fixture(autouse=True)
-async def cleanup_db_engine():
-    yield
-    await engine.dispose()
+
+
 
 
 
