@@ -68,30 +68,30 @@ class Settings(BaseSettings):
     )
 
     BCRYPT_ROUNDS: int = 12
+    # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://ofc360.vercel.app",
+    ]
+    # Development origins - only used when ENVIRONMENT is local/development/dev
+    DEV_CORS_ORIGINS: list[str] = [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://192.168.31.230:8080",
         "http://192.168.31.235:8080",
         "http://localhost:3000",
         "http://localhost:8000",
-        "http://127.0.0.1:3000"
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ]
     ALLOWED_ORIGINS: list[str] = [
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://ofc360.vercel.app",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://192.168.31.230:8080",
-        "http://192.168.31.235:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
     ]
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5

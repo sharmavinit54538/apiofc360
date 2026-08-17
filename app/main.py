@@ -475,9 +475,13 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=allowed_origins_list,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
     )
+
+    # Security Headers Middleware
+    from app.middleware.security_headers import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # GZip compression for responses > 500 bytes (~60-70% size reduction)
     app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -497,12 +501,20 @@ def create_app() -> FastAPI:
             if hasattr(settings.SECRET_KEY, "get_secret_value") 
             else str(settings.SECRET_KEY)
         )
+        # Use __Host- prefix for secure cookies (requires Secure + Path=/ + no Domain)
+        # In production, always use secure cookies with SameSite=Strict
+        # In development, we still use Secure=True but may need localhost HTTPS (mkcert)
+        secure_cookie = settings.ENVIRONMENT.lower() not in {"local", "development", "dev"}
+        same_site_policy = "strict" if secure_cookie else "lax"
+        cookie_name = "__Host-ofc_session" if secure_cookie else "ofc_session"
+        
         app.add_middleware(
             SessionMiddleware,
             secret_key=session_secret,
-            session_cookie="ofc_session",
-            same_site="lax",
-            https_only=not settings.DEBUG,  # False for development/localhost, True for production
+            session_cookie=cookie_name,
+            same_site=same_site_policy,
+            https_only=secure_cookie,
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # Match refresh token expiry
         )
 
     install_exception_handlers(app)
