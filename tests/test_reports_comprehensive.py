@@ -31,7 +31,7 @@ from app.main import app
 from app.models.communication import Poll, PollOption, PollVote
 from app.models.department import Department
 from app.models.employee import Employee
-from app.models.exit import ExitInterview
+from app.models.exit import EmployeeExit, ExitInterview
 from app.models.mood_detection import MoodDetectionLog
 from app.models.performance import (
     EmployeePerformanceGoal,
@@ -61,52 +61,40 @@ def company_b_id() -> uuid.UUID:
 @pytest.fixture
 def hr_admin_token_company_a(company_a_id: uuid.UUID) -> str:
     return create_access_token(
-        data={
-            "sub": str(uuid.uuid4()),
-            "email": "hr.admin@companya.com",
-            "role": ROLE_HR_ADMIN,
-            "company_id": str(company_a_id),
-            "is_active": True,
-        }
+        user_id=uuid.uuid4(),
+        role=ROLE_HR_ADMIN,
+        company_id=company_a_id,
+        email="hr.admin@companya.com",
     )
 
 
 @pytest.fixture
 def hr_admin_token_company_b(company_b_id: uuid.UUID) -> str:
     return create_access_token(
-        data={
-            "sub": str(uuid.uuid4()),
-            "email": "hr.admin@companyb.com",
-            "role": ROLE_HR_ADMIN,
-            "company_id": str(company_b_id),
-            "is_active": True,
-        }
+        user_id=uuid.uuid4(),
+        role=ROLE_HR_ADMIN,
+        company_id=company_b_id,
+        email="hr.admin@companyb.com",
     )
 
 
 @pytest.fixture
 def manager_token_company_a(company_a_id: uuid.UUID) -> str:
     return create_access_token(
-        data={
-            "sub": str(uuid.uuid4()),
-            "email": "manager@companya.com",
-            "role": ROLE_MANAGER,
-            "company_id": str(company_a_id),
-            "is_active": True,
-        }
+        user_id=uuid.uuid4(),
+        role=ROLE_MANAGER,
+        company_id=company_a_id,
+        email="manager@companya.com",
     )
 
 
 @pytest.fixture
 def employee_token_company_a(company_a_id: uuid.UUID) -> str:
     return create_access_token(
-        data={
-            "sub": str(uuid.uuid4()),
-            "email": "employee@companya.com",
-            "role": ROLE_EMPLOYEE,
-            "company_id": str(company_a_id),
-            "is_active": True,
-        }
+        user_id=uuid.uuid4(),
+        role=ROLE_EMPLOYEE,
+        company_id=company_a_id,
+        email="employee@companya.com",
     )
 
 
@@ -176,7 +164,7 @@ async def test_engagement_summary_empty_company(company_a_id: uuid.UUID):
     mock_res_well.one_or_none.return_value = (0, 0, 0, 0, None)
 
     mock_res_mood = MagicMock()
-    mock_res_mood.one_or_none.return_value = (0, 0, 0, 0, None)
+    mock_res_mood.one_or_none.return_value = (0, 0, 0, 0)
 
     mock_session.execute.side_effect = [
         mock_res_emp,
@@ -537,3 +525,75 @@ async def test_employee_role_forbidden(employee_token_company_a: str):
             headers={"Authorization": f"Bearer {employee_token_company_a}"},
         )
         assert resp.status_code == 403
+
+
+# ==============================================================================
+# 4. PERFORMANCE & COMPLIANCE ENDPOINTS INTEGRATION TESTS
+# ==============================================================================
+
+@pytest.mark.asyncio
+async def test_performance_dashboard_endpoint(
+    hr_admin_token_company_a: str, company_a_id: uuid.UUID
+):
+    """Verify GET /api/v1/ai/performance/dashboard is accessible and returns valid structure."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch(
+            "app.repositories.ai_performance_repository.AIPerformanceRepository.get_dashboard_kpis",
+            new_callable=AsyncMock,
+        ) as mock_perf:
+            mock_perf.return_value = {
+                "average_performance_score": 4.25,
+                "top_performers_count": 8,
+                "skill_gaps_count": 3,
+                "promotion_picks_count": 2,
+            }
+            resp = await client.get(
+                "/api/v1/ai/performance/dashboard",
+                headers={"Authorization": f"Bearer {hr_admin_token_company_a}"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["success"] is True
+            assert data["data"]["average_performance_score"] == 4.25
+
+
+@pytest.mark.asyncio
+async def test_compliance_dashboard_endpoint(
+    hr_admin_token_company_a: str, company_a_id: uuid.UUID
+):
+    """Verify GET /api/v1/ai/compliance/dashboard is accessible and returns valid structure."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch(
+            "app.repositories.compliance_monitor_repository.ComplianceMonitorRepository.get_dashboard_kpis",
+            new_callable=AsyncMock,
+        ) as mock_comp:
+            mock_comp.return_value = {
+                "complianceScore": 94.0,
+                "compliance_score": 94.0,
+                "openRisks": 2,
+                "open_risks": 2,
+                "missingDocs": 5,
+                "missing_docs": 5,
+                "auditReadiness": "96.0%",
+                "audit_readiness": "96.0%",
+                "complianceTrend": [],
+                "compliance_trend": [],
+                "risksByCategory": [],
+                "risks_by_category": [],
+                "laborLawStatus": {"working_hours": "COMPLIANT"},
+                "recommendations": [],
+                "policy_violations": 0,
+                "expired_documents": 1,
+                "critical_risks": 0,
+            }
+            resp = await client.get(
+                "/api/v1/ai/compliance/dashboard",
+                headers={"Authorization": f"Bearer {hr_admin_token_company_a}"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["success"] is True
+            assert "complianceScore" in data["data"] or "compliance_score" in data["data"]
+

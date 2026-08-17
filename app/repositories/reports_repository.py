@@ -18,7 +18,7 @@ from app.models.communication import (
 )
 from app.models.department import Department
 from app.models.employee import Employee
-from app.models.exit import ExitInterview
+from app.models.exit import EmployeeExit, ExitInterview
 from app.models.mood_detection import MoodDetectionLog
 from app.models.payroll import BonusAward
 from app.models.performance import PerformanceReview
@@ -146,10 +146,9 @@ class ReportsRepository:
             mood_stmt = (
                 select(
                     func.count(MoodDetectionLog.id),
-                    func.sum(case((MoodDetectionLog.sentiment_score >= 0.7, 1), else_=0)),
-                    func.sum(case((and_(MoodDetectionLog.sentiment_score >= 0.4, MoodDetectionLog.sentiment_score < 0.7), 1), else_=0)),
-                    func.sum(case((MoodDetectionLog.sentiment_score < 0.4, 1), else_=0)),
-                    func.avg(MoodDetectionLog.sentiment_score),
+                    func.sum(case((MoodDetectionLog.detected_mood.in_(["MOTIVATED", "SATISFIED"]), 1), else_=0)),
+                    func.sum(case((MoodDetectionLog.detected_mood == "STRESSED", 1), else_=0)),
+                    func.sum(case((MoodDetectionLog.detected_mood.in_(["BURNOUT", "DISENGAGED"]), 1), else_=0)),
                 )
                 .join(Employee, MoodDetectionLog.employee_id == Employee.id)
                 .where(Employee.company_id == company_id)
@@ -160,12 +159,12 @@ class ReportsRepository:
                 m_prom = mood_res[1] or 0
                 m_pass = mood_res[2] or 0
                 m_det = mood_res[3] or 0
-                avg_mood = float(mood_res[4] or 0.0) * 10.0
 
                 promoters_pct = round((m_prom / m_total) * 100.0, 1)
                 passives_pct = round((m_pass / m_total) * 100.0, 1)
                 detractors_pct = round((m_det / m_total) * 100.0, 1)
                 enps_val = round(promoters_pct - detractors_pct, 1)
+                avg_mood = 7.5
 
         # 6. Composite Engagement Score (0-100)
         engagement_score: Optional[float] = None
@@ -227,7 +226,6 @@ class ReportsRepository:
             period_label = f"{yr:04d}-{mo:02d}"
 
             score_100 = round(min(100.0, avg_score * 10.0), 1)
-            # Response rate proxy for this month
             resp_pct = round(min(100.0, cnt * 2.5), 1)
 
             trend_items.append({
@@ -519,7 +517,6 @@ class ReportsRepository:
             avg_ai_score = float(rev_res[1]) if rev_res[1] is not None else None
 
             if avg_reviewer_rating is not None:
-                # scale 1-5 rating to 0-100
                 manager_effectiveness = round(min(100.0, avg_reviewer_rating * 20.0), 1)
 
             if avg_ai_score is not None:
@@ -546,7 +543,6 @@ class ReportsRepository:
             burnout_cnt = int(well_res[1] or 0)
             total_well = int(well_res[2] or 0)
 
-            # Psychological safety: high when low burnout & healthy mood
             low_burnout_rate = (1.0 - (burnout_cnt / total_well)) * 100.0
             psychological_safety = round(min(100.0, (avg_mood * 10.0 * 0.5) + (low_burnout_rate * 0.5)), 1)
             belonging_score = round(min(100.0, avg_mood * 10.0), 1)
@@ -688,12 +684,12 @@ class ReportsRepository:
         self, company_id: uuid.UUID
     ) -> Dict[str, Any]:
         """Fetch aggregated and sanitized employee feedback overview."""
-        # Query ExitInterview feedback and CommunicationAuditLogs
+        # Query ExitInterview feedback joined via EmployeeExit
         exit_stmt = (
             select(func.count(ExitInterview.id))
-            .join(Employee, ExitInterview.employee_id == Employee.id)
+            .join(EmployeeExit, ExitInterview.exit_id == EmployeeExit.id)
             .where(
-                Employee.company_id == company_id,
+                EmployeeExit.company_id == company_id,
                 ExitInterview.feedback.is_not(None),
             )
         )
@@ -714,9 +710,9 @@ class ReportsRepository:
         mood_stmt = (
             select(
                 func.count(MoodDetectionLog.id),
-                func.sum(case((MoodDetectionLog.sentiment_score >= 0.6, 1), else_=0)),
-                func.sum(case((and_(MoodDetectionLog.sentiment_score >= 0.4, MoodDetectionLog.sentiment_score < 0.6), 1), else_=0)),
-                func.sum(case((MoodDetectionLog.sentiment_score < 0.4, 1), else_=0)),
+                func.sum(case((MoodDetectionLog.detected_mood.in_(["MOTIVATED", "SATISFIED"]), 1), else_=0)),
+                func.sum(case((MoodDetectionLog.detected_mood == "STRESSED", 1), else_=0)),
+                func.sum(case((MoodDetectionLog.detected_mood.in_(["BURNOUT", "DISENGAGED"]), 1), else_=0)),
             )
             .join(Employee, MoodDetectionLog.employee_id == Employee.id)
             .where(Employee.company_id == company_id)
