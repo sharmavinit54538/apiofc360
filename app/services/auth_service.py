@@ -26,7 +26,7 @@ from app.schemas.auth import (
     VerifyResetOTPRequest,
 )
 from app.services.email_service import EmailService, get_email_service
-from app.services.token_service import TokenService, get_token_service, blacklist_access_token
+from app.services.token_service import TokenService, get_token_service
 from app.utils.jwt import decode_token
 from app.utils.otp import generate_otp, hash_otp, verify_otp_hash
 
@@ -798,7 +798,7 @@ class AuthService:
         if refresh_token:
             await self.token_service.revoke_refresh_token(refresh_token)
 
-        # Blacklist access token for its remaining lifetime in Redis & fallback
+        # Blacklist access token for its remaining lifetime in Redis
         if access_token:
             try:
                 claims = decode_token(access_token)
@@ -806,8 +806,8 @@ class AuthService:
                 if exp:
                     ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))
                     await redis_client.blacklist_token(access_token, ttl)
-                    blacklist_access_token(access_token, exp)
             except Exception:
+                # If we can't decode, use default TTL
                 await redis_client.blacklist_token(access_token, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         await self.session.commit()

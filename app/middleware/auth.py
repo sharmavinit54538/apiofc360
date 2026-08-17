@@ -10,13 +10,13 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.redis_client import redis_client
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
-from app.services.token_service import is_access_token_blacklisted
 from app.utils.jwt import decode_token
 
 logger = logging.getLogger(__name__)
@@ -47,12 +47,25 @@ async def get_current_user_claims(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 1. Check Redis token blocklist (and legacy fallback)
-    if await redis_client.is_token_blacklisted(token) or is_access_token_blacklisted(token):
+    # 1. Check Redis token blocklist - required for production
+    # In development, allow fallback only if explicitly configured
+    is_production = settings.ENVIRONMENT.lower() in {"production", "prod", "staging"}
+    token_blacklisted = await redis_client.is_token_blacklisted(token)
+    
+    if token_blacklisted:
         logger.warning("Access Token rejected: Token has been blacklisted on logout or revocation.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired login session. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # In production, Redis must be available for token revocation checks
+    if is_production and not redis_client.is_connected:
+        logger.error("Redis unavailable in production - cannot verify token revocation state")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service temporarily unavailable. Please try again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
