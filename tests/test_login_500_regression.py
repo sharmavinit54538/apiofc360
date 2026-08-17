@@ -19,10 +19,17 @@ import uuid
 from httpx import AsyncClient, ASGITransport
 
 from app.main import create_app
-from app.db.database import AsyncSessionLocal
+from app.db.database import AsyncSessionLocal, engine
 from app.models.user import User, UserRole
 from app.models.company import Company
 from app.core.security import hash_password
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_db_engine():
+    yield
+    await engine.dispose()
+
 
 
 @pytest.mark.asyncio
@@ -211,7 +218,7 @@ async def test_login_each_role_returns_200():
     app = create_app()
     transport = ASGITransport(app=app)
 
-    roles_to_test = [UserRole.HR_ADMIN, UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.EXECUTIVE]
+    roles_to_test = [UserRole.HR_ADMIN, UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.CTO]
     created_ids = []
 
     for role in roles_to_test:
