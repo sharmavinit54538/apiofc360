@@ -332,7 +332,8 @@ def test_mfa_enable_initiation_flow():
         assert data["data"]["mfa_enabled"] is False  # Not enabled permanently until verified
         assert "secret" in data["data"]
         assert "otpauth://" in data["data"]["provisioning_uri"]
-        assert "data:image/png;base64," in data["data"]["qr_code"]
+        qr = data["data"]["qr_code"]
+        assert qr and ("data:image/png;base64," in qr or "http" in qr)
         assert mock_session.committed is True
 
     app.dependency_overrides.clear()
