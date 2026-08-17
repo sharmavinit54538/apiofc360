@@ -627,6 +627,70 @@ class EmployeeService:
                             errors=[{"field": "employee_id", "message": "Employee ID already in use."}],
                         )
 
+            # Salary cross-field validation with merged DB state
+            salary_keys = ["ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"]
+            has_salary_update = any(k in update_data for k in salary_keys)
+
+            # Build merged salary state (incoming values override existing DB values; omitted fields preserve existing DB values)
+            merged_ctc = update_data.get("ctc") if ("ctc" in update_data and update_data["ctc"] is not None) else employee.ctc
+            merged_basic = update_data.get("basic_salary") if ("basic_salary" in update_data and update_data["basic_salary"] is not None) else employee.basic_salary
+            merged_hra = update_data.get("hra") if ("hra" in update_data and update_data["hra"] is not None) else employee.hra
+            merged_bonus = update_data.get("bonus") if ("bonus" in update_data and update_data["bonus"] is not None) else employee.bonus
+            merged_pf = update_data.get("pf") if ("pf" in update_data and update_data["pf"] is not None) else employee.pf
+            merged_esi = update_data.get("esi") if ("esi" in update_data and update_data["esi"] is not None) else employee.esi
+            merged_pt = update_data.get("professional_tax") if ("professional_tax" in update_data and update_data["professional_tax"] is not None) else employee.professional_tax
+
+            if has_salary_update:
+                from decimal import Decimal
+                if merged_ctc is not None and Decimal(str(merged_ctc)) > 0:
+                    ctc_dec = Decimal(str(merged_ctc))
+                    components = [
+                        ("basic_salary", merged_basic),
+                        ("hra", merged_hra),
+                        ("bonus", merged_bonus),
+                        ("pf", merged_pf),
+                        ("esi", merged_esi),
+                        ("professional_tax", merged_pt),
+                    ]
+                    for comp_name, comp_val in components:
+                        if comp_val is not None:
+                            val_dec = Decimal(str(comp_val))
+                            if val_dec > ctc_dec:
+                                raise AppException(
+                                    message=f"{comp_name} ({comp_val}) cannot exceed ctc ({merged_ctc})",
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    errors=[{"field": comp_name, "message": f"{comp_name} cannot exceed ctc."}],
+                                )
+
+                    b_dec = Decimal(str(merged_basic)) if merged_basic is not None else Decimal("0")
+                    h_dec = Decimal(str(merged_hra)) if merged_hra is not None else Decimal("0")
+                    bon_dec = Decimal(str(merged_bonus)) if merged_bonus is not None else Decimal("0")
+
+                    if merged_basic is not None or merged_hra is not None or merged_bonus is not None:
+                        combined = b_dec + h_dec + bon_dec
+                        max_allowed = ctc_dec * Decimal("1.01")
+                        if combined > max_allowed:
+                            raise AppException(
+                                message="basic_salary + hra + bonus exceeds ctc — check the compensation breakup",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                errors=[{"field": "ctc", "message": "basic_salary + hra + bonus exceeds ctc."}],
+                            )
+                else:
+                    components = [
+                        ("basic_salary", merged_basic),
+                        ("hra", merged_hra),
+                        ("bonus", merged_bonus),
+                        ("pf", merged_pf),
+                        ("esi", merged_esi),
+                        ("professional_tax", merged_pt),
+                    ]
+                    for comp_name, comp_val in components:
+                        if comp_val is not None and Decimal(str(comp_val)) > 0:
+                            raise AppException(
+                                message=f"{comp_name} ({comp_val}) cannot exceed ctc (0)",
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                errors=[{"field": comp_name, "message": f"{comp_name} cannot be set without ctc."}],
+                            )
 
             # Merge role_metadata (don't replace, merge keys)
             if "role_metadata" in update_data and update_data["role_metadata"] is not None:

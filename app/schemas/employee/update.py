@@ -97,6 +97,40 @@ class EmployeeUpdate(EmployeeValidatorsMixin, BaseModel):
                     data["reporting_manager_id"] = rm
             elif "reporting_manager_id" in data and data["reporting_manager_id"] == "":
                 data["reporting_manager_id"] = None
+            # Clean salary fields
+            salary_keys = ["ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"]
+            for key in salary_keys:
+                if key in data:
+                    val = data[key]
+                    if val == "" or val is None:
+                        data[key] = None
+                    elif isinstance(val, (int, float, str)):
+                        try:
+                            d_val = Decimal(str(val))
+                            if d_val < 0:
+                                pass
+                        except Exception:
+                            data[key] = None
+
+            # If ctc is 0 or "0" in a partial update, avoid zeroing CTC when positive salary components exist or in partial profile updates
+            if "ctc" in data and data["ctc"] in (0, "0", 0.0, Decimal("0")):
+                has_positive_component = False
+                for k in ["basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"]:
+                    if k in data and data[k] is not None:
+                        try:
+                            if Decimal(str(data[k])) > 0:
+                                has_positive_component = True
+                                break
+                        except Exception:
+                            pass
+                has_all_zero_explicit_salaries = all(
+                    data.get(k) in (0, "0", 0.0, Decimal("0")) for k in ["basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"] if k in data
+                ) and any(k in data for k in ["basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"])
+
+                if has_positive_component or (not has_all_zero_explicit_salaries and not any(k in data for k in ["basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"])):
+                    # Unset ctc so existing database CTC is preserved and used during merge validation
+                    data.pop("ctc", None)
+
             # Clean skills
             if "skills" in data and isinstance(data["skills"], list):
                 data["skills"] = [
