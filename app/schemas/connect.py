@@ -329,6 +329,14 @@ class ChannelCreateRequest(BaseModel):
     isPrivate: bool = False
     memberIds: list[uuid.UUID] = []
 
+    @field_validator("name")
+    @classmethod
+    def validate_name_not_empty(cls, v: str) -> str:
+        trimmed = v.strip()
+        if not trimmed:
+            raise ValueError("Channel name cannot be empty or whitespace only.")
+        return trimmed
+
     @model_validator(mode="before")
     @classmethod
     def normalize_channel_create(cls, data: Any) -> Any:
@@ -349,6 +357,68 @@ class ChannelCreateRequest(BaseModel):
                 data["memberIds"] = members
             else:
                 data["memberIds"] = []
+        return data
+
+
+class ChannelUpdateRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=500)
+    isPrivate: bool | None = None
+    isArchived: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_if_present(cls, v: str | None) -> str | None:
+        if v is not None:
+            trimmed = v.strip()
+            if not trimmed:
+                raise ValueError("Channel name cannot be empty or whitespace only.")
+            return trimmed
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_channel_update(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "is_private" in data and "isPrivate" not in data:
+                data["isPrivate"] = bool(data["is_private"])
+            elif "private" in data and "isPrivate" not in data:
+                data["isPrivate"] = bool(data["private"])
+            if "is_archived" in data and "isArchived" not in data:
+                data["isArchived"] = bool(data["is_archived"])
+            elif "archived" in data and "isArchived" not in data:
+                data["isArchived"] = bool(data["archived"])
+        return data
+
+
+class ChannelAddMembersRequest(BaseModel):
+    memberIds: list[uuid.UUID] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_add_members(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            members = (
+                data.get("memberIds")
+                if "memberIds" in data
+                else (
+                    data.get("member_ids")
+                    or data.get("members")
+                    or data.get("participantIds")
+                    or data.get("participants")
+                    or data.get("userIds")
+                    or data.get("user_ids")
+                )
+            )
+            if members is not None:
+                if isinstance(members, (list, tuple)):
+                    data["memberIds"] = list(members)
+                else:
+                    data["memberIds"] = [members]
+            else:
+                data["memberIds"] = []
+        elif isinstance(data, (list, tuple)):
+            data = {"memberIds": list(data)}
         return data
 
 

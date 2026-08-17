@@ -21,8 +21,10 @@ from app.schemas.connect import (
     CallInitiateRequest,
     CallSignalRequest,
     CallStatusUpdateRequest,
+    ChannelAddMembersRequest,
     ChannelArchiveRequest,
     ChannelCreateRequest,
+    ChannelUpdateRequest,
     ConversationCreateRequest,
     MailDispatchRequest,
     MeetingCreateRequest,
@@ -495,6 +497,123 @@ async def get_channel_detail(
     return {
         "success": True,
         "message": "Channel details retrieved successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.patch(
+    "/channels/{channelId}",
+    summary="14b. Update Channel",
+    description="Update team channel name, description, privacy, or archive status (Creator, Host, or Admin).",
+)
+async def update_channel(
+    channelId: uuid.UUID,
+    payload: ChannelUpdateRequest,
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    company_id = resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = await service.update_channel(
+        company_id=company_id,
+        user=user,
+        channel_id=channelId,
+        name=payload.name,
+        description=payload.description,
+        is_private=payload.isPrivate,
+        is_archived=payload.isArchived,
+    )
+    return {
+        "success": True,
+        "message": "Channel updated successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.delete(
+    "/channels/{channelId}",
+    summary="14c. Delete Channel",
+    description="Soft delete a team channel (Creator, Host, or Admin).",
+)
+async def delete_channel(
+    channelId: uuid.UUID,
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    company_id = resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = await service.delete_channel(
+        company_id=company_id,
+        user=user,
+        channel_id=channelId,
+    )
+    return {
+        "success": True,
+        "message": "Channel deleted successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.post(
+    "/channels/{channelId}/members",
+    summary="14d. Add Channel Members",
+    description="Add new members to a team channel.",
+)
+async def add_channel_members(
+    channelId: uuid.UUID,
+    payload: ChannelAddMembersRequest,
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    company_id = resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = await service.add_channel_members(
+        company_id=company_id,
+        user=user,
+        channel_id=channelId,
+        member_ids=payload.memberIds,
+    )
+    return {
+        "success": True,
+        "message": "Members added to channel successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.delete(
+    "/channels/{channelId}/members/{userId}",
+    summary="14e. Remove Channel Member",
+    description="Remove a member from a team channel (Self, Creator, Host, or Admin).",
+)
+async def remove_channel_member(
+    channelId: uuid.UUID,
+    userId: uuid.UUID,
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    company_id = resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = await service.remove_channel_member(
+        company_id=company_id,
+        user=user,
+        channel_id=channelId,
+        target_user_id=userId,
+    )
+    return {
+        "success": True,
+        "message": "Member removed from channel successfully",
         "data": result,
         "errors": None,
     }

@@ -571,6 +571,144 @@ class ConnectService:
 
         return formatted
 
+    async def update_channel(
+        self,
+        company_id: uuid.UUID,
+        user: User,
+        channel_id: uuid.UUID,
+        name: str | None = None,
+        description: str | None = None,
+        is_private: bool | None = None,
+        is_archived: bool | None = None,
+    ) -> dict[str, Any]:
+        """Update channel details with RBAC authorization check."""
+        ch = await self.repo.get_channel_by_id(channel_id, company_id)
+        if not ch:
+            raise NotFoundException("Channel not found.")
+
+        user_role = getattr(user.role, "value", str(user.role)).lower() if user.role else ""
+        is_creator = ch.created_by == user.id
+        is_host = any(m.user_id == user.id and m.role in ("host", "admin") for m in ch.members)
+        is_admin = user_role in ("hr_admin", "super_admin", "it_admin")
+
+        if not is_creator and not is_host and not is_admin:
+            raise ForbiddenException("Only the channel creator, host, or an administrator can update this channel.")
+
+        updated = await self.repo.update_channel(
+            channel_id=channel_id,
+            company_id=company_id,
+            name=name,
+            description=description,
+            is_private=is_private,
+            is_archived=is_archived,
+        )
+        formatted = self._format_channel_detail(updated, user.id)
+
+        # Broadcast channel update event
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_updated",
+            {"channel_id": channel_id, "channel": formatted},
+        )
+
+        return formatted
+
+    async def delete_channel(
+        self,
+        company_id: uuid.UUID,
+        user: User,
+        channel_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Soft delete a channel with RBAC authorization check."""
+        ch = await self.repo.get_channel_by_id(channel_id, company_id)
+        if not ch:
+            raise NotFoundException("Channel not found.")
+
+        user_role = getattr(user.role, "value", str(user.role)).lower() if user.role else ""
+        is_creator = ch.created_by == user.id
+        is_host = any(m.user_id == user.id and m.role in ("host", "admin") for m in ch.members)
+        is_admin = user_role in ("hr_admin", "super_admin", "it_admin")
+
+        if not is_creator and not is_host and not is_admin:
+            raise ForbiddenException("Only the channel creator, host, or an administrator can delete this channel.")
+
+        await self.repo.soft_delete_channel(channel_id, company_id)
+
+        # Broadcast channel deleted event
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_deleted",
+            {"channel_id": channel_id},
+        )
+
+        return {"deleted": True, "channel_id": channel_id}
+
+    async def add_channel_members(
+        self,
+        company_id: uuid.UUID,
+        user: User,
+        channel_id: uuid.UUID,
+        member_ids: list[uuid.UUID],
+    ) -> dict[str, Any]:
+        """Add members to channel with authorization check."""
+        ch = await self.repo.get_channel_by_id(channel_id, company_id)
+        if not ch:
+            raise NotFoundException("Channel not found.")
+
+        is_member = any(m.user_id == user.id for m in ch.members)
+        is_admin = self._is_admin(user)
+
+        if ch.is_private and not is_member and not is_admin:
+            raise ForbiddenException("You do not have permission to add members to this private channel.")
+
+        updated = await self.repo.add_channel_members(channel_id, company_id, member_ids)
+        formatted = self._format_channel_detail(updated, user.id)
+
+        # Broadcast member addition
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_members_added",
+            {"channel_id": channel_id, "member_ids": member_ids, "members": formatted["members"]},
+        )
+
+        return formatted
+
+    async def remove_channel_member(
+        self,
+        company_id: uuid.UUID,
+        user: User,
+        channel_id: uuid.UUID,
+        target_user_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Remove a member from a channel with authorization check."""
+        ch = await self.repo.get_channel_by_id(channel_id, company_id)
+        if not ch:
+            raise NotFoundException("Channel not found.")
+
+        is_self = user.id == target_user_id
+        user_role = getattr(user.role, "value", str(user.role)).lower() if user.role else ""
+        is_creator = ch.created_by == user.id
+        is_host = any(m.user_id == user.id and m.role in ("host", "admin") for m in ch.members)
+        is_admin = user_role in ("hr_admin", "super_admin", "it_admin")
+
+        if not is_self and not is_creator and not is_host and not is_admin:
+            raise ForbiddenException("You do not have permission to remove this member from the channel.")
+
+        await self.repo.remove_channel_member(channel_id, target_user_id, company_id)
+
+        # Broadcast member removal
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_member_removed",
+            {"channel_id": channel_id, "user_id": target_user_id},
+        )
+
+        return {"removed": True, "channel_id": channel_id, "user_id": target_user_id}
+
     async def leave_channel(
         self,
         company_id: uuid.UUID,
@@ -583,6 +721,14 @@ class ConnectService:
             raise NotFoundException("Channel not found.")
 
         await self.repo.remove_channel_member(channel_id, user.id, company_id)
+
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_member_removed",
+            {"channel_id": channel_id, "user_id": user.id},
+        )
+
         return {"left": True, "channel_id": channel_id}
 
     async def archive_channel(
@@ -599,13 +745,24 @@ class ConnectService:
 
         user_role = getattr(user.role, "value", str(user.role)).lower() if user.role else ""
         is_creator = ch.created_by == user.id
+        is_host = any(m.user_id == user.id and m.role in ("host", "admin") for m in ch.members)
         is_admin = user_role in ("hr_admin", "super_admin", "it_admin")
 
-        if not is_creator and not is_admin:
-            raise ForbiddenException("Only the channel creator or an administrator can archive this channel.")
+        if not is_creator and not is_host and not is_admin:
+            raise ForbiddenException("Only the channel creator, host, or an administrator can archive this channel.")
 
         updated = await self.repo.archive_channel(channel_id, company_id, is_archived)
-        return self._format_channel_detail(updated, user.id)
+        formatted = self._format_channel_detail(updated, user.id)
+
+        # Broadcast channel archive status
+        await self.ws_manager.send_to_room(
+            f"channel:{channel_id}",
+            company_id,
+            "channel_archived",
+            {"channel_id": channel_id, "is_archived": is_archived},
+        )
+
+        return formatted
 
     # =========================================================================
     # D. Calls & WebRTC
