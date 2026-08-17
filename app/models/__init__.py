@@ -5,6 +5,16 @@ from app.models.user import User
 from app.models.refresh_token import RefreshToken
 from app.models.password_reset import PasswordResetToken
 from app.models.audit_log import AuditLog
+from app.models.security_setting import (
+    SecurityRole,
+    SecurityPermission,
+    RolePermission,
+    SecurityPolicy,
+    UserSession,
+    IPWhitelist,
+    SecurityAuditLog,
+    SecurityAlert,
+)
 from app.models.department import Department
 from app.models.company import Company
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
@@ -536,4 +546,12 @@ __all__ = [
     "TravelRequest",
     "Report",
     "DocumentOCRRecord",
+    "SecurityRole",
+    "SecurityPermission",
+    "RolePermission",
+    "SecurityPolicy",
+    "UserSession",
+    "IPWhitelist",
+    "SecurityAuditLog",
+    "SecurityAlert",
 ]
