@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limiter import rate_limiter
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.ai_resume import (
@@ -30,11 +31,25 @@ async def get_pipeline_service(
     return AIScreeningPipelineService(session=session)
 
 
+async def check_resume_upload_rate_limit(request: Request) -> None:
+    """Rate limit for resume upload endpoint: 10 requests per minute per user/IP."""
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope="recruitment_resume_upload", limit=10, window_seconds=60
+    )
+    if not allowed:
+        from app.core.rate_limiter import RateLimitExceeded
+        raise RateLimitExceeded(
+            detail=f"Too many resume upload attempts. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
 @router.post(
     "/resume/upload",
     status_code=status.HTTP_201_CREATED,
     response_model=CandidateScreeningResponse,
     summary="Upload resume for automated AI screening & ATS matching",
+    dependencies=[Depends(check_resume_upload_rate_limit)],
 )
 async def upload_and_screen_resume(
     file: UploadFile,
