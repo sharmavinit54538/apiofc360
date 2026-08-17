@@ -113,6 +113,18 @@ class EmployeeCreate(EmployeeValidatorsMixin, BaseModel):
     def clean_empty_nested_relations(cls, data: Any) -> Any:
         from typing import Any
         if isinstance(data, dict):
+            # Map alias keys to standard fields
+            if "annual_ctc" in data and "ctc" not in data:
+                data["ctc"] = data["annual_ctc"]
+            if "annualCtc" in data and "ctc" not in data:
+                data["ctc"] = data["annualCtc"]
+            if "salary" in data and "ctc" not in data:
+                data["ctc"] = data["salary"]
+            if "basicSalary" in data and "basic_salary" not in data:
+                data["basic_salary"] = data["basicSalary"]
+            if "professionalTax" in data and "professional_tax" not in data:
+                data["professional_tax"] = data["professionalTax"]
+
             # Convert empty string reporting_manager_id to None
             if "reporting_manager_id" in data and data["reporting_manager_id"] == "":
                 data["reporting_manager_id"] = None

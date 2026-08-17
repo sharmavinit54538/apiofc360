@@ -534,18 +534,113 @@ def test_employee_list_item_serialization_includes_ctc_and_salary():
         "basic_salary": Decimal("600000"),
         "hra": Decimal("300000"),
         "bonus": Decimal("180000"),
+        "pf": Decimal("72000"),
+        "esi": Decimal("0"),
+        "professional_tax": Decimal("2500"),
     }
 
     item = EmployeeListItem.model_validate(mock_emp)
     assert item.ctc == Decimal("1200000")
     assert item.salary == Decimal("1200000")
     assert item.annual_ctc == Decimal("1200000")
+    assert item.annualCtc == Decimal("1200000")
     assert item.basic_salary == Decimal("600000")
+    assert item.basicSalary == Decimal("600000")
     assert item.hra == Decimal("300000")
+    assert item.bonus == Decimal("180000")
+    assert item.pf == Decimal("72000")
+    assert item.esi == Decimal("0")
+    assert item.professional_tax == Decimal("2500")
+    assert item.professionalTax == Decimal("2500")
 
     # Serialized dump for JSON API response
     data = item.model_dump()
     assert data["ctc"] == Decimal("1200000")
     assert data["salary"] == Decimal("1200000")
     assert data["annual_ctc"] == Decimal("1200000")
+    assert data["annualCtc"] == Decimal("1200000")
+
+
+# ==============================================================================
+# 10. EmployeeResponse includes all compensation aliases for edit/profile screen
+# ==============================================================================
+def test_employee_profile_response_includes_all_compensation_aliases():
+    """Verify EmployeeResponse exposes ctc, annual_ctc, annualCtc, salary, basicSalary, etc."""
+    emp_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    mock_emp = _create_mock_employee(
+        emp_id=emp_id,
+        company_id=company_id,
+        ctc=Decimal("1200000"),
+        basic_salary=Decimal("600000"),
+        hra=Decimal("300000"),
+        bonus=Decimal("180000"),
+    )
+
+    res = EmployeeResponse.model_validate(mock_emp)
+    assert res.ctc == Decimal("1200000")
+    assert res.annual_ctc == Decimal("1200000")
+    assert res.annualCtc == Decimal("1200000")
+    assert res.salary == Decimal("1200000")
+    assert res.basic_salary == Decimal("600000")
+    assert res.basicSalary == Decimal("600000")
+    assert res.hra == Decimal("300000")
+    assert res.bonus == Decimal("180000")
+    assert res.pf == Decimal("72000")
+    assert res.esi == Decimal("0")
+    assert res.professional_tax == Decimal("2500")
+    assert res.professionalTax == Decimal("2500")
+
+    # Verify JSON serializable dictionary exposes all keys
+    dump = res.model_dump()
+    assert dump["ctc"] == Decimal("1200000")
+    assert dump["annual_ctc"] == Decimal("1200000")
+    assert dump["annualCtc"] == Decimal("1200000")
+    assert dump["salary"] == Decimal("1200000")
+    assert dump["basic_salary"] == Decimal("600000")
+    assert dump["basicSalary"] == Decimal("600000")
+
+
+# ==============================================================================
+# 11. Existing employee with components never returns CTC 0
+# ==============================================================================
+def test_existing_employee_with_components_never_returns_ctc_zero():
+    """If DB CTC was None/0 but basic/hra/bonus exist, profile/list schemas derive valid CTC."""
+    emp_id = uuid.uuid4()
+    company_id = uuid.uuid4()
+    mock_emp = _create_mock_employee(
+        emp_id=emp_id,
+        company_id=company_id,
+        ctc=None,  # missing / uncalculated in DB
+        basic_salary=Decimal("600000"),
+        hra=Decimal("300000"),
+        bonus=Decimal("180000"),
+    )
+
+    res = EmployeeResponse.model_validate(mock_emp)
+    assert res.ctc == Decimal("1080000")
+    assert res.annual_ctc == Decimal("1080000")
+    assert res.salary == Decimal("1080000")
+    assert res.ctc != Decimal("0")
+
+
+# ==============================================================================
+# 12. Edit form payload with annual_ctc / camelCase input mappings
+# ==============================================================================
+def test_edit_form_payload_with_annual_ctc_and_camel_case():
+    """EmployeeUpdate accepts annual_ctc, annualCtc, salary, basicSalary, professionalTax."""
+    payload_dict = {
+        "annualCtc": 1200000,
+        "basicSalary": 600000,
+        "hra": 300000,
+        "bonus": 180000,
+        "professionalTax": 2500,
+    }
+    update_schema = EmployeeUpdate(**payload_dict)
+    assert update_schema.ctc == Decimal("1200000")
+    assert update_schema.basic_salary == Decimal("600000")
+    assert update_schema.hra == Decimal("300000")
+    assert update_schema.bonus == Decimal("180000")
+    assert update_schema.professional_tax == Decimal("2500")
+
 

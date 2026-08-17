@@ -97,6 +97,18 @@ class EmployeeUpdate(EmployeeValidatorsMixin, BaseModel):
                     data["reporting_manager_id"] = rm
             elif "reporting_manager_id" in data and data["reporting_manager_id"] == "":
                 data["reporting_manager_id"] = None
+            # Map alias keys to standard fields
+            if "annual_ctc" in data and "ctc" not in data:
+                data["ctc"] = data["annual_ctc"]
+            if "annualCtc" in data and "ctc" not in data:
+                data["ctc"] = data["annualCtc"]
+            if "salary" in data and "ctc" not in data:
+                data["ctc"] = data["salary"]
+            if "basicSalary" in data and "basic_salary" not in data:
+                data["basic_salary"] = data["basicSalary"]
+            if "professionalTax" in data and "professional_tax" not in data:
+                data["professional_tax"] = data["professionalTax"]
+
             # Clean salary fields
             salary_keys = ["ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax"]
             for key in salary_keys:
@@ -209,14 +221,17 @@ class EmployeeListItem(BaseModel):
     job_title: str | None = None
     role: str | None = None
     ctc: Decimal | None = None
+    annual_ctc: Decimal | None = None
+    annualCtc: Decimal | None = None
+    salary: Decimal | None = None
     basic_salary: Decimal | None = None
+    basicSalary: Decimal | None = None
     hra: Decimal | None = None
     bonus: Decimal | None = None
     pf: Decimal | None = None
     esi: Decimal | None = None
     professional_tax: Decimal | None = None
-    salary: Decimal | None = None
-    annual_ctc: Decimal | None = None
+    professionalTax: Decimal | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -285,6 +300,39 @@ class EmployeeListItem(BaseModel):
         elif isinstance(data, dict):
             mgr_name = data.get("reporting_manager_name") or data.get("reportingManagerName") or data.get("manager_name") or data.get("managerName")
 
+        def get_val(key: str, alt_keys: list[str] | None = None) -> Any:
+            keys = [key] + (alt_keys or [])
+            for k in keys:
+                if hasattr(data, k):
+                    v = getattr(data, k)
+                    if v is not None:
+                        return v
+                elif isinstance(data, dict) and k in data:
+                    v = data[k]
+                    if v is not None:
+                        return v
+            return None
+
+        basic_in = get_val("basic_salary", ["basicSalary"])
+        hra_in = get_val("hra")
+        bonus_in = get_val("bonus")
+        pf_in = get_val("pf")
+        esi_in = get_val("esi")
+        pt_in = get_val("professional_tax", ["professionalTax"])
+
+        sal_val = get_val("ctc", ["annual_ctc", "annualCtc", "salary"])
+        if sal_val in (0, Decimal("0"), 0.0, "0", None):
+            try:
+                b_dec = Decimal(str(basic_in)) if basic_in is not None else Decimal("0")
+                h_dec = Decimal(str(hra_in)) if hra_in is not None else Decimal("0")
+                bon_dec = Decimal(str(bonus_in)) if bonus_in is not None else Decimal("0")
+                if b_dec > 0 or h_dec > 0 or bon_dec > 0:
+                    sal_val = b_dec + h_dec + bon_dec
+            except Exception:
+                pass
+        if sal_val is None:
+            sal_val = get_val("ctc")
+
         if hasattr(data, "__dict__") or not isinstance(data, dict):
             try:
                 data.cost_center_id = cc_val
@@ -319,10 +367,18 @@ class EmployeeListItem(BaseModel):
                 data.email = getattr(data, "company_email", None) or getattr(data, "personal_email", None)
                 data.job_title = getattr(data, "designation", None) or getattr(data, "job_title", None)
                 data.role = getattr(data, "role", None) or "EMPLOYEE"
-                sal_ctc = getattr(data, "ctc", None) or getattr(data, "salary", None) or getattr(data, "annual_ctc", None)
-                data.ctc = sal_ctc
-                data.salary = sal_ctc
-                data.annual_ctc = sal_ctc
+                data.ctc = sal_val
+                data.salary = sal_val
+                data.annual_ctc = sal_val
+                data.annualCtc = sal_val
+                data.basic_salary = basic_in
+                data.basicSalary = basic_in
+                data.hra = hra_in
+                data.bonus = bonus_in
+                data.pf = pf_in
+                data.esi = esi_in
+                data.professional_tax = pt_in
+                data.professionalTax = pt_in
             except AttributeError:
                 pass
         if isinstance(data, dict) or not hasattr(data, "__dict__"):
@@ -358,10 +414,18 @@ class EmployeeListItem(BaseModel):
             data["email"] = data.get("company_email") or data.get("personal_email")
             data["job_title"] = data.get("designation") or data.get("job_title")
             data["role"] = data.get("role") or "EMPLOYEE"
-            sal_ctc = data.get("ctc") or data.get("salary") or data.get("annual_ctc")
-            data["ctc"] = sal_ctc
-            data["salary"] = sal_ctc
-            data["annual_ctc"] = sal_ctc
+            data["ctc"] = sal_val
+            data["salary"] = sal_val
+            data["annual_ctc"] = sal_val
+            data["annualCtc"] = sal_val
+            data["basic_salary"] = basic_in
+            data["basicSalary"] = basic_in
+            data["hra"] = hra_in
+            data["bonus"] = bonus_in
+            data["pf"] = pf_in
+            data["esi"] = esi_in
+            data["professional_tax"] = pt_in
+            data["professionalTax"] = pt_in
         return data
     role_metadata: dict | None = None
     verification_status: str | None = None

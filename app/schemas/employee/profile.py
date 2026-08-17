@@ -56,20 +56,23 @@ class EmployeeResponse(BaseModel):
     cost_id: str | None = None
     costID: str | None = None
     costCenterId: str | None = None
-    ctc: Decimal | None
-    basic_salary: Decimal | None
-    hra: Decimal | None
-    bonus: Decimal | None
-    pf: Decimal | None
-    esi: Decimal | None
-    professional_tax: Decimal | None
-    salary: Decimal | None = None
+    ctc: Decimal | None = None
     annual_ctc: Decimal | None = None
+    annualCtc: Decimal | None = None
+    salary: Decimal | None = None
+    basic_salary: Decimal | None = None
+    basicSalary: Decimal | None = None
+    hra: Decimal | None = None
+    bonus: Decimal | None = None
+    pf: Decimal | None = None
+    esi: Decimal | None = None
+    professional_tax: Decimal | None = None
+    professionalTax: Decimal | None = None
     role: str
-    leave_group: str | None
+    leave_group: str | None = None
     status: str
     is_deleted: bool
-    created_by: uuid.UUID | None
+    created_by: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     reporting_manager_id: uuid.UUID | None = None
@@ -148,6 +151,39 @@ class EmployeeResponse(BaseModel):
         elif isinstance(data, dict):
             mgr_name = data.get("reporting_manager_name") or data.get("reportingManagerName") or data.get("manager_name") or data.get("managerName")
 
+        def get_val(key: str, alt_keys: list[str] | None = None) -> Any:
+            keys = [key] + (alt_keys or [])
+            for k in keys:
+                if hasattr(data, k):
+                    v = getattr(data, k)
+                    if v is not None:
+                        return v
+                elif isinstance(data, dict) and k in data:
+                    v = data[k]
+                    if v is not None:
+                        return v
+            return None
+
+        basic_in = get_val("basic_salary", ["basicSalary"])
+        hra_in = get_val("hra")
+        bonus_in = get_val("bonus")
+        pf_in = get_val("pf")
+        esi_in = get_val("esi")
+        pt_in = get_val("professional_tax", ["professionalTax"])
+
+        sal_val = get_val("ctc", ["annual_ctc", "annualCtc", "salary"])
+        if sal_val in (0, Decimal("0"), 0.0, "0", None):
+            try:
+                b_dec = Decimal(str(basic_in)) if basic_in is not None else Decimal("0")
+                h_dec = Decimal(str(hra_in)) if hra_in is not None else Decimal("0")
+                bon_dec = Decimal(str(bonus_in)) if bonus_in is not None else Decimal("0")
+                if b_dec > 0 or h_dec > 0 or bon_dec > 0:
+                    sal_val = b_dec + h_dec + bon_dec
+            except Exception:
+                pass
+        if sal_val is None:
+            sal_val = get_val("ctc")
+
         if hasattr(data, "__dict__") or not isinstance(data, dict):
             try:
                 data.cost_center_id = cc_val
@@ -180,10 +216,18 @@ class EmployeeResponse(BaseModel):
                 ln = getattr(data, "last_name", "") or ""
                 data.full_name = f"{fn} {ln}".strip() or getattr(data, "company_email", None) or getattr(data, "personal_email", None)
                 data.email = getattr(data, "company_email", None) or getattr(data, "personal_email", None)
-                sal_ctc = getattr(data, "ctc", None) or getattr(data, "salary", None) or getattr(data, "annual_ctc", None)
-                data.ctc = sal_ctc
-                data.salary = sal_ctc
-                data.annual_ctc = sal_ctc
+                data.ctc = sal_val
+                data.salary = sal_val
+                data.annual_ctc = sal_val
+                data.annualCtc = sal_val
+                data.basic_salary = basic_in
+                data.basicSalary = basic_in
+                data.hra = hra_in
+                data.bonus = bonus_in
+                data.pf = pf_in
+                data.esi = esi_in
+                data.professional_tax = pt_in
+                data.professionalTax = pt_in
             except AttributeError:
                 pass
         if isinstance(data, dict) or not hasattr(data, "__dict__"):
@@ -217,10 +261,18 @@ class EmployeeResponse(BaseModel):
             ln = data.get("last_name", "") or ""
             data["full_name"] = f"{fn} {ln}".strip() or data.get("company_email") or data.get("personal_email")
             data["email"] = data.get("company_email") or data.get("personal_email")
-            sal_ctc = data.get("ctc") or data.get("salary") or data.get("annual_ctc")
-            data["ctc"] = sal_ctc
-            data["salary"] = sal_ctc
-            data["annual_ctc"] = sal_ctc
+            data["ctc"] = sal_val
+            data["salary"] = sal_val
+            data["annual_ctc"] = sal_val
+            data["annualCtc"] = sal_val
+            data["basic_salary"] = basic_in
+            data["basicSalary"] = basic_in
+            data["hra"] = hra_in
+            data["bonus"] = bonus_in
+            data["pf"] = pf_in
+            data["esi"] = esi_in
+            data["professional_tax"] = pt_in
+            data["professionalTax"] = pt_in
         return data
 
     # Relations
