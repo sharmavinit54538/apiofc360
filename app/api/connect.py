@@ -1321,9 +1321,22 @@ async def connect_websocket(
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except Exception:
+                try:
+                    await websocket.send_json({"event": "error", "data": {"message": "Invalid JSON frame received."}})
+                except Exception:
+                    break
+                continue
+
+            if not isinstance(data, dict):
+                continue
+
             event = data.get("event")
             payload = data.get("data", {})
+            if not isinstance(payload, dict):
+                payload = {}
 
             if event == "ping":
                 await websocket.send_json({"event": "pong", "timestamp": data.get("timestamp")})

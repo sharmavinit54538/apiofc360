@@ -123,20 +123,30 @@ class ConnectService:
     ) -> list[dict[str, Any]]:
         """Get user conversations with unread counts and presence."""
         convs = await self.repo.get_user_conversations(company_id, user_id)
-        results = []
+        if not convs:
+            return []
 
+        all_user_ids = list({p.user_id for c in convs for p in c.participants if p.user_id})
+        presences = await self.repo.get_batch_presence(all_user_ids, company_id) if all_user_ids else []
+        presence_map = {pr.user_id: pr.status for pr in presences}
+
+        results = []
         for c in convs:
             participant_items = []
             for p in c.participants:
-                presences = await self.repo.get_batch_presence([p.user_id], company_id)
-                pres_status = presences[0].status if presences else "offline"
+                pres_status = presence_map.get(p.user_id, "offline")
+                avatar = (
+                    getattr(p.user, "profile_photo", None)
+                    or getattr(p.user, "profile_photo_url", None)
+                    if p.user else None
+                )
                 participant_items.append({
                     "id": p.id,
                     "user_id": p.user_id,
-                    "name": p.user.name,
-                    "email": p.user.email,
-                    "avatar_url": getattr(p.user, "profile_photo", None),
-                    "role": getattr(p.user.role, "value", str(p.user.role)) if p.user.role else "employee",
+                    "name": p.user.name if p.user else "Unknown",
+                    "email": p.user.email if p.user else "",
+                    "avatar_url": avatar,
+                    "role": getattr(p.user.role, "value", str(p.user.role)) if (p.user and p.user.role) else "employee",
                     "presence_status": pres_status,
                     "is_muted": p.is_muted,
                     "last_read_at": p.last_read_at,
@@ -166,18 +176,28 @@ class ConnectService:
             raise AppException(message="Cannot start a conversation with yourself.", status_code=status.HTTP_400_BAD_REQUEST)
 
         conv, is_new = await self.repo.get_or_create_dm_conversation(company_id, user.id, target_user_id)
+        if not conv:
+            raise NotFoundException("Failed to retrieve or create conversation.")
+
+        participant_uids = list({p.user_id for p in conv.participants if p.user_id})
+        presences = await self.repo.get_batch_presence(participant_uids, company_id) if participant_uids else []
+        presence_map = {pr.user_id: pr.status for pr in presences}
 
         participant_items = []
         for p in conv.participants:
-            presences = await self.repo.get_batch_presence([p.user_id], company_id)
-            pres_status = presences[0].status if presences else "offline"
+            pres_status = presence_map.get(p.user_id, "offline")
+            avatar = (
+                getattr(p.user, "profile_photo", None)
+                or getattr(p.user, "profile_photo_url", None)
+                if p.user else None
+            )
             participant_items.append({
                 "id": p.id,
                 "user_id": p.user_id,
-                "name": p.user.name,
-                "email": p.user.email,
-                "avatar_url": getattr(p.user, "profile_photo", None),
-                "role": getattr(p.user.role, "value", str(p.user.role)) if p.user.role else "employee",
+                "name": p.user.name if p.user else "Unknown",
+                "email": p.user.email if p.user else "",
+                "avatar_url": avatar,
+                "role": getattr(p.user.role, "value", str(p.user.role)) if (p.user and p.user.role) else "employee",
                 "presence_status": pres_status,
                 "is_muted": p.is_muted,
                 "last_read_at": p.last_read_at,
@@ -1384,13 +1404,24 @@ class ConnectService:
             for a in msg.attachments
         ]
 
+        thread_replies_val = msg.__dict__.get("thread_replies") if hasattr(msg, "__dict__") else None
+        if thread_replies_val is None and not hasattr(msg, "_sa_instance_state"):
+            thread_replies_val = getattr(msg, "thread_replies", None)
+        thread_count = len(thread_replies_val) if thread_replies_val else 0
+
+        sender_avatar = (
+            getattr(msg.sender, "profile_photo", None)
+            or getattr(msg.sender, "profile_photo_url", None)
+            if msg.sender else None
+        )
+
         return {
             "id": msg.id,
             "conversation_id": msg.conversation_id,
             "channel_id": msg.channel_id,
             "sender_id": msg.sender_id,
             "sender_name": msg.sender.name if msg.sender else "Unknown",
-            "sender_avatar": getattr(msg.sender, "profile_photo", None) if msg.sender else None,
+            "sender_avatar": sender_avatar,
             "content": msg.content,
             "voice_url": msg.voice_url,
             "voice_duration": msg.voice_duration,
@@ -1399,7 +1430,7 @@ class ConnectService:
             "pinned_by": msg.pinned_by,
             "reply_to_id": msg.reply_to_id,
             "parent_message_id": msg.parent_message_id,
-            "thread_count": len(msg.thread_replies) if hasattr(msg, "thread_replies") and msg.thread_replies else 0,
+            "thread_count": thread_count,
             "reactions": reaction_items,
             "attachments": attachment_items,
             "is_deleted": msg.is_deleted,

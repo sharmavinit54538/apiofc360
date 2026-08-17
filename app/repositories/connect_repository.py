@@ -11,6 +11,8 @@ from sqlalchemy import and_, delete, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.exceptions import NotFoundException
+
 from app.models.connect import (
     ConnectCallLog,
     ConnectChannel,
@@ -320,7 +322,7 @@ class ConnectRepository:
             ConnectConversation.is_deleted.is_(False),
         )
         shared_res = await self.session.execute(shared_conv_ids_stmt)
-        existing_conv_id = shared_res.scalar_one_or_none()
+        existing_conv_id = shared_res.scalars().first()
 
         if existing_conv_id:
             conv = await self.get_conversation_by_id(existing_conv_id, company_id)
@@ -403,7 +405,7 @@ class ConnectRepository:
             .options(
                 selectinload(ConnectMessage.sender),
                 selectinload(ConnectMessage.reactions).selectinload(ConnectMessageReaction.user),
-                selectinload(ConnectMessageAttachment),
+                selectinload(ConnectMessage.attachments),
             )
             .where(
                 ConnectMessage.conversation_id == conversation_id,
@@ -553,7 +555,7 @@ class ConnectRepository:
         """Pin or unpin a message."""
         msg = await self.get_message_by_id(message_id, company_id)
         if not msg:
-            raise ValueError("Message not found.")
+            raise NotFoundException("Message not found.")
 
         msg.is_pinned = is_pinned
         msg.pinned_at = func.now() if is_pinned else None
@@ -876,7 +878,7 @@ class ConnectRepository:
         """Update status and timestamps for a call session."""
         call = await self.get_call_by_id(call_id, company_id)
         if not call:
-            raise ValueError("Call not found.")
+            raise NotFoundException("Call not found.")
 
         call.status = status
         if status == "connected" and not call.connected_at:
@@ -1076,7 +1078,7 @@ class ConnectRepository:
         """Mark participant as left or end meeting for all."""
         meeting = await self.get_meeting_by_id(meeting_id, company_id)
         if not meeting:
-            raise ValueError("Meeting not found.")
+            raise NotFoundException("Meeting not found.")
 
         if end_for_everyone:
             meeting.status = "ended"
