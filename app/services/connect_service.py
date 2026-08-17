@@ -768,34 +768,141 @@ class ConnectService:
     # D. Calls & WebRTC
     # =========================================================================
 
+    def get_ice_servers(self) -> dict[str, Any]:
+        """Return WebRTC STUN/TURN server configuration."""
+        return {
+            "iceServers": [
+                {"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"]}
+            ]
+        }
+
     async def get_call_history(
         self,
         company_id: uuid.UUID,
         user: User,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Get call logs for user."""
+        """Get call logs for user with full frontend and backward compatibility."""
         logs = await self.repo.get_call_history(company_id, user.id, limit)
         results = []
         for c in logs:
+            caller_name = c.caller.name if c.caller else "Colleague"
+            caller_email = c.caller.email if c.caller else ""
+            caller_avatar = getattr(c.caller, "profile_photo", None) if c.caller else None
+            caller_dict = {
+                "id": c.caller_id,
+                "name": caller_name,
+                "email": caller_email,
+                "avatar": caller_avatar,
+                "profile_photo": caller_avatar,
+            }
+
+            callee_name = c.callee.name if c.callee else "Colleague"
+            callee_email = c.callee.email if c.callee else ""
+            callee_avatar = getattr(c.callee, "profile_photo", None) if c.callee else None
+            callee_dict = {
+                "id": c.callee_id,
+                "name": callee_name,
+                "email": callee_email,
+                "avatar": callee_avatar,
+                "profile_photo": callee_avatar,
+            }
+
+            is_incoming = (c.callee_id == user.id)
+            direction = "incoming" if is_incoming else "outgoing"
+
             results.append({
                 "id": c.id,
+                "callId": c.id,
+                "call_id": c.id,
                 "caller_id": c.caller_id,
-                "caller_name": c.caller.name if c.caller else "Unknown",
-                "caller_avatar": getattr(c.caller, "profile_photo", None) if c.caller else None,
+                "caller_name": caller_name,
+                "caller_avatar": caller_avatar,
+                "caller": caller_dict,
                 "callee_id": c.callee_id,
-                "callee_name": c.callee.name if c.callee else "Unknown",
-                "callee_avatar": getattr(c.callee, "profile_photo", None) if c.callee else None,
+                "callee_name": callee_name,
+                "callee_avatar": callee_avatar,
+                "callee": callee_dict,
                 "call_type": c.call_type,
+                "callType": c.call_type,
+                "type": c.call_type,
                 "status": c.status,
                 "room_id": c.room_id,
+                "roomId": c.room_id,
                 "duration_seconds": c.duration_seconds,
+                "duration": c.duration_seconds,
                 "started_at": c.started_at,
+                "startedAt": c.started_at.isoformat() if c.started_at else None,
                 "connected_at": c.connected_at,
+                "connectedAt": c.connected_at.isoformat() if c.connected_at else None,
                 "ended_at": c.ended_at,
+                "endedAt": c.ended_at.isoformat() if c.ended_at else None,
                 "created_at": c.created_at,
+                "direction": direction,
             })
         return results
+
+    async def get_call_detail(
+        self,
+        company_id: uuid.UUID,
+        user: User,
+        call_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Fetch single call log details with tenant and participant authorization verification."""
+        call = await self.repo.get_call_by_id(call_id, company_id)
+        if not call:
+            raise NotFoundException("Call session not found.")
+
+        if user.id != call.caller_id and user.id != call.callee_id and not self._is_admin(user):
+            raise ForbiddenException("You are not authorized to view this call.")
+
+        caller_name = call.caller.name if call.caller else "Colleague"
+        caller_avatar = getattr(call.caller, "profile_photo", None) if call.caller else None
+        callee_name = call.callee.name if call.callee else "Colleague"
+        callee_avatar = getattr(call.callee, "profile_photo", None) if call.callee else None
+
+        is_incoming = (call.callee_id == user.id)
+        return {
+            "id": call.id,
+            "callId": call.id,
+            "call_id": call.id,
+            "caller_id": call.caller_id,
+            "caller_name": caller_name,
+            "caller_avatar": caller_avatar,
+            "caller": {
+                "id": call.caller_id,
+                "name": caller_name,
+                "email": call.caller.email if call.caller else "",
+                "avatar": caller_avatar,
+                "profile_photo": caller_avatar,
+            },
+            "callee_id": call.callee_id,
+            "callee_name": callee_name,
+            "callee_avatar": callee_avatar,
+            "callee": {
+                "id": call.callee_id,
+                "name": callee_name,
+                "email": call.callee.email if call.callee else "",
+                "avatar": callee_avatar,
+                "profile_photo": callee_avatar,
+            },
+            "call_type": call.call_type,
+            "callType": call.call_type,
+            "type": call.call_type,
+            "status": call.status,
+            "room_id": call.room_id,
+            "roomId": call.room_id,
+            "duration_seconds": call.duration_seconds,
+            "duration": call.duration_seconds,
+            "started_at": call.started_at,
+            "startedAt": call.started_at.isoformat() if call.started_at else None,
+            "connected_at": call.connected_at,
+            "connectedAt": call.connected_at.isoformat() if call.connected_at else None,
+            "ended_at": call.ended_at,
+            "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+            "created_at": call.created_at,
+            "direction": "incoming" if is_incoming else "outgoing",
+        }
 
     async def initiate_call(
         self,
@@ -804,9 +911,14 @@ class ConnectService:
         target_user_id: uuid.UUID,
         call_type: str = "audio",
     ) -> dict[str, Any]:
-        """Initiate call and send incoming_call event to target user."""
+        """Initiate call and send dual incoming_call/call:incoming events to target user with strict tenant validation."""
         if user.id == target_user_id:
             raise AppException(message="Cannot call yourself.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Validate target user exists, is active, and belongs to caller's company
+        target_user = await self.repo.get_active_user_in_company(target_user_id, company_id)
+        if not target_user:
+            raise ForbiddenException("Recipient colleague not found or does not belong to your company.")
 
         room_id = f"call_{uuid.uuid4().hex[:12]}"
         call = await self.repo.create_call_log(
@@ -817,19 +929,56 @@ class ConnectService:
             room_id=room_id,
         )
 
-        call_data = {
-            "id": call.id,
-            "caller_id": user.id,
-            "caller_name": user.name,
-            "caller_avatar": getattr(user, "profile_photo", None),
-            "callee_id": target_user_id,
-            "call_type": call_type,
-            "status": "initiated",
-            "room_id": room_id,
-            "started_at": call.started_at,
+        caller_avatar = getattr(user, "profile_photo", None)
+        caller_dict = {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "avatar": caller_avatar,
+            "profile_photo": caller_avatar,
+        }
+        callee_avatar = getattr(target_user, "profile_photo", None)
+        callee_dict = {
+            "id": target_user_id,
+            "name": target_user.name,
+            "email": target_user.email,
+            "avatar": callee_avatar,
+            "profile_photo": callee_avatar,
         }
 
-        # Send real-time call invitation to target
+        call_data = {
+            "id": call.id,
+            "callId": call.id,
+            "call_id": call.id,
+            "caller_id": user.id,
+            "caller_name": user.name,
+            "caller_avatar": caller_avatar,
+            "caller": caller_dict,
+            "callee_id": target_user_id,
+            "calleeId": target_user_id,
+            "targetUserId": target_user_id,
+            "callee_name": target_user.name,
+            "callee_avatar": callee_avatar,
+            "callee": callee_dict,
+            "call_type": call_type,
+            "callType": call_type,
+            "type": call_type,
+            "status": "initiated",
+            "room_id": room_id,
+            "roomId": room_id,
+            "started_at": call.started_at,
+            "startedAt": call.started_at.isoformat() if call.started_at else None,
+        }
+
+        # Send dual real-time call invitation to target:
+        # 1. call:incoming (frontend expectation)
+        await self.ws_manager.send_to_user(
+            target_user_id,
+            company_id,
+            "call:incoming",
+            call_data,
+        )
+        # 2. incoming_call (backend / legacy expectation)
         await self.ws_manager.send_to_user(
             target_user_id,
             company_id,
@@ -861,7 +1010,7 @@ class ConnectService:
         call_id: uuid.UUID,
         new_status: str,
     ) -> dict[str, Any]:
-        """Update call state and notify participants."""
+        """Update call state and notify participants via dual-compatible WebSocket events."""
         call = await self.repo.get_call_by_id(call_id, company_id)
         if not call:
             raise NotFoundException("Call session not found.")
@@ -871,13 +1020,46 @@ class ConnectService:
 
         updated = await self.repo.update_call_status(call_id, company_id, new_status)
 
-        # Notify other party
+        # Notify other party via WebSocket
         other_user_id = call.callee_id if user.id == call.caller_id else call.caller_id
+        status_payload = {
+            "call_id": call_id,
+            "callId": call_id,
+            "id": call_id,
+            "status": new_status,
+            "duration_seconds": updated.duration_seconds,
+            "duration": updated.duration_seconds,
+        }
+
+        # Dispatch specific frontend lifecycle event
+        if new_status == "connected":
+            await self.ws_manager.send_to_user(
+                other_user_id,
+                company_id,
+                "call:accepted",
+                status_payload,
+            )
+        elif new_status == "rejected":
+            await self.ws_manager.send_to_user(
+                other_user_id,
+                company_id,
+                "call:rejected",
+                status_payload,
+            )
+        elif new_status in ("ended", "missed", "failed"):
+            await self.ws_manager.send_to_user(
+                other_user_id,
+                company_id,
+                "call:ended",
+                status_payload,
+            )
+
+        # Also emit standard call_status_changed event
         await self.ws_manager.send_to_user(
             other_user_id,
             company_id,
             "call_status_changed",
-            {"call_id": call_id, "status": new_status, "duration_seconds": updated.duration_seconds},
+            status_payload,
         )
 
         # Create missed call notification if callee missed it
@@ -898,10 +1080,15 @@ class ConnectService:
 
         return {
             "id": updated.id,
+            "callId": updated.id,
+            "call_id": updated.id,
             "status": updated.status,
             "duration_seconds": updated.duration_seconds,
+            "duration": updated.duration_seconds,
             "connected_at": updated.connected_at,
+            "connectedAt": updated.connected_at.isoformat() if updated.connected_at else None,
             "ended_at": updated.ended_at,
+            "endedAt": updated.ended_at.isoformat() if updated.ended_at else None,
         }
 
     async def handle_call_signal(
@@ -923,16 +1110,38 @@ class ConnectService:
 
         recipient_id = target_user_id or (call.callee_id if user.id == call.caller_id else call.caller_id)
 
+        signal_data = {
+            "call_id": call_id,
+            "callId": call_id,
+            "id": call_id,
+            "from_user_id": user.id,
+            "fromUserId": user.id,
+            "target_user_id": recipient_id,
+            "targetUserId": recipient_id,
+            "type": signal_type,
+            "payload": payload,
+            "signal": payload,
+        }
+
+        # If payload contains sdp/candidate, expose at top level too
+        if isinstance(payload, dict):
+            if "sdp" in payload:
+                signal_data["sdp"] = payload["sdp"]
+            if "candidate" in payload:
+                signal_data["candidate"] = payload["candidate"]
+
+        # Dual WebSocket event emission: webrtc:signal (frontend) & call_signal (backend)
+        await self.ws_manager.send_to_user(
+            recipient_id,
+            company_id,
+            "webrtc:signal",
+            signal_data,
+        )
         await self.ws_manager.send_to_user(
             recipient_id,
             company_id,
             "call_signal",
-            {
-                "call_id": call_id,
-                "from_user_id": user.id,
-                "type": signal_type,
-                "payload": payload,
-            },
+            signal_data,
         )
 
         return {"relayed": True, "type": signal_type, "recipient_id": recipient_id}

@@ -752,6 +752,28 @@ async def archive_channel(
 # ===========================================================================
 
 @router.get(
+    "/calls/ice-servers",
+    summary="19a. Get ICE Servers",
+    description="Fetch WebRTC STUN/TURN server configuration for peer connections.",
+)
+async def get_ice_servers(
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = service.get_ice_servers()
+    return {
+        "success": True,
+        "message": "ICE servers retrieved successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.get(
     "/calls/history",
     summary="19. Get Call History",
     description="Fetch audio and video call history for the authenticated user.",
@@ -769,6 +791,33 @@ async def get_call_history(
     return {
         "success": True,
         "message": "Call history retrieved successfully",
+        "data": result,
+        "errors": None,
+    }
+
+
+@router.get(
+    "/calls/{callId}",
+    summary="20a. Get Call Details",
+    description="Fetch call session details, duration, timestamps, and participants.",
+)
+async def get_call_detail(
+    callId: uuid.UUID,
+    user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+    x_company_id: str | None = Header(None, alias="X-Company-ID"),
+):
+    company_id = resolve_tenant_id(claims, user, x_company_id)
+    service = ConnectService(db)
+    result = await service.get_call_detail(
+        company_id=company_id,
+        user=user,
+        call_id=callId,
+    )
+    return {
+        "success": True,
+        "message": "Call details retrieved successfully",
         "data": result,
         "errors": None,
     }
@@ -1483,6 +1532,60 @@ async def connect_websocket(
                     try:
                         target_uuid = uuid.UUID(str(target_user))
                         await ws_manager.send_to_user(target_uuid, company_id, "typing", typing_data)
+                    except ValueError:
+                        pass
+
+            elif event in ("webrtc:signal", "call_signal", "signal"):
+                target_user = (
+                    payload.get("targetUserId")
+                    or payload.get("target_user_id")
+                    or payload.get("recipientId")
+                    or payload.get("recipient_id")
+                )
+                if target_user:
+                    try:
+                        target_uuid = uuid.UUID(str(target_user))
+                        sig_type = payload.get("type")
+                        if not sig_type and isinstance(payload.get("signal"), dict):
+                            sig_type = payload["signal"].get("type")
+                        if not sig_type and isinstance(payload.get("payload"), dict):
+                            sig_type = payload["payload"].get("type")
+
+                        signal_payload = {
+                            "call_id": payload.get("callId") or payload.get("call_id"),
+                            "callId": payload.get("callId") or payload.get("call_id"),
+                            "from_user_id": str(user_id),
+                            "fromUserId": str(user_id),
+                            "target_user_id": str(target_uuid),
+                            "targetUserId": str(target_uuid),
+                            "type": sig_type or "signal",
+                            "payload": payload.get("payload") or payload.get("signal") or payload,
+                            "signal": payload.get("signal") or payload.get("payload") or payload,
+                        }
+                        if "sdp" in payload:
+                            signal_payload["sdp"] = payload["sdp"]
+                        if "candidate" in payload:
+                            signal_payload["candidate"] = payload["candidate"]
+
+                        await ws_manager.send_to_user(target_uuid, company_id, "webrtc:signal", signal_payload)
+                        await ws_manager.send_to_user(target_uuid, company_id, "call_signal", signal_payload)
+                    except ValueError:
+                        pass
+
+            elif event in ("call:accept", "call:accepted", "call:reject", "call:rejected", "call:end", "call:ended"):
+                target_user = (
+                    payload.get("targetUserId")
+                    or payload.get("target_user_id")
+                    or payload.get("recipientId")
+                    or payload.get("recipient_id")
+                    or payload.get("otherUserId")
+                )
+                if target_user:
+                    try:
+                        target_uuid = uuid.UUID(str(target_user))
+                        normalized_event = "call:accepted" if "accept" in event else ("call:rejected" if "reject" in event else "call:ended")
+                        await ws_manager.send_to_user(target_uuid, company_id, normalized_event, payload)
+                        await ws_manager.send_to_user(target_uuid, company_id, "call_status_changed", payload)
                     except ValueError:
                         pass
 

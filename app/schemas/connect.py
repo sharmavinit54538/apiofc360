@@ -561,17 +561,29 @@ class CallHistoryItemResponse(BaseModel):
     caller_id: uuid.UUID
     caller_name: str
     caller_avatar: str | None = None
+    caller: dict[str, Any] | None = None
     callee_id: uuid.UUID
     callee_name: str
     callee_avatar: str | None = None
+    callee: dict[str, Any] | None = None
     call_type: str
+    callType: str | None = None
+    type: str | None = None
     status: str
     room_id: str
+    roomId: str | None = None
     duration_seconds: int
+    duration: int | None = None
     started_at: datetime
+    startedAt: datetime | str | None = None
     connected_at: datetime | None = None
+    connectedAt: datetime | str | None = None
     ended_at: datetime | None = None
+    endedAt: datetime | str | None = None
     created_at: datetime
+    direction: str | None = None  # incoming | outgoing
+    callId: uuid.UUID | None = None
+    call_id: uuid.UUID | None = None
 
 
 class CallSignalRequest(BaseModel):
@@ -583,20 +595,64 @@ class CallSignalRequest(BaseModel):
     @classmethod
     def normalize_signal(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            signal_obj = data.get("signal") if "signal" in data else data.get("payload")
             raw_type = str(data.get("type") or data.get("signal_type") or data.get("signalType") or "").lower().strip()
+
+            if not raw_type and isinstance(signal_obj, dict):
+                raw_type = str(signal_obj.get("type") or signal_obj.get("signal_type") or "").lower().strip()
+                if not raw_type:
+                    if "candidate" in signal_obj:
+                        raw_type = "ice-candidate"
+                    elif "sdp" in signal_obj:
+                        sdp_val = signal_obj.get("sdp")
+                        if isinstance(sdp_val, dict):
+                            raw_type = str(sdp_val.get("type", "")).lower().strip()
+
+            if not raw_type:
+                if "candidate" in data:
+                    raw_type = "ice-candidate"
+                elif "sdp" in data:
+                    sdp_val = data.get("sdp")
+                    if isinstance(sdp_val, dict):
+                        raw_type = str(sdp_val.get("type", "")).lower().strip()
+
             if raw_type in ("candidate", "ice_candidate"):
                 raw_type = "ice-candidate"
             data["type"] = raw_type
 
-            target_id = data.get("targetUserId") or data.get("target_user_id") or data.get("recipientId") or data.get("recipient_id")
+            target_id = (
+                data.get("targetUserId")
+                or data.get("target_user_id")
+                or data.get("recipientId")
+                or data.get("recipient_id")
+                or data.get("to_user_id")
+                or data.get("toUserId")
+            )
             if target_id and str(target_id).strip() not in ("null", "undefined", ""):
                 data["targetUserId"] = target_id
             else:
                 data["targetUserId"] = None
 
             if "payload" not in data or data["payload"] is None:
-                data["payload"] = {}
+                if isinstance(signal_obj, dict):
+                    data["payload"] = signal_obj
+                elif "candidate" in data:
+                    data["payload"] = {"candidate": data.get("candidate")}
+                elif "sdp" in data:
+                    data["payload"] = {"sdp": data.get("sdp")}
+                else:
+                    data["payload"] = {}
         return data
+
+
+class IceServerItem(BaseModel):
+    urls: list[str] | str
+    username: str | None = None
+    credential: str | None = None
+
+
+class IceServersResponse(BaseModel):
+    iceServers: list[IceServerItem]
 
 
 # ===========================================================================

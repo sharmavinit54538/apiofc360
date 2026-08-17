@@ -999,6 +999,22 @@ class ConnectRepository:
         await self.session.commit()
         return call
 
+    async def get_active_user_in_company(
+        self,
+        user_id: uuid.UUID,
+        company_id: uuid.UUID,
+    ) -> User | None:
+        """Fetch active non-deleted user belonging to company."""
+        stmt = select(User).where(
+            User.id == user_id,
+            User.company_id == company_id,
+            User.is_active.is_(True),
+            User.is_deleted.is_(False),
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+
     # =========================================================================
     # E. Video Meetings
     # =========================================================================
