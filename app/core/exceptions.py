@@ -97,7 +97,11 @@ def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
     origin = request.headers.get("origin")
     if origin:
         is_allowed = False
-        allowed_origins = settings.ALLOWED_ORIGINS + settings.BACKEND_CORS_ORIGINS
+        allowed_origins = [
+            "https://www.ofc360.com",
+            "https://ofc360.com",
+            "https://api.ofc360.com",
+        ] + list(settings.ALLOWED_ORIGINS) + list(settings.BACKEND_CORS_ORIGINS) + list(settings.DEV_CORS_ORIGINS)
         if origin in allowed_origins:
             is_allowed = True
         else:

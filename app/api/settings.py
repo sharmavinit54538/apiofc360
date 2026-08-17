@@ -1525,3 +1525,41 @@ async def disable_mfa(
         errors=None,
     )
 
+
+@router.get("/mfa/status")
+async def get_mfa_status(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Get current TOTP Multi-Factor Authentication status for the authenticated user."""
+    user_id_str = claims.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Authentication credentials invalid or missing.")
+
+    user_id = uuid.UUID(user_id_str)
+    mfa_stmt = select(UserMFA).where(UserMFA.user_id == user_id)
+    mfa_res = await session.execute(mfa_stmt)
+    user_mfa = mfa_res.scalar_one_or_none()
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="MFA status retrieved successfully.",
+        data={
+            "mfa_enabled": bool(user_mfa.mfa_enabled) if user_mfa else False,
+            "method": user_mfa.method if user_mfa and user_mfa.method else "totp",
+            "is_verified": bool(user_mfa.is_verified) if user_mfa else False,
+        },
+        errors=None,
+    )
+
+
+@router.post("/mfa/verify")
+async def verify_mfa(
+    payload: MFAEnablePayload,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Verify TOTP 6-digit code and activate Multi-Factor Authentication."""
+    return await enable_mfa(payload=payload, claims=claims, session=session)
+
+

@@ -446,41 +446,28 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Allowed origins configuration - production origins only
-    allowed_origins_list = list(settings.ALLOWED_ORIGINS)
+    # Explicit production origins that MUST be supported
+    allowed_origins_list = [
+        "https://www.ofc360.com",
+        "https://ofc360.com",
+        "https://api.ofc360.com",
+    ]
+
+    # Add configured allowed origins from environment
+    if settings.ALLOWED_ORIGINS:
+        allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
+
+    # Add any additional configured backend CORS origins
+    if settings.BACKEND_CORS_ORIGINS:
+        allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
 
     # Add development origins only in non-production environments
     if settings.ENVIRONMENT.lower() in {"local", "development", "dev"}:
         allowed_origins_list.extend(settings.DEV_CORS_ORIGINS)
 
-    # Add any additional configured origins
-    if settings.BACKEND_CORS_ORIGINS:
-        allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
-
+    # Ensure no wildcard origins are used with credentials, and remove duplicates
+    allowed_origins_list = [origin.strip() for origin in allowed_origins_list if origin and origin.strip() != "*"]
     allowed_origins_list = list(dict.fromkeys(allowed_origins_list))
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins_list,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"],
-    )
-
-    # Security Headers Middleware
-    from app.middleware.security_headers import SecurityHeadersMiddleware
-    app.add_middleware(SecurityHeadersMiddleware)
-
-    # GZip compression for responses > 500 bytes (~60-70% size reduction)
-    app.add_middleware(GZipMiddleware, minimum_size=500)
-
-    # Performance timing middleware
-    from app.middleware.timing import TimingMiddleware
-    app.add_middleware(TimingMiddleware)
-
-    # Global rate limiting middleware
-    from app.core.rate_limiter import RateLimitMiddleware
-    app.add_middleware(RateLimitMiddleware)
 
     # Session Middleware configuration for secure user sessions via HTTP cookies
     if HAS_SESSION_MIDDLEWARE and SessionMiddleware is not None:
@@ -504,6 +491,34 @@ def create_app() -> FastAPI:
             https_only=secure_cookie,
             max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # Match refresh token expiry
         )
+
+    # Global rate limiting middleware
+    from app.core.rate_limiter import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+
+    # Performance timing middleware
+    from app.middleware.timing import TimingMiddleware
+    app.add_middleware(TimingMiddleware)
+
+    # GZip compression for responses > 500 bytes (~60-70% size reduction)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
+    # Security Headers Middleware
+    from app.middleware.security_headers import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # CORS Middleware - MUST be added LAST so it executes FIRST (outermost ASGI layer)
+    # This guarantees that preflight OPTIONS requests are answered immediately at the network edge
+    # with 200 OK / 204 No Content before reaching rate limiters, session managers, or authentication,
+    # and ensures all responses (including exception handlers) carry valid CORS headers.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+    )
 
     install_exception_handlers(app)
     # ── API v1 routers ─────────────────────────────────────────────────────────

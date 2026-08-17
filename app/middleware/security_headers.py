@@ -29,7 +29,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
             "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
             "img-src 'self' data: https: blob:; "
-            "connect-src 'self' https://api.ofc360.com https://ofc360.com wss://api.ofc360.com wss://ofc360.com; "
+            "connect-src 'self' https://api.ofc360.com https://ofc360.com https://www.ofc360.com wss://api.ofc360.com wss://ofc360.com wss://www.ofc360.com; "
             "frame-src 'self'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
@@ -39,6 +39,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
+
+        # Do not override or interfere with CORS preflight responses
+        if request.method == "OPTIONS":
+            return response
 
         # Content Security Policy
         response.headers["Content-Security-Policy"] = self.csp_policy
@@ -68,8 +72,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "accelerometer=()"
         )
 
-        # Cross-Origin policies
-        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        # Cross-Origin policies (allow cross-origin API resource sharing)
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
 
         return response
