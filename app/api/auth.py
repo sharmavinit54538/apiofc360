@@ -24,12 +24,16 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RefreshTokenResponse,
     RefreshTokenResponseData,
+    ResendEmailOtpRequest,
+    ResendEmailOtpResponse,
+    ResendEmailOtpResponseData,
     ResendOTPRequest,
     ResendOTPResponse,
     ResetPasswordRequest,
     UserLoginPublic,
     UserProfileData,
     UserProfileResponse,
+    VerifyEmailOtpRequest,
     VerifyEmailRequest,
     VerifyEmailResponse,
     VerifyNewEmailRequest,
@@ -160,16 +164,48 @@ async def login(
     request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
-    """Verify credentials and issue access and refresh tokens."""
+    """Verify credentials and issue access and refresh tokens, or trigger OTP verification for unverified emails."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
-    user, access_token, refresh_token, expires_in = await auth_service.login(
+    user, token_or_vid, refresh_token, expires_in, requires_verification = await auth_service.login(
         payload=payload,
         ip_address=ip_address,
         device=device,
     )
+
+    # --- OTP verification required (email not verified) ---
+    if requires_verification:
+        # Mask the user email for display (e.g. j***@example.com)
+        email_str = user.email or ""
+        at_idx = email_str.find("@")
+        if at_idx > 1:
+            masked_email = email_str[0] + "***" + email_str[at_idx:]
+        else:
+            masked_email = email_str
+
+        return LoginResponse(
+            success=True,
+            message="Email verification required. An OTP has been sent to your email.",
+            requires_email_verification=True,
+            verification_id=token_or_vid,
+            data=LoginResponseData(
+                user=None,
+                access_token=None,
+                refresh_token=None,
+                token_type="Bearer",
+                expires_in=0,
+                requires_email_verification=True,
+                verification_id=token_or_vid,
+                masked_email=masked_email,
+                email=email_str,
+            ),
+            errors=None,
+        )
+
+    # --- Normal login (email verified) ---
+    access_token = token_or_vid
 
     effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     user_role_str = str(effective_role).lower()
@@ -249,6 +285,120 @@ async def login(
             refresh_token=refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
+        ),
+        errors=None,
+    )
+
+
+@router.post(
+    "/verify-email-otp",
+    status_code=status.HTTP_200_OK,
+    response_model=LoginResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid, expired, or exhausted OTP"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User not found"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"model": APIResponse[None], "description": "Too many attempts"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+async def verify_email_otp(
+    payload: VerifyEmailOtpRequest,
+    request: Request,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> LoginResponse:
+    """Verify OTP from login email verification and automatically log the user in."""
+
+    ip_address = request.client.host if request.client else None
+    device = request.headers.get("User-Agent")
+
+    user, access_token, refresh_token, expires_in = await auth_service.verify_email_otp(
+        verification_id=payload.verification_id,
+        otp=payload.otp,
+        ip_address=ip_address,
+        device=device,
+    )
+
+    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    # Safely resolve company name
+    company_name = None
+    if getattr(user, "company", None):
+        try:
+            company_name = user.company.name
+        except Exception:
+            company_name = None
+
+    if not company_name and user.company_id:
+        try:
+            from sqlalchemy import select
+            from app.models.company import Company
+            comp_res = await auth_service.session.execute(
+                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+            )
+            company_name = comp_res.scalar_one_or_none()
+        except Exception:
+            company_name = None
+
+    user_data = UserLoginPublic(
+        id=user.id,
+        name=user.name or "User",
+        email=user.email,
+        phone=user.phone or None,
+        role=effective_role,
+        is_verified=True,
+        email_verified=True,
+        account_status="ACTIVE",
+        must_change_password=bool(getattr(user, "must_change_password", False)),
+        onboarding_completed=bool(getattr(user, "onboarding_completed", False)),
+        company_id=user.company_id,
+        company_name=company_name,
+    )
+
+    return LoginResponse(
+        success=True,
+        message="Email verified and login successful.",
+        data=LoginResponseData(
+            user=user_data,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="Bearer",
+            expires_in=expires_in,
+        ),
+        errors=None,
+    )
+
+
+@router.post(
+    "/resend-email-otp",
+    status_code=status.HTTP_200_OK,
+    response_model=ResendEmailOtpResponse,
+    dependencies=[Depends(check_otp_rate_limit)],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid verification session"},
+        status.HTTP_429_TOO_MANY_REQUESTS: {"model": APIResponse[None], "description": "Cooldown active"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+async def resend_email_otp(
+    payload: ResendEmailOtpRequest,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> ResendEmailOtpResponse:
+    """Resend login email verification OTP. Returns a new verification ID."""
+
+    new_verification_id = await auth_service.resend_email_otp(
+        verification_id=payload.verification_id,
+        email=payload.email,
+    )
+
+    return ResendEmailOtpResponse(
+        success=True,
+        message="OTP resent successfully.",
+        verification_id=new_verification_id,
+        data=ResendEmailOtpResponseData(
+            verification_id=new_verification_id,
         ),
         errors=None,
     )
