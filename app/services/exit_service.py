@@ -550,12 +550,12 @@ class ExitService:
                 await self.session.execute(
                     sa_update(User)
                     .where(User.id == exit_obj.employee.user_id)
-                    .values(is_active=False, account_status="DEACTIVATED")
+                    .values(is_active=False)
                 )
                 await self.session.execute(
                     sa_update(Manager)
                     .where(Manager.user_id == exit_obj.employee.user_id)
-                    .values(is_active=False, status="ARCHIVED", deactivated_at=now_utc)
+                    .values(status="ARCHIVED")
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(exit_obj.employee.user_id)
                 await redis_client.revoke_user_tokens(exit_obj.employee.user_id)

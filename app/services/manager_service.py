@@ -445,7 +445,6 @@ class ManagerService:
                     await self.session.execute(
                         sa_update(User).where(User.id == manager.user_id).values(
                             is_active=False,
-                            account_status="DEACTIVATED",
                         )
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
@@ -454,7 +453,6 @@ class ManagerService:
                     await self.session.execute(
                         sa_update(User).where(User.id == manager.user_id).values(
                             is_active=True,
-                            account_status="ACTIVE",
                         )
                     )
 
@@ -485,7 +483,6 @@ class ManagerService:
                     sa_update(User).where(User.id == manager.user_id).values(
                         is_active=False,
                         is_deleted=True,
-                        account_status="DEACTIVATED",
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
@@ -926,7 +923,6 @@ class ManagerService:
                 await self.session.execute(
                     sa_update(User).where(User.id == manager.user_id).values(
                         is_active=False,
-                        account_status="DEACTIVATED",
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
@@ -959,7 +955,6 @@ class ManagerService:
                 await self.session.execute(
                     sa_update(User).where(User.id == manager.user_id).values(
                         is_active=True,
-                        account_status="ACTIVE",
                     )
                 )
             await self.session.commit()

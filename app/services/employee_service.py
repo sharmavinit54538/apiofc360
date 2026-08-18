@@ -743,7 +743,6 @@ class EmployeeService:
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
                             is_active=False,
-                            account_status="DEACTIVATED",
                         )
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
@@ -752,7 +751,6 @@ class EmployeeService:
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
                             is_active=True,
-                            account_status="ACTIVE",
                         )
                     )
 
@@ -1077,7 +1075,6 @@ class EmployeeService:
                 await self.session.execute(
                     sa_update(User).where(User.id == employee.user_id).values(
                         is_active=False,
-                        account_status="DEACTIVATED",
                     )
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
