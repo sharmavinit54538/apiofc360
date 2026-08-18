@@ -312,6 +312,24 @@ class EmailService:
         )
         await send_email(email, "Verify Your New Email Address", html)
 
+    async def send_login_verification_otp_email(
+        self, email: str, name: str, otp: str, expiry_minutes: int, company_name: str = "OFC360"
+    ) -> None:
+        """Send login verification OTP email when unverified user attempts to login."""
+
+        html = _render_template(
+            "login_verify_otp.html",
+            {
+                "name": name or "User",
+                "otp": otp,
+                "expiry_minutes": str(expiry_minutes),
+                "logo_url": settings.COMPANY_LOGO_URL or "",
+                "support_email": "support@ofc360.com",
+                "company_name": company_name,
+            },
+        )
+        await send_email(email, "Verify your OFC360 login", html)
+
     # ---- Employee emails ----------------------------------------------------
 
     async def send_employee_activation_email(

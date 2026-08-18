@@ -18,6 +18,22 @@ class AuthRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
+        """Return a user by ID, if one exists."""
+        if not user_id:
+            return None
+        from sqlalchemy.orm import selectinload
+        result = await self.session.execute(
+            select(User)
+            .options(selectinload(User.company))
+            .where(
+                User.id == user_id,
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None))
+            )
+            .execution_options(bypass_tenant=True)
+        )
+        return result.scalars().first()
+
     async def get_user_by_email(self, email: str) -> User | None:
         """Return a user by email, if one exists."""
 
@@ -216,6 +232,15 @@ class AuthRepository:
         self.session.add(otp_record)
         await self.session.flush()
         return otp_record
+
+    async def get_otp_by_id(self, otp_id: uuid.UUID) -> OTP | None:
+        """Retrieve an OTP record by its primary key ID."""
+        if not otp_id:
+            return None
+        result = await self.session.execute(
+            select(OTP).where(OTP.id == otp_id)
+        )
+        return result.scalar_one_or_none()
 
     async def get_latest_otp(self, user_id: uuid.UUID, purpose: str) -> OTP | None:
         """Retrieve the most recent unused OTP record for a specific purpose."""

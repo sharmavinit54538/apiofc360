@@ -12,6 +12,7 @@ OTP_DIGITS = 6
 OTP_PURPOSE_EMAIL_VERIFICATION = "email_verification"
 OTP_PURPOSE_EMAIL_CHANGE = "email_change"
 OTP_PURPOSE_PASSWORD_RESET = "password_reset"
+OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION = "email_login_verification"
 
 
 def generate_otp() -> str:
