@@ -140,11 +140,11 @@ jobs:
             docker image prune -f
           "
 
-      - name: Clean up temporary .env file
-        if: always()
+      - name: Clean up temporary .env file (only on failure)
+        if: failure()
         run: |
           sudo bash -c "
             cd ${{ env.APP_DIR }}
-            echo '[Deploy] Cleaning up temporary .env file after deployment...'
+            echo '[Deploy] Cleaning up temporary .env file after failed deployment...'
             rm -f .env
           "

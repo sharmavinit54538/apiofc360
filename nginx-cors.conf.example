@@ -1,0 +1,128 @@
+# ────────────────────────────────────────────────────────────────────────────────
+# OFC360 API — Nginx Reverse Proxy Configuration
+# ────────────────────────────────────────────────────────────────────────────────
+#
+# IMPORTANT: This Nginx config is designed to let FastAPI's CORSMiddleware
+# handle ALL CORS logic. Do NOT add duplicate CORS headers in Nginx.
+#
+# The most common CORS preflight failure is Nginx returning 405 Method Not
+# Allowed for OPTIONS requests, or not forwarding the Origin header.
+# ────────────────────────────────────────────────────────────────────────────────
+
+upstream fastapi_backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name api.ofc360.com;
+
+    # Redirect all HTTP → HTTPS (except Let's Encrypt challenges)
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.ofc360.com;
+
+    # ── SSL Configuration ─────────────────────────────────────────────────
+    ssl_certificate     /etc/letsencrypt/live/api.ofc360.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.ofc360.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+    ssl_prefer_server_ciphers on;
+
+    # ── Proxy all requests (including OPTIONS) to FastAPI ─────────────────
+    location / {
+        # CRITICAL: Forward OPTIONS requests to the backend.
+        # Do NOT return 405 or handle OPTIONS in Nginx.
+        # FastAPI's CORSMiddleware handles preflight responses.
+
+        proxy_pass http://fastapi_backend;
+
+        # Preserve the original Host and Origin headers
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        # CRITICAL: Do NOT strip or override the Origin header
+        # CORSMiddleware needs it to validate the request origin
+        proxy_set_header Origin            $http_origin;
+
+        # Connection keep-alive for upstream
+        proxy_http_version 1.1;
+        proxy_set_header Connection        "";
+
+        # Timeouts
+        proxy_connect_timeout  10s;
+        proxy_send_timeout     60s;
+        proxy_read_timeout     120s;
+
+        # Do NOT add any CORS headers here.
+        # FastAPI CORSMiddleware handles them.
+        # Adding them here causes DUPLICATE headers which browsers reject.
+    }
+
+    # ── WebSocket support (if needed for Connect/notifications) ──────────
+    location /ws {
+        proxy_pass http://fastapi_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_set_header Origin     $http_origin;
+        proxy_read_timeout 86400s;
+    }
+
+    # ── Static uploads ───────────────────────────────────────────────────
+    location /uploads/ {
+        proxy_pass http://fastapi_backend;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_set_header Origin     $http_origin;
+    }
+
+    # ── Health check (lightweight, no logging) ───────────────────────────
+    location = /health {
+        proxy_pass http://fastapi_backend;
+        access_log off;
+    }
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+# TROUBLESHOOTING CORS PREFLIGHT FAILURES
+# ────────────────────────────────────────────────────────────────────────────────
+#
+# 1. Test OPTIONS directly against the backend (bypassing Nginx):
+#      curl -v -X OPTIONS http://127.0.0.1:8000/api/v1/auth/me \
+#        -H "Origin: https://www.ofc360.com" \
+#        -H "Access-Control-Request-Method: GET" \
+#        -H "Access-Control-Request-Headers: authorization,content-type"
+#
+#    Expected: HTTP 200, Access-Control-Allow-Origin: https://www.ofc360.com
+#
+# 2. Test OPTIONS through Nginx:
+#      curl -v -X OPTIONS https://api.ofc360.com/api/v1/auth/me \
+#        -H "Origin: https://www.ofc360.com" \
+#        -H "Access-Control-Request-Method: GET" \
+#        -H "Access-Control-Request-Headers: authorization,content-type"
+#
+#    Expected: Same headers as #1. If different, Nginx is interfering.
+#
+# 3. Common Nginx mistakes that break CORS:
+#    - `limit_except GET POST { deny all; }` — blocks OPTIONS
+#    - `if ($request_method = OPTIONS) { return 204; }` — returns without CORS headers
+#    - Adding `add_header Access-Control-Allow-Origin` in Nginx — duplicates FastAPI headers
+#    - Not forwarding the `Origin` header via `proxy_set_header`
+# ────────────────────────────────────────────────────────────────────────────────

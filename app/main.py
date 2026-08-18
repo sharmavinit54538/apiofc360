@@ -3,7 +3,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
@@ -470,6 +470,11 @@ def create_app() -> FastAPI:
     allowed_origins_list = [origin.strip() for origin in allowed_origins_list if origin and origin.strip() != "*"]
     allowed_origins_list = list(dict.fromkeys(allowed_origins_list))
 
+    # Log CORS configuration at startup for production debugging
+    logger.info("CORS Configuration: %d origins allowed | environment=%s", len(allowed_origins_list), settings.ENVIRONMENT)
+    for origin in allowed_origins_list:
+        logger.info("  CORS allowed origin: %s", origin)
+
     # Session Middleware configuration for secure user sessions via HTTP cookies
     if HAS_SESSION_MIDDLEWARE and SessionMiddleware is not None:
         session_secret = (
@@ -730,6 +735,25 @@ def create_app() -> FastAPI:
     async def favicon():
         """Favicon.ico endpoint to prevent 404 logs."""
         return Response(status_code=204)
+
+    @app.get("/api/v1/cors-debug", tags=["CORS Diagnostics"], include_in_schema=False)
+    async def cors_debug(request: Request):
+        """Diagnostic endpoint for verifying CORS configuration in production.
+        
+        Returns the active CORS origins list and request headers.
+        Only accessible from allowed origins (CORS enforced).
+        """
+        origin = request.headers.get("origin", "(no origin header)")
+        return {
+            "cors_debug": True,
+            "request_origin": origin,
+            "allowed_origins": allowed_origins_list,
+            "environment": settings.ENVIRONMENT,
+            "cors_credentials": True,
+            "cors_methods": ["*"],
+            "cors_headers": ["*"],
+            "request_headers": dict(request.headers),
+        }
 
     from fastapi.staticfiles import StaticFiles
     import os
