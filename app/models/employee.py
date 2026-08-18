@@ -204,7 +204,7 @@ class Employee(Base):
     @property
     def is_deactivated(self) -> bool:
         """Return True if the employee record is inactive, deactivated, archived, terminated, or deleted."""
-        if not self.is_active or self.is_deleted:
+        if self.is_active is False or self.is_deleted is True:
             return True
         status_upper = (self.status or "").upper()
         if status_upper in {"DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED"}:

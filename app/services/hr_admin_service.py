@@ -589,7 +589,21 @@ class HRAdminService:
             emp.activation_token = token
             emp.activation_token_expires_at = expires_at
 
+        mgr_res = await self.session.execute(
+            select(Manager).where(Manager.user_id == user.id, Manager.company_id == company_id)
+        )
+        mgr = mgr_res.scalars().first()
+        if mgr:
+            mgr.activation_token = token
+            mgr.activation_token_expires_at = expires_at
+
         await self.session.commit()
+
+        masked_tok = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "***"
+        logger.info(
+            "resend_invitation: token regenerated and saved | user_id=%s | token=%s",
+            user.id, masked_tok,
+        )
 
         activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
         from app.models.company import Company
