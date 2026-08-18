@@ -1554,6 +1554,30 @@ class EmployeeService:
             employee.is_active = True
             employee.status = "ONBOARDING_PENDING"
 
+            # Sync linked Manager record if present
+            from app.models.manager import Manager
+            active_user_id = user.id if user else employee.user_id
+            mgr_res = await self.session.execute(
+                select(Manager).where(
+                    (Manager.user_id == active_user_id) |
+                    (
+                        (Manager.company_id == employee.company_id) &
+                        (
+                            (func.lower(Manager.personal_email) == user_email) |
+                            (func.lower(Manager.company_email) == user_email)
+                        )
+                    )
+                ).execution_options(bypass_tenant=True)
+            )
+            mgr = mgr_res.scalars().first()
+            if mgr:
+                mgr.status = "ACTIVE"
+                mgr.activation_token = None
+                mgr.activation_token_expires_at = None
+                if not mgr.user_id and active_user_id:
+                    mgr.user_id = active_user_id
+                self.session.add(mgr)
+
             await self.session.commit()
             logger.info("activate_employee: success | employee_id=%s | user_id=%s", employee.id, employee.user_id)
 

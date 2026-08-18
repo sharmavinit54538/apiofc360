@@ -690,6 +690,7 @@ class AuthService:
             raise AppException(
                 message="Email not verified. Please verify your email before logging in.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="EMAIL_NOT_VERIFIED",
                 errors=[{"field": "email", "message": "EMAIL_NOT_VERIFIED"}],
             )
 
@@ -699,11 +700,12 @@ class AuthService:
             raise AppException(
                 message="Account is inactive or pending activation. Please contact your administrator.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="ACCOUNT_INACTIVE",
                 errors=[{"field": None, "message": "ACCOUNT_INACTIVE"}],
             )
 
         # Verify employment / manager active lifecycle state
-        from sqlalchemy import select
+        from sqlalchemy import func, select
         from app.models.employee import Employee
         from app.models.manager import Manager
 
@@ -713,10 +715,27 @@ class AuthService:
                 Employee.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        emp = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") and callable(emp_res.scalar_one_or_none) else None
+        emp = emp_res.scalars().first()
+        if not emp:
+            # Resilient fallback: link employee by company/personal email if user_id was unlinked
+            user_email_clean = (user.email or "").strip().lower()
+            emp_email_res = await self.session.execute(
+                select(Employee).where(
+                    (func.lower(Employee.personal_email) == user_email_clean) |
+                    (func.lower(Employee.company_email) == user_email_clean),
+                    Employee.is_deleted == False,
+                ).execution_options(bypass_tenant=True)
+            )
+            emp = emp_email_res.scalars().first()
+            if emp and not emp.user_id:
+                emp.user_id = user.id
+                self.session.add(emp)
+                await self.session.flush()
+
         if isinstance(emp, Employee) and (
-            not emp.is_active
-            or emp.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            emp.is_active is False
+            or getattr(emp, "is_deactivated", False)
+            or (emp.status or "").upper() in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
             or (getattr(emp, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
         ):
             logger.warning(
@@ -730,6 +749,7 @@ class AuthService:
             raise AppException(
                 message="Account or employment profile is inactive or terminated. Please contact HR.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="EMPLOYEE_INACTIVE",
                 errors=[{"field": None, "message": "EMPLOYEE_INACTIVE"}],
             )
 
@@ -739,10 +759,10 @@ class AuthService:
                 Manager.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        mgr = mgr_res.scalar_one_or_none() if hasattr(mgr_res, "scalar_one_or_none") and callable(mgr_res.scalar_one_or_none) else None
+        mgr = mgr_res.scalars().first()
         if isinstance(mgr, Manager) and (
-            not mgr.is_active
-            or mgr.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            mgr.is_active is False
+            or (mgr.status or "").upper() in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
             or (getattr(mgr, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
         ):
             logger.warning(
@@ -756,6 +776,7 @@ class AuthService:
             raise AppException(
                 message="Account or manager profile is inactive or terminated. Please contact HR.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="MANAGER_INACTIVE",
                 errors=[{"field": None, "message": "MANAGER_INACTIVE"}],
             )
 

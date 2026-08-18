@@ -1000,6 +1000,29 @@ async def activate_onboarding_employee(
     employee.activation_token_expires_at = None
     logger.info("activate_onboarding: employee → ACTIVE | employee_id=%s", employee.employee_id)
 
+    # Sync linked Manager record if present
+    from app.models.manager import Manager
+    mgr_res = await session.execute(
+        select(Manager).where(
+            (Manager.user_id == user.id) |
+            (
+                (Manager.company_id == employee.company_id) &
+                (
+                    (func.lower(Manager.personal_email) == user_email) |
+                    (func.lower(Manager.company_email) == user_email)
+                )
+            )
+        ).execution_options(bypass_tenant=True)
+    )
+    mgr = mgr_res.scalars().first()
+    if mgr:
+        mgr.status = "ACTIVE"
+        mgr.activation_token = None
+        mgr.activation_token_expires_at = None
+        if not mgr.user_id:
+            mgr.user_id = user.id
+        session.add(mgr)
+
     if payload.phone:
         employee.phone = payload.phone
     if payload.profile_photo_url:
