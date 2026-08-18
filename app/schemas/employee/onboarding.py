@@ -53,6 +53,21 @@ class ActivateEmployeeRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
     confirm_password: str = Field(..., min_length=8, max_length=128)
 
+    @field_validator("new_password", mode="after")
+    @classmethod
+    def validate_password_complexity(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long.")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter.")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter.")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one number.")
+        if not any(not c.isalnum() for c in v):
+            raise ValueError("Password must contain at least one special character.")
+        return v
+
     @model_validator(mode="after")
     def passwords_match(self) -> ActivateEmployeeRequest:
         if self.new_password != self.confirm_password:
@@ -67,6 +82,21 @@ class ActivateOnboardingRequest(BaseModel):
     emergency_contact_name: str | None = Field(None, max_length=150)
     emergency_contact_phone: str | None = Field(None, max_length=30)
     profile_photo_url: str | None = Field(None, max_length=500)
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def validate_password_complexity(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long.")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter.")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter.")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one number.")
+        if not any(not c.isalnum() for c in v):
+            raise ValueError("Password must contain at least one special character.")
+        return v
 
     @field_validator("phone", "emergency_contact_phone", mode="before")
     @classmethod

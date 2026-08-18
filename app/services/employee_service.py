@@ -1229,12 +1229,15 @@ class EmployeeService:
     async def activate_employee(self, employee_uuid: uuid.UUID, payload: ActivateEmployeeRequest) -> None:
         logger.info("activate_employee | employee_id=%s", employee_uuid)
         try:
+            from sqlalchemy import select, func
+            from app.models.user import User, UserRole
+
             employee = await self.repo.get_by_id_raw(employee_uuid)
-            if not employee:
+            if not employee or employee.is_deleted:
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
             if not employee.activation_token:
                 raise AppException(
-                    message="No activation token found. Please request a new invitation.",
+                    message="No activation token found or invitation already accepted. Please request a new invitation if needed.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
             if employee.activation_token != payload.token:
@@ -1254,27 +1257,102 @@ class EmployeeService:
                     message="This account has already been activated.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            if not employee.user_id:
-                raise AppException(
-                    message="No user account linked. Please contact HR.",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
+
+            # Hash chosen password securely with bcrypt
             new_hash = hash_password(payload.new_password)
-            await self.auth_repo.update_user_activation(
-                employee.user_id,
-                password_hash=new_hash,
-                is_active=True,
-                is_verified=True,
-                must_change_password=False,
-            )
-            await self.repo.update_employee(
-                employee_uuid,
-                activation_token=None,
-                activation_token_expires_at=None,
-                status="ONBOARDING_PENDING",
-            )
+
+            # Determine email to use for the user account
+            user_email = (employee.company_email or employee.personal_email).lower().strip()
+
+            # Clean and normalize phone (last 10 digits)
+            raw_phone = employee.phone or ""
+            digits_only = "".join(c for c in raw_phone if c.isdigit())
+            clean_phone = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+
+            user = None
+            # 1. If employee already has a user_id linked
+            if employee.user_id:
+                user_res = await self.session.execute(
+                    select(User).where(User.id == employee.user_id)
+                )
+                user = user_res.scalar_one_or_none()
+
+            # 2. If no user linked, look up by email
+            if not user:
+                user_res = await self.session.execute(
+                    select(User).where(
+                        (func.lower(User.email) == user_email) |
+                        (func.lower(User.email) == employee.personal_email.lower().strip())
+                    )
+                )
+                user = user_res.scalar_one_or_none()
+
+            # 3. If user exists, update password and activate
+            if user:
+                user.password_hash = new_hash
+                user.is_active = True
+                user.is_verified = True
+                user.must_change_password = False
+                user.account_status = "ACTIVE"
+                if not user.email_verified_at:
+                    user.email_verified_at = now
+                if not user.company_id and employee.company_id:
+                    user.company_id = employee.company_id
+                self.session.add(user)
+                await self.session.flush()
+                employee.user_id = user.id
+            else:
+                # 4. Create new active user
+                if clean_phone:
+                    phone_check = await self.session.execute(
+                        select(User).where(User.phone == clean_phone, User.is_deleted == False)
+                    )
+                    if phone_check.scalar_one_or_none():
+                        clean_phone = None  # Prevent duplicate phone crash
+
+                db_role = getattr(UserRole, (employee.role or "").upper(), UserRole.EMPLOYEE) if hasattr(UserRole, (employee.role or "").upper()) else UserRole.EMPLOYEE
+
+                new_user = User(
+                    id=uuid.uuid4(),
+                    company_id=employee.company_id,
+                    name=f"{employee.first_name} {employee.last_name}".strip(),
+                    email=user_email,
+                    phone=clean_phone or "0000000000",
+                    password_hash=new_hash,
+                    role=db_role,
+                    is_active=True,
+                    is_verified=True,
+                    must_change_password=False,
+                    account_status="ACTIVE",
+                    email_verified_at=now,
+                    onboarding_completed=False,
+                )
+                self.session.add(new_user)
+                await self.session.flush()
+                employee.user_id = new_user.id
+
+            # 5. Invalidate activation token and update employee status
+            employee.activation_token = None
+            employee.activation_token_expires_at = None
+            employee.is_active = True
+            employee.status = "ONBOARDING_PENDING"
+
             await self.session.commit()
-            logger.info("activate_employee: success | employee_id=%s", employee_uuid)
+            logger.info("activate_employee: success | employee_id=%s | user_id=%s", employee_uuid, employee.user_id)
+
+            # Send welcome email (best-effort)
+            try:
+                await self.email_service.send_employee_welcome_email(
+                    email=user_email,
+                    name=employee.first_name,
+                    employee_id=employee.employee_id,
+                )
+            except Exception as mail_exc:
+                logger.warning(
+                    "activate_employee: welcome email send notice | employee_id=%s | error=%s",
+                    employee_uuid, str(mail_exc)
+                )
+
         except AppException:
             await self.session.rollback()
             raise
