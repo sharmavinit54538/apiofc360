@@ -865,62 +865,119 @@ async def validate_onboarding_token(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Validate that the onboarding token is valid, not expired, and belongs to an invited employee."""
-    logger.info("validate_onboarding_token: request | token_prefix=%s", token[:8] if token else "N/A")
+    clean_token = token.strip() if token else ""
+    token_prefix = clean_token[:8] if clean_token else "N/A"
+    logger.info("validate_onboarding_token: request | token_prefix=%s", token_prefix)
+
+    if not clean_token:
+        logger.warning("validate_onboarding_token: empty token provided")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invitation token.",
+        )
 
     employee_result = await session.execute(
-        select(Employee).where(Employee.activation_token == token)
+        select(Employee).where(
+            Employee.activation_token == clean_token,
+            Employee.is_deleted.is_(False),
+        )
     )
     employee = employee_result.scalar_one_or_none()
 
-    if not employee or employee.is_deleted:
-        logger.warning("validate_onboarding_token: token not found or employee deleted | token_prefix=%s", token[:8])
+    if not employee:
+        # Fallback: check if linked User has matching email_verification_token
+        user_emp_res = await session.execute(
+            select(Employee).join(User, Employee.user_id == User.id).where(
+                User.email_verification_token == clean_token,
+                Employee.is_deleted.is_(False),
+            )
+        )
+        employee = user_emp_res.scalar_one_or_none()
+
+    if not employee:
+        logger.warning("validate_onboarding_token: token not found | token_prefix=%s", token_prefix)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation expired. Request new invitation.",
+            detail="Invalid invitation token.",
         )
 
-    if employee.status != "INVITED":
+    # Check if already fully active / accepted
+    if employee.status == "ACTIVE" or (not employee.activation_token and employee.user_id):
+        logger.warning("validate_onboarding_token: already activated | employee_id=%s", employee.employee_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invitation already used. Please log in or contact your administrator.",
+        )
+
+    # Allowed statuses for pending activation
+    valid_statuses = {"INVITED", "INVITATION_SENT", "CREATED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
+    if employee.status not in valid_statuses:
         logger.warning(
-            "validate_onboarding_token: wrong status | employee_id=%s | status=%s",
+            "validate_onboarding_token: non-invitation status | employee_id=%s | status=%s",
             employee.employee_id, employee.status,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation expired. Request new invitation.",
+            detail="Invitation is no longer valid. Request a new invitation.",
         )
 
+    # Check expiration with timezone-safe UTC comparison
     now = datetime.now(timezone.utc)
     expires_at = employee.activation_token_expires_at
     if expires_at:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if now > expires_at:
+        remaining_seconds = (expires_at - now).total_seconds()
+        logger.info(
+            "validate_onboarding_token: expiry check | employee_id=%s | current_time=%s | token_expires_at=%s | remaining_seconds=%.2f",
+            employee.employee_id, now.isoformat(), expires_at.isoformat(), remaining_seconds,
+        )
+        if remaining_seconds <= 0:
             logger.warning(
-                "validate_onboarding_token: token expired | employee_id=%s | expired_at=%s",
-                employee.employee_id, expires_at.isoformat(),
+                "validate_onboarding_token: token expired | employee_id=%s | expired_at=%s | remaining_seconds=%.2f",
+                employee.employee_id, expires_at.isoformat(), remaining_seconds,
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invitation expired. Request new invitation.",
             )
+    else:
+        logger.info("validate_onboarding_token: no expiry timestamp on record | employee_id=%s", employee.employee_id)
+
+    # Resolve company name for display
+    company_name = "OFC360"
+    if employee.company_id:
+        comp_res = await session.execute(select(Company.name).where(Company.id == employee.company_id))
+        c_name = comp_res.scalar_one_or_none()
+        if c_name:
+            company_name = c_name
 
     logger.info(
         "validate_onboarding_token: valid | employee_id=%s | email=%s",
-        employee.employee_id, employee.personal_email[:3] + "***",
+        employee.employee_id, (employee.personal_email or employee.company_email or "")[:3] + "***",
     )
     return APIResponse[dict](
         success=True,
         message="Token is valid.",
         data={
+            "id": str(employee.id),
+            "employee_id": str(employee.id),
+            "employee_uuid": str(employee.id),
+            "employee_code": employee.employee_id,
             "first_name": employee.first_name,
             "last_name": employee.last_name,
+            "name": f"{employee.first_name} {employee.last_name}".strip(),
+            "full_name": f"{employee.first_name} {employee.last_name}".strip(),
             "personal_email": employee.personal_email,
             "company_email": employee.company_email,
+            "email": employee.personal_email or employee.company_email,
             "phone": employee.phone,
             "department": employee.department,
             "designation": employee.designation,
-            "employee_id": employee.employee_id,
+            "company_id": str(employee.company_id) if employee.company_id else None,
+            "company_name": company_name,
             "joining_date": employee.joining_date.isoformat() if employee.joining_date else None,
+            "valid": True,
         },
         errors=None,
     )

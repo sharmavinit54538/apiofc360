@@ -431,6 +431,66 @@ async def activate_employee_by_admin(
     )
 
 
+@router.get(
+    "/validate-invitation",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token",
+)
+async def validate_employee_invitation(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate that the invitation token is valid, not expired, and belongs to an invited employee."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/validate-token",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token alias",
+)
+async def validate_employee_invitation_token_alias(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate employee invitation token alias."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/validate",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token alias",
+)
+async def validate_employee_invitation_alias(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate employee invitation token alias."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
 @router.post(
     "/{id}/activate",
     status_code=status.HTTP_200_OK,
@@ -438,12 +498,18 @@ async def activate_employee_by_admin(
     summary="Activate employee account (self-activation via email link)",
 )
 async def activate_employee(
-    id: uuid.UUID,
+    id: str,
     payload: ActivateEmployeeRequest,
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Submit the activation token from email along with the chosen permanent password. Public endpoint."""
-    await service.activate_employee(id, payload)
+    parsed_uuid: uuid.UUID | None = None
+    try:
+        parsed_uuid = uuid.UUID(id)
+    except (ValueError, AttributeError):
+        parsed_uuid = None
+
+    await service.activate_employee(parsed_uuid, payload, id_str=id)
     return APIResponse[None](
         success=True,
         message="Account activated successfully. You can now log in.",

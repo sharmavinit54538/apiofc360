@@ -1141,7 +1141,7 @@ Generate realistic content under each heading. Make the tone professional, encou
 
             # Send welcoming & activation credentials
             activation_token = uuid.uuid4().hex
-            activation_url = settings.FRONTEND_BASE_URL + "/activate?token=" + activation_token + "&employee_id=" + str(new_emp.id)
+            activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={activation_token}"
             try:
                 await self.email_service.send_employee_activation_email(
                     email=company_email,

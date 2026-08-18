@@ -164,7 +164,7 @@ class HRAdminService:
         await self.session.refresh(user)
 
         # 8. Send Invitation / Activation Email
-        activation_url = f"{settings.FRONTEND_BASE_URL}/onboarding?token={token}"
+        activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
         try:
             from app.models.company import Company
             comp = await self.session.get(Company, company_id)
@@ -591,7 +591,7 @@ class HRAdminService:
 
         await self.session.commit()
 
-        activation_url = f"{settings.FRONTEND_BASE_URL}/onboarding?token={token}"
+        activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
         from app.models.company import Company
         comp = await self.session.get(Company, company_id)
         comp_name = comp.name if comp else "OFC360"

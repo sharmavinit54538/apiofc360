@@ -358,7 +358,7 @@ class EmployeeService:
             await self.repo.create_onboarding_steps(employee.id)
             await self.session.commit()
 
-            activation_url = f"{settings.FRONTEND_BASE_URL}/onboarding?token={token}"
+            activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
             logger.info(
                 "create_employee: token generated | employee_id=%s | expires=%s | url=%s",
                 employee_id, token_expires.isoformat(), activation_url,
@@ -996,7 +996,7 @@ class EmployeeService:
                 invited_by=admin_id,
             )
             await self.session.commit()
-            activation_url = f"{settings.FRONTEND_BASE_URL}/onboarding?token={token}"
+            activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
             logger.info(
                 "send_invitation: token generated | employee_id=%s | expires=%s | url=%s",
                 employee_uuid, token_expires.isoformat(), activation_url,
@@ -1223,33 +1223,182 @@ class EmployeeService:
     # Self-activation (via onboarding link)
     # ------------------------------------------------------------------
 
-    async def activate_employee(self, employee_uuid: uuid.UUID, payload: ActivateEmployeeRequest) -> None:
-        logger.info("activate_employee | employee_id=%s", employee_uuid)
+    async def validate_invitation_token(self, token: str) -> dict:
+        """Validate employee invitation token and return employee information."""
+        clean_token = token.strip() if token else ""
+        token_prefix = clean_token[:8] if clean_token else "N/A"
+        logger.info("validate_invitation_token: request | token_prefix=%s", token_prefix)
+
+        if not clean_token:
+            raise AppException(
+                message="Invalid invitation token.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.user import User
+        from app.models.company import Company
+
+        emp_result = await self.session.execute(
+            select(Employee).where(
+                Employee.activation_token == clean_token,
+                Employee.is_deleted.is_(False),
+            )
+        )
+        employee = emp_result.scalar_one_or_none()
+
+        if not employee:
+            user_emp_res = await self.session.execute(
+                select(Employee).join(User, Employee.user_id == User.id).where(
+                    User.email_verification_token == clean_token,
+                    Employee.is_deleted.is_(False),
+                )
+            )
+            employee = user_emp_res.scalar_one_or_none()
+
+        if not employee:
+            logger.warning("validate_invitation_token: token not found | token_prefix=%s", token_prefix)
+            raise AppException(
+                message="Invalid invitation token.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if employee.status == "ACTIVE" or (not employee.activation_token and employee.user_id):
+            logger.warning("validate_invitation_token: already activated | employee_id=%s", employee.employee_id)
+            raise AppException(
+                message="Invitation already used. Please log in or contact your administrator.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_statuses = {"INVITED", "INVITATION_SENT", "CREATED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
+        if employee.status not in valid_statuses:
+            logger.warning(
+                "validate_invitation_token: non-invitation status | employee_id=%s | status=%s",
+                employee.employee_id, employee.status,
+            )
+            raise AppException(
+                message="Invitation is no longer valid. Request a new invitation.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = datetime.now(timezone.utc)
+        expires_at = employee.activation_token_expires_at
+        if expires_at:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            remaining_seconds = (expires_at - now).total_seconds()
+            logger.info(
+                "validate_invitation_token: expiry check | employee_id=%s | current_time=%s | token_expires_at=%s | remaining_seconds=%.2f",
+                employee.employee_id, now.isoformat(), expires_at.isoformat(), remaining_seconds,
+            )
+            if remaining_seconds <= 0:
+                logger.warning(
+                    "validate_invitation_token: token expired | employee_id=%s | expired_at=%s | remaining_seconds=%.2f",
+                    employee.employee_id, expires_at.isoformat(), remaining_seconds,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invitation expired. Request new invitation.",
+                )
+        else:
+            logger.info("validate_invitation_token: no expiry timestamp | employee_id=%s", employee.employee_id)
+
+        company_name = "OFC360"
+        if employee.company_id:
+            comp_res = await self.session.execute(select(Company.name).where(Company.id == employee.company_id))
+            c_name = comp_res.scalar_one_or_none()
+            if c_name:
+                company_name = c_name
+
+        logger.info(
+            "validate_invitation_token: valid | employee_id=%s | email=%s",
+            employee.employee_id, (employee.personal_email or employee.company_email or "")[:3] + "***",
+        )
+        return {
+            "id": str(employee.id),
+            "employee_id": str(employee.id),
+            "employee_uuid": str(employee.id),
+            "employee_code": employee.employee_id,
+            "first_name": employee.first_name,
+            "last_name": employee.last_name,
+            "name": f"{employee.first_name} {employee.last_name}".strip(),
+            "full_name": f"{employee.first_name} {employee.last_name}".strip(),
+            "personal_email": employee.personal_email,
+            "company_email": employee.company_email,
+            "email": employee.personal_email or employee.company_email,
+            "phone": employee.phone,
+            "department": employee.department,
+            "designation": employee.designation,
+            "company_id": str(employee.company_id) if employee.company_id else None,
+            "company_name": company_name,
+            "joining_date": employee.joining_date.isoformat() if employee.joining_date else None,
+            "valid": True,
+        }
+
+    async def activate_employee(
+        self,
+        employee_uuid: uuid.UUID | None,
+        payload: ActivateEmployeeRequest,
+        id_str: str | None = None,
+    ) -> None:
+        clean_token = payload.token.strip() if payload.token else ""
+        logger.info("activate_employee | employee_id=%s | token_prefix=%s", employee_uuid or id_str, clean_token[:8] if clean_token else "N/A")
         try:
             from sqlalchemy import select, func
             from app.models.user import User, UserRole
 
-            employee = await self.repo.get_by_id_raw(employee_uuid)
+            employee = None
+            if employee_uuid:
+                employee = await self.repo.get_by_id_raw(employee_uuid)
+
+            if not employee and id_str:
+                employee = await self.repo.get_by_employee_id(id_str)
+
+            if not employee and clean_token:
+                emp_res = await self.session.execute(
+                    select(Employee).where(
+                        Employee.activation_token == clean_token,
+                        Employee.is_deleted.is_(False),
+                    )
+                )
+                employee = emp_res.scalar_one_or_none()
+
+            if not employee and clean_token:
+                user_emp_res = await self.session.execute(
+                    select(Employee).join(User, Employee.user_id == User.id).where(
+                        User.email_verification_token == clean_token,
+                        Employee.is_deleted.is_(False),
+                    )
+                )
+                employee = user_emp_res.scalar_one_or_none()
+
             if not employee or employee.is_deleted:
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
+
             if not employee.activation_token:
                 raise AppException(
                     message="No activation token found or invitation already accepted. Please request a new invitation if needed.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            if employee.activation_token != payload.token:
+
+            if employee.activation_token != clean_token:
                 raise AppException(message="Invalid activation token.", status_code=status.HTTP_400_BAD_REQUEST)
+
             now = datetime.now(timezone.utc)
             expires_at = employee.activation_token_expires_at
             if expires_at:
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
-                if now > expires_at:
+                remaining_seconds = (expires_at - now).total_seconds()
+                if remaining_seconds <= 0:
                     raise AppException(
                         message="Activation link has expired. Please contact your HR team for a new invitation.",
                         status_code=status.HTTP_400_BAD_REQUEST,
                     )
-            if employee.status not in {"CREATED", "INVITATION_SENT", "INVITED"}:
+
+            valid_statuses = {"CREATED", "INVITATION_SENT", "INVITED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
+            if employee.status not in valid_statuses:
                 raise AppException(
                     message="This account has already been activated.",
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1291,6 +1440,8 @@ class EmployeeService:
                 user.is_verified = True
                 user.must_change_password = False
                 user.account_status = "ACTIVE"
+                user.email_verification_token = None
+                user.email_verification_expires_at = None
                 if not user.email_verified_at:
                     user.email_verified_at = now
                 if not user.company_id and employee.company_id:
@@ -1302,7 +1453,7 @@ class EmployeeService:
                 # 4. Create new active user
                 if clean_phone:
                     phone_check = await self.session.execute(
-                        select(User).where(User.phone == clean_phone, User.is_deleted == False)
+                        select(User).where(User.phone == clean_phone, User.is_deleted.is_(False))
                     )
                     if phone_check.scalar_one_or_none():
                         clean_phone = None  # Prevent duplicate phone crash
@@ -1323,6 +1474,8 @@ class EmployeeService:
                     account_status="ACTIVE",
                     email_verified_at=now,
                     onboarding_completed=False,
+                    email_verification_token=None,
+                    email_verification_expires_at=None,
                 )
                 self.session.add(new_user)
                 await self.session.flush()
@@ -1335,7 +1488,7 @@ class EmployeeService:
             employee.status = "ONBOARDING_PENDING"
 
             await self.session.commit()
-            logger.info("activate_employee: success | employee_id=%s | user_id=%s", employee_uuid, employee.user_id)
+            logger.info("activate_employee: success | employee_id=%s | user_id=%s", employee.id, employee.user_id)
 
             # Send welcome email (best-effort)
             try:
@@ -1347,7 +1500,7 @@ class EmployeeService:
             except Exception as mail_exc:
                 logger.warning(
                     "activate_employee: welcome email send notice | employee_id=%s | error=%s",
-                    employee_uuid, str(mail_exc)
+                    employee.id, str(mail_exc)
                 )
 
         except AppException:

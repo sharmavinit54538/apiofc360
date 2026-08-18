@@ -258,7 +258,7 @@ class EmployeeListItem(BaseModel):
         elif isinstance(data, dict):
             act_token = data.get("activation_token") or data.get("activationToken") or data.get("invite_token") or data.get("inviteToken") or data.get("token")
 
-        act_url = f"{settings.FRONTEND_BASE_URL}/onboarding?token={act_token}" if act_token else None
+        act_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={act_token}" if act_token else None
 
         mgr_id = None
         if hasattr(data, "reporting_manager_id") and getattr(data, "reporting_manager_id") is not None:
