@@ -13,7 +13,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ForbiddenException, UnauthorizedException
-from app.db.database import get_db_session
+from app.db.database import AsyncSessionLocal, get_db_session
 from app.middleware.auth import get_current_user, get_current_user_claims
 from app.models.user import User
 from app.schemas.connect import (
@@ -1493,7 +1493,13 @@ async def connect_websocket(
                 data = await websocket.receive_json()
             except Exception:
                 try:
-                    await websocket.send_json({"event": "error", "data": {"message": "Invalid JSON frame received."}})
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": "INVALID_JSON",
+                        "message": "Invalid JSON frame received.",
+                        "success": False,
+                    })
                 except Exception:
                     break
                 continue
@@ -1501,29 +1507,35 @@ async def connect_websocket(
             if not isinstance(data, dict):
                 continue
 
-            event = data.get("event")
-            payload = data.get("data", {})
+            # Support both { event: "...", data: {...} } and { type: "...", ... } formats
+            event = data.get("event") or data.get("type")
+            payload = data.get("data") if isinstance(data.get("data"), dict) else data
             if not isinstance(payload, dict):
                 payload = {}
 
-            if event == "ping":
-                await websocket.send_json({"event": "pong", "timestamp": data.get("timestamp")})
+            if not event:
+                continue
 
-            elif event == "join_room":
+            event_str = str(event).strip().lower()
+
+            if event_str == "ping":
+                await websocket.send_json({"type": "pong", "event": "pong", "timestamp": data.get("timestamp")})
+
+            elif event_str == "join_room":
                 room_id = payload.get("room_id")
                 if room_id:
                     await ws_manager.join_room(user_id, room_id)
-                    await websocket.send_json({"event": "room_joined", "data": {"room_id": room_id}})
+                    await websocket.send_json({"type": "room_joined", "event": "room_joined", "data": {"room_id": room_id}})
 
-            elif event == "leave_room":
+            elif event_str == "leave_room":
                 room_id = payload.get("room_id")
                 if room_id:
                     await ws_manager.leave_room(user_id, room_id)
-                    await websocket.send_json({"event": "room_left", "data": {"room_id": room_id}})
+                    await websocket.send_json({"type": "room_left", "event": "room_left", "data": {"room_id": room_id}})
 
-            elif event == "typing":
+            elif event_str == "typing":
                 target_room = payload.get("room_id")
-                target_user = payload.get("target_user_id")
+                target_user = payload.get("target_user_id") or payload.get("targetUserId")
                 typing_data = {"user_id": str(user_id), "is_typing": payload.get("is_typing", True)}
 
                 if target_room:
@@ -1535,59 +1547,281 @@ async def connect_websocket(
                     except ValueError:
                         pass
 
-            elif event in ("webrtc:signal", "call_signal", "signal"):
-                target_user = (
-                    payload.get("targetUserId")
+            elif event_str in ("call:start", "call:initiate", "start_call", "initiate_call"):
+                callee_id_raw = (
+                    payload.get("receiver_id")
+                    or payload.get("receiverId")
+                    or payload.get("callee_id")
+                    or payload.get("calleeId")
                     or payload.get("target_user_id")
-                    or payload.get("recipientId")
-                    or payload.get("recipient_id")
+                    or payload.get("targetUserId")
                 )
-                if target_user:
-                    try:
-                        target_uuid = uuid.UUID(str(target_user))
-                        sig_type = payload.get("type")
-                        if not sig_type and isinstance(payload.get("signal"), dict):
-                            sig_type = payload["signal"].get("type")
-                        if not sig_type and isinstance(payload.get("payload"), dict):
-                            sig_type = payload["payload"].get("type")
-
-                        signal_payload = {
-                            "call_id": payload.get("callId") or payload.get("call_id"),
-                            "callId": payload.get("callId") or payload.get("call_id"),
-                            "from_user_id": str(user_id),
-                            "fromUserId": str(user_id),
-                            "target_user_id": str(target_uuid),
-                            "targetUserId": str(target_uuid),
-                            "type": sig_type or "signal",
-                            "payload": payload.get("payload") or payload.get("signal") or payload,
-                            "signal": payload.get("signal") or payload.get("payload") or payload,
-                        }
-                        if "sdp" in payload:
-                            signal_payload["sdp"] = payload["sdp"]
-                        if "candidate" in payload:
-                            signal_payload["candidate"] = payload["candidate"]
-
-                        await ws_manager.send_to_user(target_uuid, company_id, "webrtc:signal", signal_payload)
-                        await ws_manager.send_to_user(target_uuid, company_id, "call_signal", signal_payload)
-                    except ValueError:
-                        pass
-
-            elif event in ("call:accept", "call:accepted", "call:reject", "call:rejected", "call:end", "call:ended"):
-                target_user = (
-                    payload.get("targetUserId")
-                    or payload.get("target_user_id")
-                    or payload.get("recipientId")
-                    or payload.get("recipient_id")
-                    or payload.get("otherUserId")
+                call_type = (
+                    payload.get("call_type")
+                    or payload.get("callType")
+                    or payload.get("type")
+                    or "audio"
                 )
-                if target_user:
-                    try:
-                        target_uuid = uuid.UUID(str(target_user))
-                        normalized_event = "call:accepted" if "accept" in event else ("call:rejected" if "reject" in event else "call:ended")
-                        await ws_manager.send_to_user(target_uuid, company_id, normalized_event, payload)
-                        await ws_manager.send_to_user(target_uuid, company_id, "call_status_changed", payload)
-                    except ValueError:
-                        pass
+                if not callee_id_raw:
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": "INVALID_PARAMETERS",
+                        "message": "Receiver ID is required to initiate a call.",
+                        "success": False,
+                    })
+                    continue
+
+                try:
+                    callee_uuid = uuid.UUID(str(callee_id_raw))
+                except ValueError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": "INVALID_USER_ID",
+                        "message": "Invalid receiver ID format.",
+                        "success": False,
+                    })
+                    continue
+
+                if not ws_manager.is_online(callee_uuid):
+                    logger.info("CALL_INCOMING_DELIVERY_FAILED | receiver_offline | caller_id=%s receiver_id=%s", user_id, callee_uuid)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": "USER_OFFLINE",
+                        "message": "The user is currently offline.",
+                        "success": False,
+                        "receiver_id": str(callee_uuid),
+                    })
+                    continue
+
+                try:
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Caller", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        call_res = await service.initiate_call(
+                            company_id=company_id,
+                            user=user_obj,
+                            target_user_id=callee_uuid,
+                            call_type=str(call_type).lower(),
+                        )
+                        await websocket.send_json({
+                            "type": "call:started",
+                            "event": "call:started",
+                            "call_id": str(call_res.get("id")),
+                            "callId": str(call_res.get("id")),
+                            "caller_id": str(user_id),
+                            "receiver_id": str(callee_uuid),
+                            "call_type": str(call_type).lower(),
+                            "status": "ringing",
+                            "success": True,
+                            "data": call_res,
+                        })
+                except Exception as e:
+                    logger.warning("Failed to initiate call via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "CALL_INITIATION_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "success": False,
+                    })
+
+            elif event_str in ("call:accept", "call:accepted"):
+                call_id_raw = payload.get("call_id") or payload.get("callId") or payload.get("id")
+                if not call_id_raw:
+                    continue
+                try:
+                    call_uuid = uuid.UUID(str(call_id_raw))
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Callee", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        res = await service.update_call_status(
+                            company_id=company_id,
+                            user=user_obj,
+                            call_id=call_uuid,
+                            new_status="connected",
+                        )
+                        await websocket.send_json({
+                            "type": "call:accepted",
+                            "event": "call:accepted",
+                            "call_id": str(call_uuid),
+                            "callId": str(call_uuid),
+                            "status": "connected",
+                            "success": True,
+                            "data": res,
+                        })
+                except Exception as e:
+                    logger.warning("Failed to accept call via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "CALL_ACCEPT_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "call_id": str(call_id_raw),
+                        "success": False,
+                    })
+
+            elif event_str in ("call:reject", "call:rejected"):
+                call_id_raw = payload.get("call_id") or payload.get("callId") or payload.get("id")
+                if not call_id_raw:
+                    continue
+                try:
+                    call_uuid = uuid.UUID(str(call_id_raw))
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Callee", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        res = await service.update_call_status(
+                            company_id=company_id,
+                            user=user_obj,
+                            call_id=call_uuid,
+                            new_status="rejected",
+                        )
+                        await websocket.send_json({
+                            "type": "call:rejected",
+                            "event": "call:rejected",
+                            "call_id": str(call_uuid),
+                            "callId": str(call_uuid),
+                            "status": "rejected",
+                            "success": True,
+                            "data": res,
+                        })
+                except Exception as e:
+                    logger.warning("Failed to reject call via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "CALL_REJECT_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "call_id": str(call_id_raw),
+                        "success": False,
+                    })
+
+            elif event_str in ("call:cancel", "call:cancelled"):
+                call_id_raw = payload.get("call_id") or payload.get("callId") or payload.get("id")
+                if not call_id_raw:
+                    continue
+                try:
+                    call_uuid = uuid.UUID(str(call_id_raw))
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Caller", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        res = await service.update_call_status(
+                            company_id=company_id,
+                            user=user_obj,
+                            call_id=call_uuid,
+                            new_status="cancelled",
+                        )
+                        await websocket.send_json({
+                            "type": "call:cancelled",
+                            "event": "call:cancelled",
+                            "call_id": str(call_uuid),
+                            "callId": str(call_uuid),
+                            "status": "cancelled",
+                            "success": True,
+                            "data": res,
+                        })
+                except Exception as e:
+                    logger.warning("Failed to cancel call via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "CALL_CANCEL_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "call_id": str(call_id_raw),
+                        "success": False,
+                    })
+
+            elif event_str in ("call:end", "call:ended"):
+                call_id_raw = payload.get("call_id") or payload.get("callId") or payload.get("id")
+                if not call_id_raw:
+                    continue
+                try:
+                    call_uuid = uuid.UUID(str(call_id_raw))
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Participant", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        res = await service.update_call_status(
+                            company_id=company_id,
+                            user=user_obj,
+                            call_id=call_uuid,
+                            new_status="ended",
+                        )
+                        await websocket.send_json({
+                            "type": "call:ended",
+                            "event": "call:ended",
+                            "call_id": str(call_uuid),
+                            "callId": str(call_uuid),
+                            "status": "ended",
+                            "success": True,
+                            "data": res,
+                        })
+                except Exception as e:
+                    logger.warning("Failed to end call via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "CALL_END_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "call_id": str(call_id_raw),
+                        "success": False,
+                    })
+
+            elif event_str in ("webrtc:signal", "call_signal", "signal"):
+                call_id_raw = payload.get("call_id") or payload.get("callId") or payload.get("id")
+                if not call_id_raw:
+                    continue
+                try:
+                    call_uuid = uuid.UUID(str(call_id_raw))
+                    sig_type = payload.get("type")
+                    if not sig_type and isinstance(payload.get("signal"), dict):
+                        sig_type = payload["signal"].get("type")
+                    if not sig_type and isinstance(payload.get("payload"), dict):
+                        sig_type = payload["payload"].get("type")
+
+                    signal_content = payload.get("payload") or payload.get("signal") or payload
+                    target_user_raw = (
+                        payload.get("targetUserId")
+                        or payload.get("target_user_id")
+                        or payload.get("recipientId")
+                        or payload.get("recipient_id")
+                    )
+                    target_uuid = uuid.UUID(str(target_user_raw)) if target_user_raw else None
+
+                    async with AsyncSessionLocal() as session:
+                        user_obj = await session.get(User, user_id)
+                        if not user_obj:
+                            user_obj = User(id=user_id, name="Signaler", email="", company_id=company_id)
+                        service = ConnectService(session)
+                        await service.handle_call_signal(
+                            company_id=company_id,
+                            user=user_obj,
+                            call_id=call_uuid,
+                            signal_type=str(sig_type or "signal"),
+                            payload=signal_content,
+                            target_user_id=target_uuid,
+                        )
+                except Exception as e:
+                    logger.warning("Failed to forward WebRTC signal via WS: %s", e)
+                    await websocket.send_json({
+                        "type": "error",
+                        "event": "error",
+                        "code": getattr(e, "code", "SIGNAL_RELAY_FAILED"),
+                        "message": getattr(e, "message", str(e)),
+                        "call_id": str(call_id_raw),
+                        "success": False,
+                    })
 
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
