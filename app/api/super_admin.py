@@ -82,6 +82,28 @@ async def record_super_admin_audit(
         logger.warning("Failed to record audit log: %s", exc)
 
 
+
+def active_employee_filter():
+    """Return canonical SQLAlchemy filter conditions for active workforce employees.
+
+    Excludes:
+    - Soft-deleted employees (is_deleted is True)
+    - Deactivated employees (is_active is False)
+    - Terminal/inactive statuses: DISABLED, INACTIVE, DEACTIVATED, ARCHIVED, TERMINATED, EXITED, DELETED
+    - Terminal employment statuses: EXITED, TERMINATED
+    """
+    return [
+        (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+        (Employee.is_active.is_(True) | Employee.is_active.is_(None)),
+        func.upper(func.coalesce(Employee.status, "")).notin_([
+            "DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED"
+        ]),
+        func.upper(func.coalesce(Employee.employment_status, "")).notin_([
+            "EXITED", "TERMINATED"
+        ]),
+    ]
+
+
 # ─── 1. Dashboard & Statistics ───────────────────────────────────────
 
 @router.get("/statistics")
@@ -99,9 +121,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
 
         total_workforce = (
             await db.execute(
-                select(func.count(Employee.id)).where(
-                    (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None))
-                )
+                select(func.count(Employee.id)).where(*active_employee_filter())
             )
         ).scalar() or 0
 
@@ -419,16 +439,17 @@ async def get_super_admin_organizations(
             )
             user_counts = dict((await db.execute(user_counts_stmt)).all())
 
-            # Batch fetch employee counts
+            # Batch fetch active employee counts grouped by company_id (avoids N+1 queries)
             emp_counts_stmt = (
                 select(Employee.company_id, func.count(Employee.id))
                 .where(
                     Employee.company_id.in_(company_ids),
-                    (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+                    *active_employee_filter(),
                 )
                 .group_by(Employee.company_id)
             )
-            emp_counts = dict((await db.execute(emp_counts_stmt)).all())
+            emp_counts_res = (await db.execute(emp_counts_stmt)).all()
+            emp_counts = {cid: cnt for cid, cnt in emp_counts_res if cid is not None}
 
         items = []
         for c in companies:
@@ -494,9 +515,9 @@ async def get_super_admin_organizations(
                 "storageUsedGb": float(cp.get("storage_used_gb") or 0.0),
                 "industry": cp.get("industry") or "General",
                 "location": cp.get("city") or cp.get("location") or "Global",
-                "user_count": user_counts.get(c.id, 0),
-                "employee_count": emp_counts.get(c.id, 0),
-                "employeeCount": emp_counts.get(c.id, 0),
+                "user_count": int(user_counts.get(c.id, 0)),
+                "employee_count": int(emp_counts.get(c.id, 0)),
+                "employeeCount": int(emp_counts.get(c.id, 0)),
                 "hr_admin": hr_admin_obj,
                 "hr_admins": hr_admins_list,
                 "hrAdminName": primary_hr.name if primary_hr else "",
@@ -703,7 +724,7 @@ async def get_super_admin_organization_detail(
         await db.execute(
             select(func.count(Employee.id)).where(
                 Employee.company_id == company.id,
-                (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+                *active_employee_filter(),
             )
         )
     ).scalar() or 0
@@ -758,7 +779,8 @@ async def get_super_admin_organization_detail(
         },
         "stats": {
             "user_count": len(users),
-            "employee_count": emp_cnt,
+            "employee_count": int(emp_cnt),
+            "employeeCount": int(emp_cnt),
             "total_spent": float(sub.mrr or 0.0) * 12 if sub else 0.0,
         },
         "users": [

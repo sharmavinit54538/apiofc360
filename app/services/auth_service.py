@@ -747,13 +747,22 @@ class AuthService:
         from app.models.employee import Employee
         from app.models.manager import Manager
 
+        import inspect
         emp_res = await self.session.execute(
             select(Employee).where(
                 Employee.user_id == user.id,
                 Employee.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        emp = emp_res.scalars().first()
+        emp = None
+        if hasattr(emp_res, "scalars"):
+            sc = emp_res.scalars()
+            if hasattr(sc, "first"):
+                emp_val = sc.first()
+                emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+        elif hasattr(emp_res, "scalar_one_or_none"):
+            emp_val = emp_res.scalar_one_or_none()
+            emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
         if not emp:
             # Resilient fallback: link employee by company/personal email if user_id was unlinked
             user_email_clean = (user.email or "").strip().lower()
@@ -764,8 +773,15 @@ class AuthService:
                     Employee.is_deleted == False,
                 ).execution_options(bypass_tenant=True)
             )
-            emp = emp_email_res.scalars().first()
-            if emp and not emp.user_id:
+            if hasattr(emp_email_res, "scalars"):
+                sc = emp_email_res.scalars()
+                if hasattr(sc, "first"):
+                    emp_val = sc.first()
+                    emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+            elif hasattr(emp_email_res, "scalar_one_or_none"):
+                emp_val = emp_email_res.scalar_one_or_none()
+                emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+            if emp and not getattr(emp, "user_id", None):
                 emp.user_id = user.id
                 self.session.add(emp)
                 await self.session.flush()
@@ -797,7 +813,15 @@ class AuthService:
                 Manager.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        mgr = mgr_res.scalars().first()
+        mgr = None
+        if hasattr(mgr_res, "scalars"):
+            sc = mgr_res.scalars()
+            if hasattr(sc, "first"):
+                mgr_val = sc.first()
+                mgr = await mgr_val if inspect.isawaitable(mgr_val) else mgr_val
+        elif hasattr(mgr_res, "scalar_one_or_none"):
+            mgr_val = mgr_res.scalar_one_or_none()
+            mgr = await mgr_val if inspect.isawaitable(mgr_val) else mgr_val
         if isinstance(mgr, Manager) and (
             mgr.is_active is False
             or (mgr.status or "").upper() in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
