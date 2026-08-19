@@ -116,7 +116,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_hr_admins = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.HR_ADMIN,
+                    cast(User.role, String).in_(["hr_admin", "admin", "hr_manager", "company_admin", "ADMIN"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -125,7 +125,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_employees = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.EMPLOYEE,
+                    cast(User.role, String).in_(["employee", "EMPLOYEE", "intern"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -134,7 +134,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_managers = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.MANAGER,
+                    cast(User.role, String).in_(["manager", "MANAGER"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -143,7 +143,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_executives = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.EXECUTIVE,
+                    cast(User.role, String).in_(["ceo", "cto", "cfo", "coo", "cmo", "clo", "ciso", "cio", "CEO", "CTO", "CFO", "COO", "CMO", "CLO", "CISO", "CIO", "executive"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -152,7 +152,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_it_admins = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.IT_ADMIN,
+                    cast(User.role, String).in_(["it_admin", "ciso", "cio", "cto", "CTO", "CIO", "CISO"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -161,7 +161,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         total_super_admins = (
             await db.execute(
                 select(func.count(User.id)).where(
-                    User.role == UserRole.SUPER_ADMIN,
+                    cast(User.role, String).in_(["super_admin", "SUPER_ADMIN"]),
                     (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
                 )
             )
@@ -343,12 +343,13 @@ async def get_super_admin_organizations(
     """Get all tenant organizations from PostgreSQL with live counts and subscription data."""
     try:
         stmt = select(Company)
-        if search and search.strip():
+        if isinstance(search, str) and search.strip():
             term = f"%{search.strip()}%".lower()
             stmt = stmt.where(func.lower(Company.name).ilike(term))
 
-        offset = max(0, (page - 1) * page_size)
-        stmt = stmt.order_by(Company.created_at.desc()).offset(offset).limit(page_size)
+        offset = max(0, ((page if isinstance(page, int) else 1) - 1) * (page_size if isinstance(page_size, int) else 50))
+        limit_val = page_size if isinstance(page_size, int) else 50
+        stmt = stmt.order_by(Company.created_at.desc()).offset(offset).limit(limit_val)
 
         res = await db.execute(stmt)
         companies = res.scalars().all()
@@ -523,10 +524,12 @@ async def create_super_admin_organization(
             ).scalars().first()
 
             if not existing_user:
+                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
                 new_user = User(
                     id=uuid.uuid4(),
                     email=hr_admin_email,
                     name=hr_admin_name,
+                    phone=gen_phone,
                     role=UserRole.HR_ADMIN,
                     company_id=new_org_id,
                     is_active=True,
@@ -999,7 +1002,7 @@ async def get_super_admin_users(
             (User.is_deleted.is_(False) | User.is_deleted.is_(None))
         )
 
-        if role and role.strip() and role.strip().upper() != "ALL":
+        if isinstance(role, str) and role.strip() and role.strip().upper() != "ALL":
             role_clean = role.strip().lower()
             try:
                 role_enum = UserRole(role_clean)
@@ -1007,21 +1010,21 @@ async def get_super_admin_users(
             except ValueError:
                 stmt = stmt.where(cast(User.role, String) == role_clean)
 
-        if organization_id and organization_id.strip() and organization_id.strip().upper() != "ALL":
+        if isinstance(organization_id, str) and organization_id.strip() and organization_id.strip().upper() != "ALL":
             try:
                 org_uuid = uuid.UUID(organization_id.strip())
                 stmt = stmt.where(User.company_id == org_uuid)
             except ValueError:
                 pass
 
-        if status_filter and status_filter.strip().upper() != "ALL":
+        if isinstance(status_filter, str) and status_filter.strip().upper() != "ALL":
             status_clean = status_filter.strip().upper()
             if status_clean == "ACTIVE":
                 stmt = stmt.where(User.is_active == True)
             elif status_clean in ("INACTIVE", "SUSPENDED", "DEACTIVATED"):
                 stmt = stmt.where(User.is_active == False)
 
-        if search and search.strip():
+        if isinstance(search, str) and search.strip():
             search_term = f"%{search.strip()}%".lower()
             stmt = stmt.where(
                 or_(
@@ -1031,8 +1034,9 @@ async def get_super_admin_users(
                 )
             )
 
-        offset = max(0, (page - 1) * page_size)
-        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(page_size)
+        offset = max(0, ((page if isinstance(page, int) else 1) - 1) * (page_size if isinstance(page_size, int) else 50))
+        limit_val = page_size if isinstance(page_size, int) else 50
+        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit_val)
 
         res = await db.execute(stmt)
         users = res.scalars().all()
@@ -1118,11 +1122,12 @@ async def create_super_admin_user(
         raise HTTPException(status_code=400, detail=f"User with email '{email}' already exists.")
 
     now = datetime.now(timezone.utc)
+    gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
     new_user = User(
         id=uuid.uuid4(),
         name=name,
         email=email,
-        phone=payload.get("phone"),
+        phone=gen_phone,
         role=role_enum,
         company_id=company_id,
         is_active=True,
@@ -1854,7 +1859,7 @@ async def get_super_admin_audit_logs(
     """Get global platform security audit logs from PostgreSQL."""
     try:
         stmt = select(AuditLog)
-        if search and search.strip():
+        if isinstance(search, str) and search.strip():
             term = f"%{search.strip()}%".lower()
             stmt = stmt.where(
                 or_(
@@ -1863,11 +1868,12 @@ async def get_super_admin_audit_logs(
                     func.lower(AuditLog.details).ilike(term),
                 )
             )
-        if action and action.strip() and action.strip().upper() != "ALL":
+        if isinstance(action, str) and action.strip() and action.strip().upper() != "ALL":
             stmt = stmt.where(AuditLog.action == action.strip().upper())
 
-        offset = max(0, (page - 1) * page_size)
-        stmt = stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(page_size)
+        offset = max(0, ((page if isinstance(page, int) else 1) - 1) * (page_size if isinstance(page_size, int) else 50))
+        limit_val = page_size if isinstance(page_size, int) else 50
+        stmt = stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit_val)
 
         res = await db.execute(stmt)
         logs = res.scalars().all()
