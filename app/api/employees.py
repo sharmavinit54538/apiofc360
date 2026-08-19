@@ -194,6 +194,7 @@ async def list_employees(
     service: Annotated[EmployeeService, Depends(get_employee_service)],
     department: str | None = Query(None, description="Filter by department (use 'all' to skip)"),
     status_filter: str | None = Query(None, alias="status", description="Filter by employee status"),
+    role: str | None = Query(None, description="Filter by role"),
     employment_type: str | None = Query(None, description="Filter by employment type"),
     designation: str | None = Query(None, description="Filter by designation"),
     shift: str | None = Query(None, description="Filter by shift"),
@@ -215,6 +216,7 @@ async def list_employees(
         limit=limit,
         designation=designation,
         shift=shift,
+        role=role,
         sort=sort,
         order=order,
     )

@@ -609,6 +609,96 @@ class EmployeeService:
             raise DatabaseException() from exc
 
     # ------------------------------------------------------------------
+    # Synchronization helper
+    # ------------------------------------------------------------------
+
+    async def _sync_managers_to_employees(self, company_id: uuid.UUID) -> None:
+        """Ensure all managers in managers table have a synchronized workforce Employee record."""
+        try:
+            from sqlalchemy import select
+            from app.models.manager import Manager
+            from app.models.employee import Employee
+
+            mgr_stmt = select(Manager).where(
+                Manager.company_id == company_id,
+                Manager.is_deleted.is_(False),
+            )
+            mgr_res = await self.session.execute(mgr_stmt)
+            managers = mgr_res.scalars().all()
+
+            for mgr in managers:
+                emp_res = await self.session.execute(
+                    select(Employee).where(
+                        (Employee.id == mgr.id) | (Employee.personal_email == mgr.personal_email)
+                    )
+                )
+                emp = emp_res.scalar_one_or_none()
+                if not emp:
+                    new_emp = Employee(
+                        id=mgr.id,
+                        user_id=mgr.user_id,
+                        company_id=company_id,
+                        employee_id=mgr.manager_id,
+                        first_name=mgr.first_name,
+                        last_name=mgr.last_name,
+                        profile_photo_url=mgr.profile_photo_url,
+                        gender=mgr.gender,
+                        date_of_birth=mgr.date_of_birth,
+                        personal_email=mgr.personal_email,
+                        company_email=mgr.company_email,
+                        phone=mgr.phone,
+                        alternate_phone=mgr.alternate_phone,
+                        blood_group=mgr.blood_group,
+                        marital_status=mgr.marital_status,
+                        department=mgr.department,
+                        designation=mgr.designation,
+                        branch=mgr.branch,
+                        work_location=mgr.work_location,
+                        joining_date=mgr.joining_date,
+                        employment_type=mgr.employment_type or "FULL_TIME",
+                        employment_status=mgr.employment_status or "CONFIRMED",
+                        shift=mgr.shift,
+                        probation_period_months=mgr.probation_period_months,
+                        ctc=mgr.ctc,
+                        basic_salary=mgr.basic_salary,
+                        hra=mgr.hra,
+                        bonus=mgr.bonus,
+                        pf=mgr.pf,
+                        esi=mgr.esi,
+                        professional_tax=mgr.professional_tax,
+                        role="manager",
+                        leave_group=mgr.leave_group,
+                        status=mgr.status or "ACTIVE",
+                        activation_token=mgr.activation_token,
+                        activation_token_expires_at=mgr.activation_token_expires_at,
+                        invited_at=mgr.invited_at,
+                        invited_by=mgr.invited_by,
+                        created_by=mgr.created_by,
+                        is_deleted=mgr.is_deleted,
+                        reporting_manager_id=mgr.reporting_to,
+                        manager_id=mgr.reporting_to,
+                    )
+                    self.session.add(new_emp)
+                    await self.session.flush()
+                else:
+                    updated = False
+                    if emp.user_id != mgr.user_id and mgr.user_id is not None:
+                        emp.user_id = mgr.user_id
+                        updated = True
+                    if emp.status != mgr.status and mgr.status is not None:
+                        emp.status = mgr.status
+                        updated = True
+                    if not emp.role or emp.role.lower() == "employee":
+                        emp.role = "manager"
+                        updated = True
+                    if updated:
+                        await self.session.flush()
+            await self.session.commit()
+        except Exception as sync_exc:
+            logger.warning("_sync_managers_to_employees warning: %s", str(sync_exc))
+            await self.session.rollback()
+
+    # ------------------------------------------------------------------
     # List
     # ------------------------------------------------------------------
 
@@ -623,10 +713,12 @@ class EmployeeService:
         limit: int,
         designation: str | None = None,
         shift: str | None = None,
+        role: str | None = None,
         sort: str | None = None,
         order: str | None = "asc",
     ) -> EmployeeListResponse:
         try:
+            await self._sync_managers_to_employees(company_id)
             offset = (page - 1) * limit
             employees = await self.repo.list_employees(
                 company_id=company_id,
@@ -638,6 +730,7 @@ class EmployeeService:
                 offset=offset,
                 designation=designation,
                 shift=shift,
+                role=role,
                 sort=sort,
                 order=order,
             )
@@ -649,6 +742,7 @@ class EmployeeService:
                 search=search,
                 designation=designation,
                 shift=shift,
+                role=role,
             )
             items = [EmployeeListItem.model_validate(e) for e in employees]
             pages = math.ceil(total / limit) if limit > 0 else 0
@@ -680,6 +774,9 @@ class EmployeeService:
         """Get a single employee, optionally scoped to a company."""
         try:
             employee = await self.repo.get_by_id(employee_uuid)
+            if not employee and company_id:
+                await self._sync_managers_to_employees(company_id)
+                employee = await self.repo.get_by_id(employee_uuid)
             if not employee:
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
             # Enforce company scope when company_id is provided

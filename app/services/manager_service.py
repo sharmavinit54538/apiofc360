@@ -223,6 +223,53 @@ class ManagerService:
 
             manager = await self.repo.create_manager(**mgr_kwargs)
 
+            # Create synchronized Employee workforce record for directory & organizational parity
+            from app.models.employee import Employee
+            emp_record = Employee(
+                id=manager.id,
+                user_id=manager.user_id,
+                company_id=admin_user.company_id,
+                employee_id=manager_id,
+                first_name=payload.first_name.strip(),
+                last_name=payload.last_name.strip(),
+                profile_photo_url=payload.profile_photo_url,
+                gender=payload.gender,
+                date_of_birth=payload.date_of_birth,
+                personal_email=personal_email,
+                company_email=company_email,
+                phone=payload.phone,
+                alternate_phone=payload.alternate_phone,
+                blood_group=payload.blood_group,
+                marital_status=payload.marital_status,
+                department=payload.department,
+                designation=payload.designation,
+                branch=payload.branch,
+                work_location=payload.work_location,
+                joining_date=payload.joining_date,
+                employment_type=payload.employment_type or "FULL_TIME",
+                employment_status=payload.employment_status or "CONFIRMED",
+                shift=payload.shift,
+                probation_period_months=payload.probation_period_months,
+                ctc=payload.ctc,
+                basic_salary=payload.basic_salary,
+                hra=payload.hra,
+                bonus=payload.bonus,
+                pf=payload.pf,
+                esi=payload.esi,
+                professional_tax=payload.professional_tax,
+                role="manager",
+                leave_group=payload.leave_group,
+                status="INVITED" if not manager.user_id else "ACTIVE",
+                activation_token=token,
+                activation_token_expires_at=token_expires,
+                invited_at=datetime.now(timezone.utc),
+                invited_by=admin_id,
+                created_by=admin_id,
+                reporting_manager_id=payload.reporting_to,
+                manager_id=payload.reporting_to,
+            )
+            self.session.add(emp_record)
+
             for addr in payload.addresses:
                 data = addr.model_dump(exclude={"address_type"})
                 await self.repo.upsert_address(manager.id, addr.address_type, data)
@@ -424,6 +471,33 @@ class ManagerService:
             if update_data:
                 await self.repo.update_manager(manager_uuid, **update_data)
 
+            # Synchronize Employee record
+            from sqlalchemy import update as sa_update
+            from app.models.employee import Employee
+            emp_update_fields = {
+                k: v for k, v in update_data.items()
+                if k in {
+                    "first_name", "last_name", "profile_photo_url", "gender", "date_of_birth",
+                    "personal_email", "company_email", "phone", "alternate_phone", "blood_group",
+                    "marital_status", "department", "designation", "branch", "work_location",
+                    "joining_date", "employment_type", "employment_status", "shift",
+                    "probation_period_months", "ctc", "basic_salary", "hra", "bonus", "pf",
+                    "esi", "professional_tax", "role", "leave_group", "status", "is_active"
+                }
+            }
+            if "manager_id" in update_data:
+                emp_update_fields["employee_id"] = update_data["manager_id"]
+            if "reporting_to" in update_data:
+                emp_update_fields["reporting_manager_id"] = update_data["reporting_to"]
+                emp_update_fields["manager_id"] = update_data["reporting_to"]
+
+            if emp_update_fields:
+                await self.session.execute(
+                    sa_update(Employee).where(
+                        (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    ).values(**emp_update_fields)
+                )
+
             # Process nested relations if provided
             if addresses is not None:
                 for addr in addresses:
@@ -433,7 +507,6 @@ class ManagerService:
 
             # Synchronize User active state if manager active status or lifecycle changed
             if manager.user_id:
-                from sqlalchemy import update as sa_update
                 from app.models.user import User
                 new_is_active = update_data.get("is_active", manager.is_active)
                 new_status = (update_data.get("status") or manager.status or "").upper()
@@ -476,8 +549,18 @@ class ManagerService:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
             manager.is_active = False
             await self.repo.soft_delete(manager_uuid, deleted_by=admin_id)
+            from sqlalchemy import update as sa_update
+            from app.models.employee import Employee
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    is_active=False,
+                    is_deleted=True,
+                    deleted_at=datetime.now(timezone.utc),
+                )
+            )
             if manager.user_id:
-                from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
                     sa_update(User).where(User.id == manager.user_id).values(
@@ -500,8 +583,9 @@ class ManagerService:
     async def send_invitation(self, admin_id: uuid.UUID, manager_uuid: uuid.UUID) -> None:
         logger.info("send_invitation | admin_id=%s | manager_id=%s", admin_id, manager_uuid)
         try:
-            from sqlalchemy import select
+            from sqlalchemy import select, update as sa_update
             from app.models.company import Company
+            from app.models.employee import Employee
             manager = await self.repo.get_by_id_raw(manager_uuid)
             if not manager:
                 raise AppException(message="Manager not found.", status_code=status.HTTP_404_NOT_FOUND)
@@ -530,6 +614,17 @@ class ManagerService:
                 status="INVITED",
                 invited_at=datetime.now(timezone.utc),
                 invited_by=admin_id,
+            )
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    activation_token=token,
+                    activation_token_expires_at=token_expires,
+                    status="INVITED",
+                    invited_at=datetime.now(timezone.utc),
+                    invited_by=admin_id,
+                )
             )
             await self.session.commit()
             activation_url = f"{settings.FRONTEND_BASE_URL}/manager/setup-password?token={token}"
@@ -612,6 +707,18 @@ class ManagerService:
                 activation_token_expires_at=None,
                 status="ACTIVE",  # Activated managers directly go to ACTIVE status
             )
+            from sqlalchemy import update as sa_update
+            from app.models.employee import Employee
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    activation_token=None,
+                    activation_token_expires_at=None,
+                    status="ACTIVE",
+                    is_active=True,
+                )
+            )
             await self.session.commit()
 
             try:
@@ -668,6 +775,53 @@ class ManagerService:
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.exception("reset_manager_password: db error", exc_info=exc)
+            raise DatabaseException() from exc
+
+    async def get_onboarding_token_status(self, token: str) -> dict:
+        clean_token = token.strip() if token else ""
+        if not clean_token:
+            raise AppException(message="Invitation token is required.", status_code=status.HTTP_400_BAD_REQUEST)
+        try:
+            from sqlalchemy import select
+            from app.models.manager import Manager
+            from app.models.company import Company
+            result = await self.session.execute(
+                select(Manager).where(Manager.activation_token == clean_token)
+            )
+            manager = result.scalar_one_or_none()
+            if not manager or manager.is_deleted:
+                raise AppException(message="Invitation token is invalid or has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+            if manager.status != "INVITED":
+                raise AppException(message="This invitation has already been accepted.", status_code=status.HTTP_400_BAD_REQUEST)
+            now = datetime.now(timezone.utc)
+            expires_at = manager.activation_token_expires_at
+            if expires_at:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if now > expires_at:
+                    raise AppException(message="This invitation token has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            company_name = "Our Company"
+            if manager.company_id:
+                comp_res = await self.session.execute(select(Company).where(Company.id == manager.company_id))
+                comp_obj = comp_res.scalar_one_or_none()
+                if comp_obj:
+                    company_name = comp_obj.name
+
+            return {
+                "valid": True,
+                "first_name": manager.first_name,
+                "last_name": manager.last_name,
+                "email": manager.personal_email,
+                "department": manager.department,
+                "designation": manager.designation,
+                "company_name": company_name,
+                "status": manager.status,
+            }
+        except AppException:
+            raise
+        except SQLAlchemyError as exc:
+            logger.exception("get_onboarding_token_status: db error", exc_info=exc)
             raise DatabaseException() from exc
 
     async def validate_onboarding_token(self, token: str) -> dict:
@@ -741,8 +895,9 @@ class ManagerService:
     async def activate_onboarding_manager(self, payload: ActivateManagerOnboardingRequest) -> dict:
         logger.info("activate_onboarding_manager: request | token_prefix=%s", payload.token[:8] if payload.token else "N/A")
         try:
-            from sqlalchemy import select, func
+            from sqlalchemy import select, func, update as sa_update
             from app.models.manager import Manager
+            from app.models.employee import Employee
             from app.models.user import User
             from app.core.security import hash_password
             from app.services.token_service import TokenService
@@ -853,6 +1008,21 @@ class ManagerService:
             if payload.profile_photo_url:
                 manager.profile_photo_url = payload.profile_photo_url
 
+            # Also update synchronized Employee record
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager.id) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    user_id=user.id,
+                    status="ACTIVE",
+                    is_active=True,
+                    activation_token=None,
+                    activation_token_expires_at=None,
+                    phone=manager.phone,
+                    profile_photo_url=manager.profile_photo_url,
+                )
+            )
+
             # Emergency Contact
             if payload.emergency_contact_name and payload.emergency_contact_phone:
                 from app.models.manager_emergency_contact import ManagerEmergencyContact
@@ -917,8 +1087,19 @@ class ManagerService:
             manager.deactivated_by = admin_id
             manager.status = "DISABLED"
             await self.repo.update_status(manager_uuid, "DISABLED")
+            from sqlalchemy import update as sa_update
+            from app.models.employee import Employee
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    is_active=False,
+                    status="DISABLED",
+                    deactivated_at=datetime.now(timezone.utc),
+                    deactivated_by=admin_id,
+                )
+            )
             if manager.user_id:
-                from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
                     sa_update(User).where(User.id == manager.user_id).values(
@@ -949,8 +1130,19 @@ class ManagerService:
             manager.deactivation_reason = None
             manager.status = "ACTIVE"
             await self.repo.update_status(manager_uuid, "ACTIVE")
+            from sqlalchemy import update as sa_update
+            from app.models.employee import Employee
+            await self.session.execute(
+                sa_update(Employee).where(
+                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                ).values(
+                    is_active=True,
+                    status="ACTIVE",
+                    deactivated_at=None,
+                    deactivated_by=None,
+                )
+            )
             if manager.user_id:
-                from sqlalchemy import update as sa_update
                 from app.models.user import User
                 await self.session.execute(
                     sa_update(User).where(User.id == manager.user_id).values(
