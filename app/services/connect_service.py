@@ -999,10 +999,11 @@ class ConnectService:
             call_data,
         )
 
-        if delivered_1 > 0:
+        is_delivered = (delivered_1 > 0) if isinstance(delivered_1, int) else bool(delivered_1)
+        if is_delivered:
             logger.info(
-                "CALL_INCOMING_DELIVERED | call_id=%s receiver_id=%s sockets_reached=%d",
-                call.id, target_user_id, delivered_1,
+                "CALL_INCOMING_DELIVERED | call_id=%s receiver_id=%s",
+                call.id, target_user_id,
             )
         else:
             logger.warning(
