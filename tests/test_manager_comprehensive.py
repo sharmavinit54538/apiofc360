@@ -90,6 +90,8 @@ def make_test_manager(
     mgr.personal_email = personal_email
     mgr.company_email = company_email
     mgr.joining_date = date(2025, 1, 15)
+    mgr.employment_type = "FULL_TIME"
+    mgr.employment_status = "CONFIRMED"
     mgr.is_deleted = is_deleted
     mgr.status = status_val
     mgr.is_first_login = False
