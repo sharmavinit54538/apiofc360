@@ -1270,34 +1270,120 @@ class AuthService:
 
     async def login_google(
         self,
-        email: str,
+        code: str | None = None,
+        credential: str | None = None,
+        access_token: str | None = None,
+        redirect_uri: str | None = None,
+        email: str | None = None,
         name: str | None = None,
         ip_address: str | None = None,
         device: str | None = None,
     ) -> tuple[User, str, str, int]:
-        """Authenticate user via Google SSO with strict role check (Company Admin ONLY)."""
-        normalized_email = email.strip().lower()
+        """Authenticate user via Google OAuth SSO (code exchange, ID token credential, or direct email)."""
+        target_email: str | None = email
+        target_name: str | None = name
+
+        # 1. Exchange authorization code for Google tokens if code provided
+        if code:
+            client_id = settings.GOOGLE_CLIENT_ID
+            client_secret = (
+                settings.GOOGLE_CLIENT_SECRET.get_secret_value()
+                if hasattr(settings.GOOGLE_CLIENT_SECRET, "get_secret_value")
+                else str(settings.GOOGLE_CLIENT_SECRET)
+            )
+
+            if not client_id or not client_secret:
+                logger.error("Google OAuth credentials not configured.")
+                raise AppException(
+                    message="Google OAuth credentials are not configured on the server.",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            cb_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI or "postmessage"
+            token_payload = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": cb_uri,
+            }
+
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    token_resp = await client.post(
+                        "https://oauth2.googleapis.com/token",
+                        data=token_payload,
+                        headers={"Accept": "application/json"},
+                    )
+                    token_data = token_resp.json()
+            except Exception as exc:
+                logger.error("Google token exchange failed: %s", exc)
+                raise AppException(
+                    message=f"Failed to communicate with Google token service: {exc}",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            if "error" in token_data:
+                err_desc = token_data.get("error_description") or token_data.get("error")
+                logger.warning("Google OAuth token exchange returned error: %s", token_data)
+                raise AppException(
+                    message=f"Google authentication error: {err_desc}",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    errors=[{"field": "code", "message": str(err_desc)}],
+                )
+
+            credential = token_data.get("id_token") or credential
+            access_token = token_data.get("access_token") or access_token
+
+        # 2. Verify Google ID token credential if available
+        if credential and not target_email:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    info_resp = await client.get(
+                        "https://oauth2.googleapis.com/tokeninfo",
+                        params={"id_token": credential},
+                    )
+                    if info_resp.status_code == 200:
+                        info_data = info_resp.json()
+                        target_email = info_data.get("email")
+                        target_name = target_name or info_data.get("name")
+            except Exception as exc:
+                logger.warning("Google tokeninfo verification failed: %s", exc)
+
+        # 3. Fetch user info using Google access token if needed
+        if access_token and not target_email:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    userinfo_resp = await client.get(
+                        "https://www.googleapis.com/oauth2/v3/userinfo",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    if userinfo_resp.status_code == 200:
+                        userinfo_data = userinfo_resp.json()
+                        target_email = userinfo_data.get("email")
+                        target_name = target_name or userinfo_data.get("name")
+            except Exception as exc:
+                logger.warning("Google userinfo fetch failed: %s", exc)
+
+        if not target_email:
+            raise AppException(
+                message="Google authentication requires a valid authorization code, ID token, or email.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                errors=[{"field": "email", "message": "Email could not be resolved from Google authentication."}],
+            )
+
+        normalized_email = target_email.strip().lower()
         user = await self.auth_repository.get_user_by_email(normalized_email)
 
         if not user:
             logger.warning("Google login failed: User not found | email=%s", normalized_email)
             raise AppException(
-                message="No Company Admin account found for this Google email. Google login is permitted exclusively for registered Company Admins.",
+                message=f"No account found for '{normalized_email}'. Please register or contact your administrator.",
                 status_code=status.HTTP_404_NOT_FOUND,
-                errors=[{"field": "email", "message": "No Company Admin account found for this Google email."}],
+                errors=[{"field": "email", "message": f"No account found for {normalized_email}"}],
             )
 
-        # STRICT ROLE CHECK: Reject employees and company members
-        user_role = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()
-        if user_role not in ("super_admin", "hr_admin", "it_admin"):
-            logger.warning("Google login rejected for non-admin user | user_id=%s | role=%s | email=%s", user.id, user.role, normalized_email)
-            raise AppException(
-                message="Access Restricted: Google login is permitted exclusively for Company Admins. Employees and company members must sign in using their work email and password.",
-                status_code=status.HTTP_403_FORBIDDEN,
-                errors=[{"field": None, "message": "Google login restricted to Company Admins only."}],
-            )
-
-        # Activate & verify admin if needed
+        # Activate & verify user if needed
         if not user.is_verified or not user.is_active:
             user.is_verified = True
             user.is_active = True
@@ -1306,7 +1392,7 @@ class AuthService:
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
 
         effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
-        access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
+        access_token_jwt, refresh_token_jwt, expires_in = await self.token_service.generate_auth_tokens(
             user_id=user.id,
             role=effective_role,
             company_id=user.company_id,
@@ -1316,7 +1402,8 @@ class AuthService:
         )
 
         await self.session.commit()
-        return user, access_token, refresh_token, expires_in
+        return user, access_token_jwt, refresh_token_jwt, expires_in
+
 
     async def login_github(
         self,

@@ -634,15 +634,29 @@ class GoogleAuthRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    email: EmailStr
-    name: str | None = None
-    credential: str | None = None
+    code: str | None = Field(default=None, description="Google OAuth authorization code")
+    credential: str | None = Field(default=None, description="Google ID token credential from Google Sign-In")
+    access_token: str | None = Field(default=None, description="Direct Google access token")
+    redirect_uri: str | None = Field(default=None, description="OAuth redirect URI used during authorization")
+    email: EmailStr | None = Field(default=None, description="Direct email fallback")
+    name: str | None = Field(default=None, description="Display name fallback")
     action: str = Field(default="login", description="login or register")
 
     @field_validator("email", mode="before")
     @classmethod
-    def normalize_email_field(cls, value: str) -> str:
-        return normalize_email(value)
+    def normalize_email_field(cls, value: Any) -> str | None:
+        if not value:
+            return None
+        return normalize_email(str(value))
+
+
+class GoogleAuthUrlResponse(BaseModel):
+    """Response containing Google OAuth authorize URL."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str = Field(..., description="Google OAuth authorization URL")
+
 
 
 class GitHubAuthRequest(BaseModel):

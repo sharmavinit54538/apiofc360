@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="GitHub OAuth App Client Secret")
     GITHUB_REDIRECT_URI: str = Field(default="", description="GitHub OAuth redirect URI")
 
+    # ── Google OAuth settings ────────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = Field(default="", description="Google OAuth App Client ID")
+    GOOGLE_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="Google OAuth App Client Secret")
+    GOOGLE_REDIRECT_URI: str = Field(default="", description="Google OAuth redirect URI")
+
+
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True

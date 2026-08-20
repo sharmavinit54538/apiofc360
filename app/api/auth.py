@@ -18,6 +18,7 @@ from app.schemas.auth import (
     GitHubAuthRequest,
     GitHubAuthUrlResponse,
     GoogleAuthRequest,
+    GoogleAuthUrlResponse,
     LoginRequest,
     LoginResponse,
     LoginResponseData,
@@ -408,14 +409,42 @@ async def resend_email_otp(
     )
 
 
+@router.get(
+    "/google/url",
+    status_code=status.HTTP_200_OK,
+    response_model=GoogleAuthUrlResponse,
+    summary="Get Google OAuth authorization URL",
+)
+async def get_google_auth_url(redirect_uri: str | None = None) -> GoogleAuthUrlResponse:
+    """Generate Google OAuth authorize URL for frontend redirect."""
+    from app.core.config import settings
+    import urllib.parse
+
+    client_id = settings.GOOGLE_CLIENT_ID
+    cb_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI or "postmessage"
+
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "redirect_uri": cb_uri,
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+
+    query_string = urllib.parse.urlencode(params)
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{query_string}"
+    return GoogleAuthUrlResponse(url=auth_url)
+
+
 @router.post(
     "/google",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
-    summary="Google SSO for Company Admin Only",
+    summary="Google OAuth SSO Login",
     dependencies=[Depends(check_login_rate_limit)],
     responses={
-        status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Employees not allowed"},
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid Google code or token"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "Admin user not found"},
     },
 )
@@ -424,13 +453,17 @@ async def google_auth(
     request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
-    """Authenticate a Company Admin via Google SSO (Strictly restricted to Company Admins)."""
+    """Authenticate a user via Google OAuth Single Sign-On."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
     user, access_token, refresh_token, expires_in = await auth_service.login_google(
-        email=str(payload.email),
+        code=payload.code,
+        credential=payload.credential,
+        access_token=payload.access_token,
+        redirect_uri=payload.redirect_uri,
+        email=str(payload.email) if payload.email else None,
         name=payload.name,
         ip_address=ip_address,
         device=device,
@@ -484,6 +517,7 @@ async def google_auth(
         ),
         errors=None,
     )
+
 
 
 @router.get(
