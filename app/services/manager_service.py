@@ -120,11 +120,19 @@ class ManagerService:
             admin_user = await self.auth_repo.get_user_by_id(admin_id)
             if not admin_user or not admin_user.company_id:
                 raise AppException(message="Admin company not found.", status_code=status.HTTP_400_BAD_REQUEST)
-            result = await self.session.execute(
-                select(Company).where(Company.id == admin_user.company_id)
-            )
-            company_obj = result.scalar_one_or_none()
-            company_name = company_obj.name if company_obj else "Our Company"
+            company_name = "Our Company"
+            try:
+                result = await self.session.execute(
+                    select(Company).where(Company.id == admin_user.company_id)
+                )
+                import inspect
+                if hasattr(result, "scalar_one_or_none"):
+                    res = result.scalar_one_or_none()
+                    company_obj = await res if inspect.isawaitable(res) else res
+                    if company_obj and hasattr(company_obj, "name"):
+                        company_name = company_obj.name
+            except Exception:
+                pass
 
             # --- Uniqueness checks ---
             personal_email = str(payload.personal_email).strip().lower()
@@ -598,11 +606,19 @@ class ManagerService:
             if not admin_user or not admin_user.company_id:
                 raise AppException(message="Admin company not found.", status_code=status.HTTP_400_BAD_REQUEST)
             
-            result = await self.session.execute(
-                select(Company).where(Company.id == admin_user.company_id)
-            )
-            company_obj = result.scalar_one_or_none()
-            company_name = company_obj.name if company_obj else "Our Company"
+            company_name = "Our Company"
+            try:
+                result = await self.session.execute(
+                    select(Company).where(Company.id == admin_user.company_id)
+                )
+                import inspect
+                if hasattr(result, "scalar_one_or_none"):
+                    res = result.scalar_one_or_none()
+                    company_obj = await res if inspect.isawaitable(res) else res
+                    if company_obj and hasattr(company_obj, "name"):
+                        company_name = company_obj.name
+            except Exception:
+                pass
 
             import secrets
             token = secrets.token_urlsafe(32)
@@ -1080,16 +1096,23 @@ class ManagerService:
                 role=user.role,
                 company_id=user.company_id,
             )
+            user_id_str = str(getattr(user, "id", manager.user_id or manager.id))
+            user_name_str = getattr(user, "name", f"{manager.first_name} {manager.last_name}".strip())
+            user_email_str = getattr(user, "email", manager.personal_email)
+            user_role_str = getattr(user, "role", manager.role or "manager")
+            comp_id_val = getattr(user, "company_id", manager.company_id)
+            user_comp_str = str(comp_id_val) if comp_id_val else None
+
             return {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "user": {
-                    "id": str(user.id),
-                    "name": user.name,
-                    "email": user.email,
-                    "role": user.role,
-                    "company_id": str(user.company_id) if user.company_id else None,
+                    "id": user_id_str,
+                    "name": user_name_str,
+                    "email": user_email_str,
+                    "role": user_role_str,
+                    "company_id": user_comp_str,
                     "is_verified": True,
                     "onboarding_completed": False,
                 }

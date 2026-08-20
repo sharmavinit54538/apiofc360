@@ -811,7 +811,19 @@ async def test_manager_onboarding_token_validation_and_activation():
 
     # 6. Activate Account Flow
     manager.activation_token_expires_at = datetime.now(timezone.utc) + timedelta(days=3)
-    mock_exec_res.scalar_one_or_none.return_value = manager
+    
+    def mock_activate_execute(stmt):
+        mock_r = MagicMock()
+        stmt_str = str(stmt).lower()
+        if "managers" in stmt_str:
+            mock_r.scalar_one_or_none.return_value = manager
+        elif "users" in stmt_str:
+            mock_r.scalar_one_or_none.return_value = None
+        else:
+            mock_r.scalar_one_or_none.return_value = None
+        return mock_r
+
+    mock_session.execute.side_effect = mock_activate_execute
 
     activate_payload = ActivateManagerOnboardingRequest(
         token=token,
@@ -870,6 +882,13 @@ async def test_manager_activation_url_generation_and_schema_parity():
     mock_manager_repo.create_manager.return_value = created_manager
     mock_manager_repo.get_by_id.return_value = created_manager
     mock_manager_repo.get_by_id_raw.return_value = created_manager
+
+    def mock_create_exec(stmt):
+        mock_r = MagicMock()
+        mock_r.scalar_one_or_none.return_value = None
+        return mock_r
+
+    mock_session.execute.side_effect = mock_create_exec
 
     service = ManagerService(
         session=mock_session,
