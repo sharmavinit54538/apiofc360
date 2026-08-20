@@ -17,9 +17,11 @@ security = HTTPBearer(auto_error=False)
 
 
 def _get_permissions_for_role(role: str) -> dict[str, Any]:
-    role_lower = (role or "super_admin").lower()
+    from app.models.user.role import RoleEnum
+    role_lower = (role or "super_admin").lower().strip()
+    normalized_role = RoleEnum.from_str(role_lower).value
 
-    if role_lower in {"super_admin", "hr_admin", "executive", "it_admin"}:
+    if role_lower in {"super_admin", "hr_admin", "executive", "it_admin", "admin", "system_admin", "ceo", "cto", "cfo", "coo", "cmo", "clo", "ciso", "cio", "cxo"} or normalized_role in {"super_admin", "hr_admin", "executive", "it_admin"}:
         perms = [
             "all",
             "dashboard:read",

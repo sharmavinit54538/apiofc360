@@ -48,9 +48,79 @@ ROLE_MANAGER = RoleEnum.MANAGER.value
 ROLE_EMPLOYEE = RoleEnum.EMPLOYEE.value
 ROLE_INTERN = RoleEnum.INTERN.value
 
-ADMIN_ROLES = {ROLE_HR_ADMIN, ROLE_IT_ADMIN}
-ADMIN_MANAGER_ROLES = {ROLE_HR_ADMIN, ROLE_IT_ADMIN, ROLE_MANAGER, ROLE_EXECUTIVE}
-EXECUTIVE_ROLES = {ROLE_SUPER_ADMIN, ROLE_HR_ADMIN, ROLE_EXECUTIVE}
+ADMIN_ROLES = {
+    ROLE_HR_ADMIN,
+    ROLE_IT_ADMIN,
+    "admin",
+    "system_admin",
+    "it_admin",
+    "itadmin",
+    "it_system_admin",
+    "tech_admin",
+    "sysadmin",
+    "company_admin",
+}
+ADMIN_MANAGER_ROLES = {
+    ROLE_HR_ADMIN,
+    ROLE_IT_ADMIN,
+    ROLE_MANAGER,
+    ROLE_EXECUTIVE,
+    "admin",
+    "system_admin",
+    "it_admin",
+    "itadmin",
+    "it_system_admin",
+    "tech_admin",
+    "sysadmin",
+    "company_admin",
+    "ceo",
+    "cto",
+    "cfo",
+    "coo",
+    "cmo",
+    "clo",
+    "ciso",
+    "cio",
+    "chro",
+    "cpo",
+    "executive",
+    "executive_cxo",
+    "cxo",
+    "lead",
+    "team_lead",
+    "hr_manager",
+}
+EXECUTIVE_ROLES = {
+    ROLE_SUPER_ADMIN,
+    ROLE_HR_ADMIN,
+    ROLE_EXECUTIVE,
+    "executive",
+    "executive_cxo",
+    "cxo",
+    "ceo",
+    "cto",
+    "cfo",
+    "coo",
+    "cmo",
+    "clo",
+    "ciso",
+    "cio",
+    "chro",
+    "cpo",
+    "vp",
+    "director",
+}
+IT_ADMIN_ROLES = {
+    ROLE_IT_ADMIN,
+    "it_admin",
+    "itadmin",
+    "it",
+    "system_admin",
+    "it_system_admin",
+    "tech_admin",
+    "sysadmin",
+    "sys_admin",
+}
 
 
 def _is_valid_super_admin_claims(claims: dict) -> bool:
@@ -70,9 +140,10 @@ def require_hr_admin(
 ) -> dict:
     """Allow users with hr_admin or official super_admin roles."""
     user_role = (claims.get("role") or "").lower().strip()
-    if user_role == ROLE_HR_ADMIN:
+    normalized = RoleEnum.from_str(user_role)
+    if user_role == ROLE_HR_ADMIN or normalized == RoleEnum.HR_ADMIN:
         return claims
-    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+    if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and _is_valid_super_admin_claims(claims):
         return claims
 
     logger.warning(
@@ -91,9 +162,10 @@ def require_admin(
 ) -> dict:
     """Allow users with administrative rights (official super_admin, hr_admin, it_admin)."""
     user_role = (claims.get("role") or "").lower().strip()
-    if user_role in ADMIN_ROLES:
+    normalized = RoleEnum.from_str(user_role)
+    if user_role in ADMIN_ROLES or normalized in (RoleEnum.HR_ADMIN, RoleEnum.IT_ADMIN):
         return claims
-    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+    if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and _is_valid_super_admin_claims(claims):
         return claims
 
     logger.warning(
@@ -112,9 +184,10 @@ def require_admin_or_manager(
 ) -> dict:
     """Allow users with official super_admin, hr_admin, it_admin, manager, or executive roles."""
     user_role = (claims.get("role") or "").lower().strip()
-    if user_role in ADMIN_MANAGER_ROLES:
+    normalized = RoleEnum.from_str(user_role)
+    if user_role in ADMIN_MANAGER_ROLES or normalized in (RoleEnum.HR_ADMIN, RoleEnum.IT_ADMIN, RoleEnum.MANAGER, RoleEnum.EXECUTIVE):
         return claims
-    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+    if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and _is_valid_super_admin_claims(claims):
         return claims
 
     logger.warning(
@@ -133,8 +206,11 @@ def require_executive(
 ) -> dict:
     """Allow users with executive, hr_admin, or official super_admin roles."""
     user_role = (claims.get("role") or "").lower().strip()
-    if user_role in EXECUTIVE_ROLES:
-        if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+    normalized = RoleEnum.from_str(user_role)
+    if user_role in EXECUTIVE_ROLES or normalized in (RoleEnum.EXECUTIVE, RoleEnum.HR_ADMIN):
+        return claims
+    if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN):
+        if not _is_valid_super_admin_claims(claims):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super Admin access required.",
@@ -157,9 +233,10 @@ def require_it_admin(
 ) -> dict:
     """Allow IT admin or official super_admin users."""
     user_role = (claims.get("role") or "").lower().strip()
-    if user_role == ROLE_IT_ADMIN:
+    normalized = RoleEnum.from_str(user_role)
+    if user_role in IT_ADMIN_ROLES or normalized == RoleEnum.IT_ADMIN:
         return claims
-    if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+    if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and _is_valid_super_admin_claims(claims):
         return claims
 
     logger.warning(
@@ -178,9 +255,10 @@ def require_employee_or_above(
 ) -> dict:
     """Ensure request is from an authenticated user with a recognized platform role."""
     user_role = (claims.get("role") or "").lower().strip()
+    normalized = RoleEnum.from_str(user_role)
     all_valid_roles = {r.value for r in RoleEnum}
-    if user_role in all_valid_roles:
-        if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+    if user_role in all_valid_roles or normalized is not None:
+        if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and not _is_valid_super_admin_claims(claims):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super Admin access required.",
@@ -208,9 +286,10 @@ def require_roles(*allowed_roles: RoleEnum | str) -> Callable[[dict], dict]:
             normalized_allowed.add(RoleEnum.from_str(r).value)
 
     def _role_checker(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
-        user_role = (claims.get("role") or "").lower().strip()
-        if user_role in normalized_allowed:
-            if user_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
+        raw_role = (claims.get("role") or "").lower().strip()
+        normalized_role = RoleEnum.from_str(raw_role).value
+        if raw_role in normalized_allowed or normalized_role in normalized_allowed:
+            if normalized_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Super Admin access required.",
@@ -218,13 +297,13 @@ def require_roles(*allowed_roles: RoleEnum | str) -> Callable[[dict], dict]:
             return claims
 
         # Super admin always allowed unless specifically disallowed
-        if user_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
+        if normalized_role == ROLE_SUPER_ADMIN and _is_valid_super_admin_claims(claims):
             return claims
 
         logger.warning(
             "RBAC: Insufficient role permissions | required=%s | user_role=%s | user_id=%s",
             normalized_allowed,
-            user_role,
+            raw_role,
             claims.get("sub"),
         )
         raise HTTPException(

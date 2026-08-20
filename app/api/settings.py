@@ -109,9 +109,11 @@ class ProfilePayload(BaseModel):
 
 # --- Helper functions ---
 def check_admin_or_manager(claims: dict):
-    role = str(claims.get("role") or "").lower()
-    if not role or role not in ["super_admin", "hr_admin", "manager", "executive", "it_admin", "employee"]:
-
+    from app.models.user.role import RoleEnum
+    role = str(claims.get("role") or "").lower().strip()
+    normalized = RoleEnum.from_str(role).value
+    valid_roles = {"super_admin", "hr_admin", "manager", "executive", "it_admin", "employee", "admin", "system_admin", "ceo", "cto", "cfo", "coo", "cio", "ciso", "cxo"}
+    if not role or (role not in valid_roles and normalized not in valid_roles):
         from app.core.exceptions import AppException
         raise AppException(
             message="Access denied. Administrator privileges required.",
