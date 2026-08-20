@@ -13,11 +13,13 @@ from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.ai_resume import (
     CandidateATSAnalysisResponse,
+    CandidateJobMatchDetailResponse,
     CandidateListItemSchema,
     CandidateProfileDetailResponse,
     CandidateScreeningResponse,
     JobMatchRequest,
     JobMatchResponse,
+    ResumeParseDirectRequest,
 )
 from app.schemas.auth import APIResponse
 from app.services.ai_screening_pipeline_service import AIScreeningPipelineService
@@ -51,13 +53,20 @@ async def check_resume_upload_rate_limit(request: Request) -> None:
     summary="Upload resume for automated AI screening & ATS matching",
     dependencies=[Depends(check_resume_upload_rate_limit)],
 )
+@router.post(
+    "/resumes/upload",
+    status_code=status.HTTP_201_CREATED,
+    response_model=CandidateScreeningResponse,
+    summary="Upload resume for automated AI screening & ATS matching (plural alias)",
+    dependencies=[Depends(check_resume_upload_rate_limit)],
+)
 async def upload_and_screen_resume(
     file: UploadFile,
     job_id: uuid.UUID | None = Form(None, description="Optional target Job ID for ATS matching"),
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     service: Annotated[AIScreeningPipelineService, Depends(get_pipeline_service)] = None,
 ) -> CandidateScreeningResponse:
-    """Upload resume (PDF, DOCX, DOC, PNG, JPG, JPEG), extract text using Google Document AI, parse, clean, run quality & duplicate detection, compute ATS score, generate AI insights, and save structured records."""
+    """Upload resume (PDF, DOCX, DOC, TXT, PNG, JPG, JPEG), extract text, parse, clean, run quality & duplicate detection, compute ATS score, generate AI insights, and save structured records."""
     company_id_raw = claims.get("company_id") if claims else None
     company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
     user_id_raw = claims.get("sub") if claims else None
@@ -68,6 +77,34 @@ async def upload_and_screen_resume(
         job_id=job_id,
         company_id=company_id,
         uploaded_by=user_id,
+    )
+
+
+@router.post(
+    "/resumes/parse",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Direct raw resume text parsing & dry-run analysis",
+)
+async def parse_resume_direct(
+    payload: ResumeParseDirectRequest,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[AIScreeningPipelineService, Depends(get_pipeline_service)],
+) -> APIResponse[dict]:
+    """Directly parse raw resume text and return structured candidate profile, skills, and ATS analysis."""
+    company_id_raw = claims.get("company_id") if isinstance(claims, dict) else None
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+
+    result = await service.parse_resume_direct(
+        raw_text=payload.raw_text or "",
+        job_id=payload.job_id,
+        company_id=company_id,
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Resume parsed successfully.",
+        data=result,
+        errors=None,
     )
 
 
@@ -155,6 +192,28 @@ async def get_candidate_ats_analysis(
 
 
 @router.post(
+    "/candidates/{candidate_id}/match/{job_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[CandidateJobMatchDetailResponse],
+    summary="Match a specific candidate against a target job description",
+)
+async def match_candidate_against_job(
+    candidate_id: uuid.UUID,
+    job_id: uuid.UUID,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[AIScreeningPipelineService, Depends(get_pipeline_service)],
+) -> APIResponse[CandidateJobMatchDetailResponse]:
+    """Match candidate against target job and calculate multi-dimensional scores and recommendations."""
+    result = await service.match_candidate_for_job(candidate_id=candidate_id, job_id=job_id)
+    return APIResponse[CandidateJobMatchDetailResponse](
+        success=True,
+        message="Candidate matched against job successfully.",
+        data=CandidateJobMatchDetailResponse.model_validate(result),
+        errors=None,
+    )
+
+
+@router.post(
     "/jobs/{job_id}/match",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[JobMatchResponse],
@@ -173,3 +232,4 @@ async def match_candidates_for_job(
         data=JobMatchResponse.model_validate(result),
         errors=None,
     )
+

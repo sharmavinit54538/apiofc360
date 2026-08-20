@@ -171,6 +171,11 @@ class Settings(BaseSettings):
     DOCUMENT_OCR_MAX_FILE_SIZE_MB: int = 20
     ALLOWED_DOCUMENT_MIME_TYPES: list[str] = [
         "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "text/plain",
+        "text/x-plain",
+        "text/markdown",
         "image/png",
         "image/jpeg",
         "image/jpg",
@@ -201,7 +206,7 @@ class Settings(BaseSettings):
     RESUME_UPLOAD_DIR: str = "uploads/resumes"
     OFFER_LETTER_DIR: str = "uploads/offer_letters"
     MAX_RESUME_SIZE_MB: int = 10
-    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".tiff"]
+    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".tiff"]
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str = ""
