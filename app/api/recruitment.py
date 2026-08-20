@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,11 @@ from app.schemas.ai_resume import (
     ResumeParseDirectRequest,
 )
 from app.schemas.auth import APIResponse
+from app.schemas.recruitment import (
+    JobDescriptionStructuredRequest,
+    JobDescriptionStructuredResponse,
+    JobDescriptionModifyStructuredRequest,
+)
 from app.services.ai_screening_pipeline_service import AIScreeningPipelineService
 
 router = APIRouter(prefix="/recruitment", tags=["AI Resume Screening & ATS Matching"])
@@ -232,4 +237,74 @@ async def match_candidates_for_job(
         data=JobMatchResponse.model_validate(result),
         errors=None,
     )
+
+
+@router.post(
+    "/jobs/generate-description",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[JobDescriptionStructuredResponse],
+    summary="Generate AI structured job description under recruitment prefix",
+)
+async def generate_recruitment_job_description(
+    payload: JobDescriptionStructuredRequest,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[JobDescriptionStructuredResponse]:
+    """Generate a structured, ATS-optimized job description using AI."""
+    from app.services.jd_generator_service import get_jd_generator_service
+    from app.models.company import Company
+    from sqlalchemy import select
+
+    company_ctx = None
+    co_id_str = claims.get("company_id") if isinstance(claims, dict) else None
+    if co_id_str:
+        try:
+            co_uuid = uuid.UUID(str(co_id_str))
+            res = await db.execute(select(Company).where(Company.id == co_uuid))
+            comp = res.scalar_one_or_none()
+            if comp:
+                prof = comp.company_profile or {}
+                company_ctx = {
+                    "name": comp.name,
+                    "industry": prof.get("industry") or "Technology",
+                    "domain": prof.get("domain"),
+                }
+        except Exception:
+            pass
+
+    generator = get_jd_generator_service()
+    structured_jd = await generator.generate_structured_jd(payload, company_ctx)
+    return APIResponse[JobDescriptionStructuredResponse](
+        success=True,
+        message="Job description generated successfully",
+        data=structured_jd,
+        errors=None,
+    )
+
+
+@router.post(
+    "/jobs/modify-description",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[Any],
+    summary="Modify AI structured job description under recruitment prefix",
+)
+async def modify_recruitment_job_description(
+    payload: JobDescriptionModifyStructuredRequest,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> APIResponse[Any]:
+    """Modify or refine job description using multi-provider AI."""
+    from app.services.jd_generator_service import get_jd_generator_service
+    generator = get_jd_generator_service()
+    modified = await generator.modify_job_description(
+        current_jd=payload.current_jd,
+        action=payload.action,
+        custom_instruction=payload.custom_instruction,
+    )
+    return APIResponse[Any](
+        success=True,
+        message=f"Job description modified successfully via {payload.action} action.",
+        data=modified,
+        errors=None,
+    )
+
 
