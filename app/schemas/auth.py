@@ -303,15 +303,54 @@ class UserLoginPublic(BaseModel):
 class LoginResponseData(BaseModel):
     """Data payload for login response."""
 
-    user: UserLoginPublic
-    access_token: str
-    refresh_token: str
+    user: UserLoginPublic | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_type: str = "Bearer"
     expires_in: int = 900
+    requires_email_verification: bool = False
+    verification_id: str | None = None
+    masked_email: str | None = None
+    email: str | None = None
 
 
 class LoginResponse(APIResponse[LoginResponseData]):
     """Login API response envelope."""
+
+    requires_email_verification: bool | None = None
+    verification_id: str | None = None
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    """Verify Email OTP request payload."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    verification_id: str = Field(..., description="Verification ID from login response")
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
+    identifier: str | None = Field(default=None, description="Optional email or phone fallback")
+    email: str | None = Field(default=None, description="Optional email fallback")
+
+
+class ResendEmailOtpRequest(BaseModel):
+    """Resend Email OTP request payload."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    verification_id: str = Field(..., description="Verification ID from login response")
+    email: str | None = Field(default=None, description="Optional email fallback")
+
+
+class ResendEmailOtpResponseData(BaseModel):
+    """Data payload for resend email OTP response."""
+
+    verification_id: str | None = None
+
+
+class ResendEmailOtpResponse(APIResponse[ResendEmailOtpResponseData]):
+    """Resend Email OTP response envelope."""
+
+    verification_id: str | None = None
 
 
 class RefreshTokenRequest(BaseModel):

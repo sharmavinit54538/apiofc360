@@ -20,7 +20,7 @@ from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.exceptions import ConflictException, ValidationException
+from app.core.exceptions import AppException, ConflictException, ValidationException
 from app.core.rbac import require_admin
 from app.db.database import get_db_session
 from app.models.company import Company
@@ -41,7 +41,12 @@ from app.schemas.onboarding import (
     DesignationStepInputList,
     InviteEmployeeStepInputList,
 )
-from app.services.employee_service import EmployeeService, get_employee_service
+from app.services.employee_service import (
+    EmployeeService,
+    get_employee_service,
+    validate_employee_invitation_token,
+    mask_token,
+)
 from app.services.onboarding_service import OnboardingService, StepAccess
 from app.services.rate_limiter import check_onboarding_rate_limit
 
@@ -835,21 +840,21 @@ async def complete_onboarding(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GET /validate  &  GET /validate-token  (Employee activation — unchanged)
+# GET /validate  &  GET /validate-token  (Employee activation)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get(
     "/validate",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[dict],
-    summary="Validate employee onboarding token",
+    summary="Validate employee onboarding token (canonical)",
     dependencies=[Depends(check_onboarding_rate_limit)],
 )
 async def validate_onboarding_token_alias(
     token: str,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
-    """Validate onboarding token alias."""
+    """Validate employee onboarding token (canonical endpoint)."""
     return await validate_onboarding_token(token=token, session=session)
 
 
@@ -865,126 +870,23 @@ async def validate_onboarding_token(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Validate that the onboarding token is valid, not expired, and belongs to an invited employee."""
-    clean_token = token.strip() if token else ""
-    token_prefix = clean_token[:8] if clean_token else "N/A"
-    logger.info("validate_onboarding_token: request | token_prefix=%s", token_prefix)
-
-    if not clean_token:
-        logger.warning("validate_onboarding_token: empty token provided")
+    try:
+        _, data = await validate_employee_invitation_token(session=session, token=token)
+        return APIResponse[dict](
+            success=True,
+            message="Token is valid.",
+            data=data,
+            errors=None,
+        )
+    except AppException as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid invitation token.",
-        )
-
-    employee_result = await session.execute(
-        select(Employee).where(
-            Employee.activation_token == clean_token,
-            Employee.is_deleted.is_(False),
-        )
-    )
-    employee = employee_result.scalar_one_or_none()
-
-    if not employee:
-        # Fallback: check if linked User has matching email_verification_token
-        user_emp_res = await session.execute(
-            select(Employee).join(User, Employee.user_id == User.id).where(
-                User.email_verification_token == clean_token,
-                Employee.is_deleted.is_(False),
-            )
-        )
-        employee = user_emp_res.scalar_one_or_none()
-
-    if not employee:
-        logger.warning("validate_onboarding_token: token not found | token_prefix=%s", token_prefix)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid invitation token.",
-        )
-
-    # Check if already fully active / accepted
-    if employee.status == "ACTIVE" or (not employee.activation_token and employee.user_id):
-        logger.warning("validate_onboarding_token: already activated | employee_id=%s", employee.employee_id)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation already used. Please log in or contact your administrator.",
-        )
-
-    # Allowed statuses for pending activation
-    valid_statuses = {"INVITED", "INVITATION_SENT", "CREATED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
-    if employee.status not in valid_statuses:
-        logger.warning(
-            "validate_onboarding_token: non-invitation status | employee_id=%s | status=%s",
-            employee.employee_id, employee.status,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation is no longer valid. Request a new invitation.",
-        )
-
-    # Check expiration with timezone-safe UTC comparison
-    now = datetime.now(timezone.utc)
-    expires_at = employee.activation_token_expires_at
-    if expires_at:
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        remaining_seconds = (expires_at - now).total_seconds()
-        logger.info(
-            "validate_onboarding_token: expiry check | employee_id=%s | current_time=%s | token_expires_at=%s | remaining_seconds=%.2f",
-            employee.employee_id, now.isoformat(), expires_at.isoformat(), remaining_seconds,
-        )
-        if remaining_seconds <= 0:
-            logger.warning(
-                "validate_onboarding_token: token expired | employee_id=%s | expired_at=%s | remaining_seconds=%.2f",
-                employee.employee_id, expires_at.isoformat(), remaining_seconds,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invitation expired. Request new invitation.",
-            )
-    else:
-        logger.info("validate_onboarding_token: no expiry timestamp on record | employee_id=%s", employee.employee_id)
-
-    # Resolve company name for display
-    company_name = "OFC360"
-    if employee.company_id:
-        comp_res = await session.execute(select(Company.name).where(Company.id == employee.company_id))
-        c_name = comp_res.scalar_one_or_none()
-        if c_name:
-            company_name = c_name
-
-    logger.info(
-        "validate_onboarding_token: valid | employee_id=%s | email=%s",
-        employee.employee_id, (employee.personal_email or employee.company_email or "")[:3] + "***",
-    )
-    return APIResponse[dict](
-        success=True,
-        message="Token is valid.",
-        data={
-            "id": str(employee.id),
-            "employee_id": str(employee.id),
-            "employee_uuid": str(employee.id),
-            "employee_code": employee.employee_id,
-            "first_name": employee.first_name,
-            "last_name": employee.last_name,
-            "name": f"{employee.first_name} {employee.last_name}".strip(),
-            "full_name": f"{employee.first_name} {employee.last_name}".strip(),
-            "personal_email": employee.personal_email,
-            "company_email": employee.company_email,
-            "email": employee.personal_email or employee.company_email,
-            "phone": employee.phone,
-            "department": employee.department,
-            "designation": employee.designation,
-            "company_id": str(employee.company_id) if employee.company_id else None,
-            "company_name": company_name,
-            "joining_date": employee.joining_date.isoformat() if employee.joining_date else None,
-            "valid": True,
-        },
-        errors=None,
-    )
+            status_code=exc.status_code,
+            detail=exc.message,
+        ) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POST /activate  (Employee self-activation — unchanged)
+# POST /activate  (Employee self-activation)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post(
@@ -998,63 +900,30 @@ async def activate_onboarding_employee(
     payload: ActivateOnboardingRequest,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
-    """Activate employee account, create user, delete token, and perform auto-login."""
+    """Activate employee account, create user, clear token, and perform auto-login."""
     from sqlalchemy import func
     from app.core.security import hash_password
     from app.services.token_service import TokenService
     from app.repositories.auth_repository import AuthRepository
     from app.models.employee_emergency_contact import EmployeeEmergencyContact
+    from app.models.user import UserRole
 
-    logger.info("activate_onboarding: request | token_prefix=%s", payload.token[:8] if payload.token else "N/A")
+    clean_token = payload.token.strip() if payload.token else ""
+    token_masked = mask_token(clean_token)
+    logger.info("activate_onboarding: request | token=%s", token_masked)
 
-    employee_result = await session.execute(
-        select(Employee).where(Employee.activation_token == payload.token)
-    )
-    employee = employee_result.scalar_one_or_none()
-
-    if not employee or employee.is_deleted or employee.status != "INVITED":
-        logger.warning("activate_onboarding: invalid token | token_prefix=%s", payload.token[:8])
+    # 1. Canonical validation and employee resolution
+    try:
+        employee, _ = await validate_employee_invitation_token(session=session, token=clean_token)
+    except AppException as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invitation expired or invalid. Request new invitation.",
-        )
+            status_code=exc.status_code,
+            detail=exc.message,
+        ) from exc
 
     now = datetime.now(timezone.utc)
-    expires_at = employee.activation_token_expires_at
-    if expires_at:
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if now > expires_at:
-            logger.warning("activate_onboarding: token expired | employee_id=%s", employee.employee_id)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invitation expired. Request new invitation.",
-            )
-
-    password = payload.password
-    if (
-        len(password) < 8 or
-        not any(c.isupper() for c in password) or
-        not any(c.islower() for c in password) or
-        not any(c.isdigit() for c in password) or
-        not any(not c.isalnum() for c in password)
-    ):
-        logger.warning("activate_onboarding: weak password | employee_id=%s", employee.employee_id)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, 1 special character.",
-        )
-
-    # Check for existing email
-    email_check = await session.execute(
-        select(User).where(func.lower(User.email) == func.lower(employee.personal_email))
-    )
-    if email_check.scalar_one_or_none():
-        logger.warning("activate_onboarding: email already exists | employee_id=%s", employee.employee_id)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email already exists.",
-        )
+    password_hash = hash_password(payload.password)
+    user_email = (employee.company_email or employee.personal_email).lower().strip()
 
     # Clean and check phone
     phone_to_use = payload.phone or employee.phone
@@ -1062,42 +931,97 @@ async def activate_onboarding_employee(
     if len(clean_phone) > 10:
         clean_phone = clean_phone[-10:]
 
-    if clean_phone:
-        phone_check = await session.execute(
-            select(User).where(User.phone == clean_phone)
+    user = None
+    if employee.user_id:
+        user_res = await session.execute(
+            select(User).where(User.id == employee.user_id)
         )
-        if phone_check.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this phone number already exists.",
+        user = user_res.scalar_one_or_none()
+
+    if not user:
+        user_res = await session.execute(
+            select(User).where(
+                (func.lower(User.email) == user_email) |
+                (func.lower(User.email) == employee.personal_email.lower().strip())
             )
+        )
+        user = user_res.scalar_one_or_none()
 
-    # Create active user
-    from app.models.user import UserRole
-    logger.info("activate_onboarding: creating user | employee_id=%s", employee.employee_id)
-    db_role = getattr(UserRole, (employee.role or "").upper(), UserRole.EMPLOYEE) if hasattr(UserRole, (employee.role or "").upper()) else UserRole.EMPLOYEE
-    user = User(
-        company_id=employee.company_id,
-        name=f"{employee.first_name} {employee.last_name}".strip(),
-        email=employee.personal_email.lower(),
-        phone=clean_phone,
-        password_hash=hash_password(payload.password),
-        is_active=True,
-        is_verified=True,
-        role=db_role,
-        email_verified_at=now,
-        onboarding_completed=True,
-    )
-    session.add(user)
-    await session.flush()
-    logger.info("activate_onboarding: user created | user_id=%s | employee_id=%s", user.id, employee.employee_id)
+    if user:
+        user.password_hash = password_hash
+        user.is_active = True
+        user.is_verified = True
+        user.must_change_password = False
+        user.account_status = "ACTIVE"
+        user.email_verification_token = None
+        user.email_verification_expires_at = None
+        if not user.email_verified_at:
+            user.email_verified_at = now
+        if not user.company_id and employee.company_id:
+            user.company_id = employee.company_id
+        session.add(user)
+        await session.flush()
+        employee.user_id = user.id
+    else:
+        if clean_phone:
+            phone_check = await session.execute(
+                select(User).where(User.phone == clean_phone, User.is_deleted.is_(False))
+            )
+            if phone_check.scalar_one_or_none():
+                clean_phone = None
 
-    # Link and activate employee
-    employee.user_id = user.id
+        db_role = getattr(UserRole, (employee.role or "").upper(), UserRole.EMPLOYEE) if hasattr(UserRole, (employee.role or "").upper()) else UserRole.EMPLOYEE
+
+        user = User(
+            id=uuid.uuid4(),
+            company_id=employee.company_id,
+            name=f"{employee.first_name} {employee.last_name}".strip(),
+            email=user_email,
+            phone=clean_phone or "0000000000",
+            password_hash=password_hash,
+            is_active=True,
+            is_verified=True,
+            role=db_role,
+            account_status="ACTIVE",
+            email_verified_at=now,
+            onboarding_completed=True,
+            must_change_password=False,
+            email_verification_token=None,
+            email_verification_expires_at=None,
+        )
+        session.add(user)
+        await session.flush()
+        employee.user_id = user.id
+
+    # Update employee status and invalidate tokens
     employee.status = "ACTIVE"
+    employee.is_active = True
     employee.activation_token = None
     employee.activation_token_expires_at = None
     logger.info("activate_onboarding: employee → ACTIVE | employee_id=%s", employee.employee_id)
+
+    # Sync linked Manager record if present
+    from app.models.manager import Manager
+    mgr_res = await session.execute(
+        select(Manager).where(
+            (Manager.user_id == user.id) |
+            (
+                (Manager.company_id == employee.company_id) &
+                (
+                    (func.lower(Manager.personal_email) == user_email) |
+                    (func.lower(Manager.company_email) == user_email)
+                )
+            )
+        ).execution_options(bypass_tenant=True)
+    )
+    mgr = mgr_res.scalars().first()
+    if mgr:
+        mgr.status = "ACTIVE"
+        mgr.activation_token = None
+        mgr.activation_token_expires_at = None
+        if not mgr.user_id:
+            mgr.user_id = user.id
+        session.add(mgr)
 
     if payload.phone:
         employee.phone = payload.phone

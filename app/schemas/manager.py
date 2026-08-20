@@ -17,7 +17,9 @@ GENDER_VALUES = {"MALE", "FEMALE", "OTHER"}
 BLOOD_GROUP_VALUES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
 MARITAL_STATUS_VALUES = {"SINGLE", "MARRIED", "DIVORCED", "WIDOWED"}
 EMPLOYMENT_TYPE_VALUES = {"FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"}
-EMPLOYMENT_STATUS_VALUES = {"PROBATION", "CONFIRMED", "NOTICE_PERIOD"}
+from app.schemas.employee.constants import ROLE_VALUES, EMPLOYMENT_STATUS_VALUES as BASE_EMPLOYMENT_STATUS_VALUES
+
+EMPLOYMENT_STATUS_VALUES = set(BASE_EMPLOYMENT_STATUS_VALUES) | {"INVITED"}
 DOCUMENT_TYPE_VALUES = {"AADHAAR", "PAN", "PASSPORT", "DRIVING_LICENSE", "VOTER_ID", "OTHER"}
 ADDRESS_TYPE_VALUES = {"CURRENT", "PERMANENT"}
 PROFICIENCY_VALUES = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"}
@@ -25,7 +27,6 @@ MANAGER_STATUS_VALUES = {
     "DRAFT", "CREATED", "INVITED", "INVITATION_SENT", "EMAIL_VERIFIED",
     "PASSWORD_CREATED", "ACTIVE", "INACTIVE", "TERMINATED",
 }
-from app.schemas.employee.constants import ROLE_VALUES
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +463,41 @@ class ManagerCreate(BaseModel):
                     ec for ec in new_data["emergency_contacts"]
                     if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name") or ec.get("contact_name") or ec.get("contact_phone"))
                 ]
+
+            # Normalize employment status if generic status was supplied
+            if not new_data.get("employment_status"):
+                raw_status = new_data.get("status")
+                if raw_status and isinstance(raw_status, str):
+                    st_clean = raw_status.strip().upper()
+                    if st_clean in ("ACTIVE", "ACT"):
+                        new_data["employment_status"] = "ACTIVE"
+                    elif st_clean in ("INACTIVE", "DEACTIVATED", "DISABLED"):
+                        new_data["employment_status"] = "INACTIVE"
+                    elif st_clean in ("PROBATION", "PROB"):
+                        new_data["employment_status"] = "PROBATION"
+                    elif st_clean in ("CONFIRMED", "PERMANENT"):
+                        new_data["employment_status"] = "CONFIRMED"
+                    elif st_clean in ("NOTICE", "NOTICE_PERIOD", "NOTICE PERIOD"):
+                        new_data["employment_status"] = "NOTICE_PERIOD"
+                    elif st_clean in ("INVITED", "INVITATION_SENT"):
+                        new_data["employment_status"] = "INVITED"
+                    elif st_clean in EMPLOYMENT_STATUS_VALUES:
+                        new_data["employment_status"] = st_clean
+
+            # Defensive handling: separate designation vs system role during client migration
+            raw_role = new_data.get("role")
+            raw_system_role = new_data.get("system_role") or new_data.get("systemrole")
+            if raw_role and isinstance(raw_role, str):
+                role_clean = raw_role.strip().lower()
+                if role_clean not in ROLE_VALUES:
+                    # 'role' is actually a job designation
+                    if raw_system_role and isinstance(raw_system_role, str) and raw_system_role.strip().lower() in ROLE_VALUES:
+                        if not new_data.get("designation") or str(new_data.get("designation")).strip() in ("", "Manager", "Employee"):
+                            new_data["designation"] = raw_role.strip()
+                        new_data["role"] = raw_system_role.strip().lower()
+                    elif not new_data.get("designation") or str(new_data.get("designation")).strip() in ("", "Manager", "Employee"):
+                        new_data["designation"] = raw_role.strip()
+                        new_data["role"] = "manager"
                 
             return new_data
         return data
@@ -647,6 +683,41 @@ class ManagerUpdate(BaseModel):
                     ec for ec in new_data["emergency_contacts"]
                     if isinstance(ec, dict) and (ec.get("emergency_contact_name") or ec.get("emergency_contact_phone") or ec.get("name") or ec.get("contact_name") or ec.get("contact_phone"))
                 ]
+
+            # Normalize employment status if generic status was supplied
+            if not new_data.get("employment_status"):
+                raw_status = new_data.get("status")
+                if raw_status and isinstance(raw_status, str):
+                    st_clean = raw_status.strip().upper()
+                    if st_clean in ("ACTIVE", "ACT"):
+                        new_data["employment_status"] = "ACTIVE"
+                    elif st_clean in ("INACTIVE", "DEACTIVATED", "DISABLED"):
+                        new_data["employment_status"] = "INACTIVE"
+                    elif st_clean in ("PROBATION", "PROB"):
+                        new_data["employment_status"] = "PROBATION"
+                    elif st_clean in ("CONFIRMED", "PERMANENT"):
+                        new_data["employment_status"] = "CONFIRMED"
+                    elif st_clean in ("NOTICE", "NOTICE_PERIOD", "NOTICE PERIOD"):
+                        new_data["employment_status"] = "NOTICE_PERIOD"
+                    elif st_clean in ("INVITED", "INVITATION_SENT"):
+                        new_data["employment_status"] = "INVITED"
+                    elif st_clean in EMPLOYMENT_STATUS_VALUES:
+                        new_data["employment_status"] = st_clean
+
+            # Defensive handling: separate designation vs system role during client migration
+            raw_role = new_data.get("role")
+            raw_system_role = new_data.get("system_role") or new_data.get("systemrole")
+            if raw_role and isinstance(raw_role, str):
+                role_clean = raw_role.strip().lower()
+                if role_clean not in ROLE_VALUES:
+                    # 'role' is actually a job designation
+                    if raw_system_role and isinstance(raw_system_role, str) and raw_system_role.strip().lower() in ROLE_VALUES:
+                        if not new_data.get("designation") or str(new_data.get("designation")).strip() in ("", "Manager", "Employee"):
+                            new_data["designation"] = raw_role.strip()
+                        new_data["role"] = raw_system_role.strip().lower()
+                    elif not new_data.get("designation"):
+                        new_data["designation"] = raw_role.strip()
+                        new_data.pop("role", None)
                 
             return new_data
         return data
@@ -698,6 +769,66 @@ class ManagerUpdate(BaseModel):
     experience: list[ManagerExperienceCreate] | None = None
     skills: list[ManagerSkillCreate] | None = None
     emergency_contacts: list[ManagerEmergencyContactCreate] | None = None
+
+    @field_validator("employment_type")
+    @classmethod
+    def validate_employment_type(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
+        if v not in EMPLOYMENT_TYPE_VALUES:
+            return None
+        return v
+
+    @field_validator("employment_status")
+    @classmethod
+    def validate_employment_status(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
+        if v not in EMPLOYMENT_STATUS_VALUES:
+            return None
+        return v
+
+    @field_validator("gender")
+    @classmethod
+    def validate_gender(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
+        if v not in GENDER_VALUES:
+            raise ValueError("gender must be MALE, FEMALE, or OTHER")
+        return v
+
+    @field_validator("blood_group")
+    @classmethod
+    def validate_blood_group(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
+        if v not in BLOOD_GROUP_VALUES:
+            raise ValueError("blood_group must be one of: " + ", ".join(BLOOD_GROUP_VALUES))
+        return v
+
+    @field_validator("marital_status")
+    @classmethod
+    def validate_marital_status(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().upper()
+        if v not in MARITAL_STATUS_VALUES:
+            raise ValueError("marital_status must be one of: " + ", ".join(MARITAL_STATUS_VALUES))
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str | None) -> str | None:
+        if v is None or str(v).strip() == "":
+            return None
+        v = str(v).strip().lower()
+        if v not in ROLE_VALUES:
+            raise ValueError("role must be one of: super_admin, hr_admin, manager, employee, executive, it_admin")
+        return v
 
 
 class ManagerPermissionsResponse(BaseModel):

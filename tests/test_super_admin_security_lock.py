@@ -439,7 +439,7 @@ async def test_official_super_admin_login_returns_super_admin_role():
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr("app.services.auth_service.verify_password", lambda p, h: True)
-        user, access, refresh, expires = await service.login(payload)
+        user, access, refresh, expires, *rest = await service.login(payload)
 
     assert user.role == UserRole.SUPER_ADMIN
     assert access == "access_jwt"
@@ -487,7 +487,7 @@ async def test_login_downgrades_unauthorized_superadmin_role():
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr("app.services.auth_service.verify_password", lambda p, h: True)
-        user, access, refresh, expires = await service.login(payload)
+        user, access, refresh, expires, *rest = await service.login(payload)
 
     assert user.role == UserRole.EMPLOYEE
     call_kwargs = mock_token_svc.generate_auth_tokens.call_args.kwargs

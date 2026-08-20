@@ -942,14 +942,15 @@ class ConnectRepository:
         callee_id: uuid.UUID,
         call_type: str,
         room_id: str,
+        status: str = "ringing",
     ) -> ConnectCallLog:
-        """Initiate and log a new call session."""
+        """Initiate and log a new call session with ringing state."""
         call = ConnectCallLog(
             company_id=company_id,
             caller_id=caller_id,
             callee_id=callee_id,
             call_type=call_type,
-            status="initiated",
+            status=status,
             room_id=room_id,
         )
         self.session.add(call)
@@ -962,7 +963,7 @@ class ConnectRepository:
         call_id: uuid.UUID,
         company_id: uuid.UUID,
     ) -> ConnectCallLog | None:
-        """Fetch call log by ID."""
+        """Fetch call log by ID with participant relations."""
         stmt = (
             select(ConnectCallLog)
             .options(
@@ -988,13 +989,22 @@ class ConnectRepository:
         if not call:
             raise NotFoundException("Call not found.")
 
-        call.status = status
-        if status == "connected" and not call.connected_at:
+        # Normalize status aliases
+        norm_status = status.lower().strip()
+        if norm_status == "accepted":
+            norm_status = "connected"
+        elif norm_status == "declined":
+            norm_status = "rejected"
+        elif norm_status == "canceled":
+            norm_status = "cancelled"
+
+        call.status = norm_status
+        if norm_status in ("connected", "accepted") and not call.connected_at:
             call.connected_at = datetime.utcnow()
-        elif status in ("ended", "rejected", "missed", "failed") and not call.ended_at:
+        elif norm_status in ("ended", "rejected", "cancelled", "missed", "failed") and not call.ended_at:
             call.ended_at = datetime.utcnow()
             if call.connected_at:
-                call.duration_seconds = int((call.ended_at - call.connected_at).total_seconds())
+                call.duration_seconds = max(0, int((call.ended_at - call.connected_at).total_seconds()))
 
         await self.session.commit()
         return call

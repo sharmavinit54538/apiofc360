@@ -911,7 +911,7 @@ class ConnectService:
         target_user_id: uuid.UUID,
         call_type: str = "audio",
     ) -> dict[str, Any]:
-        """Initiate call and send dual incoming_call/call:incoming events to target user with strict tenant validation."""
+        """Initiate call and send real-time call:incoming and incoming_call events to target user."""
         if user.id == target_user_id:
             raise AppException(message="Cannot call yourself.", status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -920,18 +920,21 @@ class ConnectService:
         if not target_user:
             raise ForbiddenException("Recipient colleague not found or does not belong to your company.")
 
+        is_callee_online = self.ws_manager.is_online(target_user_id)
         room_id = f"call_{uuid.uuid4().hex[:12]}"
+
         call = await self.repo.create_call_log(
             company_id=company_id,
             caller_id=user.id,
             callee_id=target_user_id,
             call_type=call_type,
             room_id=room_id,
+            status="ringing",
         )
 
         caller_avatar = getattr(user, "profile_photo", None)
         caller_dict = {
-            "id": user.id,
+            "id": str(user.id),
             "name": user.name,
             "email": user.email,
             "avatar": caller_avatar,
@@ -939,7 +942,7 @@ class ConnectService:
         }
         callee_avatar = getattr(target_user, "profile_photo", None)
         callee_dict = {
-            "id": target_user_id,
+            "id": str(target_user_id),
             "name": target_user.name,
             "email": target_user.email,
             "avatar": callee_avatar,
@@ -947,44 +950,66 @@ class ConnectService:
         }
 
         call_data = {
-            "id": call.id,
-            "callId": call.id,
-            "call_id": call.id,
-            "caller_id": user.id,
+            "id": str(call.id),
+            "callId": str(call.id),
+            "call_id": str(call.id),
+            "caller_id": str(user.id),
+            "callerId": str(user.id),
             "caller_name": user.name,
             "caller_avatar": caller_avatar,
             "caller": caller_dict,
-            "callee_id": target_user_id,
-            "calleeId": target_user_id,
-            "targetUserId": target_user_id,
+            "receiver_id": str(target_user_id),
+            "receiverId": str(target_user_id),
+            "callee_id": str(target_user_id),
+            "calleeId": str(target_user_id),
+            "target_user_id": str(target_user_id),
+            "targetUserId": str(target_user_id),
             "callee_name": target_user.name,
             "callee_avatar": callee_avatar,
             "callee": callee_dict,
             "call_type": call_type,
             "callType": call_type,
             "type": call_type,
-            "status": "initiated",
+            "status": "ringing",
             "room_id": room_id,
             "roomId": room_id,
             "started_at": call.started_at,
             "startedAt": call.started_at.isoformat() if call.started_at else None,
+            "is_receiver_online": is_callee_online,
         }
 
+        logger.info(
+            "CALL_STARTED | call_id=%s caller_id=%s receiver_id=%s call_type=%s receiver_online=%s",
+            call.id, user.id, target_user_id, call_type, is_callee_online,
+        )
+
         # Send dual real-time call invitation to target:
-        # 1. call:incoming (frontend expectation)
-        await self.ws_manager.send_to_user(
+        # 1. call:incoming (frontend canonical expectation)
+        delivered_1 = await self.ws_manager.send_to_user(
             target_user_id,
             company_id,
             "call:incoming",
             call_data,
         )
-        # 2. incoming_call (backend / legacy expectation)
+        # 2. incoming_call (legacy / backend alternative expectation)
         await self.ws_manager.send_to_user(
             target_user_id,
             company_id,
             "incoming_call",
             call_data,
         )
+
+        is_delivered = (delivered_1 > 0) if isinstance(delivered_1, int) else bool(delivered_1)
+        if is_delivered:
+            logger.info(
+                "CALL_INCOMING_DELIVERED | call_id=%s receiver_id=%s",
+                call.id, target_user_id,
+            )
+        else:
+            logger.warning(
+                "CALL_INCOMING_DELIVERY_FAILED | call_id=%s receiver_id=%s reason=no_active_sockets",
+                call.id, target_user_id,
+            )
 
         # Create persistent notification record for callee
         try:
@@ -1018,52 +1043,121 @@ class ConnectService:
         if user.id != call.caller_id and user.id != call.callee_id and not self._is_admin(user):
             raise ForbiddenException("You are not a participant in this call.")
 
-        updated = await self.repo.update_call_status(call_id, company_id, new_status)
+        # Normalize incoming status
+        target_status = new_status.lower().strip()
+        if target_status == "accepted":
+            target_status = "connected"
+        elif target_status == "declined":
+            target_status = "rejected"
+        elif target_status == "canceled":
+            target_status = "cancelled"
 
-        # Notify other party via WebSocket
+        current_status = (call.status or "").lower().strip()
+        terminal_states = {"ended", "rejected", "cancelled", "missed", "failed"}
+
+        # State transition validation
+        if current_status in terminal_states:
+            if target_status in ("connected", "accepted", "ringing", "initiated"):
+                raise AppException(
+                    message=f"Cannot transition call from '{current_status}' to '{target_status}'. Call is already closed.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            # If already in terminal state and receiving redundant end/cancel, return cleanly (idempotent)
+            return {
+                "id": str(call.id),
+                "callId": str(call.id),
+                "call_id": str(call.id),
+                "status": current_status,
+                "duration_seconds": call.duration_seconds,
+                "duration": call.duration_seconds,
+                "connected_at": call.connected_at,
+                "connectedAt": call.connected_at.isoformat() if call.connected_at else None,
+                "ended_at": call.ended_at,
+                "endedAt": call.ended_at.isoformat() if call.ended_at else None,
+            }
+
+        updated = await self.repo.update_call_status(call_id, company_id, target_status)
+
+        # Identify caller and callee
         other_user_id = call.callee_id if user.id == call.caller_id else call.caller_id
+
         status_payload = {
-            "call_id": call_id,
-            "callId": call_id,
-            "id": call_id,
-            "status": new_status,
+            "call_id": str(call_id),
+            "callId": str(call_id),
+            "id": str(call_id),
+            "caller_id": str(call.caller_id),
+            "receiver_id": str(call.callee_id),
+            "callee_id": str(call.callee_id),
+            "status": target_status,
             "duration_seconds": updated.duration_seconds,
             "duration": updated.duration_seconds,
+            "connected_at": updated.connected_at.isoformat() if updated.connected_at else None,
+            "ended_at": updated.ended_at.isoformat() if updated.ended_at else None,
         }
 
         # Dispatch specific frontend lifecycle event
-        if new_status == "connected":
+        if target_status == "connected":
+            logger.info("CALL_ACCEPTED | call_id=%s caller_id=%s callee_id=%s", call_id, call.caller_id, call.callee_id)
             await self.ws_manager.send_to_user(
-                other_user_id,
+                call.caller_id,
                 company_id,
                 "call:accepted",
                 status_payload,
             )
-        elif new_status == "rejected":
             await self.ws_manager.send_to_user(
-                other_user_id,
+                call.callee_id,
+                company_id,
+                "call:accepted",
+                status_payload,
+            )
+        elif target_status == "rejected":
+            logger.info("CALL_REJECTED | call_id=%s caller_id=%s callee_id=%s", call_id, call.caller_id, call.callee_id)
+            await self.ws_manager.send_to_user(
+                call.caller_id,
                 company_id,
                 "call:rejected",
                 status_payload,
             )
-        elif new_status in ("ended", "missed", "failed"):
+        elif target_status == "cancelled":
+            logger.info("CALL_CANCELLED | call_id=%s caller_id=%s callee_id=%s", call_id, call.caller_id, call.callee_id)
             await self.ws_manager.send_to_user(
-                other_user_id,
+                call.callee_id,
+                company_id,
+                "call:cancelled",
+                status_payload,
+            )
+        elif target_status in ("ended", "missed", "failed"):
+            logger.info("CALL_ENDED | call_id=%s caller_id=%s callee_id=%s status=%s duration=%d", call_id, call.caller_id, call.callee_id, target_status, updated.duration_seconds)
+            # Notify both participants that call ended
+            await self.ws_manager.send_to_user(
+                call.caller_id,
+                company_id,
+                "call:ended",
+                status_payload,
+            )
+            await self.ws_manager.send_to_user(
+                call.callee_id,
                 company_id,
                 "call:ended",
                 status_payload,
             )
 
-        # Also emit standard call_status_changed event
+        # Also emit standard legacy call_status_changed event to both
         await self.ws_manager.send_to_user(
-            other_user_id,
+            call.caller_id,
+            company_id,
+            "call_status_changed",
+            status_payload,
+        )
+        await self.ws_manager.send_to_user(
+            call.callee_id,
             company_id,
             "call_status_changed",
             status_payload,
         )
 
         # Create missed call notification if callee missed it
-        if new_status == "missed":
+        if target_status == "missed":
             try:
                 await self.repo.create_notification(
                     company_id=company_id,
@@ -1079,9 +1173,9 @@ class ConnectService:
                 logger.warning("Failed to create missed call notification: %s", e)
 
         return {
-            "id": updated.id,
-            "callId": updated.id,
-            "call_id": updated.id,
+            "id": str(updated.id),
+            "callId": str(updated.id),
+            "call_id": str(updated.id),
             "status": updated.status,
             "duration_seconds": updated.duration_seconds,
             "duration": updated.duration_seconds,
@@ -1108,16 +1202,24 @@ class ConnectService:
         if user.id != call.caller_id and user.id != call.callee_id:
             raise ForbiddenException("You are not part of this call session.")
 
+        terminal_states = {"ended", "rejected", "cancelled", "missed", "failed"}
+        if (call.status or "").lower() in terminal_states:
+            raise AppException(message="Cannot relay signals for an ended or closed call.", status_code=status.HTTP_400_BAD_REQUEST)
+
         recipient_id = target_user_id or (call.callee_id if user.id == call.caller_id else call.caller_id)
+        if recipient_id not in (call.caller_id, call.callee_id):
+            raise ForbiddenException("Signal target is not a participant in this call.")
 
         signal_data = {
-            "call_id": call_id,
-            "callId": call_id,
-            "id": call_id,
-            "from_user_id": user.id,
-            "fromUserId": user.id,
-            "target_user_id": recipient_id,
-            "targetUserId": recipient_id,
+            "call_id": str(call_id),
+            "callId": str(call_id),
+            "id": str(call_id),
+            "from_user_id": str(user.id),
+            "fromUserId": str(user.id),
+            "target_user_id": str(recipient_id),
+            "targetUserId": str(recipient_id),
+            "receiver_id": str(recipient_id),
+            "receiverId": str(recipient_id),
             "type": signal_type,
             "payload": payload,
             "signal": payload,
@@ -1130,7 +1232,12 @@ class ConnectService:
             if "candidate" in payload:
                 signal_data["candidate"] = payload["candidate"]
 
-        # Dual WebSocket event emission: webrtc:signal (frontend) & call_signal (backend)
+        logger.debug(
+            "WEBRTC_SIGNAL_FORWARDED | call_id=%s from_user=%s to_user=%s signal_type=%s",
+            call_id, user.id, recipient_id, signal_type,
+        )
+
+        # Dual WebSocket event emission: webrtc:signal (frontend canonical) & call_signal (backend alternative)
         await self.ws_manager.send_to_user(
             recipient_id,
             company_id,
@@ -1144,7 +1251,7 @@ class ConnectService:
             signal_data,
         )
 
-        return {"relayed": True, "type": signal_type, "recipient_id": recipient_id}
+        return {"relayed": True, "type": signal_type, "recipient_id": str(recipient_id)}
 
     # =========================================================================
     # E. Video Meetings

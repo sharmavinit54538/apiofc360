@@ -533,7 +533,7 @@ class CallInitiateResponse(BaseModel):
 
 
 class CallStatusUpdateRequest(BaseModel):
-    status: Literal["connected", "rejected", "ended", "missed", "failed"]
+    status: Literal["connected", "accepted", "rejected", "declined", "cancelled", "canceled", "ended", "missed", "failed"]
 
     @model_validator(mode="before")
     @classmethod
@@ -545,11 +545,10 @@ class CallStatusUpdateRequest(BaseModel):
                 "accepted": "connected",
                 "declined": "rejected",
                 "busy": "rejected",
-                "cancelled": "ended",
-                "canceled": "ended",
+                "canceled": "cancelled",
             }
             mapped = status_map.get(raw_status, raw_status)
-            if mapped in ("connected", "rejected", "ended", "missed", "failed"):
+            if mapped in ("connected", "accepted", "rejected", "declined", "cancelled", "canceled", "ended", "missed", "failed"):
                 data["status"] = mapped
         return data
 

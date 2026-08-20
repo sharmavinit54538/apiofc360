@@ -209,6 +209,7 @@ class EmployeeRepository:
         offset: int = 0,
         designation: str | None = None,
         shift: str | None = None,
+        role: str | None = None,
         sort: str | None = None,
         order: str | None = "asc",
     ) -> list[Employee]:
@@ -236,15 +237,21 @@ class EmployeeRepository:
             stmt = stmt.where(Employee.designation == designation)
         if shift and shift.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.shift == shift)
+        if role and role.lower() not in {"", "all"}:
+            stmt = stmt.where(Employee.role == role.lower())
         if search:
             pattern = f"%{search}%"
             stmt = stmt.where(
                 or_(
                     Employee.first_name.ilike(pattern),
                     Employee.last_name.ilike(pattern),
+                    (Employee.first_name + " " + Employee.last_name).ilike(pattern),
                     Employee.employee_id.ilike(pattern),
                     Employee.personal_email.ilike(pattern),
                     Employee.company_email.ilike(pattern),
+                    Employee.department.ilike(pattern),
+                    Employee.designation.ilike(pattern),
+                    Employee.role.ilike(pattern),
                     Employee.cost_center_id.ilike(pattern),
                 )
             )
@@ -256,6 +263,7 @@ class EmployeeRepository:
             "employee_id": Employee.employee_id,
             "department": Employee.department,
             "designation": Employee.designation,
+            "role": Employee.role,
             "shift": Employee.shift,
             "status": Employee.status,
             "employee_capacity": Employee.employee_capacity,
@@ -290,6 +298,7 @@ class EmployeeRepository:
         search: str | None = None,
         designation: str | None = None,
         shift: str | None = None,
+        role: str | None = None,
     ) -> int:
         """Count total employees matching filters within a company (for pagination)."""
         filters = [self._active_filter()]
@@ -301,22 +310,36 @@ class EmployeeRepository:
         if department and department.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.department == department)
         if status and status.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.status == status.upper())
+            norm_status = status.strip().upper().replace(" ", "_")
+            stmt = stmt.where(
+                or_(
+                    Employee.status.ilike(f"%{status.strip()}%"),
+                    Employee.status == norm_status,
+                    Employee.employment_status == norm_status,
+                )
+            )
         if employment_type and employment_type.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.employment_type == employment_type.upper())
         if designation and designation.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.designation == designation)
         if shift and shift.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.shift == shift)
+        if role and role.lower() not in {"", "all"}:
+            stmt = stmt.where(Employee.role == role.lower())
         if search:
             pattern = f"%{search}%"
             stmt = stmt.where(
                 or_(
                     Employee.first_name.ilike(pattern),
                     Employee.last_name.ilike(pattern),
+                    (Employee.first_name + " " + Employee.last_name).ilike(pattern),
                     Employee.employee_id.ilike(pattern),
                     Employee.personal_email.ilike(pattern),
                     Employee.company_email.ilike(pattern),
+                    Employee.department.ilike(pattern),
+                    Employee.designation.ilike(pattern),
+                    Employee.role.ilike(pattern),
+                    Employee.cost_center_id.ilike(pattern),
                 )
             )
 

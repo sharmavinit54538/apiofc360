@@ -1076,6 +1076,13 @@ Generate realistic content under each heading. Make the tone professional, encou
                 app.first_name, app.last_name, settings.COMPANY_EMAIL_DOMAIN, self.session
             )
 
+            # Generate activation token & expiry BEFORE persistence
+            import secrets
+            activation_token = secrets.token_urlsafe(32)
+            activation_expires = datetime.now(timezone.utc) + timedelta(
+                hours=settings.ACTIVATION_TOKEN_EXPIRE_HOURS
+            )
+
             # Create User record
             temp_password = generate_temp_password()
             password_hash = hash_password(temp_password)
@@ -1091,6 +1098,8 @@ Generate realistic content under each heading. Make the tone professional, encou
                 is_active=False,
                 is_verified=False,
                 must_change_password=True,
+                email_verification_token=activation_token,
+                email_verification_expires_at=activation_expires,
             )
 
             # Get joining date from offer
@@ -1111,7 +1120,11 @@ Generate realistic content under each heading. Make the tone professional, encou
                 "joining_date": joining_date,
                 "employment_type": app.job.employment_type,
                 "employment_status": "PROBATION",
-                "status": "CREATED",
+                "status": "INVITED",
+                "activation_token": activation_token,
+                "activation_token_expires_at": activation_expires,
+                "invited_at": datetime.now(timezone.utc),
+                "invited_by": user_id,
                 "created_by": user_id,
             }
             new_emp = await self.employee_repo.create_employee(**emp_kwargs)
@@ -1139,8 +1152,7 @@ Generate realistic content under each heading. Make the tone professional, encou
 
             await self.session.commit()
 
-            # Send welcoming & activation credentials
-            activation_token = uuid.uuid4().hex
+            # Send welcoming & activation credentials with EXACT matching token
             activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={activation_token}"
             try:
                 await self.email_service.send_employee_activation_email(

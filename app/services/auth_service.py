@@ -683,15 +683,54 @@ class AuthService:
         await redis_client.clear_failed_logins(payload.identifier, ip_address or "")
         await self.auth_repository.reset_failed_logins_db(user.id)
 
-        # Verify email is verified
+        # Check email verification status
         account_status_val = str(getattr(user, "account_status", "") or "").upper()
         if not user.is_verified or account_status_val == "PENDING_EMAIL_VERIFICATION":
-            logger.warning("Authentication failed: email not verified | user_id=%s | email=%s", user.id, user.email)
-            raise AppException(
-                message="Email not verified. Please verify your email before logging in.",
-                status_code=status.HTTP_403_FORBIDDEN,
-                errors=[{"field": "email", "message": "EMAIL_NOT_VERIFIED"}],
+            # Instead of blocking with 403, generate and send OTP for login verification
+            logger.info("Login requires email verification | user_id=%s | email_domain=%s", user.id, user.email.split("@")[-1])
+
+            from app.utils.otp import OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION
+
+            # Invalidate any previous login verification OTPs
+            await self.auth_repository.invalidate_all_user_otps(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+
+            # Generate secure 6-digit OTP
+            otp_code = generate_otp()
+            otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+            # Hash and store
+            hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+            otp_record = await self.auth_repository.create_otp(
+                user_id=user.id,
+                otp_hash=hashed_otp,
+                purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION,
+                expires_at=otp_expiry,
             )
+
+            # Resolve company name for email branding
+            company_name = "OFC360"
+            if getattr(user, "company", None):
+                try:
+                    company_name = user.company.name or company_name
+                except Exception:
+                    pass
+
+            # Send OTP email (do not log the OTP itself)
+            try:
+                await self.email_service.send_login_verification_otp_email(
+                    email=user.email,
+                    name=user.name or "User",
+                    otp=otp_code,
+                    expiry_minutes=settings.OTP_EXPIRE_MINUTES,
+                    company_name=company_name,
+                )
+            except Exception as mail_err:
+                logger.warning("Failed to send login verification OTP email to user_id=%s: %s", user.id, mail_err)
+
+            await self.session.commit()
+
+            # Return user + verification_id but NO tokens
+            return user, str(otp_record.id), None, None, True
 
         # Verify user is active
         if not user.is_active or account_status_val in ("SUSPENDED", "DEACTIVATED", "INVITED"):
@@ -699,24 +738,58 @@ class AuthService:
             raise AppException(
                 message="Account is inactive or pending activation. Please contact your administrator.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="ACCOUNT_INACTIVE",
                 errors=[{"field": None, "message": "ACCOUNT_INACTIVE"}],
             )
 
         # Verify employment / manager active lifecycle state
-        from sqlalchemy import select
+        from sqlalchemy import func, select
         from app.models.employee import Employee
         from app.models.manager import Manager
 
+        import inspect
         emp_res = await self.session.execute(
             select(Employee).where(
                 Employee.user_id == user.id,
                 Employee.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        emp = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") and callable(emp_res.scalar_one_or_none) else None
+        emp = None
+        if hasattr(emp_res, "scalars"):
+            sc = emp_res.scalars()
+            if hasattr(sc, "first"):
+                emp_val = sc.first()
+                emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+        elif hasattr(emp_res, "scalar_one_or_none"):
+            emp_val = emp_res.scalar_one_or_none()
+            emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+        if not emp:
+            # Resilient fallback: link employee by company/personal email if user_id was unlinked
+            user_email_clean = (user.email or "").strip().lower()
+            emp_email_res = await self.session.execute(
+                select(Employee).where(
+                    (func.lower(Employee.personal_email) == user_email_clean) |
+                    (func.lower(Employee.company_email) == user_email_clean),
+                    Employee.is_deleted == False,
+                ).execution_options(bypass_tenant=True)
+            )
+            if hasattr(emp_email_res, "scalars"):
+                sc = emp_email_res.scalars()
+                if hasattr(sc, "first"):
+                    emp_val = sc.first()
+                    emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+            elif hasattr(emp_email_res, "scalar_one_or_none"):
+                emp_val = emp_email_res.scalar_one_or_none()
+                emp = await emp_val if inspect.isawaitable(emp_val) else emp_val
+            if emp and not getattr(emp, "user_id", None):
+                emp.user_id = user.id
+                self.session.add(emp)
+                await self.session.flush()
+
         if isinstance(emp, Employee) and (
-            not emp.is_active
-            or emp.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            emp.is_active is False
+            or getattr(emp, "is_deactivated", False)
+            or (emp.status or "").upper() in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
             or (getattr(emp, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
         ):
             logger.warning(
@@ -730,6 +803,7 @@ class AuthService:
             raise AppException(
                 message="Account or employment profile is inactive or terminated. Please contact HR.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="EMPLOYEE_INACTIVE",
                 errors=[{"field": None, "message": "EMPLOYEE_INACTIVE"}],
             )
 
@@ -739,10 +813,18 @@ class AuthService:
                 Manager.is_deleted == False,
             ).execution_options(bypass_tenant=True)
         )
-        mgr = mgr_res.scalar_one_or_none() if hasattr(mgr_res, "scalar_one_or_none") and callable(mgr_res.scalar_one_or_none) else None
+        mgr = None
+        if hasattr(mgr_res, "scalars"):
+            sc = mgr_res.scalars()
+            if hasattr(sc, "first"):
+                mgr_val = sc.first()
+                mgr = await mgr_val if inspect.isawaitable(mgr_val) else mgr_val
+        elif hasattr(mgr_res, "scalar_one_or_none"):
+            mgr_val = mgr_res.scalar_one_or_none()
+            mgr = await mgr_val if inspect.isawaitable(mgr_val) else mgr_val
         if isinstance(mgr, Manager) and (
-            not mgr.is_active
-            or mgr.status in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
+            mgr.is_active is False
+            or (mgr.status or "").upper() in ("DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED")
             or (getattr(mgr, "employment_status", "") or "").upper() in ("TERMINATED", "EXITED")
         ):
             logger.warning(
@@ -756,6 +838,7 @@ class AuthService:
             raise AppException(
                 message="Account or manager profile is inactive or terminated. Please contact HR.",
                 status_code=status.HTTP_403_FORBIDDEN,
+                code="MANAGER_INACTIVE",
                 errors=[{"field": None, "message": "MANAGER_INACTIVE"}],
             )
 
@@ -786,7 +869,227 @@ class AuthService:
         )
 
         await self.session.commit()
+        return user, access_token, refresh_token, expires_in, False
+
+    async def verify_email_otp(
+        self,
+        *,
+        verification_id: str,
+        otp: str,
+        ip_address: str | None = None,
+        device: str | None = None,
+    ) -> tuple:
+        """Verify login OTP: validate, mark email verified, issue tokens."""
+        import uuid as uuid_mod
+        from app.utils.otp import OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION
+
+        # 1. Parse verification_id
+        try:
+            otp_uuid = uuid_mod.UUID(verification_id)
+        except (ValueError, AttributeError):
+            raise AppException(
+                message="Invalid verification ID.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 2. Look up OTP record
+        otp_record = await self.auth_repository.get_otp_by_id(otp_uuid)
+        if not otp_record or otp_record.purpose != OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION:
+            raise AppException(
+                message="Invalid verification ID.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Check already used
+        if otp_record.is_used:
+            raise AppException(
+                message="This verification code has already been used. Please request a new code.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 4. Check expiry
+        now = datetime.now(timezone.utc)
+        otp_exp = otp_record.expires_at
+        if otp_exp.tzinfo is None:
+            otp_exp = otp_exp.replace(tzinfo=timezone.utc)
+        if now > otp_exp:
+            raise AppException(
+                message="This verification code has expired. Please request a new code.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="OTP_EXPIRED",
+            )
+
+        # 5. Check attempt limit
+        max_attempts = getattr(settings, "OTP_MAX_ATTEMPTS", 5)
+        if otp_record.attempts >= max_attempts:
+            raise AppException(
+                message="Too many attempts. Please request a new code.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="OTP_MAX_ATTEMPTS",
+            )
+
+        # 6. Verify OTP hash
+        is_valid = verify_otp_hash(
+            otp=otp,
+            otp_hash=otp_record.otp_hash,
+            user_id=otp_record.user_id,
+            purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION,
+        )
+
+        if not is_valid:
+            attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
+            await self.session.commit()
+            if attempts >= max_attempts:
+                raise AppException(
+                    message="Too many attempts. Please request a new code.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="OTP_MAX_ATTEMPTS",
+                )
+            raise AppException(
+                message="Invalid verification code.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="INVALID_OTP",
+            )
+
+        # 7. Atomically consume the OTP
+        consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
+        if not consumed:
+            raise AppException(
+                message="This verification code has already been used or is invalid.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 8. Mark user as verified and active
+        await self.auth_repository.update_user_verification(otp_record.user_id)
+
+        # 9. Invalidate any remaining login verification OTPs
+        await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+
+        # 10. Fetch the user for token generation
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import select
+        user_result = await self.session.execute(
+            select(User)
+            .options(selectinload(User.company))
+            .where(User.id == otp_record.user_id)
+            .execution_options(bypass_tenant=True)
+        )
+        user = user_result.scalars().first()
+        if not user:
+            raise AppException(
+                message="User not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        # 11. Log audit details
+        await self.auth_repository.update_login_audit(user.id, ip_address, device)
+
+        # 12. Issue tokens
+        effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        access_token, refresh_token, expires_in = await self.token_service.generate_auth_tokens(
+            user_id=user.id,
+            role=effective_role,
+            company_id=user.company_id,
+            email=user.email,
+            ip_address=ip_address,
+            device=device,
+        )
+
+        await self.session.commit()
+
+        # Send welcome email on first verification
+        try:
+            await self.email_service.send_welcome_email(user.email, user.name or "User")
+        except Exception as mail_err:
+            logger.warning("Failed to send welcome email to %s: %s", user.email, mail_err)
+
         return user, access_token, refresh_token, expires_in
+
+    async def resend_email_otp(
+        self,
+        *,
+        verification_id: str,
+        email: str | None = None,
+    ) -> str:
+        """Resend login verification OTP: invalidate old, generate new, enforce cooldown. Returns new verification_id."""
+        import uuid as uuid_mod
+        from app.utils.otp import OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION
+
+        # 1. Parse verification_id to find the user
+        user = None
+        try:
+            otp_uuid = uuid_mod.UUID(verification_id)
+            old_otp = await self.auth_repository.get_otp_by_id(otp_uuid)
+            if old_otp and old_otp.purpose == OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION:
+                user = await self.auth_repository.get_user_by_id(old_otp.user_id)
+        except (ValueError, AttributeError):
+            pass
+
+        # Fallback: look up by email
+        if not user and email:
+            user = await self.auth_repository.get_user_by_email(email.strip().lower())
+
+        if not user:
+            raise AppException(
+                message="Invalid verification session.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 2. Check cooldown (60 seconds)
+        latest_otp = await self.auth_repository.get_latest_otp(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+        now = datetime.now(timezone.utc)
+        cooldown_seconds = getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 60)
+        if latest_otp:
+            created_at = latest_otp.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            elapsed = (now - created_at).total_seconds()
+            if elapsed < cooldown_seconds:
+                remaining = int(cooldown_seconds - elapsed)
+                raise AppException(
+                    message=f"Please wait {remaining} seconds before requesting another code.",
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    code="RESEND_COOLDOWN",
+                )
+
+        # 3. Invalidate old OTPs
+        await self.auth_repository.invalidate_all_user_otps(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+
+        # 4. Generate new OTP
+        otp_code = generate_otp()
+        otp_expiry = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+        hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+
+        new_otp_record = await self.auth_repository.create_otp(
+            user_id=user.id,
+            otp_hash=hashed_otp,
+            purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION,
+            expires_at=otp_expiry,
+        )
+
+        # 5. Resolve company name
+        company_name = "OFC360"
+        if getattr(user, "company", None):
+            try:
+                company_name = user.company.name or company_name
+            except Exception:
+                pass
+
+        # 6. Send email
+        try:
+            await self.email_service.send_login_verification_otp_email(
+                email=user.email,
+                name=user.name or "User",
+                otp=otp_code,
+                expiry_minutes=settings.OTP_EXPIRE_MINUTES,
+                company_name=company_name,
+            )
+        except Exception as mail_err:
+            logger.warning("Failed to send resend login verification OTP email to user_id=%s: %s", user.id, mail_err)
+
+        await self.session.commit()
+        return str(new_otp_record.id)
+
 
     async def logout(self, *, access_token: str, refresh_token: str | None = None) -> None:
         """Revoke refresh token session and add access token to Redis blacklist.

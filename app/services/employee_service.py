@@ -55,6 +55,184 @@ def _mask_email(email: str) -> str:
     return masked + "@" + domain
 
 
+def mask_token(token: str | None) -> str:
+    """Mask token for safe diagnostic logging (e.g. FjUB...SYUQ)."""
+    if not token:
+        return "N/A"
+    clean = token.strip()
+    if len(clean) <= 8:
+        return "***"
+    return f"{clean[:4]}...{clean[-4:]}"
+
+
+async def validate_employee_invitation_token(
+    session: AsyncSession,
+    token: str,
+) -> tuple[Any, dict[str, Any]]:
+    """Canonical token validation service for employee invitations.
+
+    Performs:
+    1. Safe surrounding whitespace normalization and non-empty check.
+    2. Primary lookup on Employee.activation_token (with is_deleted=False).
+    3. Fallback lookup on linked User.email_verification_token.
+    4. Deactivation / deletion check.
+    5. Already consumed / active status check.
+    6. Valid status check (INVITED, INVITATION_SENT, CREATED, PENDING, PROBATION, ONBOARDING_PENDING).
+    7. Deterministic timezone-aware UTC expiry check.
+    8. Safe company name resolution.
+    9. Sanitized safe payload generation (no hashes, tokens, or JWT secrets).
+    """
+    clean_token = token.strip() if token else ""
+    token_masked = mask_token(clean_token)
+    logger.info("validate_employee_invitation_token: validating | token=%s", token_masked)
+
+    if not clean_token:
+        logger.warning("validate_employee_invitation_token: rejected empty token")
+        raise AppException(
+            message="Invalid invitation token.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    import inspect
+    from sqlalchemy import select
+    from app.models.employee import Employee
+    from app.models.user import User
+    from app.models.company import Company
+
+    # 1. Primary lookup by Employee.activation_token
+    emp_result = await session.execute(
+        select(Employee).where(
+            Employee.activation_token == clean_token,
+            Employee.is_deleted.is_(False),
+        )
+    )
+    employee = None
+    if hasattr(emp_result, "scalar_one_or_none"):
+        res = emp_result.scalar_one_or_none()
+        employee = await res if inspect.isawaitable(res) else res
+    elif hasattr(emp_result, "scalars"):
+        scalars = emp_result.scalars()
+        res = scalars.first() if hasattr(scalars, "first") else None
+        employee = await res if inspect.isawaitable(res) else res
+    elif emp_result is not None and not inspect.isawaitable(emp_result):
+        employee = emp_result
+
+    # 2. Secondary fallback lookup via linked User.email_verification_token
+    if not employee:
+        user_emp_res = await session.execute(
+            select(Employee).join(User, Employee.user_id == User.id).where(
+                User.email_verification_token == clean_token,
+                Employee.is_deleted.is_(False),
+            )
+        )
+        if hasattr(user_emp_res, "scalar_one_or_none"):
+            res = user_emp_res.scalar_one_or_none()
+            employee = await res if inspect.isawaitable(res) else res
+        elif hasattr(user_emp_res, "scalars"):
+            scalars = user_emp_res.scalars()
+            res = scalars.first() if hasattr(scalars, "first") else None
+            employee = await res if inspect.isawaitable(res) else res
+        elif user_emp_res is not None and not inspect.isawaitable(user_emp_res):
+            employee = user_emp_res
+
+    if not employee or inspect.isawaitable(employee):
+        logger.warning("validate_employee_invitation_token: token not found | token=%s", token_masked)
+        raise AppException(
+            message="Invalid invitation token.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 3. Check deactivation status
+    if getattr(employee, "is_deactivated", False):
+        logger.warning("validate_employee_invitation_token: employee is deactivated | employee_id=%s", employee.id)
+        raise AppException(
+            message="Invitation is no longer valid. Request a new invitation.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 4. Check if already activated / used
+    if employee.status == "ACTIVE" or (not employee.activation_token and employee.user_id):
+        logger.warning("validate_employee_invitation_token: invitation already consumed | employee_id=%s", employee.id)
+        raise AppException(
+            message="Invitation already used. Please log in or contact your administrator.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 5. Check allowed pending activation statuses
+    valid_statuses = {"INVITED", "INVITATION_SENT", "CREATED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
+    if employee.status not in valid_statuses:
+        logger.warning(
+            "validate_employee_invitation_token: invalid status for activation | employee_id=%s | status=%s",
+            employee.id, employee.status,
+        )
+        raise AppException(
+            message="Invitation is no longer valid. Request a new invitation.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 6. Check expiration (timezone-aware UTC comparison)
+    now = datetime.now(timezone.utc)
+    expires_at = employee.activation_token_expires_at
+    if expires_at:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        remaining_seconds = (expires_at - now).total_seconds()
+        logger.info(
+            "validate_employee_invitation_token: expiry check | employee_id=%s | now=%s | expires_at=%s | remaining_sec=%.2f",
+            employee.id, now.isoformat(), expires_at.isoformat(), remaining_seconds,
+        )
+        if remaining_seconds <= 0:
+            logger.warning(
+                "validate_employee_invitation_token: token expired | employee_id=%s | expires_at=%s",
+                employee.id, expires_at.isoformat(),
+            )
+            raise AppException(
+                message="Invitation expired. Request new invitation.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+    else:
+        logger.info("validate_employee_invitation_token: no expiration timestamp on record | employee_id=%s", employee.id)
+
+    # 7. Safe company name resolution
+    company_name = "OFC360"
+    if employee.company_id:
+        comp_res = await session.execute(select(Company.name).where(Company.id == employee.company_id))
+        c_name = None
+        if hasattr(comp_res, "scalar_one_or_none"):
+            c_val = comp_res.scalar_one_or_none()
+            c_name = await c_val if inspect.isawaitable(c_val) else c_val
+        elif hasattr(comp_res, "scalars"):
+            scalars = comp_res.scalars()
+            c_val = scalars.first() if hasattr(scalars, "first") else None
+            c_name = await c_val if inspect.isawaitable(c_val) else c_val
+        if c_name:
+            company_name = c_name
+
+    logger.info("validate_employee_invitation_token: success | employee_id=%s", employee.id)
+
+    data = {
+        "id": str(employee.id),
+        "employee_id": str(employee.id),
+        "employee_uuid": str(employee.id),
+        "employee_code": employee.employee_id,
+        "first_name": employee.first_name,
+        "last_name": employee.last_name,
+        "name": f"{employee.first_name} {employee.last_name}".strip(),
+        "full_name": f"{employee.first_name} {employee.last_name}".strip(),
+        "personal_email": employee.personal_email,
+        "company_email": employee.company_email,
+        "email": employee.personal_email or employee.company_email,
+        "phone": employee.phone,
+        "department": employee.department,
+        "designation": employee.designation,
+        "company_id": str(employee.company_id) if employee.company_id else None,
+        "company_name": company_name,
+        "joining_date": employee.joining_date.isoformat() if employee.joining_date else None,
+        "valid": True,
+    }
+    return employee, data
+
+
 class EmployeeService:
     def __init__(
         self,
@@ -431,6 +609,96 @@ class EmployeeService:
             raise DatabaseException() from exc
 
     # ------------------------------------------------------------------
+    # Synchronization helper
+    # ------------------------------------------------------------------
+
+    async def _sync_managers_to_employees(self, company_id: uuid.UUID) -> None:
+        """Ensure all managers in managers table have a synchronized workforce Employee record."""
+        try:
+            from sqlalchemy import select
+            from app.models.manager import Manager
+            from app.models.employee import Employee
+
+            mgr_stmt = select(Manager).where(
+                Manager.company_id == company_id,
+                Manager.is_deleted.is_(False),
+            )
+            mgr_res = await self.session.execute(mgr_stmt)
+            managers = mgr_res.scalars().all()
+
+            for mgr in managers:
+                emp_res = await self.session.execute(
+                    select(Employee).where(
+                        (Employee.id == mgr.id) | (Employee.personal_email == mgr.personal_email)
+                    )
+                )
+                emp = emp_res.scalar_one_or_none()
+                if not emp:
+                    new_emp = Employee(
+                        id=mgr.id,
+                        user_id=mgr.user_id,
+                        company_id=company_id,
+                        employee_id=mgr.manager_id,
+                        first_name=mgr.first_name,
+                        last_name=mgr.last_name,
+                        profile_photo_url=mgr.profile_photo_url,
+                        gender=mgr.gender,
+                        date_of_birth=mgr.date_of_birth,
+                        personal_email=mgr.personal_email,
+                        company_email=mgr.company_email,
+                        phone=mgr.phone,
+                        alternate_phone=mgr.alternate_phone,
+                        blood_group=mgr.blood_group,
+                        marital_status=mgr.marital_status,
+                        department=mgr.department,
+                        designation=mgr.designation,
+                        branch=mgr.branch,
+                        work_location=mgr.work_location,
+                        joining_date=mgr.joining_date,
+                        employment_type=mgr.employment_type or "FULL_TIME",
+                        employment_status=mgr.employment_status or "CONFIRMED",
+                        shift=mgr.shift,
+                        probation_period_months=mgr.probation_period_months,
+                        ctc=mgr.ctc,
+                        basic_salary=mgr.basic_salary,
+                        hra=mgr.hra,
+                        bonus=mgr.bonus,
+                        pf=mgr.pf,
+                        esi=mgr.esi,
+                        professional_tax=mgr.professional_tax,
+                        role="manager",
+                        leave_group=mgr.leave_group,
+                        status=mgr.status or "ACTIVE",
+                        activation_token=mgr.activation_token,
+                        activation_token_expires_at=mgr.activation_token_expires_at,
+                        invited_at=mgr.invited_at,
+                        invited_by=mgr.invited_by,
+                        created_by=mgr.created_by,
+                        is_deleted=mgr.is_deleted,
+                        reporting_manager_id=mgr.reporting_to,
+                        manager_id=mgr.reporting_to,
+                    )
+                    self.session.add(new_emp)
+                    await self.session.flush()
+                else:
+                    updated = False
+                    if emp.user_id != mgr.user_id and mgr.user_id is not None:
+                        emp.user_id = mgr.user_id
+                        updated = True
+                    if emp.status != mgr.status and mgr.status is not None:
+                        emp.status = mgr.status
+                        updated = True
+                    if not emp.role or emp.role.lower() == "employee":
+                        emp.role = "manager"
+                        updated = True
+                    if updated:
+                        await self.session.flush()
+            await self.session.commit()
+        except Exception as sync_exc:
+            logger.warning("_sync_managers_to_employees warning: %s", str(sync_exc))
+            await self.session.rollback()
+
+    # ------------------------------------------------------------------
     # List
     # ------------------------------------------------------------------
 
@@ -445,10 +713,12 @@ class EmployeeService:
         limit: int,
         designation: str | None = None,
         shift: str | None = None,
+        role: str | None = None,
         sort: str | None = None,
         order: str | None = "asc",
     ) -> EmployeeListResponse:
         try:
+            await self._sync_managers_to_employees(company_id)
             offset = (page - 1) * limit
             employees = await self.repo.list_employees(
                 company_id=company_id,
@@ -460,6 +730,7 @@ class EmployeeService:
                 offset=offset,
                 designation=designation,
                 shift=shift,
+                role=role,
                 sort=sort,
                 order=order,
             )
@@ -471,6 +742,7 @@ class EmployeeService:
                 search=search,
                 designation=designation,
                 shift=shift,
+                role=role,
             )
             items = [EmployeeListItem.model_validate(e) for e in employees]
             pages = math.ceil(total / limit) if limit > 0 else 0
@@ -502,6 +774,9 @@ class EmployeeService:
         """Get a single employee, optionally scoped to a company."""
         try:
             employee = await self.repo.get_by_id(employee_uuid)
+            if not employee and company_id:
+                await self._sync_managers_to_employees(company_id)
+                employee = await self.repo.get_by_id(employee_uuid)
             if not employee:
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
             # Enforce company scope when company_id is provided
@@ -995,6 +1270,15 @@ class EmployeeService:
                 invited_at=datetime.now(timezone.utc),
                 invited_by=admin_id,
             )
+            if employee.user_id:
+                from sqlalchemy import update as sa_update
+                from app.models.user import User
+                await self.session.execute(
+                    sa_update(User).where(User.id == employee.user_id).values(
+                        email_verification_token=token,
+                        email_verification_expires_at=token_expires,
+                    )
+                )
             await self.session.commit()
             activation_url = f"{settings.FRONTEND_BASE_URL}/employee/activate?token={token}"
             logger.info(
@@ -1224,117 +1508,9 @@ class EmployeeService:
     # ------------------------------------------------------------------
 
     async def validate_invitation_token(self, token: str) -> dict:
-        """Validate employee invitation token and return employee information."""
-        clean_token = token.strip() if token else ""
-        token_prefix = clean_token[:8] if clean_token else "N/A"
-        logger.info("validate_invitation_token: request | token_prefix=%s", token_prefix)
-
-        if not clean_token:
-            raise AppException(
-                message="Invalid invitation token.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        from sqlalchemy import select
-        from app.models.employee import Employee
-        from app.models.user import User
-        from app.models.company import Company
-
-        emp_result = await self.session.execute(
-            select(Employee).where(
-                Employee.activation_token == clean_token,
-                Employee.is_deleted.is_(False),
-            )
-        )
-        employee = emp_result.scalar_one_or_none()
-
-        if not employee:
-            user_emp_res = await self.session.execute(
-                select(Employee).join(User, Employee.user_id == User.id).where(
-                    User.email_verification_token == clean_token,
-                    Employee.is_deleted.is_(False),
-                )
-            )
-            employee = user_emp_res.scalar_one_or_none()
-
-        if not employee:
-            logger.warning("validate_invitation_token: token not found | token_prefix=%s", token_prefix)
-            raise AppException(
-                message="Invalid invitation token.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if employee.status == "ACTIVE" or (not employee.activation_token and employee.user_id):
-            logger.warning("validate_invitation_token: already activated | employee_id=%s", employee.employee_id)
-            raise AppException(
-                message="Invitation already used. Please log in or contact your administrator.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        valid_statuses = {"INVITED", "INVITATION_SENT", "CREATED", "PENDING", "PROBATION", "ONBOARDING_PENDING"}
-        if employee.status not in valid_statuses:
-            logger.warning(
-                "validate_invitation_token: non-invitation status | employee_id=%s | status=%s",
-                employee.employee_id, employee.status,
-            )
-            raise AppException(
-                message="Invitation is no longer valid. Request a new invitation.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        now = datetime.now(timezone.utc)
-        expires_at = employee.activation_token_expires_at
-        if expires_at:
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            remaining_seconds = (expires_at - now).total_seconds()
-            logger.info(
-                "validate_invitation_token: expiry check | employee_id=%s | current_time=%s | token_expires_at=%s | remaining_seconds=%.2f",
-                employee.employee_id, now.isoformat(), expires_at.isoformat(), remaining_seconds,
-            )
-            if remaining_seconds <= 0:
-                logger.warning(
-                    "validate_invitation_token: token expired | employee_id=%s | expired_at=%s | remaining_seconds=%.2f",
-                    employee.employee_id, expires_at.isoformat(), remaining_seconds,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invitation expired. Request new invitation.",
-                )
-        else:
-            logger.info("validate_invitation_token: no expiry timestamp | employee_id=%s", employee.employee_id)
-
-        company_name = "OFC360"
-        if employee.company_id:
-            comp_res = await self.session.execute(select(Company.name).where(Company.id == employee.company_id))
-            c_name = comp_res.scalar_one_or_none()
-            if c_name:
-                company_name = c_name
-
-        logger.info(
-            "validate_invitation_token: valid | employee_id=%s | email=%s",
-            employee.employee_id, (employee.personal_email or employee.company_email or "")[:3] + "***",
-        )
-        return {
-            "id": str(employee.id),
-            "employee_id": str(employee.id),
-            "employee_uuid": str(employee.id),
-            "employee_code": employee.employee_id,
-            "first_name": employee.first_name,
-            "last_name": employee.last_name,
-            "name": f"{employee.first_name} {employee.last_name}".strip(),
-            "full_name": f"{employee.first_name} {employee.last_name}".strip(),
-            "personal_email": employee.personal_email,
-            "company_email": employee.company_email,
-            "email": employee.personal_email or employee.company_email,
-            "phone": employee.phone,
-            "department": employee.department,
-            "designation": employee.designation,
-            "company_id": str(employee.company_id) if employee.company_id else None,
-            "company_name": company_name,
-            "joining_date": employee.joining_date.isoformat() if employee.joining_date else None,
-            "valid": True,
-        }
+        """Validate employee invitation token and return employee information using canonical validator."""
+        _, data = await validate_employee_invitation_token(self.session, token)
+        return data
 
     async def activate_employee(
         self,
@@ -1343,38 +1519,33 @@ class EmployeeService:
         id_str: str | None = None,
     ) -> None:
         clean_token = payload.token.strip() if payload.token else ""
-        logger.info("activate_employee | employee_id=%s | token_prefix=%s", employee_uuid or id_str, clean_token[:8] if clean_token else "N/A")
+        token_masked = mask_token(clean_token)
+        logger.info("activate_employee: request | id=%s | token=%s", employee_uuid or id_str, token_masked)
         try:
+            import inspect
             from sqlalchemy import select, func
             from app.models.user import User, UserRole
 
             employee = None
-            if employee_uuid:
-                employee = await self.repo.get_by_id_raw(employee_uuid)
-
-            if not employee and id_str:
-                employee = await self.repo.get_by_employee_id(id_str)
-
-            if not employee and clean_token:
-                emp_res = await self.session.execute(
-                    select(Employee).where(
-                        Employee.activation_token == clean_token,
-                        Employee.is_deleted.is_(False),
-                    )
-                )
-                employee = emp_res.scalar_one_or_none()
+            if hasattr(self, "repo") and self.repo:
+                if employee_uuid and hasattr(self.repo, "get_by_id_raw"):
+                    res = self.repo.get_by_id_raw(employee_uuid)
+                    employee = await res if inspect.isawaitable(res) else res
+                if not employee and id_str and hasattr(self.repo, "get_by_employee_id"):
+                    res = self.repo.get_by_employee_id(id_str)
+                    employee = await res if inspect.isawaitable(res) else res
+                if not employee and clean_token and hasattr(self.repo, "get_by_activation_token"):
+                    res = self.repo.get_by_activation_token(clean_token)
+                    employee = await res if inspect.isawaitable(res) else res
 
             if not employee and clean_token:
-                user_emp_res = await self.session.execute(
-                    select(Employee).join(User, Employee.user_id == User.id).where(
-                        User.email_verification_token == clean_token,
-                        Employee.is_deleted.is_(False),
-                    )
-                )
-                employee = user_emp_res.scalar_one_or_none()
+                employee, _ = await validate_employee_invitation_token(self.session, clean_token)
 
-            if not employee or employee.is_deleted:
+            if not employee or getattr(employee, "is_deleted", False):
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+            if getattr(employee, "is_deactivated", False):
+                raise AppException(message="Invitation is no longer valid. Request a new invitation.", status_code=status.HTTP_400_BAD_REQUEST)
 
             if not employee.activation_token:
                 raise AppException(
@@ -1404,26 +1575,21 @@ class EmployeeService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Hash chosen password securely with bcrypt
+            now = datetime.now(timezone.utc)
             new_hash = hash_password(payload.new_password)
-
-            # Determine email to use for the user account
             user_email = (employee.company_email or employee.personal_email).lower().strip()
 
-            # Clean and normalize phone (last 10 digits)
             raw_phone = employee.phone or ""
             digits_only = "".join(c for c in raw_phone if c.isdigit())
             clean_phone = digits_only[-10:] if len(digits_only) >= 10 else digits_only
 
             user = None
-            # 1. If employee already has a user_id linked
             if employee.user_id:
                 user_res = await self.session.execute(
                     select(User).where(User.id == employee.user_id)
                 )
                 user = user_res.scalar_one_or_none()
 
-            # 2. If no user linked, look up by email
             if not user:
                 user_res = await self.session.execute(
                     select(User).where(
@@ -1433,7 +1599,6 @@ class EmployeeService:
                 )
                 user = user_res.scalar_one_or_none()
 
-            # 3. If user exists, update password and activate
             if user:
                 user.password_hash = new_hash
                 user.is_active = True
@@ -1450,13 +1615,12 @@ class EmployeeService:
                 await self.session.flush()
                 employee.user_id = user.id
             else:
-                # 4. Create new active user
                 if clean_phone:
                     phone_check = await self.session.execute(
                         select(User).where(User.phone == clean_phone, User.is_deleted.is_(False))
                     )
                     if phone_check.scalar_one_or_none():
-                        clean_phone = None  # Prevent duplicate phone crash
+                        clean_phone = None
 
                 db_role = getattr(UserRole, (employee.role or "").upper(), UserRole.EMPLOYEE) if hasattr(UserRole, (employee.role or "").upper()) else UserRole.EMPLOYEE
 
@@ -1481,16 +1645,39 @@ class EmployeeService:
                 await self.session.flush()
                 employee.user_id = new_user.id
 
-            # 5. Invalidate activation token and update employee status
+            # Clear invitation token on employee & update status
             employee.activation_token = None
             employee.activation_token_expires_at = None
             employee.is_active = True
             employee.status = "ONBOARDING_PENDING"
 
+            # Sync linked Manager record if present
+            from app.models.manager import Manager
+            active_user_id = user.id if user else employee.user_id
+            mgr_res = await self.session.execute(
+                select(Manager).where(
+                    (Manager.user_id == active_user_id) |
+                    (
+                        (Manager.company_id == employee.company_id) &
+                        (
+                            (func.lower(Manager.personal_email) == user_email) |
+                            (func.lower(Manager.company_email) == user_email)
+                        )
+                    )
+                ).execution_options(bypass_tenant=True)
+            )
+            mgr = mgr_res.scalars().first()
+            if mgr:
+                mgr.status = "ACTIVE"
+                mgr.activation_token = None
+                mgr.activation_token_expires_at = None
+                if not mgr.user_id and active_user_id:
+                    mgr.user_id = active_user_id
+                self.session.add(mgr)
+
             await self.session.commit()
             logger.info("activate_employee: success | employee_id=%s | user_id=%s", employee.id, employee.user_id)
 
-            # Send welcome email (best-effort)
             try:
                 await self.email_service.send_employee_welcome_email(
                     email=user_email,
