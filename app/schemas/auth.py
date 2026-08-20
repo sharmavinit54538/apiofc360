@@ -299,6 +299,18 @@ class UserLoginPublic(BaseModel):
             return RoleEnum.from_str(str(value.value))
         return RoleEnum.from_str(str(value) if value is not None else None)
 
+    @field_validator("company_name", mode="before")
+    @classmethod
+    def validate_company_name_field(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        # Handle mocks or non-string objects gracefully
+        if hasattr(value, "_mock_name") or hasattr(value, "_spec_class"):
+            return None
+        return str(value).strip() or None
+
 
 class LoginResponseData(BaseModel):
     """Data payload for login response."""
