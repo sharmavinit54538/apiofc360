@@ -744,7 +744,7 @@ async def test_api_manager_multi_tenant_isolation():
 
 @pytest.mark.asyncio
 async def test_manager_onboarding_token_validation_and_activation():
-    """Verify onboarding token validation and manager account activation."""
+    """Verify onboarding token validation, status code classification, and manager account activation."""
     mock_session = AsyncMock()
     mock_auth_repo = AsyncMock(spec=AuthRepository)
     mock_email_service = AsyncMock(spec=EmailService)
@@ -773,17 +773,187 @@ async def test_manager_onboarding_token_validation_and_activation():
         email_service=mock_email_service,
     )
 
-    # 1. Validate Token -> Success
+    # 1. Validate Token -> Success (200)
     data = await service.validate_onboarding_token(token)
     assert data["id"] == str(mgr_id)
+    assert data["manager_id"] == manager.manager_id
     assert data["first_name"] == "Rajesh"
     assert data["department"] == "Engineering"
+    assert data["status"] == "INVITED"
 
-    # 2. Expired Token -> 409 Conflict
-    manager.activation_token_expires_at = datetime.now(timezone.utc) - timedelta(days=1)
-    with pytest.raises(ConflictException) as exc_info:
+    # 2. Empty / Missing Token -> 400 Bad Request
+    with pytest.raises(AppException) as exc_info:
+        await service.validate_onboarding_token("")
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    # 3. Invalid / Nonexistent Token -> 400 Bad Request
+    mock_exec_res.scalar_one_or_none.return_value = None
+    with pytest.raises(AppException) as exc_info:
+        await service.validate_onboarding_token("invalid_token_99999999")
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    # 4. Already Accepted Token (Status ACTIVE) -> 409 Conflict
+    manager.status = "ACTIVE"
+    mock_exec_res.scalar_one_or_none.return_value = manager
+    with pytest.raises(AppException) as exc_info:
         await service.validate_onboarding_token(token)
-    assert "Expired invitation token" in exc_info.value.message
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+    assert "already been accepted" in exc_info.value.message
+
+    # 5. Expired Token -> 410 Gone
+    manager.status = "INVITED"
+    manager.activation_token_expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    mock_exec_res.scalar_one_or_none.return_value = manager
+    with pytest.raises(AppException) as exc_info:
+        await service.validate_onboarding_token(token)
+    assert exc_info.value.status_code == status.HTTP_410_GONE
+    assert "expired" in exc_info.value.message
+
+    # 6. Activate Account Flow
+    manager.activation_token_expires_at = datetime.now(timezone.utc) + timedelta(days=3)
+    mock_exec_res.scalar_one_or_none.return_value = manager
+
+    activate_payload = ActivateManagerOnboardingRequest(
+        token=token,
+        password="SecurePassword@123",
+        confirm_password="SecurePassword@123",
+        phone="9876543210",
+    )
+
+    with patch("app.services.token_service.TokenService.generate_auth_tokens", new_callable=AsyncMock) as mock_gen_tokens:
+        mock_gen_tokens.return_value = ("mock_access_jwt", "mock_refresh_jwt", 1800)
+        
+        # Act
+        act_res = await service.activate_onboarding_manager(activate_payload)
+
+        # Assertions
+        assert act_res["access_token"] == "mock_access_jwt"
+        assert act_res["refresh_token"] == "mock_refresh_jwt"
+        assert act_res["user"]["email"] == manager.personal_email
+        assert manager.status == "ACTIVE"
+        assert manager.is_active is True
+        assert manager.activation_token is None
+        assert manager.activation_token_expires_at is None
+        mock_session.commit.assert_called()
+        mock_email_service.send_manager_welcome_email.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_manager_activation_url_generation_and_schema_parity():
+    """Verify manager creation and invitation generation produces /manager/activate URL and schema serializes it."""
+    from app.core.config import settings
+    mock_session = AsyncMock()
+    mock_auth_repo = AsyncMock(spec=AuthRepository)
+    mock_email_service = AsyncMock(spec=EmailService)
+    mock_manager_repo = AsyncMock(spec=ManagerRepository)
+
+    company_id = uuid.uuid4()
+    admin_id = uuid.uuid4()
+    mgr_id = uuid.uuid4()
+
+    mock_admin_user = MagicMock()
+    mock_admin_user.id = admin_id
+    mock_admin_user.company_id = company_id
+    mock_auth_repo.get_user_by_id.return_value = mock_admin_user
+
+    mock_manager_repo.get_by_personal_email.return_value = None
+    mock_manager_repo.get_by_company_email.return_value = None
+    mock_manager_repo.get_by_phone.return_value = None
+    mock_manager_repo.get_by_manager_id.return_value = None
+
+    created_manager = make_test_manager(
+        mgr_uuid=mgr_id,
+        company_id=company_id,
+        status_val="INVITED",
+    )
+    created_manager.activation_token = "secure_manager_token_12345"
+    mock_manager_repo.create_manager.return_value = created_manager
+    mock_manager_repo.get_by_id.return_value = created_manager
+    mock_manager_repo.get_by_id_raw.return_value = created_manager
+
+    service = ManagerService(
+        session=mock_session,
+        manager_repository=mock_manager_repo,
+        auth_repository=mock_auth_repo,
+        email_service=mock_email_service,
+    )
+
+    # 1. Create Manager -> Verify email invite called with /manager/activate?token=
+    create_payload = ManagerCreate(
+        first_name="Mamraj",
+        last_name="Yadav",
+        personal_email="mamraj@example.com",
+        phone="9828740131",
+        department="Engineering",
+        designation="Cloud & DevOps Engineer",
+        joining_date=date(2026, 8, 19),
+        role="manager",
+    )
+
+    await service.create_manager(admin_id, create_payload)
+    mock_email_service.send_manager_onboarding_invite.assert_called_once()
+    call_kwargs = mock_email_service.send_manager_onboarding_invite.call_args.kwargs
+    assert "/manager/activate?token=" in call_kwargs["activation_url"]
+    assert "/manager/setup-password" not in call_kwargs["activation_url"]
+    assert call_kwargs["activation_url"].startswith(settings.FRONTEND_BASE_URL.rstrip("/"))
+
+    # 2. Resend Invitation -> Verify email invite called with /manager/activate?token=
+    mock_email_service.send_manager_onboarding_invite.reset_mock()
+    await service.send_invitation(admin_id, mgr_id)
+    mock_email_service.send_manager_onboarding_invite.assert_called_once()
+    resend_kwargs = mock_email_service.send_manager_onboarding_invite.call_args.kwargs
+    assert "/manager/activate?token=" in resend_kwargs["activation_url"]
+    assert "/manager/setup-password" not in resend_kwargs["activation_url"]
+
+    # 3. Verify ManagerResponse & ManagerListItem compute activation_url
+    resp = ManagerResponse.model_validate(created_manager)
+    assert resp.activation_url is not None
+    assert "/manager/activate?token=" in resp.activation_url
+
+    list_item = ManagerListItem.model_validate(created_manager)
+    assert list_item.activation_url is not None
+    assert "/manager/activate?token=" in list_item.activation_url
+
+
+@pytest.mark.asyncio
+async def test_api_manager_activation_canonical_routes():
+    """Verify GET /api/v1/managers/validate and POST /api/v1/managers/activate routes."""
+    app = create_app()
+    mock_svc = AsyncMock(spec=ManagerService)
+    app.dependency_overrides[get_manager_service] = lambda: mock_svc
+    app.dependency_overrides[get_db_session] = lambda: AsyncMock()
+
+    mock_svc.validate_onboarding_token.return_value = {
+        "id": str(uuid.uuid4()),
+        "first_name": "Mamraj",
+        "last_name": "Yadav",
+        "email": "mamraj@example.com",
+        "department": "Engineering",
+        "designation": "Manager",
+        "company_name": "OFC360",
+    }
+    mock_svc.activate_onboarding_manager.return_value = {
+        "access_token": "valid_token_xyz",
+        "refresh_token": "valid_refresh_xyz",
+        "token_type": "bearer",
+        "user": {"id": str(uuid.uuid4()), "name": "Mamraj Yadav", "role": "manager"},
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        # GET /validate canonical alias
+        res_val = await client.get("/api/v1/managers/validate?token=valid_token_123456")
+        assert res_val.status_code == status.HTTP_200_OK
+        assert res_val.json()["success"] is True
+        assert res_val.json()["data"]["first_name"] == "Mamraj"
+
+        # POST /activate canonical
+        res_act = await client.post(
+            "/api/v1/managers/activate",
+            json={"token": "valid_token_123456", "password": "SecurePassword@123"},
+        )
+        assert res_act.status_code == status.HTTP_200_OK
+        assert res_act.json()["success"] is True
+        assert res_act.json()["data"]["access_token"] == "valid_token_xyz"
 
 
 @pytest.mark.asyncio

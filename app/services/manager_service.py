@@ -287,7 +287,7 @@ class ManagerService:
             # Commit BEFORE sending email (employee invitation pattern)
             await self.session.commit()
 
-            activation_url = f"{settings.FRONTEND_BASE_URL}/manager/setup-password?token={token}"
+            activation_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/manager/activate?token={token}"
             logger.info(
                 "create_manager: token generated | manager_id=%s | expires=%s | url=%s",
                 manager_id, token_expires.isoformat(), activation_url,
@@ -627,7 +627,7 @@ class ManagerService:
                 )
             )
             await self.session.commit()
-            activation_url = f"{settings.FRONTEND_BASE_URL}/manager/setup-password?token={token}"
+            activation_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/manager/activate?token={token}"
             logger.info(
                 "send_invitation: token generated | manager_id=%s | expires=%s | url=%s",
                 manager_uuid, token_expires.isoformat(), activation_url,
@@ -825,22 +825,28 @@ class ManagerService:
             raise DatabaseException() from exc
 
     async def validate_onboarding_token(self, token: str) -> dict:
-        logger.info("validate_onboarding_token: request | token_prefix=%s", token[:8] if token else "N/A")
+        clean_token = token.strip() if token else ""
+        logger.info("validate_onboarding_token: request | token_prefix=%s", clean_token[:8] if clean_token else "N/A")
+        if not clean_token:
+            raise AppException(
+                message="Invitation token is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             from sqlalchemy import select
             from app.models.manager import Manager
+            from app.models.company import Company
             
             result = await self.session.execute(
-                select(Manager).where(Manager.activation_token == token)
+                select(Manager).where(Manager.activation_token == clean_token)
             )
             manager = result.scalar_one_or_none()
 
             if not manager or manager.is_deleted:
                 logger.warning("validate_onboarding_token: token not found or manager deleted")
-                raise ConflictException(
-                    message="Expired invitation token.",
-                    field="token",
-                    errors=[{"field": "token", "message": "Invitation token is invalid or expired."}]
+                raise AppException(
+                    message="Invitation token is invalid or expired.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             if manager.status != "INVITED":
@@ -848,10 +854,9 @@ class ManagerService:
                     "validate_onboarding_token: wrong status | manager_id=%s | status=%s",
                     manager.manager_id, manager.status,
                 )
-                raise ConflictException(
-                    message="Invitation already accepted.",
-                    field="token",
-                    errors=[{"field": "token", "message": "Invitation has already been accepted."}]
+                raise AppException(
+                    message="Invitation has already been accepted.",
+                    status_code=status.HTTP_409_CONFLICT,
                 )
 
             now = datetime.now(timezone.utc)
@@ -864,11 +869,17 @@ class ManagerService:
                         "validate_onboarding_token: token expired | manager_id=%s | expired_at=%s",
                         manager.manager_id, expires_at.isoformat(),
                     )
-                    raise ConflictException(
-                        message="Expired invitation token.",
-                        field="token",
-                        errors=[{"field": "token", "message": "Invitation token has expired."}]
+                    raise AppException(
+                        message="Invitation token has expired.",
+                        status_code=status.HTTP_410_GONE,
                     )
+
+            company_name = "OFC360"
+            if manager.company_id:
+                comp_res = await self.session.execute(select(Company.name).where(Company.id == manager.company_id))
+                c_name = comp_res.scalar_one_or_none()
+                if c_name:
+                    company_name = c_name
 
             logger.info(
                 "validate_onboarding_token: valid | manager_id=%s | email=%s",
@@ -876,14 +887,19 @@ class ManagerService:
             )
             return {
                 "id": str(manager.id),
+                "manager_id": manager.manager_id,
                 "first_name": manager.first_name,
                 "last_name": manager.last_name,
+                "name": f"{manager.first_name} {manager.last_name}".strip(),
                 "personal_email": manager.personal_email,
                 "company_email": manager.company_email,
+                "email": manager.company_email or manager.personal_email,
                 "phone": manager.phone,
                 "department": manager.department,
                 "designation": manager.designation,
-                "manager_id": manager.manager_id,
+                "company_name": company_name,
+                "role": manager.role or "manager",
+                "status": manager.status,
                 "joining_date": manager.joining_date.isoformat() if manager.joining_date else None,
             }
         except AppException:
@@ -893,7 +909,13 @@ class ManagerService:
             raise DatabaseException() from exc
 
     async def activate_onboarding_manager(self, payload: ActivateManagerOnboardingRequest) -> dict:
-        logger.info("activate_onboarding_manager: request | token_prefix=%s", payload.token[:8] if payload.token else "N/A")
+        clean_token = payload.token.strip() if payload.token else ""
+        logger.info("activate_onboarding_manager: request | token_prefix=%s", clean_token[:8] if clean_token else "N/A")
+        if not clean_token:
+            raise AppException(
+                message="Invitation token is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             from sqlalchemy import select, func, update as sa_update
             from app.models.manager import Manager
@@ -903,24 +925,22 @@ class ManagerService:
             from app.services.token_service import TokenService
 
             result = await self.session.execute(
-                select(Manager).where(Manager.activation_token == payload.token)
+                select(Manager).where(Manager.activation_token == clean_token)
             )
             manager = result.scalar_one_or_none()
 
             if not manager or manager.is_deleted:
-                logger.warning("activate_onboarding_manager: invalid token | token_prefix=%s", payload.token[:8] if payload.token else "N/A")
-                raise ConflictException(
-                    message="Expired invitation token.",
-                    field="token",
-                    errors=[{"field": "token", "message": "Invitation token is invalid or expired."}]
+                logger.warning("activate_onboarding_manager: invalid token | token_prefix=%s", clean_token[:8] if clean_token else "N/A")
+                raise AppException(
+                    message="Invitation token is invalid or expired.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
             if manager.status != "INVITED":
                 logger.warning("activate_onboarding_manager: wrong status | status=%s", manager.status)
-                raise ConflictException(
-                    message="Invitation already accepted.",
-                    field="token",
-                    errors=[{"field": "token", "message": "Invitation has already been accepted."}]
+                raise AppException(
+                    message="Invitation has already been accepted.",
+                    status_code=status.HTTP_409_CONFLICT,
                 )
 
             now = datetime.now(timezone.utc)
@@ -930,10 +950,9 @@ class ManagerService:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
                 if now > expires_at:
                     logger.warning("activate_onboarding_manager: token expired | manager_id=%s", manager.manager_id)
-                    raise ConflictException(
-                        message="Expired invitation token.",
-                        field="token",
-                        errors=[{"field": "token", "message": "Invitation token has expired."}]
+                    raise AppException(
+                        message="Invitation token has expired.",
+                        status_code=status.HTTP_410_GONE,
                     )
 
             password = payload.password
@@ -950,56 +969,63 @@ class ManagerService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Check for existing email in User table
-            email_check = await self.session.execute(
-                select(User).where(func.lower(User.email) == func.lower(manager.personal_email))
-            )
-            if email_check.scalar_one_or_none():
-                logger.warning("activate_onboarding_manager: email already exists in users | manager_id=%s", manager.manager_id)
-                raise ConflictException(
-                    message="Email already exists.",
-                    field="email",
-                    errors=[{"field": "email", "message": "Email already exists."}]
-                )
+            password_hash = hash_password(password)
 
-            # Clean and check phone
+            # Clean phone
             phone_to_use = payload.phone or manager.phone
             clean_phone = "".join(filter(str.isdigit, phone_to_use)) if phone_to_use else ""
             if len(clean_phone) > 10:
                 clean_phone = clean_phone[-10:]
 
-            if clean_phone:
-                phone_check = await self.session.execute(
-                    select(User).where(User.phone == clean_phone)
-                )
-                if phone_check.scalar_one_or_none():
-                    raise ConflictException(
-                        message="Phone number already exists.",
-                        field="phone",
-                        errors=[{"field": "phone", "message": "Phone number already exists."}]
-                    )
+            # Resolve or create active User
+            user = None
+            if manager.user_id:
+                u_res = await self.session.execute(select(User).where(User.id == manager.user_id))
+                user = u_res.scalar_one_or_none()
 
-            # Create active user
-            logger.info("activate_onboarding_manager: creating user | manager_id=%s", manager.manager_id)
+            if not user:
+                target_email = manager.personal_email.lower().strip()
+                email_check = await self.session.execute(
+                    select(User).where(
+                        (func.lower(User.email) == target_email) |
+                        (func.lower(User.email) == (manager.company_email or target_email).lower().strip())
+                    )
+                )
+                user = email_check.scalar_one_or_none()
+
             db_role = getattr(UserRole, manager.role.upper(), UserRole.MANAGER) if hasattr(UserRole, manager.role.upper()) else UserRole.MANAGER
-            user = User(
-                company_id=manager.company_id,
-                name=f"{manager.first_name} {manager.last_name}".strip(),
-                email=manager.personal_email.lower(),
-                phone=clean_phone,
-                password_hash=hash_password(payload.password),
-                is_active=True,
-                is_verified=True,
-                role=db_role,
-                email_verified_at=now,
-                onboarding_completed=False,
-            )
-            self.session.add(user)
+
+            if user:
+                user.password_hash = password_hash
+                user.is_active = True
+                user.is_verified = True
+                user.email_verified_at = now
+                user.must_change_password = False
+                if clean_phone:
+                    user.phone = clean_phone
+                if not user.role or user.role == UserRole.EMPLOYEE:
+                    user.role = db_role
+            else:
+                user = User(
+                    company_id=manager.company_id,
+                    name=f"{manager.first_name} {manager.last_name}".strip(),
+                    email=manager.personal_email.lower().strip(),
+                    phone=clean_phone or manager.phone,
+                    password_hash=password_hash,
+                    is_active=True,
+                    is_verified=True,
+                    role=db_role,
+                    email_verified_at=now,
+                    onboarding_completed=False,
+                )
+                self.session.add(user)
+
             await self.session.flush()
 
             # Link user to manager, transition status, delete token
             manager.user_id = user.id
             manager.status = "ACTIVE"
+            manager.is_active = True
             manager.activation_token = None
             manager.activation_token_expires_at = None
 
