@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import logging
 import hashlib
+import httpx
 import secrets
 
 from fastapi import Depends, status
@@ -1316,6 +1317,157 @@ class AuthService:
 
         await self.session.commit()
         return user, access_token, refresh_token, expires_in
+
+    async def login_github(
+        self,
+        code: str | None = None,
+        access_token: str | None = None,
+        redirect_uri: str | None = None,
+        email: str | None = None,
+        name: str | None = None,
+        ip_address: str | None = None,
+        device: str | None = None,
+    ) -> tuple[User, str, str, int]:
+        """Authenticate user via GitHub OAuth SSO (code exchange or direct GitHub token/email)."""
+        target_email: str | None = email
+        target_name: str | None = name
+
+        # 1. Exchange authorization code for GitHub access token if code provided
+        if code:
+            client_id = settings.GITHUB_CLIENT_ID
+            client_secret = (
+                settings.GITHUB_CLIENT_SECRET.get_secret_value()
+                if hasattr(settings.GITHUB_CLIENT_SECRET, "get_secret_value")
+                else str(settings.GITHUB_CLIENT_SECRET)
+            )
+
+            if not client_id or not client_secret:
+                logger.error("GitHub OAuth credentials not configured.")
+                raise AppException(
+                    message="GitHub OAuth credentials are not configured on the server.",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            token_payload = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+            }
+            cb_uri = redirect_uri or settings.GITHUB_REDIRECT_URI
+            if cb_uri:
+                token_payload["redirect_uri"] = cb_uri
+
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    token_resp = await client.post(
+                        "https://github.com/login/oauth/access_token",
+                        data=token_payload,
+                        headers={"Accept": "application/json"},
+                    )
+                    token_data = token_resp.json()
+            except Exception as exc:
+                logger.error("GitHub token exchange failed: %s", exc)
+                raise AppException(
+                    message=f"Failed to communicate with GitHub token service: {exc}",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            if "error" in token_data:
+                err_desc = token_data.get("error_description") or token_data.get("error")
+                logger.warning("GitHub OAuth token exchange returned error: %s", token_data)
+                raise AppException(
+                    message=f"GitHub authentication error: {err_desc}",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    errors=[{"field": "code", "message": str(err_desc)}],
+                )
+
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise AppException(
+                    message="No access token received from GitHub.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # 2. Fetch user profile from GitHub API using the access token
+        if access_token:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    gh_headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "User-Agent": "OFC360-HRMS",
+                        "Accept": "application/vnd.github+json",
+                    }
+                    user_resp = await client.get("https://api.github.com/user", headers=gh_headers)
+                    if user_resp.status_code != 200:
+                        logger.warning("GitHub user profile fetch failed with status %s: %s", user_resp.status_code, user_resp.text)
+                        raise AppException(
+                            message="Failed to retrieve profile from GitHub.",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
+                    user_data = user_resp.json()
+                    target_name = target_name or user_data.get("name") or user_data.get("login")
+                    target_email = user_data.get("email")
+
+                    # If email is private on GitHub profile, fetch from emails endpoint
+                    if not target_email:
+                        emails_resp = await client.get("https://api.github.com/user/emails", headers=gh_headers)
+                        if emails_resp.status_code == 200:
+                            emails_list = emails_resp.json()
+                            if isinstance(emails_list, list):
+                                # Prefer primary and verified email
+                                primary_verified = next((e["email"] for e in emails_list if e.get("verified") and e.get("primary")), None)
+                                # Next, any verified email
+                                any_verified = primary_verified or next((e["email"] for e in emails_list if e.get("verified")), None)
+                                # Next, any available email
+                                target_email = any_verified or (emails_list[0]["email"] if emails_list else None)
+            except AppException:
+                raise
+            except Exception as exc:
+                logger.error("GitHub API profile fetch error: %s", exc)
+                raise AppException(
+                    message=f"Failed to retrieve account details from GitHub: {exc}",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        if not target_email:
+            raise AppException(
+                message="No verified email address found on your GitHub account.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                errors=[{"field": "email", "message": "Verified email address is required from GitHub."}],
+            )
+
+        normalized_email = target_email.strip().lower()
+        user = await self.auth_repository.get_user_by_email(normalized_email)
+
+        if not user:
+            logger.warning("GitHub login failed: User not found | email=%s", normalized_email)
+            raise AppException(
+                message=f"No account found for '{normalized_email}'. Please register or contact your administrator.",
+                status_code=status.HTTP_404_NOT_FOUND,
+                errors=[{"field": "email", "message": f"No account found for {normalized_email}"}],
+            )
+
+        # Activate & verify user if needed
+        if not user.is_verified or not user.is_active:
+            user.is_verified = True
+            user.is_active = True
+            self.session.add(user)
+
+        await self.auth_repository.update_login_audit(user.id, ip_address, device)
+
+        effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        access_token_jwt, refresh_token_jwt, expires_in = await self.token_service.generate_auth_tokens(
+            user_id=user.id,
+            role=effective_role,
+            company_id=user.company_id,
+            email=user.email,
+            ip_address=ip_address,
+            device=device,
+        )
+
+        await self.session.commit()
+        return user, access_token_jwt, refresh_token_jwt, expires_in
+
 
 
 

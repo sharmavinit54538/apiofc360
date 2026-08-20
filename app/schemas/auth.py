@@ -644,3 +644,32 @@ class GoogleAuthRequest(BaseModel):
     def normalize_email_field(cls, value: str) -> str:
         return normalize_email(value)
 
+
+class GitHubAuthRequest(BaseModel):
+    """GitHub OAuth SSO API request payload."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    code: str | None = Field(default=None, description="GitHub OAuth authorization code")
+    access_token: str | None = Field(default=None, description="Direct GitHub access token if already exchanged")
+    redirect_uri: str | None = Field(default=None, description="OAuth redirect URI used during authorization")
+    email: EmailStr | None = Field(default=None, description="Direct email fallback")
+    name: str | None = Field(default=None, description="Display name fallback")
+    action: str = Field(default="login", description="login or register")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email_field(cls, value: Any) -> str | None:
+        if not value:
+            return None
+        return normalize_email(str(value))
+
+
+class GitHubAuthUrlResponse(BaseModel):
+    """Response containing GitHub OAuth authorize URL."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str = Field(..., description="GitHub OAuth authorization URL")
+
+
