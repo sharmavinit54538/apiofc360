@@ -92,6 +92,21 @@ def _make_test_manager(
     mgr.status = status_val
     mgr.is_deleted = is_deleted
     mgr.is_active = True
+    mgr.is_first_login = False
+    mgr.profile_completed = True
+    mgr.can_approve_leave = True
+    mgr.can_approve_attendance = True
+    mgr.can_manage_employees = True
+    mgr.can_view_payroll = False
+    mgr.can_edit_departments = False
+    mgr.can_invite_users = False
+    mgr.can_manage_recruitment = False
+    mgr.can_manage_performance = False
+    mgr.reporting_manager = None
+    mgr.reporting_to = None
+    mgr.created_by = uuid.uuid4()
+    mgr.created_at = datetime.now(timezone.utc)
+    mgr.updated_at = datetime.now(timezone.utc)
     mgr.addresses = []
     mgr.documents = []
     mgr.education = []
@@ -138,6 +153,7 @@ def _make_test_employee(
     emp.role = role
     emp.status = status_val
     emp.is_deleted = is_deleted
+    emp.is_active = True
     emp.created_at = datetime.now(timezone.utc)
     emp.updated_at = datetime.now(timezone.utc)
     emp.addresses = []
@@ -161,6 +177,7 @@ def _make_test_employee(
 async def test_create_manager_creates_synchronized_employee():
     """Verify ManagerService.create_manager inserts both Manager and Employee records."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_mgr_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -181,17 +198,22 @@ async def test_create_manager_creates_synchronized_employee():
 
     created_manager = _make_test_manager(company_id=company_id)
     mock_mgr_repo.create_manager.return_value = created_manager
+    mock_mgr_repo.get_by_id.return_value = created_manager
 
-    # Mock execute for Company name fetch
+    # Mock execute for sequential manager_id, email collision, and Company fetch
+    mock_id_res = MagicMock()
+    mock_id_res.scalar_one_or_none.return_value = None
+    mock_email_res = MagicMock()
+    mock_email_res.scalar_one_or_none.return_value = None
     mock_comp_res = MagicMock()
     mock_comp_obj = Company(id=company_id, name="OFC Corp")
     mock_comp_res.scalar_one_or_none.return_value = mock_comp_obj
-    mock_session.execute.return_value = mock_comp_res
+    mock_session.execute.side_effect = [mock_id_res, mock_email_res, mock_comp_res]
 
     service = ManagerService(
         session=mock_session,
-        repo=mock_mgr_repo,
-        auth_repo=mock_auth_repo,
+        manager_repository=mock_mgr_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -232,6 +254,7 @@ async def test_create_manager_creates_synchronized_employee():
 async def test_employee_directory_returns_both_employees_and_managers():
     """Verify EmployeeService.list_employees returns workforce records for employees and managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -250,8 +273,8 @@ async def test_employee_directory_returns_both_employees_and_managers():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -280,6 +303,7 @@ async def test_employee_directory_returns_both_employees_and_managers():
 async def test_employee_directory_role_filter_manager():
     """Verify role='manager' filter returns only managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -296,8 +320,8 @@ async def test_employee_directory_role_filter_manager():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -323,6 +347,7 @@ async def test_employee_directory_role_filter_manager():
 async def test_employee_directory_search_finds_manager():
     """Verify searching for manager by name or designation passes through to repository."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -339,8 +364,8 @@ async def test_employee_directory_search_finds_manager():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -364,6 +389,7 @@ async def test_employee_directory_search_finds_manager():
 async def test_self_healing_manager_synchronization():
     """Verify _sync_managers_to_employees automatically creates missing Employee records for existing Managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -383,8 +409,8 @@ async def test_self_healing_manager_synchronization():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -432,13 +458,13 @@ async def test_get_employees_api_includes_managers_with_role_and_designation():
     app.dependency_overrides[get_employee_service] = lambda: mock_emp_service
 
     token = create_access_token(
-        data={
-            "sub": str(admin_id),
+        str(admin_id),
+        claims={
             "role": "hr_admin",
             "company_id": str(company_id),
             "email": "admin@ofc360.com",
             "is_active": True,
-        }
+        },
     )
 
     async with AsyncClient(
