@@ -9,6 +9,7 @@ from app.models.user import User, UserRole
 from app.models.company import Company
 from app.core.security import hash_password
 from app.core.config import settings
+from app.core.rate_limiter import check_login_rate_limit
 
 
 @pytest.mark.asyncio
@@ -42,7 +43,9 @@ async def test_github_auth_login_suite():
     4. Private email resolution from /user/emails.
     """
     app = create_app()
+    app.dependency_overrides[check_login_rate_limit] = lambda: None
     transport = ASGITransport(app=app)
+
 
     # 1. Setup real test user and company in DB
     async with AsyncSessionLocal() as session:
