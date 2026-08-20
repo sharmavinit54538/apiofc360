@@ -52,12 +52,12 @@ class AuthService:
         session: AsyncSession,
         auth_repository: AuthRepository,
         email_service: EmailService,
-        token_service: TokenService,
+        token_service: TokenService | None = None,
     ) -> None:
         self.session = session
         self.auth_repository = auth_repository
         self.email_service = email_service
-        self.token_service = token_service
+        self.token_service = token_service or TokenService(session=session, auth_repository=auth_repository)
 
     async def register_user(self, payload: RegisterRequest) -> None:
         """Register a new company and its HR Admin owner (pending email verification)."""

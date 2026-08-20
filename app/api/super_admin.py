@@ -921,6 +921,17 @@ async def update_super_admin_organization(
     )
 
     return {"success": True, "message": f"Organization '{company.name}' updated successfully."}
+    await db.commit()
+    await db.refresh(company)
+
+    await record_super_admin_audit(
+        db,
+        action="SUPER_ADMIN_UPDATE_ORGANIZATION",
+        details=f"Updated organization '{company.name}' ({org_id}).",
+        company_id=company.id,
+    )
+
+    return {"success": True, "message": f"Organization '{company.name}' updated successfully."}
 
 
 @router.delete("/organizations/{org_id}")

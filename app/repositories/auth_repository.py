@@ -116,7 +116,42 @@ class AuthRepository:
             .order_by(User.is_active.desc(), User.created_at.desc())
             .execution_options(bypass_tenant=True)
         )
-        return result.scalars().first()
+        user = result.scalars().first()
+        if user:
+            return user
+
+        # Resilient fallback: locate user via Employee company_email, personal_email, or employee_id
+        try:
+            from app.models.employee import Employee
+            emp_match = await self.session.execute(
+                select(Employee.user_id)
+                .where(
+                    or_(
+                        func.lower(Employee.company_email) == func.lower(trimmed),
+                        func.lower(Employee.personal_email) == func.lower(trimmed),
+                        func.lower(Employee.employee_id) == func.lower(trimmed),
+                    ),
+                    Employee.user_id.isnot(None),
+                    Employee.is_deleted.is_(False),
+                )
+                .execution_options(bypass_tenant=True)
+            )
+            matched_user_id = emp_match.scalars().first()
+            if matched_user_id:
+                user_by_emp = await self.session.execute(
+                    select(User)
+                    .options(selectinload(User.company))
+                    .where(
+                        User.id == matched_user_id,
+                        (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                    )
+                    .execution_options(bypass_tenant=True)
+                )
+                return user_by_emp.scalars().first()
+        except Exception:
+            pass
+
+        return None
 
     async def get_user_by_verification_token(self, token: str) -> User | None:
         """Find user by email verification token."""

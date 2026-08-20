@@ -3,6 +3,7 @@
 from datetime import date, datetime, timedelta, timezone
 import logging
 import secrets
+from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
 
 from fastapi import Depends, status
@@ -34,9 +35,19 @@ logger = logging.getLogger(__name__)
 class HRAdminService:
     """Service handling HR Admin operations on internal company users."""
 
-    def __init__(self, session: AsyncSession, email_service: EmailService) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        email_service: EmailService,
+        auth_repo: Any = None,
+        emp_repo: Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         self.session = session
         self.email_service = email_service
+        self.auth_repo = auth_repo
+        self.emp_repo = emp_repo
 
     async def create_user(
         self,
@@ -451,7 +462,6 @@ class HRAdminService:
                 update(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked == False).values(
                     revoked=True,
                     revoked_at=datetime.now(timezone.utc),
-                    revoked_reason="HR_ADMIN_LOCK"
                 )
             )
             await redis_client.revoke_user_tokens(user.id)

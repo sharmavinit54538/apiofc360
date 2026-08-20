@@ -249,9 +249,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         path,
                         retry_after,
                     )
-                    raise RateLimitExceeded(
-                        detail=f"Rate limit exceeded. Please try again in {retry_after} seconds.",
-                        retry_after=retry_after,
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        content={
+                            "success": False,
+                            "message": f"Rate limit exceeded. Please try again in {retry_after} seconds.",
+                            "data": None,
+                            "errors": [{"field": None, "message": f"Rate limit exceeded. Please try again in {retry_after} seconds."}],
+                        },
+                        headers={"Retry-After": str(retry_after)},
                     )
                 break
 
@@ -265,9 +272,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 path,
                 retry_after,
             )
-            raise RateLimitExceeded(
-                detail=f"Rate limit exceeded. Please try again in {retry_after} seconds.",
-                retry_after=retry_after,
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "success": False,
+                    "message": f"Rate limit exceeded. Please try again in {retry_after} seconds.",
+                    "data": None,
+                    "errors": [{"field": None, "message": f"Rate limit exceeded. Please try again in {retry_after} seconds."}],
+                },
+                headers={"Retry-After": str(retry_after)},
             )
 
         response = await call_next(request)

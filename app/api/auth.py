@@ -246,7 +246,8 @@ async def login(
     company_name = None
     if getattr(user, "company", None):
         try:
-            company_name = user.company.name
+            c_name = getattr(user.company, "name", None)
+            company_name = str(c_name) if isinstance(c_name, str) else None
         except Exception:
             company_name = None
 
@@ -257,7 +258,8 @@ async def login(
             comp_res = await auth_service.session.execute(
                 select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
             )
-            company_name = comp_res.scalar_one_or_none()
+            val = comp_res.scalar_one_or_none() if hasattr(comp_res, "scalar_one_or_none") else None
+            company_name = str(val) if isinstance(val, str) else None
         except Exception:
             company_name = None
 
