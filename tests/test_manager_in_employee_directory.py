@@ -92,6 +92,8 @@ def _make_test_manager(
     mgr.status = status_val
     mgr.is_deleted = is_deleted
     mgr.is_active = True
+    mgr.created_at = datetime.now(timezone.utc)
+    mgr.updated_at = datetime.now(timezone.utc)
     mgr.addresses = []
     mgr.documents = []
     mgr.education = []
@@ -138,6 +140,7 @@ def _make_test_employee(
     emp.role = role
     emp.status = status_val
     emp.is_deleted = is_deleted
+    emp.is_active = True
     emp.created_at = datetime.now(timezone.utc)
     emp.updated_at = datetime.now(timezone.utc)
     emp.addresses = []
@@ -161,6 +164,7 @@ def _make_test_employee(
 async def test_create_manager_creates_synchronized_employee():
     """Verify ManagerService.create_manager inserts both Manager and Employee records."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_mgr_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -232,6 +236,7 @@ async def test_create_manager_creates_synchronized_employee():
 async def test_employee_directory_returns_both_employees_and_managers():
     """Verify EmployeeService.list_employees returns workforce records for employees and managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -250,8 +255,8 @@ async def test_employee_directory_returns_both_employees_and_managers():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -280,6 +285,7 @@ async def test_employee_directory_returns_both_employees_and_managers():
 async def test_employee_directory_role_filter_manager():
     """Verify role='manager' filter returns only managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -296,8 +302,8 @@ async def test_employee_directory_role_filter_manager():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -323,6 +329,7 @@ async def test_employee_directory_role_filter_manager():
 async def test_employee_directory_search_finds_manager():
     """Verify searching for manager by name or designation passes through to repository."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -339,8 +346,8 @@ async def test_employee_directory_search_finds_manager():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
@@ -364,6 +371,7 @@ async def test_employee_directory_search_finds_manager():
 async def test_self_healing_manager_synchronization():
     """Verify _sync_managers_to_employees automatically creates missing Employee records for existing Managers."""
     mock_session = AsyncMock()
+    mock_session.add = MagicMock()
     mock_emp_repo = AsyncMock()
     mock_auth_repo = AsyncMock()
     mock_email_service = AsyncMock()
@@ -383,8 +391,8 @@ async def test_self_healing_manager_synchronization():
 
     service = EmployeeService(
         session=mock_session,
-        repo=mock_emp_repo,
-        auth_repo=mock_auth_repo,
+        employee_repository=mock_emp_repo,
+        auth_repository=mock_auth_repo,
         email_service=mock_email_service,
     )
 
