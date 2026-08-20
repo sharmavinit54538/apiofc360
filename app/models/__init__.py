@@ -14,6 +14,7 @@ from app.models.security_setting import (
 )
 from app.models.department import Department
 from app.models.company import Company
+from app.models.subscription import Subscription
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
 
