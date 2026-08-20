@@ -82,6 +82,28 @@ async def record_super_admin_audit(
         logger.warning("Failed to record audit log: %s", exc)
 
 
+
+def active_employee_filter():
+    """Return canonical SQLAlchemy filter conditions for active workforce employees.
+
+    Excludes:
+    - Soft-deleted employees (is_deleted is True)
+    - Deactivated employees (is_active is False)
+    - Terminal/inactive statuses: DISABLED, INACTIVE, DEACTIVATED, ARCHIVED, TERMINATED, EXITED, DELETED
+    - Terminal employment statuses: EXITED, TERMINATED
+    """
+    return [
+        (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+        (Employee.is_active.is_(True) | Employee.is_active.is_(None)),
+        func.upper(func.coalesce(Employee.status, "")).notin_([
+            "DISABLED", "INACTIVE", "DEACTIVATED", "ARCHIVED", "TERMINATED", "EXITED", "DELETED"
+        ]),
+        func.upper(func.coalesce(Employee.employment_status, "")).notin_([
+            "EXITED", "TERMINATED"
+        ]),
+    ]
+
+
 # ─── 1. Dashboard & Statistics ───────────────────────────────────────
 
 @router.get("/statistics")
@@ -99,9 +121,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
 
         total_workforce = (
             await db.execute(
-                select(func.count(Employee.id)).where(
-                    (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None))
-                )
+                select(func.count(Employee.id)).where(*active_employee_filter())
             )
         ).scalar() or 0
 
@@ -340,12 +360,37 @@ async def get_super_admin_organizations(
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
-    """Get all tenant organizations from PostgreSQL with live counts and subscription data."""
+    """Get all tenant organizations from PostgreSQL with live counts, subscription data, and real HR Admin resolution."""
     try:
         stmt = select(Company)
+
+        # Multi-field search across company name, profile domain, and HR Admin name/email
         if isinstance(search, str) and search.strip():
             term = f"%{search.strip()}%".lower()
-            stmt = stmt.where(func.lower(Company.name).ilike(term))
+            hr_matching_comp_ids_query = select(User.company_id).where(
+                User.company_id.is_not(None),
+                User.role == UserRole.HR_ADMIN,
+                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                or_(
+                    func.lower(User.name).ilike(term),
+                    func.lower(User.email).ilike(term),
+                ),
+            )
+            stmt = stmt.where(
+                or_(
+                    func.lower(Company.name).ilike(term),
+                    cast(Company.company_profile, String).ilike(term),
+                    Company.id.in_(hr_matching_comp_ids_query),
+                )
+            )
+
+        effective_status = status_filter or access_status
+        if isinstance(effective_status, str) and effective_status.strip() and effective_status.strip().upper() != "ALL":
+            status_clean = effective_status.strip().lower()
+            if status_clean == "active":
+                stmt = stmt.where(Company.onboarding_completed == True)
+            elif status_clean in ("trial", "suspended", "deactivated"):
+                stmt = stmt.where(Company.onboarding_completed == False)
 
         offset = max(0, ((page if isinstance(page, int) else 1) - 1) * (page_size if isinstance(page_size, int) else 50))
         limit_val = page_size if isinstance(page_size, int) else 50
@@ -354,65 +399,109 @@ async def get_super_admin_organizations(
         res = await db.execute(stmt)
         companies = res.scalars().all()
 
-        # Fetch subscriptions for these companies
         company_ids = [c.id for c in companies]
         subs_map: Dict[uuid.UUID, Subscription] = {}
+        hr_admins_by_company: Dict[uuid.UUID, List[User]] = {}
+        user_counts: Dict[uuid.UUID, int] = {}
+        emp_counts: Dict[uuid.UUID, int] = {}
+
         if company_ids:
+            # Batch fetch subscriptions
             subs_res = await db.execute(
                 select(Subscription).where(Subscription.company_id.in_(company_ids))
             )
             for s in subs_res.scalars().all():
                 subs_map[s.company_id] = s
 
+            # Batch fetch real HR Admins strictly by role == UserRole.HR_ADMIN (no fallback to employees)
+            hr_admin_stmt = (
+                select(User)
+                .where(
+                    User.company_id.in_(company_ids),
+                    User.role == UserRole.HR_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+                .order_by(User.created_at.asc())
+            )
+            hr_admins_res = await db.execute(hr_admin_stmt)
+            for u in hr_admins_res.scalars().all():
+                if u.company_id:
+                    hr_admins_by_company.setdefault(u.company_id, []).append(u)
+
+            # Batch fetch user counts
+            user_counts_stmt = (
+                select(User.company_id, func.count(User.id))
+                .where(
+                    User.company_id.in_(company_ids),
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+                .group_by(User.company_id)
+            )
+            user_counts = dict((await db.execute(user_counts_stmt)).all())
+
+            # Batch fetch active employee counts grouped by company_id (avoids N+1 queries)
+            emp_counts_stmt = (
+                select(Employee.company_id, func.count(Employee.id))
+                .where(
+                    Employee.company_id.in_(company_ids),
+                    *active_employee_filter(),
+                )
+                .group_by(Employee.company_id)
+            )
+            emp_counts_res = (await db.execute(emp_counts_stmt)).all()
+            emp_counts = {cid: cnt for cid, cnt in emp_counts_res if cid is not None}
+
         items = []
         for c in companies:
             cp = c.company_profile or {}
             sub = subs_map.get(c.id)
+            comp_hr_admins = hr_admins_by_company.get(c.id, [])
+            primary_hr = comp_hr_admins[0] if comp_hr_admins else None
 
-            user_cnt = (
-                await db.execute(
-                    select(func.count(User.id)).where(
-                        User.company_id == c.id,
-                        (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
-                    )
-                )
-            ).scalar() or 0
-
-            emp_cnt = (
-                await db.execute(
-                    select(func.count(Employee.id)).where(
-                        Employee.company_id == c.id,
-                        (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
-                    )
-                )
-            ).scalar() or 0
-
-            owner_stmt = select(User).where(
-                User.company_id == c.id,
-                User.role == UserRole.HR_ADMIN,
-                (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+            hr_admin_obj = (
+                {
+                    "id": str(primary_hr.id),
+                    "name": primary_hr.name or "",
+                    "email": primary_hr.email or "",
+                    "phone": primary_hr.phone or "",
+                }
+                if primary_hr
+                else None
             )
-            owner = (await db.execute(owner_stmt)).scalars().first()
-            if not owner:
-                owner_stmt = select(User).where(
-                    User.company_id == c.id,
-                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
-                )
-                owner = (await db.execute(owner_stmt)).scalars().first()
+
+            hr_admins_list = [
+                {
+                    "id": str(u.id),
+                    "name": u.name or "",
+                    "email": u.email or "",
+                    "phone": u.phone or "",
+                }
+                for u in comp_hr_admins
+            ]
 
             created_iso = c.created_at.isoformat() if c.created_at else datetime.now(timezone.utc).isoformat()
-            
-            # Use real subscription values if available, else derive from company profile without fake data
-            plan_val = sub.plan if sub else (cp.get("plan") or None)
+
+            # Real subscription and plan values without fake fallbacks
+            plan_val = sub.plan if (sub and sub.plan) else (cp.get("plan") or None)
             status_val = "Active" if c.onboarding_completed else "Trial"
+            if sub and sub.access_status:
+                if sub.access_status.upper() == "ACTIVE":
+                    status_val = "Active"
+                elif sub.access_status.upper() in ("SUSPENDED", "DEACTIVATED", "CANCELED"):
+                    status_val = "Suspended"
+                elif sub.access_status.upper() == "TRIAL":
+                    status_val = "Trial"
             access_status_val = sub.access_status if sub else ("ACTIVE" if c.onboarding_completed else "TRIAL")
             payment_status_val = sub.payment_status if sub else "UNPAID"
             mrr_val = float(sub.mrr or 0.0) if sub else float(cp.get("mrr") or 0.0)
 
+            # Real domain resolution from stored company profile (no fake domain generation)
+            domain_val = cp.get("domain") or None
+
             items.append({
                 "id": str(c.id),
                 "name": c.name or "Unnamed Organization",
-                "domain": cp.get("domain") or (f"{c.name.lower().replace(' ', '')}.ofc360.com" if c.name else ""),
+                "domain": domain_val,
                 "plan": plan_val,
                 "status": status_val,
                 "access_status": access_status_val,
@@ -423,19 +512,17 @@ async def get_super_admin_organizations(
                 "access_expires_at": sub.access_expires_at.isoformat() if sub and sub.access_expires_at else cp.get("access_expires_at"),
                 "access_grant_reason": sub.access_grant_reason if sub else cp.get("access_grant_reason"),
                 "mrr": mrr_val,
-                "storageUsedGb": cp.get("storage_used_gb", 0.0),
+                "storageUsedGb": float(cp.get("storage_used_gb") or 0.0),
                 "industry": cp.get("industry") or "General",
-                "location": cp.get("city", "Global"),
-                "user_count": user_cnt,
-                "employee_count": emp_cnt,
-                "employeeCount": emp_cnt,
-                "hrAdminName": getattr(owner, "name", "") if owner else "",
-                "hrAdminEmail": getattr(owner, "email", "") if owner else "",
-                "owner": {
-                    "name": getattr(owner, "name", "") if owner else "",
-                    "email": getattr(owner, "email", "") if owner else "",
-                    "phone": getattr(owner, "phone", "") if owner else "",
-                },
+                "location": cp.get("city") or cp.get("location") or "Global",
+                "user_count": int(user_counts.get(c.id, 0)),
+                "employee_count": int(emp_counts.get(c.id, 0)),
+                "employeeCount": int(emp_counts.get(c.id, 0)),
+                "hr_admin": hr_admin_obj,
+                "hr_admins": hr_admins_list,
+                "hrAdminName": primary_hr.name if primary_hr else "",
+                "hrAdminEmail": primary_hr.email if primary_hr else "",
+                "owner": hr_admin_obj,
                 "created_at": created_iso,
                 "createdAt": created_iso.split("T")[0],
             })
@@ -456,10 +543,10 @@ async def create_super_admin_organization(
     if not name:
         raise HTTPException(status_code=400, detail="Organization name is required.")
 
-    domain = payload.get("domain", "")
+    domain = (payload.get("domain") or "").strip() or None
     plan = payload.get("plan", "Starter")
     org_status = payload.get("status", "Active")
-    hr_admin_name = payload.get("hrAdminName", "HR Administrator")
+    hr_admin_name = (payload.get("hrAdminName") or "HR Administrator").strip()
     hr_admin_email = (payload.get("hrAdminEmail") or "").strip().lower()
     industry = payload.get("industry", "Technology")
     location = payload.get("location", "Global")
@@ -518,12 +605,21 @@ async def create_super_admin_organization(
         )
         db.add(new_sub)
 
+        hr_admin_user: Optional[User] = None
         if hr_admin_email:
             existing_user = (
                 await db.execute(select(User).where(User.email == hr_admin_email))
             ).scalars().first()
 
-            if not existing_user:
+            if existing_user:
+                existing_user.company_id = new_org_id
+                existing_user.role = UserRole.HR_ADMIN
+                if hr_admin_name:
+                    existing_user.name = hr_admin_name
+                existing_user.is_active = True
+                existing_user.updated_at = now
+                hr_admin_user = existing_user
+            else:
                 gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
                 new_user = User(
                     id=uuid.uuid4(),
@@ -539,15 +635,30 @@ async def create_super_admin_organization(
                     updated_at=now,
                 )
                 db.add(new_user)
+                hr_admin_user = new_user
 
         await db.commit()
         await db.refresh(new_company)
+        if hr_admin_user:
+            await db.refresh(hr_admin_user)
 
         await record_super_admin_audit(
             db,
             action="SUPER_ADMIN_CREATE_ORGANIZATION",
-            details=f"Provisioned organization '{name}' ({new_org_id}) on plan {plan}.",
+            details=f"Provisioned organization '{name}' ({new_org_id}) on plan {plan} with HR Admin '{hr_admin_email}'.",
             company_id=new_org_id,
+            user_id=hr_admin_user.id if hr_admin_user else None,
+        )
+
+        hr_admin_payload = (
+            {
+                "id": str(hr_admin_user.id),
+                "name": hr_admin_user.name,
+                "email": hr_admin_user.email,
+                "phone": hr_admin_user.phone or "",
+            }
+            if hr_admin_user
+            else None
         )
 
         return {
@@ -556,8 +667,12 @@ async def create_super_admin_organization(
             "domain": domain,
             "plan": plan,
             "status": org_status,
-            "hrAdminName": hr_admin_name,
-            "hrAdminEmail": hr_admin_email,
+            "access_status": "ACTIVE" if org_status.lower() == "active" else "TRIAL",
+            "payment_status": "PAID" if mrr > 0 else "UNPAID",
+            "hr_admin": hr_admin_payload,
+            "hr_admins": [hr_admin_payload] if hr_admin_payload else [],
+            "hrAdminName": hr_admin_user.name if hr_admin_user else "",
+            "hrAdminEmail": hr_admin_user.email if hr_admin_user else "",
             "employeeCount": emp_count,
             "mrr": mrr,
             "industry": industry,
@@ -566,6 +681,9 @@ async def create_super_admin_organization(
             "createdAt": now.isoformat().split("T")[0],
         }
 
+    except HTTPException:
+        await db.rollback()
+        raise
     except Exception as exc:
         await db.rollback()
         logger.error("Failed to create organization: %s", exc, exc_info=True)
@@ -588,8 +706,6 @@ async def get_super_admin_organization_detail(
         raise HTTPException(status_code=404, detail="Organization not found.")
 
     cp = company.company_profile or {}
-    hs = company.hr_settings or {}
-    billing = hs.get("billing") or {}
 
     # Get subscription
     sub = (
@@ -600,7 +716,7 @@ async def get_super_admin_organization_detail(
         select(User).where(
             User.company_id == company.id,
             (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
-        )
+        ).order_by(User.created_at.asc())
     )
     users = users_res.scalars().all()
 
@@ -608,7 +724,7 @@ async def get_super_admin_organization_detail(
         await db.execute(
             select(func.count(Employee.id)).where(
                 Employee.company_id == company.id,
-                (Employee.is_deleted.is_(False) | Employee.is_deleted.is_(None)),
+                *active_employee_filter(),
             )
         )
     ).scalar() or 0
@@ -618,17 +734,37 @@ async def get_super_admin_organization_detail(
     )
     logs = logs_res.scalars().all()
 
-    owner = next((u for u in users if u.role == UserRole.HR_ADMIN), users[0] if users else None)
+    hr_admins = [u for u in users if u.role == UserRole.HR_ADMIN]
+    primary_hr = hr_admins[0] if hr_admins else None
+
+    hr_admin_obj = (
+        {
+            "id": str(primary_hr.id),
+            "name": primary_hr.name,
+            "email": primary_hr.email,
+            "phone": primary_hr.phone or "",
+        }
+        if primary_hr
+        else None
+    )
+
+    hr_admins_list = [
+        {
+            "id": str(u.id),
+            "name": u.name,
+            "email": u.email,
+            "phone": u.phone or "",
+        }
+        for u in hr_admins
+    ]
 
     return {
         "id": str(company.id),
         "name": company.name,
-        "domain": cp.get("domain", ""),
-        "owner": {
-            "name": owner.name if owner else "",
-            "email": owner.email if owner else "",
-            "phone": owner.phone if owner else "",
-        },
+        "domain": cp.get("domain") or None,
+        "hr_admin": hr_admin_obj,
+        "hr_admins": hr_admins_list,
+        "owner": hr_admin_obj,
         "subscription": {
             "plan": sub.plan if sub else cp.get("plan"),
             "access_status": sub.access_status if sub else ("ACTIVE" if company.onboarding_completed else "TRIAL"),
@@ -643,7 +779,8 @@ async def get_super_admin_organization_detail(
         },
         "stats": {
             "user_count": len(users),
-            "employee_count": emp_cnt,
+            "employee_count": int(emp_cnt),
+            "employeeCount": int(emp_cnt),
             "total_spent": float(sub.mrr or 0.0) * 12 if sub else 0.0,
         },
         "users": [
@@ -677,7 +814,7 @@ async def update_super_admin_organization(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Update tenant organization configuration and persist changes to PostgreSQL."""
+    """Update tenant organization configuration and persist HR Admin mutations to PostgreSQL."""
     try:
         target_uuid = uuid.UUID(org_id)
     except Exception:
@@ -715,6 +852,75 @@ async def update_super_admin_organization(
             sub.access_status = "ACTIVE" if payload["status"].lower() == "active" else "SUSPENDED"
         sub.updated_at = datetime.now(timezone.utc)
 
+    # Update or create HR Admin user in PostgreSQL if provided in payload
+    hr_admin_email = (payload.get("hrAdminEmail") or "").strip().lower() if "hrAdminEmail" in payload else None
+    hr_admin_name = payload.get("hrAdminName", "").strip() if "hrAdminName" in payload else None
+
+    if hr_admin_email is not None or hr_admin_name is not None:
+        existing_hr = (
+            await db.execute(
+                select(User).where(
+                    User.company_id == company.id,
+                    User.role == UserRole.HR_ADMIN,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+            )
+        ).scalars().first()
+
+        if existing_hr:
+            if hr_admin_name:
+                existing_hr.name = hr_admin_name
+            if hr_admin_email and hr_admin_email != existing_hr.email:
+                # Check email uniqueness against other users
+                conflict = (
+                    await db.execute(
+                        select(User).where(User.email == hr_admin_email, User.id != existing_hr.id)
+                    )
+                ).scalars().first()
+                if conflict:
+                    raise HTTPException(status_code=400, detail=f"Email '{hr_admin_email}' is already in use.")
+                existing_hr.email = hr_admin_email
+            existing_hr.updated_at = datetime.now(timezone.utc)
+        elif hr_admin_email:
+            # Check if user already exists
+            existing_user = (
+                await db.execute(select(User).where(User.email == hr_admin_email))
+            ).scalars().first()
+            if existing_user:
+                existing_user.company_id = company.id
+                existing_user.role = UserRole.HR_ADMIN
+                if hr_admin_name:
+                    existing_user.name = hr_admin_name
+                existing_user.is_active = True
+                existing_user.updated_at = datetime.now(timezone.utc)
+            else:
+                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
+                new_hr = User(
+                    id=uuid.uuid4(),
+                    email=hr_admin_email,
+                    name=hr_admin_name or "HR Administrator",
+                    phone=gen_phone,
+                    role=UserRole.HR_ADMIN,
+                    company_id=company.id,
+                    is_active=True,
+                    is_verified=True,
+                    password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+                db.add(new_hr)
+
+    await db.commit()
+    await db.refresh(company)
+
+    await record_super_admin_audit(
+        db,
+        action="SUPER_ADMIN_UPDATE_ORGANIZATION",
+        details=f"Updated organization '{company.name}' ({org_id}).",
+        company_id=company.id,
+    )
+
+    return {"success": True, "message": f"Organization '{company.name}' updated successfully."}
     await db.commit()
     await db.refresh(company)
 

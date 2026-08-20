@@ -92,9 +92,8 @@ def make_test_manager(
     mgr.joining_date = date(2025, 1, 15)
     mgr.employment_type = "FULL_TIME"
     mgr.employment_status = "CONFIRMED"
-    mgr.status = status_val
     mgr.is_deleted = is_deleted
-    mgr.is_active = is_active
+    mgr.status = status_val
     mgr.is_first_login = False
     mgr.profile_completed = True
     mgr.ctc = Decimal("1800000.00")
@@ -875,4 +874,85 @@ async def test_manager_onboarding_completion():
     assert manager.is_first_login is False
     assert manager.bio == "Leading backend architecture team."
     assert mock_user.onboarding_completed is True
+
+
+# ==============================================================================
+# 9. Manager Payload Mapping & Role Separation Tests
+# ==============================================================================
+
+def test_manager_create_correct_payload():
+    """Verify ManagerCreate accepts canonical role and job designation."""
+    payload = {
+        "first_name": "Mamraj",
+        "last_name": "Yadav",
+        "personal_email": "themamraj0131@gmail.com",
+        "company_email": "mamraj@ofc360.com",
+        "phone": "9828740131",
+        "department": "Engineering",
+        "designation": "Cloud & DevOps Engineer",
+        "joining_date": "2026-08-19",
+        "gender": "MALE",
+        "date_of_birth": "1995-05-15",
+        "blood_group": "O+",
+        "marital_status": "SINGLE",
+        "branch": "Mumbai HQ",
+        "work_location": "Onsite",
+        "employment_type": "FULL_TIME",
+        "employment_status": "ACTIVE",
+        "shift": "General",
+        "probation_period_months": 3,
+        "ctc": 1200000,
+        "basic_salary": 600000,
+        "hra": 300000,
+        "bonus": 180000,
+        "pf": 72000,
+        "esi": 0,
+        "professional_tax": 2500,
+        "role": "manager",
+        "leave_group": "Standard India Policy",
+    }
+    mgr = ManagerCreate(**payload)
+    assert mgr.first_name == "Mamraj"
+    assert mgr.last_name == "Yadav"
+    assert mgr.designation == "Cloud & DevOps Engineer"
+    assert mgr.role == "manager"
+    assert mgr.employment_status == "ACTIVE"
+
+
+def test_manager_create_defensive_migration_mapping():
+    """Verify backend defensively recovers when frontend sends role as designation and system_role as manager."""
+    payload = {
+        "first_name": "Mamraj",
+        "last_name": "Yadav",
+        "personal_email": "themamraj0131@gmail.com",
+        "phone": "9828740131",
+        "department": "Engineering",
+        "role": "Cloud & DevOps Engineer",
+        "system_role": "manager",
+        "status": "Active",
+        "joining_date": "2026-08-19",
+    }
+    mgr = ManagerCreate(**payload)
+    assert mgr.designation == "Cloud & DevOps Engineer"
+    assert mgr.role == "manager"
+    assert mgr.employment_status == "ACTIVE"
+
+
+def test_manager_create_rejects_invalid_system_role():
+    """Verify ManagerCreate strictly rejects arbitrary system roles with 422."""
+    from pydantic import ValidationError
+    payload = {
+        "first_name": "Mamraj",
+        "last_name": "Yadav",
+        "personal_email": "themamraj0131@gmail.com",
+        "phone": "9828740131",
+        "department": "Engineering",
+        "designation": "Cloud & DevOps Engineer",
+        "role": "invalid_role_xyz",
+        "joining_date": "2026-08-19",
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        ManagerCreate(**payload)
+    assert "role must be one of" in str(exc_info.value)
+
 
