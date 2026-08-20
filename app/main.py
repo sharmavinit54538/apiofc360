@@ -109,6 +109,7 @@ from app.api.v2.screening import router as screening_router
 from app.api.v2.offer_letters import router as offer_letters_router
 from app.api.v2.interview_agent import router as interview_agent_router
 from app.api.v2.analytics import router as analytics_v2_router
+from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
 from app.api.global_notifications import router as global_notifications_router
 from app.api.generate_api import router as generate_router
 from app.api.connect import router as connect_router
@@ -639,6 +640,10 @@ def create_app() -> FastAPI:
     app.include_router(offer_letters_router, prefix="/api/v2")
     app.include_router(interview_agent_router, prefix="/api/v2")
     app.include_router(analytics_v2_router, prefix="/api/v2")
+    app.include_router(resume_ats_checker_router, prefix="/api/v2")
+    app.include_router(resume_ats_checker_router, prefix="/v2")
+    app.include_router(resume_ats_checker_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(resume_ats_checker_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")

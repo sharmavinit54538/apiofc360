@@ -159,22 +159,26 @@ async def test_payroll_cycles_v2_returns_200(transport):
         assert data["success"] is True
         assert "items" in data["data"]
 
-        # POST /v2/payroll/cycles (create test cycle)
+        # POST /v2/payroll/cycles (create test cycle for period 11/2026)
         create_payload = {
             "name": f"Test Payroll Cycle {uuid.uuid4().hex[:4]}",
             "frequency": "MONTHLY",
-            "period_month": 8,
+            "period_month": 11,
             "period_year": 2026,
-            "start_date": "2026-08-01",
-            "end_date": "2026-08-31",
-            "processing_date": "2026-08-28",
-            "payment_date": "2026-08-31",
+            "start_date": "2026-11-01",
+            "end_date": "2026-11-30",
+            "processing_date": "2026-11-28",
+            "payment_date": "2026-11-30",
         }
         create_resp = await client.post("/v2/payroll/cycles", json=create_payload, headers=env["headers"])
         assert create_resp.status_code in (200, 201), f"Expected 200/201, got {create_resp.status_code}: {create_resp.text}"
         created_data = create_resp.json()
         assert created_data["success"] is True
         assert created_data["data"]["name"] == create_payload["name"]
+
+        # Duplicate POST /v2/payroll/cycles returns 409 Conflict
+        dup_resp = await client.post("/v2/payroll/cycles", json=create_payload, headers=env["headers"])
+        assert dup_resp.status_code == 409
 
 
 @pytest.mark.asyncio

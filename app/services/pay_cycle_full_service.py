@@ -130,6 +130,19 @@ class PayCycleFullService:
         browser: Optional[str] = None
     ) -> PayCycle:
         """Create new payroll cycle and log audit trail."""
+        p_month = int(data.get("period_month", 1))
+        p_year = int(data.get("period_year", 2026))
+
+        # Check for duplicate cycle in same period
+        existing_stmt = select(PayCycle).where(
+            PayCycle.period_month == p_month,
+            PayCycle.period_year == p_year,
+        )
+        res = await db.execute(existing_stmt)
+        if res.scalars().first():
+            from app.core.exceptions import ConflictException
+            raise ConflictException(message=f"A payroll cycle for {p_month}/{p_year} already exists.")
+
         # Convert date strings if needed
         def parse_d(val):
             if isinstance(val, str) and val.strip():
@@ -139,8 +152,8 @@ class PayCycleFullService:
         new_cycle = PayCycle(
             name=data.get("name", "New Payroll Cycle"),
             frequency=data.get("frequency", "MONTHLY"),
-            period_month=int(data.get("period_month", 1)),
-            period_year=int(data.get("period_year", 2026)),
+            period_month=p_month,
+            period_year=p_year,
             status="DRAFT",
             start_date=parse_d(data.get("start_date")),
             end_date=parse_d(data.get("end_date")),
