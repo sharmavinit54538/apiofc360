@@ -129,6 +129,12 @@ class Settings(BaseSettings):
     ACTIVATION_TOKEN_EXPIRE_HOURS: int = 72
     FRONTEND_BASE_URL: str = "https://ofc360.com"
 
+    # ── GitHub OAuth settings ────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = Field(default="", description="GitHub OAuth App Client ID")
+    GITHUB_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="GitHub OAuth App Client Secret")
+    GITHUB_REDIRECT_URI: str = Field(default="", description="GitHub OAuth redirect URI")
+
+
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
