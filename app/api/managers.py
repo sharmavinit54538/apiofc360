@@ -107,6 +107,34 @@ async def validate_manager_onboarding_token(
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
 
+@router.get(
+    "/validate",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate manager activation token (canonical alias)",
+)
+async def validate_manager_token_alias(
+    token: str = Query(..., min_length=10),
+    service: Annotated[ManagerService, Depends(get_manager_service)] = None,
+) -> APIResponse[dict]:
+    """Canonical alias for validating manager activation/invitation token."""
+    return await validate_manager_onboarding_token(token=token, service=service)
+
+
+@router.get(
+    "/validate-token",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate manager activation token (alias)",
+)
+async def validate_manager_token_alias2(
+    token: str = Query(..., min_length=10),
+    service: Annotated[ManagerService, Depends(get_manager_service)] = None,
+) -> APIResponse[dict]:
+    """Alias for validating manager activation/invitation token."""
+    return await validate_manager_onboarding_token(token=token, service=service)
+
+
 @router.post(
     "/onboarding/activate",
     status_code=status.HTTP_200_OK,
@@ -128,6 +156,20 @@ async def activate_manager_onboarding(
         )
     except AppException as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+@router.post(
+    "/activate",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Activate manager account with invitation token (canonical)",
+)
+async def activate_manager_canonical(
+    payload: ActivateManagerOnboardingRequest,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = None,
+) -> APIResponse[dict]:
+    """Canonical activation endpoint: Submit activation token and password to activate manager account."""
+    return await activate_manager_onboarding(payload=payload, service=service)
 
 
 class SendInviteRequest(BaseModel):

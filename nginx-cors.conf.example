@@ -101,7 +101,71 @@ server {
 }
 
 # ────────────────────────────────────────────────────────────────────────────────
-# TROUBLESHOOTING CORS PREFLIGHT FAILURES
+# OFC360 FRONTEND SPA — Nginx Production Configuration (www.ofc360.com / ofc360.com)
+# ────────────────────────────────────────────────────────────────────────────────
+# CRITICAL: This configuration provides standard Single Page Application (SPA)
+# routing fallback via `try_files $uri $uri/ /index.html;`.
+#
+# Direct URL opens or browser refreshes for routes such as:
+#   - /manager/activate?token=...
+#   - /employee/activate?token=...
+#   - /login, /onboarding, /dashboard, etc.
+# will serve index.html properly and NOT return 404 Not Found.
+# ────────────────────────────────────────────────────────────────────────────────
+
+server {
+    listen 80;
+    server_name www.ofc360.com ofc360.com;
+
+    # Redirect all HTTP → HTTPS
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name www.ofc360.com ofc360.com;
+
+    # ── SSL Configuration ─────────────────────────────────────────────────
+    ssl_certificate     /etc/letsencrypt/live/ofc360.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ofc360.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+    ssl_prefer_server_ciphers on;
+
+    # ── Root Directory for React / Vite SPA Build ───────────────────────────
+    root /var/www/ofc360/dist;
+    index index.html;
+
+    # ── SPA Fallback Routing ───────────────────────────────────────────────
+    # Any URI that is not a physical static file falls back to /index.html
+    # This prevents 404 errors on deep links like /manager/activate?token=...
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Static Assets Caching ──────────────────────────────────────────────
+    location ~* \.(?:ico|css|js|gif|jpe?g|png|woff2?|eot|ttf|svg|webp|avif)$ {
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # ── Security Headers ───────────────────────────────────────────────────
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+# TROUBLESHOOTING CORS & SPA ROUTING
 # ────────────────────────────────────────────────────────────────────────────────
 #
 # 1. Test OPTIONS directly against the backend (bypassing Nginx):
@@ -112,7 +176,11 @@ server {
 #
 #    Expected: HTTP 200, Access-Control-Allow-Origin: https://www.ofc360.com
 #
-# 2. Test OPTIONS through Nginx:
+# 2. Test SPA fallback for Manager Activation page:
+#      curl -i https://www.ofc360.com/manager/activate?token=test
+#    Expected: HTTP 200 with content of index.html (NOT 404)
+#
+# 3. Test OPTIONS through Nginx:
 #      curl -v -X OPTIONS https://api.ofc360.com/api/v1/auth/me \
 #        -H "Origin: https://www.ofc360.com" \
 #        -H "Access-Control-Request-Method: GET" \
@@ -120,7 +188,8 @@ server {
 #
 #    Expected: Same headers as #1. If different, Nginx is interfering.
 #
-# 3. Common Nginx mistakes that break CORS:
+# 4. Common Nginx mistakes:
+#    - Missing `try_files $uri $uri/ /index.html;` in frontend server block (causes 404 on deep links)
 #    - `limit_except GET POST { deny all; }` — blocks OPTIONS
 #    - `if ($request_method = OPTIONS) { return 204; }` — returns without CORS headers
 #    - Adding `add_header Access-Control-Allow-Origin` in Nginx — duplicates FastAPI headers

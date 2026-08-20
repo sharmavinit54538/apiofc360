@@ -904,6 +904,7 @@ class ManagerListItem(BaseModel):
     created_at: datetime
     activation_token: str | None = None
     activation_token_expires_at: datetime | None = None
+    activation_url: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -911,6 +912,8 @@ class ManagerListItem(BaseModel):
         if data is None:
             return data
         
+        from app.core.config import settings
+
         def get_val(obj, attr):
             if isinstance(obj, dict):
                 return obj.get(attr)
@@ -960,6 +963,14 @@ class ManagerListItem(BaseModel):
             set_val(data, "reportingTo", getattr(reporting_mgr, "id", None))
             set_val(data, "reportingManagerId", getattr(reporting_mgr, "manager_id", None))
             set_val(data, "reportingManagerName", f"{getattr(reporting_mgr, 'first_name', '')} {getattr(reporting_mgr, 'last_name', '')}".strip())
+
+        # Resolve activation_url if activation_token exists
+        act_token = get_val(data, "activation_token") or get_val(data, "activationToken") or get_val(data, "token")
+        if act_token:
+            act_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/manager/activate?token={act_token}"
+            set_val(data, "activation_url", act_url)
+            set_val(data, "activationUrl", act_url)
+
         return data
 
 
@@ -1016,6 +1027,7 @@ class ManagerResponse(BaseModel):
     last_active: datetime | None = None
     activation_token: str | None = None
     activation_token_expires_at: datetime | None = None
+    activation_url: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1023,6 +1035,8 @@ class ManagerResponse(BaseModel):
         if data is None:
             return data
         
+        from app.core.config import settings
+
         def get_val(obj, attr):
             if isinstance(obj, dict):
                 return obj.get(attr)
@@ -1072,6 +1086,14 @@ class ManagerResponse(BaseModel):
             set_val(data, "reportingTo", getattr(reporting_mgr, "id", None))
             set_val(data, "reportingManagerId", getattr(reporting_mgr, "manager_id", None))
             set_val(data, "reportingManagerName", f"{getattr(reporting_mgr, 'first_name', '')} {getattr(reporting_mgr, 'last_name', '')}".strip())
+
+        # Resolve activation_url if activation_token exists
+        act_token = get_val(data, "activation_token") or get_val(data, "activationToken") or get_val(data, "token")
+        if act_token:
+            act_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/manager/activate?token={act_token}"
+            set_val(data, "activation_url", act_url)
+            set_val(data, "activationUrl", act_url)
+
         return data
 
     # Permissions & Access Settings
@@ -1098,11 +1120,23 @@ class ManagerResponse(BaseModel):
 class ActivateManagerRequest(BaseModel):
     token: str = Field(..., min_length=10)
     new_password: str = Field(..., min_length=8, max_length=128)
-    confirm_password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str | None = Field(None, min_length=8, max_length=128)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "new_password" not in data or not data.get("new_password"):
+                if "password" in data:
+                    data["new_password"] = data["password"]
+            if "confirm_password" not in data or not data.get("confirm_password"):
+                if "confirmPassword" in data:
+                    data["confirm_password"] = data["confirmPassword"]
+        return data
 
     @model_validator(mode="after")
     def passwords_match(self) -> ActivateManagerRequest:
-        if self.new_password != self.confirm_password:
+        if self.confirm_password and self.new_password != self.confirm_password:
             raise ValueError("Passwords do not match.")
         return self
 
@@ -1119,10 +1153,31 @@ class ActivateManagerOnboardingRequest(BaseModel):
     """Public activation request — manager sets password on first login."""
     token: str = Field(..., min_length=10)
     password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str | None = Field(None, min_length=8, max_length=128)
     phone: str | None = Field(None, max_length=30)
     emergency_contact_name: str | None = Field(None, max_length=150)
     emergency_contact_phone: str | None = Field(None, max_length=30)
     profile_photo_url: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "password" not in data or not data.get("password"):
+                if "new_password" in data:
+                    data["password"] = data["new_password"]
+                elif "newPassword" in data:
+                    data["password"] = data["newPassword"]
+            if "confirm_password" not in data or not data.get("confirm_password"):
+                if "confirmPassword" in data:
+                    data["confirm_password"] = data["confirmPassword"]
+        return data
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> ActivateManagerOnboardingRequest:
+        if self.confirm_password and self.password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+        return self
 
     @field_validator("phone", "emergency_contact_phone", mode="before")
     @classmethod
