@@ -362,12 +362,15 @@ Return ONLY a strict JSON object matching this EXACT structure:
   ]
 }}"""
 
-        raw_response = await self.llm.complete(
-            prompt=prompt,
-            system=_SYSTEM_PROMPT,
-            json_mode=True,
-            temperature=0.3,
-            num_predict=2048,
+        raw_response = await asyncio.wait_for(
+            self.llm.complete(
+                prompt=prompt,
+                system=_SYSTEM_PROMPT,
+                json_mode=True,
+                temperature=0.3,
+                num_predict=2048,
+            ),
+            timeout=30.0,
         )
 
         parsed = ResponseParser.extract_json_object(raw_response)
@@ -633,12 +636,15 @@ Current JD:
 
 Keep the exact same JSON keys and structure. Return ONLY valid JSON."""
             try:
-                raw_resp = await self.llm.complete(
-                    prompt=prompt,
-                    system=_SYSTEM_PROMPT,
-                    json_mode=True,
-                    temperature=0.3,
-                    num_predict=2048,
+                raw_resp = await asyncio.wait_for(
+                    self.llm.complete(
+                        prompt=prompt,
+                        system=_SYSTEM_PROMPT,
+                        json_mode=True,
+                        temperature=0.3,
+                        num_predict=2048,
+                    ),
+                    timeout=30.0,
                 )
                 parsed = ResponseParser.extract_json_object(raw_resp)
                 if parsed and isinstance(parsed, dict) and "title" in parsed:
@@ -658,11 +664,14 @@ Job Description:
 
 Return ONLY the updated job description text (no conversational preamble)."""
         try:
-            raw_resp = await self.llm.complete(
-                prompt=prompt,
-                system="You are a professional HR writing assistant. Return only updated job description text.",
-                temperature=0.3,
-                num_predict=2048,
+            raw_resp = await asyncio.wait_for(
+                self.llm.complete(
+                    prompt=prompt,
+                    system="You are a professional HR writing assistant. Return only updated job description text.",
+                    temperature=0.3,
+                    num_predict=2048,
+                ),
+                timeout=30.0,
             )
             if raw_resp and len(raw_resp.strip()) > 30:
                 return raw_resp.strip()
