@@ -640,17 +640,32 @@ async def github_auth(
     },
 )
 async def refresh_token(
-    payload: RefreshTokenRequest,
     request: Request,
-    token_service: Annotated[TokenService, Depends(get_token_service)],
+    payload: RefreshTokenRequest | None = None,
+    token_service: Annotated[TokenService, Depends(get_token_service)] = None,
 ) -> RefreshTokenResponse:
     """Rotate an active refresh token for a new access and refresh token pair."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
-    access_token, refresh_token, expires_in = await token_service.rotate_refresh_token(
-        refresh_token=payload.refresh_token,
+    raw_token = (
+        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or request.cookies.get("ofc360_refresh_token")
+        or request.cookies.get("refresh_token")
+        or request.cookies.get("eduflow_refresh_token")
+        or request.cookies.get("__Host-ofc_session")
+        or request.cookies.get("ofc_session")
+    )
+    if not raw_token:
+        from app.core.exceptions import AppException
+        raise AppException(
+            message="Invalid or missing refresh token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    access_token, new_refresh_token, expires_in = await token_service.rotate_refresh_token(
+        refresh_token=raw_token,
         ip_address=ip_address,
         device=device,
     )
@@ -660,7 +675,7 @@ async def refresh_token(
         message="Token refreshed successfully.",
         data=RefreshTokenResponseData(
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -679,17 +694,32 @@ async def refresh_token(
     },
 )
 async def refresh(
-    payload: RefreshTokenRequest,
     request: Request,
-    token_service: Annotated[TokenService, Depends(get_token_service)],
+    payload: RefreshTokenRequest | None = None,
+    token_service: Annotated[TokenService, Depends(get_token_service)] = None,
 ) -> RefreshTokenResponse:
     """Rotate an active refresh token for a new access and refresh token pair."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
-    access_token, refresh_token, expires_in = await token_service.rotate_refresh_token(
-        refresh_token=payload.refresh_token,
+    raw_token = (
+        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or request.cookies.get("ofc360_refresh_token")
+        or request.cookies.get("refresh_token")
+        or request.cookies.get("eduflow_refresh_token")
+        or request.cookies.get("__Host-ofc_session")
+        or request.cookies.get("ofc_session")
+    )
+    if not raw_token:
+        from app.core.exceptions import AppException
+        raise AppException(
+            message="Invalid or missing refresh token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    access_token, new_refresh_token, expires_in = await token_service.rotate_refresh_token(
+        refresh_token=raw_token,
         ip_address=ip_address,
         device=device,
     )
@@ -699,7 +729,7 @@ async def refresh(
         message="Token refreshed successfully.",
         data=RefreshTokenResponseData(
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
