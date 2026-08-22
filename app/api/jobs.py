@@ -1,7 +1,9 @@
 """Job Management API routes."""
 
+from __future__ import annotations
+
 import uuid
-from typing import Annotated
+from typing import Annotated, Any, Dict, List, Optional
 from decimal import Decimal
 from datetime import datetime, timezone
 
@@ -22,6 +24,9 @@ from app.schemas.recruitment import (
     JobPublishResponse,
     JobPublishRequest,
     JobDuplicateRequest,
+    JobDescriptionStructuredRequest,
+    JobDescriptionStructuredResponse,
+    JobDescriptionModifyStructuredRequest,
 )
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
 
@@ -292,24 +297,29 @@ async def draft_job(
     )
 
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class JobDescriptionGenRequest(BaseModel):
-    title: str = Field(..., min_length=2, description="Job title is required")
-    department: str | None = "Engineering"
-    employment_type: str | None = "Full-time"
-    location: str | None = "Remote"
-    skills: list[str] = []
-    experience: str | None = None
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, v: str) -> str:
-        cleaned = v.strip() if v else ""
-        if not cleaned:
-            raise ValueError("Job title cannot be empty or blank whitespace.")
-        return cleaned
+async def _extract_company_context(db: AsyncSession, claims: dict) -> dict | None:
+    co_id_str = claims.get("company_id") if isinstance(claims, dict) else None
+    if not co_id_str:
+        return None
+    try:
+        from app.models.company import Company
+        from sqlalchemy import select
+        co_uuid = uuid.UUID(str(co_id_str))
+        res = await db.execute(select(Company).where(Company.id == co_uuid))
+        comp = res.scalar_one_or_none()
+        if comp:
+            prof = comp.company_profile or {}
+            return {
+                "name": comp.name,
+                "industry": prof.get("industry") or "Technology",
+                "domain": prof.get("domain"),
+            }
+    except Exception:
+        pass
+    return None
 
 
 @router.post(
@@ -356,28 +366,23 @@ async def duplicate_job(
 @router.post(
     "/generate-description",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[str],
+    response_model=APIResponse[JobDescriptionStructuredResponse],
     summary="Generate AI job description",
 )
 async def generate_description(
-    payload: JobDescriptionGenRequest,
+    payload: JobDescriptionStructuredRequest,
     claims: Annotated[dict, Depends(require_admin_or_hr)],
-) -> APIResponse[str]:
-    """Generate a structured job description via local Ollama LLM. Admin and HR only."""
-    from app.services.recruitment_ai_service import RecruitmentAIService
-    ai_service = RecruitmentAIService.get_instance()
-    text = await ai_service.get_or_generate_description(
-        title=payload.title,
-        department=payload.department,
-        employment_type=payload.employment_type,
-        location=payload.location,
-        skills=payload.skills,
-        experience=payload.experience,
-    )
-    return APIResponse[str](
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[JobDescriptionStructuredResponse]:
+    """Generate a structured, ATS-optimized job description using AI. Admin and HR only."""
+    from app.services.jd_generator_service import get_jd_generator_service
+    company_ctx = await _extract_company_context(db, claims)
+    generator = get_jd_generator_service()
+    structured_jd = await generator.generate_structured_jd(payload, company_ctx)
+    return APIResponse[JobDescriptionStructuredResponse](
         success=True,
         message="Job description generated successfully",
-        data=text,
+        data=structured_jd,
         errors=None,
     )
 
@@ -443,76 +448,45 @@ async def ai_autofill(
 
 
 class JobDescriptionModifyRequest(BaseModel):
-    current_description: str
-    action: str
+    current_description: str | dict = Field(..., alias="current_jd", description="Current JD text or dict")
+    action: str = Field("improve", description="improve, expand, shorten, professional, startup, technical, custom")
     custom_instruction: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_payload(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        if "current_jd" in d and "current_description" not in d:
+            d["current_description"] = d["current_jd"]
+        elif "current_description" in d and "current_jd" not in d:
+            d["current_jd"] = d["current_description"]
+        return d
 
 
 @router.post(
     "/modify-description",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[str],
+    response_model=APIResponse[Any],
     summary="Modify AI job description",
 )
 async def modify_description(
     payload: JobDescriptionModifyRequest,
     claims: Annotated[dict, Depends(require_admin_or_hr)],
-) -> APIResponse[str]:
-    """Modify the job description using local Ollama LLM (improve, expand, shorten, professional tone, casual tone, custom instruction)."""
-    from app.services.ollama_client import ollama_client
-    from fastapi import HTTPException
-    
-    is_healthy = await ollama_client.check_health()
-    if not is_healthy:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Local Ollama AI service is currently unavailable.",
-        )
-    
-    action = payload.action.lower()
-    desc = payload.current_description
-    
-    if action == "improve":
-        action_prompt = "Improve the formatting, flow, structure and clarity of the job description. Keep the core information and length similar, but make it more polished, engaging, and professional."
-    elif action == "expand":
-        action_prompt = "Expand the job description. Add more descriptive details, responsibilities, skills, or benefits while preserving the original structure, headings, and formatting."
-    elif action == "shorten":
-        action_prompt = "Shorten the job description. Make it more concise and punchy, removing redundant information while retaining the essential details and original headings."
-    elif action == "professional":
-        action_prompt = "Rewrite the job description to have a formal, authoritative, and professional corporate tone."
-    elif action == "casual":
-        action_prompt = "Rewrite the job description to have a friendly, approachable, enthusiastic, and casual tone suitable for a modern startup."
-    elif action == "custom" and payload.custom_instruction:
-        action_prompt = f"Modify the job description by applying the following specific instruction: {payload.custom_instruction}"
-    else:
-        action_prompt = "Refine the job description."
-
-    prompt = f"""You are an expert HR copywriter and technical recruiter.
-Modify the following job description according to this instruction:
-{action_prompt}
-
-Ensure that you keep the markdown headings intact. Do not output any conversational introduction or conclusion (such as 'Here is the modified job description:'). Return ONLY the updated job description text.
-
-Current Job Description:
-{desc}
-"""
-
-    response = await ollama_client.generate_completion(
-        prompt=prompt,
-        system_prompt="You are a professional HR writing assistant. You must rewrite the provided job description text according to the instructions and return only the rewritten markdown text.",
-        options={"num_predict": 1024, "temperature": 0.4}
+) -> APIResponse[Any]:
+    """Modify the job description using multi-provider AI (improve, expand, shorten, professional, startup, technical, custom). Admin and HR only."""
+    from app.services.jd_generator_service import get_jd_generator_service
+    generator = get_jd_generator_service()
+    modified = await generator.modify_job_description(
+        current_jd=payload.current_description,
+        action=payload.action,
+        custom_instruction=payload.custom_instruction,
     )
-    
-    if not response:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI failed to modify description. Please check local Ollama logs.",
-        )
-        
-    return APIResponse[str](
+    return APIResponse[Any](
         success=True,
-        message=f"Job description modified successfully via {action} action.",
-        data=response.strip(),
+        message=f"Job description modified successfully via {payload.action} action.",
+        data=modified,
         errors=None,
     )
 

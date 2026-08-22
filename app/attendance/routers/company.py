@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Optional
 import uuid
 
@@ -16,17 +17,20 @@ from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.schemas.history import AttendanceHistoryResponse
 from app.attendance.services.history_service import AttendanceHistoryService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
 def _get_company_id(claims: dict) -> uuid.UUID:
-    company_id_str = claims.get("company_id")
-    if not company_id_str:
+    company_id_val = claims.get("company_id") if isinstance(claims, dict) else None
+    if not company_id_val:
+        logger.warning("Attendance Face Company: missing company_id in claims | user_id=%s", claims.get("sub") if isinstance(claims, dict) else None)
         raise AppException(
             message="Company context missing in user authentication claims.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
-    return uuid.UUID(company_id_str)
+    return uuid.UUID(str(company_id_val))
 
 
 @router.get(
@@ -63,3 +67,4 @@ async def get_company_attendance_history(
         data=data,
         errors=None,
     )
+

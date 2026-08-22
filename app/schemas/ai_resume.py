@@ -14,7 +14,11 @@ class EducationEntrySchema(BaseModel):
     field_of_study: Optional[str] = None
     university: Optional[str] = None
     college: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     passing_year: Optional[int] = None
+    grade: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -23,6 +27,7 @@ class ProjectEntrySchema(BaseModel):
     title: str
     description: Optional[str] = None
     technologies: list[str] = Field(default_factory=list)
+    url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,10 +35,14 @@ class ProjectEntrySchema(BaseModel):
 class ExperienceEntrySchema(BaseModel):
     company: str
     designation: Optional[str] = None
+    location: Optional[str] = None
     duration_months: Optional[int] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    is_current: bool = False
     description: Optional[str] = None
+    responsibilities: list[str] = Field(default_factory=list)
+    technologies: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,6 +64,7 @@ class ParsedResumeSchema(BaseModel):
     current_designation: Optional[str] = None
 
     skills: list[str] = Field(default_factory=list)
+    raw_skills: list[str] = Field(default_factory=list)
     technical_skills: list[str] = Field(default_factory=list)
     soft_skills: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
@@ -68,7 +78,9 @@ class ParsedResumeSchema(BaseModel):
 
     current_salary: Optional[float] = None
     expected_salary: Optional[float] = None
+    notice_period: Optional[str] = None
     notice_period_days: Optional[int] = None
+    highest_qualification: Optional[str] = None
     current_location: Optional[str] = None
     preferred_location: Optional[str] = None
     willing_to_relocate: bool = True
@@ -145,6 +157,7 @@ class CandidateScreeningResponse(BaseModel):
     ats_score: float = 0.0
     rank: int = 1
     match_tier: str = Field("Good Match", description="Best Match | Good Match | Average Match | Low Match")
+    parsing_confidence: float = Field(0.95, ge=0.0, le=1.0)
 
     candidate_details: ParsedResumeSchema
     ats_breakdown: ATSScoreBreakdownSchema
@@ -191,6 +204,7 @@ class CandidateProfileDetailResponse(BaseModel):
     ats_breakdown: Optional[ATSScoreBreakdownSchema] = None
     ai_insights: Optional[AIInsightsSchema] = None
     quality_analysis: Optional[QualityAnalysisSchema] = None
+    parsing_confidence: float = Field(0.95, ge=0.0, le=1.0)
 
     raw_text: Optional[str] = None
     resume_preview_url: Optional[str] = None
@@ -212,6 +226,31 @@ class CandidateATSAnalysisResponse(BaseModel):
     ai_insights: AIInsightsSchema
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateJobMatchDetailResponse(BaseModel):
+    """Response for POST /api/v1/recruitment/candidates/{candidate_id}/match/{job_id}."""
+    candidate_id: uuid.UUID
+    job_id: uuid.UUID
+    job_title: str
+    overall_match_score: float
+    skill_match_score: float
+    experience_match_score: float
+    education_match_score: float
+    location_match_score: float
+    matched_skills: list[str] = Field(default_factory=list)
+    missing_required_skills: list[str] = Field(default_factory=list)
+    extra_skills: list[str] = Field(default_factory=list)
+    recommendation: str = "Good Match"
+    ai_insights: Optional[AIInsightsSchema] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumeParseDirectRequest(BaseModel):
+    """Payload for POST /api/v1/recruitment/resumes/parse."""
+    raw_text: Optional[str] = None
+    job_id: Optional[uuid.UUID] = None
 
 
 class JobMatchRequest(BaseModel):

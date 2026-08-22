@@ -54,21 +54,24 @@ class AttendanceHistoryRepository:
     async def get_company_history(
         self,
         company_id: uuid.UUID,
-        branch: Optional[str],
-        dept: Optional[str],
-        page: int,
-        limit: int,
+        branch: Optional[str] = None,
+        department: Optional[str] = None,
+        dept: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
     ) -> tuple[list[Attendance], int]:
         """Fetches paginated company-wide logs with branch and department filters."""
-        stmt = select(Attendance).join(Employee, Attendance.employee_id == Employee.id).where(Attendance.company_id == company_id)
-        count_stmt = select(func.count(Attendance.id)).join(Employee, Attendance.employee_id == Employee.id).where(Attendance.company_id == company_id)
+        effective_dept = department or dept
+        company_filter = (Attendance.company_id == company_id) | (Employee.company_id == company_id)
+        stmt = select(Attendance).join(Employee, Attendance.employee_id == Employee.id).where(company_filter)
+        count_stmt = select(func.count(Attendance.id)).join(Employee, Attendance.employee_id == Employee.id).where(company_filter)
 
         if branch and branch.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.branch == branch)
             count_stmt = count_stmt.where(Employee.branch == branch)
-        if dept and dept.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.department == dept)
-            count_stmt = count_stmt.where(Employee.department == dept)
+        if effective_dept and effective_dept.lower() not in {"", "all"}:
+            stmt = stmt.where(Employee.department == effective_dept)
+            count_stmt = count_stmt.where(Employee.department == effective_dept)
 
         total_res = await self.db.execute(count_stmt)
         total = total_res.scalar() or 0

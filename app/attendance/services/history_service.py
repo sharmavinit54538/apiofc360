@@ -76,10 +76,23 @@ class AttendanceHistoryService:
         return items, total
 
     async def get_company_attendance(
-        self, company_id: uuid.UUID, branch: Optional[str] = None, dept: Optional[str] = None, page: int = 1, limit: int = 20
+        self,
+        company_id: uuid.UUID,
+        branch: Optional[str] = None,
+        department: Optional[str] = None,
+        dept: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
     ) -> tuple[list[Attendance], int]:
         """Fetches check-in logs for entire company with branch and department filters."""
-        items, total = await self.history_repo.get_company_history(company_id, branch, dept, page, limit)
+        effective_dept = department or dept
+        items, total = await self.history_repo.get_company_history(
+            company_id=company_id,
+            branch=branch,
+            department=effective_dept,
+            page=page,
+            limit=limit,
+        )
         for item in items:
             if item.employee:
                 item.employee_name = f"{item.employee.first_name} {item.employee.last_name}"

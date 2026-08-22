@@ -94,11 +94,14 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
+        "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
     REGISTER_RATE_LIMIT: str = "5/minute"
@@ -128,6 +131,18 @@ class Settings(BaseSettings):
     COMPANY_EMAIL_DOMAIN: str = "company.com"
     ACTIVATION_TOKEN_EXPIRE_HOURS: int = 72
     FRONTEND_BASE_URL: str = "https://ofc360.com"
+
+    # ── GitHub OAuth settings ────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = Field(default="", description="GitHub OAuth App Client ID")
+    GITHUB_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="GitHub OAuth App Client Secret")
+    GITHUB_REDIRECT_URI: str = Field(default="", description="GitHub OAuth redirect URI")
+
+    # ── Google OAuth settings ────────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = Field(default="", description="Google OAuth App Client ID")
+    GOOGLE_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="Google OAuth App Client Secret")
+    GOOGLE_REDIRECT_URI: str = Field(default="", description="Google OAuth redirect URI")
+
+
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
@@ -159,6 +174,11 @@ class Settings(BaseSettings):
     DOCUMENT_OCR_MAX_FILE_SIZE_MB: int = 20
     ALLOWED_DOCUMENT_MIME_TYPES: list[str] = [
         "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "text/plain",
+        "text/x-plain",
+        "text/markdown",
         "image/png",
         "image/jpeg",
         "image/jpg",
@@ -189,7 +209,7 @@ class Settings(BaseSettings):
     RESUME_UPLOAD_DIR: str = "uploads/resumes"
     OFFER_LETTER_DIR: str = "uploads/offer_letters"
     MAX_RESUME_SIZE_MB: int = 10
-    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".tiff"]
+    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".tiff"]
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str = ""

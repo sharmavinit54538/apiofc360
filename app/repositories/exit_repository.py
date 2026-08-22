@@ -281,6 +281,7 @@ class ExitRepository:
             Decimal(str(data.get("last_salary", 0.0))) +
             Decimal(str(data.get("pending_salary", 0.0))) +
             Decimal(str(data.get("leave_encashment", 0.0))) +
+            Decimal(str(data.get("gratuity", 0.0))) +
             Decimal(str(data.get("bonus", 0.0))) +
             Decimal(str(data.get("incentives", 0.0)))
         )
