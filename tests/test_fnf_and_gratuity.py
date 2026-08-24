@@ -14,7 +14,6 @@ from app.models.company import Company
 from app.models.employee import Employee
 from app.models.employee_leave_policy import EmployeeLeavePolicy
 from app.models.exit import EmployeeExit, FnfSettlement
-from app.models.leave_type import LeaveType
 from app.models.payroll import AdvanceLoan, SalaryStructure
 from app.services.fnf_calculation_service import FnfCalculationService
 from app.services.exit_service import ExitService
@@ -121,26 +120,14 @@ async def test_end_to_end_fnf_preview_and_submission():
         )
         db.add(sal)
 
-        # Leave Policy with 10 unused days
-        lt = LeaveType(
-            id=uuid.uuid4(),
-            company_id=test_company.id,
-            name="Earned Leave",
-            code=f"EL-{uuid.uuid4().hex[:4]}",
-            days_allowed=18,
-            is_active=True,
-        )
-        db.add(lt)
-        await db.flush()
-
         elp = EmployeeLeavePolicy(
             id=uuid.uuid4(),
             employee_id=emp.id,
-            leave_type_id=lt.id,
+            leave_type="Earned Leave",
             total_days=Decimal("18.0"),
             used_days=Decimal("8.0"), # 10 unused
-            year=2024,
-            is_active=True,
+            carry_forward=True,
+            effective_from=date(2024, 1, 1),
         )
         db.add(elp)
 
@@ -154,19 +141,23 @@ async def test_end_to_end_fnf_preview_and_submission():
             outstanding_balance=Decimal("15000.00"),
             total_installments=6,
             installments_paid=3,
+            start_from_month=1,
+            start_from_year=2024,
             emi_amount=Decimal("5000.00"),
             status="ACTIVE",
         )
         db.add(loan)
 
-        # Employee Exit Record (6 years 8 months tenure: Jan 1 2018 -> Sep 1 2024)
+        # Employee Exit Record (6 years 8 months tenure: Jan 1 2018 -> Sep 15 2024)
         exit_obj = EmployeeExit(
             id=uuid.uuid4(),
+            company_id=test_company.id,
             employee_id=emp.id,
             reason="Relocating to another city",
-            exit_type="RESIGNATION",
+            personal_email="senior@test.com",
+            personal_phone="9876543299",
             last_working_date=date(2024, 9, 15),
-            status="IN_PROGRESS",
+            status="SUBMITTED",
             created_at=datetime(2024, 8, 15, 10, 0, 0, tzinfo=timezone.utc),
         )
         db.add(exit_obj)
