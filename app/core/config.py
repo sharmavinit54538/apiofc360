@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="Google OAuth App Client Secret")
     GOOGLE_REDIRECT_URI: str = Field(default="", description="Google OAuth redirect URI")
 
+    # ── Razorpay Payment Gateway settings ────────────────────────────────────
+    RAZORPAY_KEY_ID: str = Field(default="", description="Razorpay Key ID")
+    RAZORPAY_KEY_SECRET: SecretStr = Field(default=SecretStr(""), description="Razorpay Key Secret")
+    RAZORPAY_WEBHOOK_SECRET: SecretStr = Field(default=SecretStr(""), description="Razorpay Webhook Secret")
+    RAZORPAY_CURRENCY: str = Field(default="INR", description="Default Razorpay Currency")
+
 
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────

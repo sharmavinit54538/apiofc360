@@ -61,6 +61,7 @@ from app.api.v1.intelligence import router as intelligence_router
 from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
+from app.api.payments import router as payments_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
 from app.api.super_admin import router as super_admin_router
@@ -572,6 +573,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
     app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
@@ -651,6 +653,7 @@ def create_app() -> FastAPI:
     app.include_router(intelligence_router, prefix="/api")
     app.include_router(settings_api_router)
     app.include_router(billing_router)
+    app.include_router(payments_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])
