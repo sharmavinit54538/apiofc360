@@ -75,33 +75,38 @@ PLANS_CATALOG: Dict[str, Dict[str, Any]] = {
 class RazorpayService:
     """Production service encapsulating all Razorpay interactions with zero secret leaks."""
 
-    def __init__(self):
-        self._key_id = settings.RAZORPAY_KEY_ID
-        self._key_secret = (
-            settings.RAZORPAY_KEY_SECRET.get_secret_value()
-            if hasattr(settings.RAZORPAY_KEY_SECRET, "get_secret_value")
-            else str(settings.RAZORPAY_KEY_SECRET or "")
-        )
-        self._webhook_secret = (
-            settings.RAZORPAY_WEBHOOK_SECRET.get_secret_value()
-            if hasattr(settings.RAZORPAY_WEBHOOK_SECRET, "get_secret_value")
-            else str(settings.RAZORPAY_WEBHOOK_SECRET or "")
-        )
-
     @property
     def key_id(self) -> str:
         """Public key identifier for frontend checkout consumption."""
-        return self._key_id
+        return settings.RAZORPAY_KEY_ID or ""
+
+    @property
+    def key_secret(self) -> str:
+        """Secret key for server-side signing and verification."""
+        if hasattr(settings.RAZORPAY_KEY_SECRET, "get_secret_value"):
+            return settings.RAZORPAY_KEY_SECRET.get_secret_value()
+        return str(settings.RAZORPAY_KEY_SECRET or "")
+
+    @property
+    def webhook_secret(self) -> str:
+        """Secret for webhook signature verification."""
+        if hasattr(settings.RAZORPAY_WEBHOOK_SECRET, "get_secret_value"):
+            sec = settings.RAZORPAY_WEBHOOK_SECRET.get_secret_value()
+            if sec:
+                return sec
+        return str(settings.RAZORPAY_WEBHOOK_SECRET or "")
 
     def get_client(self) -> razorpay.Client:
         """Return authenticated Razorpay SDK client."""
-        if not self._key_id or not self._key_secret:
+        k_id = self.key_id
+        k_sec = self.key_secret
+        if not k_id or not k_sec:
             logger.error("Razorpay keys are missing or not configured in environment.")
             raise AppException(
                 message="Payment gateway is currently unavailable. Please contact administrator.",
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return razorpay.Client(auth=(self._key_id, self._key_secret))
+        return razorpay.Client(auth=(k_id, k_sec))
 
     @staticmethod
     def get_all_plans() -> List[Dict[str, Any]]:
@@ -206,7 +211,8 @@ class RazorpayService:
         Cryptographically verify the Razorpay HMAC-SHA256 signature using the SECRET KEY.
         Returns True if signature is valid, False otherwise.
         """
-        if not self._key_secret:
+        key_sec = self.key_secret
+        if not key_sec:
             logger.error("Cannot verify payment signature: RAZORPAY_KEY_SECRET is not configured.")
             return False
 
@@ -214,7 +220,7 @@ class RazorpayService:
             return False
 
         msg = f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8")
-        secret_bytes = self._key_secret.encode("utf-8")
+        secret_bytes = key_sec.encode("utf-8")
         expected_signature = hmac.new(secret_bytes, msg, hashlib.sha256).hexdigest()
 
         is_valid = hmac.compare_digest(expected_signature, razorpay_signature.strip())
@@ -231,7 +237,7 @@ class RazorpayService:
         Cryptographically verify the incoming Razorpay webhook signature header.
         Uses RAZORPAY_WEBHOOK_SECRET if set, falling back to RAZORPAY_KEY_SECRET.
         """
-        secret = self._webhook_secret or self._key_secret
+        secret = self.webhook_secret or self.key_secret
         if not secret:
             logger.error("Cannot verify webhook signature: Webhook secret is not configured.")
             return False

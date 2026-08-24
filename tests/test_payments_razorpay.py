@@ -16,13 +16,14 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.db.database import get_db_session
@@ -96,55 +97,81 @@ class MockPaymentSession:
         query_str = str(statement).lower()
         mock_result = MagicMock()
 
-        # Count queries for transactions
+        # Extract compiled statement bound params if available
+        params = {}
+        try:
+            params = statement.compile().params or {}
+        except Exception:
+            pass
+
+        # 1. Count queries for transactions
         if "count(" in query_str and "payment_transactions" in query_str:
             mock_result.scalar.return_value = len(self.transactions)
             mock_result.scalar_one_or_none.return_value = len(self.transactions)
             return mock_result
 
-        # PaymentTransaction queries
+        # 2. PaymentTransaction queries
         if "payment_transactions" in query_str:
-            # Check for duplicate payment_id lookup
-            if "razorpay_payment_id" in query_str:
-                matched_txn = None
+            # Check duplicate payment_id check: `where razorpay_payment_id = ... and id != ...`
+            if "razorpay_payment_id" in query_str and "payment_transactions.id !=" in query_str:
+                # Unless we specifically have a duplicate in transactions, return None
+                duplicate_txn = None
+                target_pid = params.get("razorpay_payment_id_1")
+                target_id = params.get("id_1")
                 for txn in self.transactions.values():
-                    if txn.razorpay_payment_id:
-                        matched_txn = txn
+                    if target_pid and txn.razorpay_payment_id == target_pid and txn.id != target_id:
+                        duplicate_txn = txn
                         break
-                # Only return if we found a matching payment id in our test store
-                mock_result.scalar_one_or_none.return_value = matched_txn
-                mock_result.scalars.return_value.all.return_value = [matched_txn] if matched_txn else []
-                mock_result.scalars.return_value.first.return_value = matched_txn
+                mock_result.scalar_one_or_none.return_value = duplicate_txn
+                mock_result.scalars.return_value.all.return_value = [duplicate_txn] if duplicate_txn else []
                 return mock_result
 
-            # Check for order_id lookup
-            if "razorpay_order_id" in query_str:
+            # Check lookup by order_id
+            if "razorpay_order_id" in query_str or "order_id" in query_str:
+                target_order_id = params.get("razorpay_order_id_1")
                 found = None
-                for order_id, txn in self.transactions.items():
-                    if order_id in query_str or str(txn.id) in query_str:
-                        found = txn
-                        break
-                if not found and self.transactions:
-                    found = list(self.transactions.values())[0]
+                if target_order_id and target_order_id in self.transactions:
+                    found = self.transactions[target_order_id]
+                elif self.transactions:
+                    # Fallback to matching or single transaction
+                    for k, t in self.transactions.items():
+                        if target_order_id and target_order_id == k:
+                            found = t
+                            break
+                    if not found:
+                        found = list(self.transactions.values())[0]
+
                 mock_result.scalar_one_or_none.return_value = found
                 mock_result.scalars.return_value.all.return_value = [found] if found else []
                 mock_result.scalars.return_value.first.return_value = found
                 return mock_result
 
-            # All transactions
+            # Check lookup by payment_id for refund or get payment
+            if "razorpay_payment_id" in query_str:
+                target_pid = params.get("razorpay_payment_id_1")
+                found = None
+                for t in self.transactions.values():
+                    if target_pid and t.razorpay_payment_id == target_pid:
+                        found = t
+                        break
+                mock_result.scalar_one_or_none.return_value = found
+                mock_result.scalars.return_value.all.return_value = [found] if found else []
+                return mock_result
+
+            # Return list of all transactions
             all_txns = list(self.transactions.values())
             mock_result.scalars.return_value.all.return_value = all_txns
             mock_result.scalar_one_or_none.return_value = all_txns[0] if all_txns else None
             return mock_result
 
-        # Subscription query
+        # 3. Subscription query
         if "subscriptions" in query_str:
             sub = self.entities.get("subscription")
             mock_result.scalar_one_or_none.return_value = sub
             mock_result.scalars.return_value.all.return_value = [sub] if sub else []
             return mock_result
 
-        # Company query
+        # 4. Company query
         if "companies" in query_str:
             comp = self.entities.get("company")
             mock_result.scalar_one_or_none.return_value = comp
@@ -152,7 +179,7 @@ class MockPaymentSession:
             mock_result.scalar_one.return_value = comp
             return mock_result
 
-        # User query
+        # 5. User query
         if "users" in query_str:
             user = self.entities.get("user")
             mock_result.scalar_one_or_none.return_value = user
@@ -337,7 +364,7 @@ def test_create_order_unauthorized_user():
 # 3. Payment Verification Tests
 # ===========================================================================
 
-@patch.object(razorpay_service, "_key_secret", TEST_KEY_SECRET)
+@patch.object(settings, "RAZORPAY_KEY_SECRET", SecretStr(TEST_KEY_SECRET))
 @patch("app.services.razorpay_service.razorpay_service.fetch_payment")
 def test_verify_payment_valid_signature(mock_fetch_payment):
     """Verify POST /api/v1/payments/verify validates cryptographic signature and activates subscription."""
@@ -413,7 +440,7 @@ def test_verify_payment_valid_signature(mock_fetch_payment):
     app.dependency_overrides.clear()
 
 
-@patch.object(razorpay_service, "_key_secret", TEST_KEY_SECRET)
+@patch.object(settings, "RAZORPAY_KEY_SECRET", SecretStr(TEST_KEY_SECRET))
 def test_verify_payment_invalid_signature():
     """Verify POST /api/v1/payments/verify rejects counterfeit/tampered signatures."""
     order_id = "order_test_99999"
@@ -502,7 +529,7 @@ def test_verify_payment_cross_company_isolation():
     app.dependency_overrides.clear()
 
 
-@patch.object(razorpay_service, "_key_secret", TEST_KEY_SECRET)
+@patch.object(settings, "RAZORPAY_KEY_SECRET", SecretStr(TEST_KEY_SECRET))
 def test_verify_payment_idempotency():
     """Verify repeating a verification for an already CAPTURED payment returns success idempotently."""
     order_id = "order_already_captured"
@@ -552,7 +579,7 @@ def test_verify_payment_idempotency():
 # 4. Webhook Tests
 # ===========================================================================
 
-@patch.object(razorpay_service, "_webhook_secret", TEST_WEBHOOK_SECRET)
+@patch.object(settings, "RAZORPAY_WEBHOOK_SECRET", SecretStr(TEST_WEBHOOK_SECRET))
 def test_webhook_payment_captured_success():
     """Verify POST /api/v1/payments/webhook processes payment.captured and activates subscription."""
     order_id = "order_webhook_001"
@@ -615,7 +642,7 @@ def test_webhook_payment_captured_success():
     app.dependency_overrides.clear()
 
 
-@patch.object(razorpay_service, "_webhook_secret", TEST_WEBHOOK_SECRET)
+@patch.object(settings, "RAZORPAY_WEBHOOK_SECRET", SecretStr(TEST_WEBHOOK_SECRET))
 def test_webhook_invalid_signature():
     """Verify POST /api/v1/payments/webhook rejects webhooks with counterfeit signature."""
     mock_session = MockPaymentSession()
@@ -635,7 +662,9 @@ def test_webhook_invalid_signature():
         )
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid webhook signature" in res.json()["detail"]
+        res_json = res.json()
+        error_msg = res_json.get("message") or res_json.get("detail", "")
+        assert "Invalid webhook signature" in error_msg
 
     app.dependency_overrides.clear()
 
