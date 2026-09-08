@@ -1,0 +1,2092 @@
+{
+  "advances": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/advances",
+      "relative_path": "/advances",
+      "function": "list_loans",
+      "summary": "list_loans",
+      "params": [
+        "employee_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/loans",
+      "relative_path": "/loans",
+      "function": "list_loans",
+      "summary": "list_loans",
+      "params": [
+        "employee_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/advances",
+      "relative_path": "/advances",
+      "function": "create_loan",
+      "summary": "create_loan",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/advances/{loan_id}/approve",
+      "relative_path": "/advances/{loan_id}/approve",
+      "function": "approve_loan",
+      "summary": "approve_loan",
+      "params": [
+        "loan_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/advances/{loan_id}/reject",
+      "relative_path": "/advances/{loan_id}/reject",
+      "function": "reject_loan",
+      "summary": "reject_loan",
+      "params": [
+        "loan_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/advances/copilot",
+      "relative_path": "/advances/copilot",
+      "function": "copilot_chat",
+      "summary": "copilot_chat",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "allowances": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/allowances",
+      "relative_path": "/allowances",
+      "function": "list_allowances",
+      "summary": "list_allowances",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/allowances",
+      "relative_path": "/allowances",
+      "function": "list_allowances",
+      "summary": "list_allowances",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/allowances/audit",
+      "relative_path": "/allowances/audit",
+      "function": "get_allowance_audit",
+      "summary": "get_allowance_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/allowances/history",
+      "relative_path": "/allowances/history",
+      "function": "get_allowance_history",
+      "summary": "get_allowance_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/allowances/export",
+      "relative_path": "/allowances/export",
+      "function": "export_allowances",
+      "summary": "export_allowances",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/allowances/{allowance_id}",
+      "relative_path": "/allowances/{allowance_id}",
+      "function": "get_allowance_details",
+      "summary": "get_allowance_details",
+      "params": [
+        "allowance_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/allowances",
+      "relative_path": "/allowances",
+      "function": "create_allowance",
+      "summary": "create_allowance",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/allowances/{allowance_id}",
+      "relative_path": "/allowances/{allowance_id}",
+      "function": "update_allowance",
+      "summary": "update_allowance",
+      "params": [
+        "allowance_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/allowances/{allowance_id}",
+      "relative_path": "/allowances/{allowance_id}",
+      "function": "update_allowance",
+      "summary": "update_allowance",
+      "params": [
+        "allowance_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/allowances/{allowance_id}",
+      "relative_path": "/allowances/{allowance_id}",
+      "function": "delete_allowance",
+      "summary": "delete_allowance",
+      "params": [
+        "allowance_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/allowances/{allowance_id}/duplicate",
+      "relative_path": "/allowances/{allowance_id}/duplicate",
+      "function": "duplicate_allowance",
+      "summary": "duplicate_allowance",
+      "params": [
+        "allowance_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/allowances/{allowance_id}/activate",
+      "relative_path": "/allowances/{allowance_id}/activate",
+      "function": "activate_allowance",
+      "summary": "activate_allowance",
+      "params": [
+        "allowance_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/allowances/{allowance_id}/deactivate",
+      "relative_path": "/allowances/{allowance_id}/deactivate",
+      "function": "deactivate_allowance",
+      "summary": "deactivate_allowance",
+      "params": [
+        "allowance_id"
+      ]
+    }
+  ],
+  "analytics": [],
+  "approvals": [],
+  "bank_transfer": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank-transfers",
+      "relative_path": "/bank-transfers",
+      "function": "list_bank_transfers",
+      "summary": "list_bank_transfers",
+      "params": [
+        "search",
+        "department",
+        "bank",
+        "payment_status"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank/disbursements",
+      "relative_path": "/bank/disbursements",
+      "function": "list_bank_transfers",
+      "summary": "list_bank_transfers",
+      "params": [
+        "search",
+        "department",
+        "bank",
+        "payment_status"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank-transfers/dashboard",
+      "relative_path": "/bank-transfers/dashboard",
+      "function": "get_dashboard_metrics",
+      "summary": "get_dashboard_metrics",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank-transfers/audit",
+      "relative_path": "/bank-transfers/audit",
+      "function": "get_audit_logs",
+      "summary": "get_audit_logs",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank-transfers/{transfer_id}",
+      "relative_path": "/bank-transfers/{transfer_id}",
+      "function": "get_transfer_detail",
+      "summary": "get_transfer_detail",
+      "params": [
+        "transfer_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/batch",
+      "relative_path": "/bank-transfers/batch",
+      "function": "create_transfer_batch",
+      "summary": "create_transfer_batch",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/generate-file",
+      "relative_path": "/bank-transfers/generate-file",
+      "function": "generate_bank_file",
+      "summary": "generate_bank_file",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/initiate",
+      "relative_path": "/bank-transfers/initiate",
+      "function": "initiate_payments",
+      "summary": "initiate_payments",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/reconcile",
+      "relative_path": "/bank-transfers/reconcile",
+      "function": "reconcile_payments",
+      "summary": "reconcile_payments",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/{transfer_id}/retry",
+      "relative_path": "/bank-transfers/{transfer_id}/retry",
+      "function": "retry_transfer",
+      "summary": "retry_transfer",
+      "params": [
+        "transfer_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bank-transfers/{transfer_id}/mark-paid",
+      "relative_path": "/bank-transfers/{transfer_id}/mark-paid",
+      "function": "mark_as_paid",
+      "summary": "mark_as_paid",
+      "params": [
+        "transfer_id"
+      ]
+    }
+  ],
+  "bonuses": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bonus/plans",
+      "relative_path": "/bonus/plans",
+      "function": "list_bonus_plans",
+      "summary": "list_bonus_plans",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bonuses",
+      "relative_path": "/bonuses",
+      "function": "list_bonuses",
+      "summary": "list_bonuses",
+      "params": [
+        "search",
+        "status",
+        "page",
+        "page_size"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bonuses",
+      "relative_path": "/bonuses",
+      "function": "create_bonus",
+      "summary": "create_bonus",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bonuses/{bonus_id}/approve",
+      "relative_path": "/bonuses/{bonus_id}/approve",
+      "function": "approve_bonus",
+      "summary": "approve_bonus",
+      "params": [
+        "bonus_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bonuses/{bonus_id}/reject",
+      "relative_path": "/bonuses/{bonus_id}/reject",
+      "function": "reject_bonus",
+      "summary": "reject_bonus",
+      "params": [
+        "bonus_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/bonuses/copilot",
+      "relative_path": "/bonuses/copilot",
+      "function": "copilot_chat",
+      "summary": "copilot_chat",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "compliance": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/config",
+      "relative_path": "/compliance/config",
+      "function": "get_statutory_config",
+      "summary": "get_statutory_config",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/compliance/config",
+      "relative_path": "/compliance/config",
+      "function": "get_statutory_config",
+      "summary": "get_statutory_config",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/dashboard",
+      "relative_path": "/compliance/dashboard",
+      "function": "get_compliance_dashboard",
+      "summary": "get_compliance_dashboard",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance",
+      "relative_path": "/compliance",
+      "function": "get_compliance_dashboard",
+      "summary": "get_compliance_dashboard",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/compliance/dashboard",
+      "relative_path": "/compliance/dashboard",
+      "function": "get_compliance_dashboard",
+      "summary": "get_compliance_dashboard",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/compliance",
+      "relative_path": "/compliance",
+      "function": "get_compliance_dashboard",
+      "summary": "get_compliance_dashboard",
+      "params": []
+    }
+  ],
+  "compliance_full": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/rules",
+      "relative_path": "/compliance/rules",
+      "function": "list_compliance_rules",
+      "summary": "list_compliance_rules",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/compliance/rules",
+      "relative_path": "/compliance/rules",
+      "function": "list_compliance_rules",
+      "summary": "list_compliance_rules",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/audit",
+      "relative_path": "/compliance/audit",
+      "function": "get_compliance_audit",
+      "summary": "get_compliance_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/history",
+      "relative_path": "/compliance/history",
+      "function": "get_compliance_history",
+      "summary": "get_compliance_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/calendar",
+      "relative_path": "/compliance/calendar",
+      "function": "get_compliance_calendar",
+      "summary": "get_compliance_calendar",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/compliance/validate",
+      "relative_path": "/compliance/validate",
+      "function": "validate_statutory_compliance",
+      "summary": "validate_statutory_compliance",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/compliance/challan",
+      "relative_path": "/compliance/challan",
+      "function": "generate_statutory_challan",
+      "summary": "generate_statutory_challan",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/{rule_id}",
+      "relative_path": "/compliance/{rule_id}",
+      "function": "get_compliance_rule_details",
+      "summary": "get_compliance_rule_details",
+      "params": [
+        "rule_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/compliance",
+      "relative_path": "/compliance",
+      "function": "create_compliance_rule",
+      "summary": "create_compliance_rule",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/components",
+      "relative_path": "/components",
+      "function": "list_salary_components",
+      "summary": "list_salary_components",
+      "params": [
+        "type_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/components",
+      "relative_path": "/components",
+      "function": "list_salary_components",
+      "summary": "list_salary_components",
+      "params": [
+        "type_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/components/audit",
+      "relative_path": "/components/audit",
+      "function": "get_salary_component_audit",
+      "summary": "get_salary_component_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/components/history",
+      "relative_path": "/components/history",
+      "function": "get_salary_component_history",
+      "summary": "get_salary_component_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/components/{component_id}",
+      "relative_path": "/components/{component_id}",
+      "function": "get_salary_component_details",
+      "summary": "get_salary_component_details",
+      "params": [
+        "component_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/components",
+      "relative_path": "/components",
+      "function": "create_salary_component",
+      "summary": "create_salary_component",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/components/{component_id}",
+      "relative_path": "/components/{component_id}",
+      "function": "update_salary_component",
+      "summary": "update_salary_component",
+      "params": [
+        "component_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/components/{component_id}",
+      "relative_path": "/components/{component_id}",
+      "function": "update_salary_component",
+      "summary": "update_salary_component",
+      "params": [
+        "component_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/components/{component_id}",
+      "relative_path": "/components/{component_id}",
+      "function": "delete_salary_component",
+      "summary": "delete_salary_component",
+      "params": [
+        "component_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/components/{component_id}/duplicate",
+      "relative_path": "/components/{component_id}/duplicate",
+      "function": "duplicate_salary_component",
+      "summary": "duplicate_salary_component",
+      "params": [
+        "component_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/components/{component_id}/activate",
+      "relative_path": "/components/{component_id}/activate",
+      "function": "activate_salary_component",
+      "summary": "activate_salary_component",
+      "params": [
+        "component_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/components/{component_id}/deactivate",
+      "relative_path": "/components/{component_id}/deactivate",
+      "function": "deactivate_salary_component",
+      "summary": "deactivate_salary_component",
+      "params": [
+        "component_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/components/reorder",
+      "relative_path": "/components/reorder",
+      "function": "reorder_salary_components",
+      "summary": "reorder_salary_components",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "copilot": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/copilot/chat",
+      "relative_path": "/copilot/chat",
+      "function": "get_payroll_copilot_chat",
+      "summary": "Get payroll copilot status & history",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/copilot/chat",
+      "relative_path": "/copilot/chat",
+      "function": "payroll_copilot_chat",
+      "summary": "Payroll AI copilot chat",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/copilot/history",
+      "relative_path": "/copilot/history",
+      "function": "get_payroll_copilot_history",
+      "summary": "Get payroll copilot chat history",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/copilot/clear",
+      "relative_path": "/copilot/clear",
+      "function": "clear_payroll_copilot_history",
+      "summary": "Clear payroll copilot chat history",
+      "params": [
+        "body"
+      ]
+    }
+  ],
+  "dashboard": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/dashboard",
+      "relative_path": "/dashboard",
+      "function": "get_payroll_dashboard",
+      "summary": "get_payroll_dashboard",
+      "params": [
+        "month",
+        "year"
+      ]
+    }
+  ],
+  "deductions": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/deductions",
+      "relative_path": "/deductions",
+      "function": "list_deductions",
+      "summary": "list_deductions",
+      "params": [
+        "categoryGroup"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/deductions",
+      "relative_path": "/deductions",
+      "function": "list_deductions",
+      "summary": "list_deductions",
+      "params": [
+        "categoryGroup"
+      ]
+    }
+  ],
+  "overtime": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/overtime",
+      "relative_path": "/overtime",
+      "function": "list_overtime",
+      "summary": "list_overtime",
+      "params": [
+        "employee_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime",
+      "relative_path": "/overtime",
+      "function": "create_overtime",
+      "summary": "create_overtime",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime/{overtime_id}/approve",
+      "relative_path": "/overtime/{overtime_id}/approve",
+      "function": "approve_overtime",
+      "summary": "approve_overtime",
+      "params": [
+        "overtime_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime/{overtime_id}/reject",
+      "relative_path": "/overtime/{overtime_id}/reject",
+      "function": "reject_overtime",
+      "summary": "reject_overtime",
+      "params": [
+        "overtime_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime/copilot",
+      "relative_path": "/overtime/copilot",
+      "function": "copilot_chat",
+      "summary": "copilot_chat",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "overtime_settings": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/overtime/settings",
+      "relative_path": "/overtime/settings",
+      "function": "get_overtime_settings",
+      "summary": "get_overtime_settings",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/overtime/settings",
+      "relative_path": "/overtime/settings",
+      "function": "get_overtime_settings",
+      "summary": "get_overtime_settings",
+      "params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/overtime/settings",
+      "relative_path": "/overtime/settings",
+      "function": "update_overtime_settings",
+      "summary": "update_overtime_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime/calculate",
+      "relative_path": "/overtime/calculate",
+      "function": "calculate_overtime",
+      "summary": "calculate_overtime",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/overtime/request",
+      "relative_path": "/overtime/request",
+      "function": "create_overtime_request",
+      "summary": "create_overtime_request",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/overtime/history",
+      "relative_path": "/overtime/history",
+      "function": "get_overtime_history",
+      "summary": "get_overtime_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/overtime/audit",
+      "relative_path": "/overtime/audit",
+      "function": "get_overtime_audit",
+      "summary": "get_overtime_audit",
+      "params": []
+    }
+  ],
+  "pay_cycles": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/cycles",
+      "relative_path": "/cycles",
+      "function": "list_payroll_cycles",
+      "summary": "list_payroll_cycles",
+      "params": [
+        "status_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/cycles",
+      "relative_path": "/cycles",
+      "function": "list_payroll_cycles",
+      "summary": "list_payroll_cycles",
+      "params": [
+        "status_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/cycles/logs",
+      "relative_path": "/cycles/logs",
+      "function": "get_payroll_cycle_logs",
+      "summary": "get_payroll_cycle_logs",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/cycles/history",
+      "relative_path": "/cycles/history",
+      "function": "get_payroll_cycle_history",
+      "summary": "get_payroll_cycle_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/cycles/{cycle_id}",
+      "relative_path": "/cycles/{cycle_id}",
+      "function": "get_payroll_cycle_details",
+      "summary": "get_payroll_cycle_details",
+      "params": [
+        "cycle_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles",
+      "relative_path": "/cycles",
+      "function": "create_payroll_cycle",
+      "summary": "create_payroll_cycle",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/cycles/{cycle_id}",
+      "relative_path": "/cycles/{cycle_id}",
+      "function": "update_payroll_cycle",
+      "summary": "update_payroll_cycle",
+      "params": [
+        "cycle_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/cycles/{cycle_id}",
+      "relative_path": "/cycles/{cycle_id}",
+      "function": "update_payroll_cycle",
+      "summary": "update_payroll_cycle",
+      "params": [
+        "cycle_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/cycles/{cycle_id}",
+      "relative_path": "/cycles/{cycle_id}",
+      "function": "delete_payroll_cycle",
+      "summary": "delete_payroll_cycle",
+      "params": [
+        "cycle_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles/{cycle_id}/activate",
+      "relative_path": "/cycles/{cycle_id}/activate",
+      "function": "activate_payroll_cycle",
+      "summary": "activate_payroll_cycle",
+      "params": [
+        "cycle_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles/{cycle_id}/lock",
+      "relative_path": "/cycles/{cycle_id}/lock",
+      "function": "lock_payroll_cycle",
+      "summary": "lock_payroll_cycle",
+      "params": [
+        "cycle_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles/{cycle_id}/unlock",
+      "relative_path": "/cycles/{cycle_id}/unlock",
+      "function": "unlock_payroll_cycle",
+      "summary": "unlock_payroll_cycle",
+      "params": [
+        "cycle_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles/{cycle_id}/duplicate",
+      "relative_path": "/cycles/{cycle_id}/duplicate",
+      "function": "duplicate_payroll_cycle",
+      "summary": "duplicate_payroll_cycle",
+      "params": [
+        "cycle_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/cycles/{cycle_id}/archive",
+      "relative_path": "/cycles/{cycle_id}/archive",
+      "function": "archive_payroll_cycle",
+      "summary": "archive_payroll_cycle",
+      "params": [
+        "cycle_id"
+      ]
+    }
+  ],
+  "payslips": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/payslips",
+      "relative_path": "/payslips",
+      "function": "list_payslips",
+      "summary": "list_payslips",
+      "params": [
+        "search",
+        "department",
+        "designation",
+        "location",
+        "month",
+        "year",
+        "status",
+        "payment_status",
+        "employment_type",
+        "page",
+        "limit",
+        "page_size",
+        "sort_by",
+        "sort_dir"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/admin/payslips",
+      "relative_path": "/admin/payslips",
+      "function": "list_payslips",
+      "summary": "list_payslips",
+      "params": [
+        "search",
+        "department",
+        "designation",
+        "location",
+        "month",
+        "year",
+        "status",
+        "payment_status",
+        "employment_type",
+        "page",
+        "limit",
+        "page_size",
+        "sort_by",
+        "sort_dir"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/payslips",
+      "relative_path": "/payslips",
+      "function": "list_payslips",
+      "summary": "list_payslips",
+      "params": [
+        "search",
+        "department",
+        "designation",
+        "location",
+        "month",
+        "year",
+        "status",
+        "payment_status",
+        "employment_type",
+        "page",
+        "limit",
+        "page_size",
+        "sort_by",
+        "sort_dir"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/admin/payslips",
+      "relative_path": "/admin/payslips",
+      "function": "list_payslips",
+      "summary": "list_payslips",
+      "params": [
+        "search",
+        "department",
+        "designation",
+        "location",
+        "month",
+        "year",
+        "status",
+        "payment_status",
+        "employment_type",
+        "page",
+        "limit",
+        "page_size",
+        "sort_by",
+        "sort_dir"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/payslips/{payslip_id}/preview",
+      "relative_path": "/payslips/{payslip_id}/preview",
+      "function": "get_payslip_preview",
+      "summary": "get_payslip_preview",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/payslips/bulk-generate",
+      "relative_path": "/payslips/bulk-generate",
+      "function": "bulk_generate_payslips",
+      "summary": "bulk_generate_payslips",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/payslips/bulk-email",
+      "relative_path": "/payslips/bulk-email",
+      "function": "bulk_email_payslips",
+      "summary": "bulk_email_payslips",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/payslips/bulk-download",
+      "relative_path": "/payslips/bulk-download",
+      "function": "bulk_download_payslips",
+      "summary": "bulk_download_payslips",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/payslips/{payslip_id}/pdf",
+      "relative_path": "/payslips/{payslip_id}/pdf",
+      "function": "download_payslip_pdf",
+      "summary": "download_payslip_pdf",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/payslips/{payslip_id}/email",
+      "relative_path": "/payslips/{payslip_id}/email",
+      "function": "email_single_payslip",
+      "summary": "email_single_payslip",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/payslips/{payslip_id}/regenerate",
+      "relative_path": "/payslips/{payslip_id}/regenerate",
+      "function": "regenerate_single_payslip",
+      "summary": "regenerate_single_payslip",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/payslips/{payslip_id}",
+      "relative_path": "/payslips/{payslip_id}",
+      "function": "delete_payslip",
+      "summary": "delete_payslip",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/payslips/{payslip_id}/audit-logs",
+      "relative_path": "/payslips/{payslip_id}/audit-logs",
+      "function": "get_payslip_audit_logs",
+      "summary": "get_payslip_audit_logs",
+      "params": [
+        "payslip_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/payslips/{payslip_id}",
+      "relative_path": "/payslips/{payslip_id}",
+      "function": "get_payslip",
+      "summary": "get_payslip",
+      "params": [
+        "payslip_id"
+      ]
+    }
+  ],
+  "reimbursements": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/reimbursements",
+      "relative_path": "/reimbursements",
+      "function": "list_reimbursements",
+      "summary": "list_reimbursements",
+      "params": [
+        "employee_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/reimbursements",
+      "relative_path": "/reimbursements",
+      "function": "create_reimbursement",
+      "summary": "create_reimbursement",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/reimbursements/{claim_id}/approve",
+      "relative_path": "/reimbursements/{claim_id}/approve",
+      "function": "approve_reimbursement",
+      "summary": "approve_reimbursement",
+      "params": [
+        "claim_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/reimbursements/{claim_id}/reject",
+      "relative_path": "/reimbursements/{claim_id}/reject",
+      "function": "reject_reimbursement",
+      "summary": "reject_reimbursement",
+      "params": [
+        "claim_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/reimbursements/bulk-approve",
+      "relative_path": "/reimbursements/bulk-approve",
+      "function": "bulk_approve_reimbursements",
+      "summary": "bulk_approve_reimbursements",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/reimbursements/audit-logs",
+      "relative_path": "/reimbursements/audit-logs",
+      "function": "get_audit_logs",
+      "summary": "get_audit_logs",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/reimbursements/ai-insights",
+      "relative_path": "/reimbursements/ai-insights",
+      "function": "get_ai_insights",
+      "summary": "get_ai_insights",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/reimbursements/copilot",
+      "relative_path": "/reimbursements/copilot",
+      "function": "copilot_chat",
+      "summary": "copilot_chat",
+      "params": [
+        "payload"
+      ]
+    }
+  ],
+  "reports": [],
+  "salary_processing": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing",
+      "relative_path": "/salary-processing",
+      "function": "get_salary_processing_list",
+      "summary": "get_salary_processing_list",
+      "params": [
+        "month",
+        "year",
+        "department",
+        "status",
+        "search",
+        "page",
+        "page_size"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/hero",
+      "relative_path": "/salary-processing/hero",
+      "function": "get_salary_processing_hero",
+      "summary": "get_salary_processing_hero",
+      "params": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/kpis",
+      "relative_path": "/salary-processing/kpis",
+      "function": "get_salary_processing_kpis",
+      "summary": "get_salary_processing_kpis",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/approval-workflow",
+      "relative_path": "/salary-processing/approval-workflow",
+      "function": "get_salary_processing_approval_workflow",
+      "summary": "get_salary_processing_approval_workflow",
+      "params": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/ai-insights",
+      "relative_path": "/salary-processing/ai-insights",
+      "function": "get_salary_processing_ai_insights",
+      "summary": "get_salary_processing_ai_insights",
+      "params": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/validations",
+      "relative_path": "/salary-processing/validations",
+      "function": "get_salary_processing_validations",
+      "summary": "get_salary_processing_validations",
+      "params": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-processing/analytics",
+      "relative_path": "/salary-processing/analytics",
+      "function": "get_salary_processing_analytics",
+      "summary": "get_salary_processing_analytics",
+      "params": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/run",
+      "relative_path": "/salary-processing/run",
+      "function": "trigger_salary_processing_run",
+      "summary": "trigger_salary_processing_run",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/approve",
+      "relative_path": "/salary-processing/approve",
+      "function": "approve_salary_processing",
+      "summary": "approve_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/rollback",
+      "relative_path": "/salary-processing/rollback",
+      "function": "rollback_salary_processing",
+      "summary": "rollback_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/recalculate/{employee_id}",
+      "relative_path": "/salary-processing/recalculate/{employee_id}",
+      "function": "recalculate_employee_salary",
+      "summary": "recalculate_employee_salary",
+      "params": [
+        "employee_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/resolve-exception/{exception_id}",
+      "relative_path": "/salary-processing/resolve-exception/{exception_id}",
+      "function": "resolve_salary_exception",
+      "summary": "resolve_salary_exception",
+      "params": [
+        "exception_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/auto-fix",
+      "relative_path": "/salary-processing/auto-fix",
+      "function": "auto_fix_salary_processing",
+      "summary": "auto_fix_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/batch-payout",
+      "relative_path": "/salary-processing/batch-payout",
+      "function": "batch_payout_salary_processing",
+      "summary": "batch_payout_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/batch-approve",
+      "relative_path": "/salary-processing/batch-approve",
+      "function": "batch_approve_salary_processing",
+      "summary": "batch_approve_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/batch-recalculate",
+      "relative_path": "/salary-processing/batch-recalculate",
+      "function": "batch_recalculate_salary_processing",
+      "summary": "batch_recalculate_salary_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/payslips",
+      "relative_path": "/salary-processing/payslips",
+      "function": "generate_payslips_for_processing",
+      "summary": "generate_payslips_for_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/bank-transfer",
+      "relative_path": "/salary-processing/bank-transfer",
+      "function": "initiate_bank_transfer_from_processing",
+      "summary": "initiate_bank_transfer_from_processing",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-processing/export",
+      "relative_path": "/salary-processing/export",
+      "function": "export_salary_processing",
+      "summary": "export_salary_processing",
+      "params": [
+        "body"
+      ]
+    }
+  ],
+  "salary_structure": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/employees/{employee_id}/salary-structure",
+      "relative_path": "/employees/{employee_id}/salary-structure",
+      "function": "get_employee_salary_structure",
+      "summary": "get_employee_salary_structure",
+      "params": [
+        "employee_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-structures",
+      "relative_path": "/salary-structures",
+      "function": "list_salary_structures_alias",
+      "summary": "list_salary_structures_alias",
+      "params": [
+        "search",
+        "department",
+        "page",
+        "page_size"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-structures/audit",
+      "relative_path": "/salary-structures/audit",
+      "function": "get_salary_structures_audit",
+      "summary": "get_salary_structures_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-structures/ai-insights",
+      "relative_path": "/salary-structures/ai-insights",
+      "function": "get_salary_structures_ai_insights",
+      "summary": "get_salary_structures_ai_insights",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}",
+      "relative_path": "/salary-structures/{structure_id}",
+      "function": "get_salary_structure_by_id",
+      "summary": "get_salary_structure_by_id",
+      "params": [
+        "structure_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-structures",
+      "relative_path": "/salary-structures",
+      "function": "create_salary_structure",
+      "summary": "create_salary_structure",
+      "params": [
+        "body"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}",
+      "relative_path": "/salary-structures/{structure_id}",
+      "function": "update_salary_structure",
+      "summary": "update_salary_structure",
+      "params": [
+        "structure_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}/clone",
+      "relative_path": "/salary-structures/{structure_id}/clone",
+      "function": "clone_salary_structure",
+      "summary": "clone_salary_structure",
+      "params": [
+        "structure_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}/assign",
+      "relative_path": "/salary-structures/{structure_id}/assign",
+      "function": "assign_salary_structure",
+      "summary": "assign_salary_structure",
+      "params": [
+        "structure_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}/approve",
+      "relative_path": "/salary-structures/{structure_id}/approve",
+      "function": "approve_salary_structure",
+      "summary": "approve_salary_structure",
+      "params": [
+        "structure_id",
+        "body"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/salary-structures/{structure_id}/rollback",
+      "relative_path": "/salary-structures/{structure_id}/rollback",
+      "function": "rollback_salary_structure_version",
+      "summary": "rollback_salary_structure_version",
+      "params": [
+        "structure_id",
+        "body"
+      ]
+    }
+  ],
+  "security_settings": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/roles",
+      "relative_path": "/roles",
+      "function": "list_security_roles",
+      "summary": "list_security_roles",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/roles",
+      "relative_path": "/roles",
+      "function": "list_security_roles",
+      "summary": "list_security_roles",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/policies",
+      "relative_path": "/policies",
+      "function": "get_security_policy",
+      "summary": "get_security_policy",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/policies",
+      "relative_path": "/policies",
+      "function": "get_security_policy",
+      "summary": "get_security_policy",
+      "params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/policies",
+      "relative_path": "/policies",
+      "function": "update_security_policy",
+      "summary": "update_security_policy",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/sessions",
+      "relative_path": "/sessions",
+      "function": "get_active_sessions",
+      "summary": "get_active_sessions",
+      "params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/sessions/{session_id}",
+      "relative_path": "/sessions/{session_id}",
+      "function": "revoke_user_session",
+      "summary": "revoke_user_session",
+      "params": [
+        "session_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/logout-all",
+      "relative_path": "/logout-all",
+      "function": "force_logout_all",
+      "summary": "force_logout_all",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/ip-whitelist",
+      "relative_path": "/ip-whitelist",
+      "function": "get_ip_whitelist",
+      "summary": "get_ip_whitelist",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/ip-whitelist",
+      "relative_path": "/ip-whitelist",
+      "function": "add_ip_whitelist",
+      "summary": "add_ip_whitelist",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/ip-whitelist/{ip_id}",
+      "relative_path": "/ip-whitelist/{ip_id}",
+      "function": "delete_ip_whitelist",
+      "summary": "delete_ip_whitelist",
+      "params": [
+        "ip_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/audit",
+      "relative_path": "/audit",
+      "function": "get_security_audit",
+      "summary": "get_security_audit",
+      "params": []
+    }
+  ],
+  "settings": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/settings",
+      "relative_path": "/settings",
+      "function": "get_payroll_settings",
+      "summary": "get_payroll_settings",
+      "params": []
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/settings",
+      "relative_path": "/settings",
+      "function": "get_payroll_settings",
+      "summary": "get_payroll_settings",
+      "params": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/settings",
+      "relative_path": "/settings",
+      "function": "update_payroll_settings",
+      "summary": "update_payroll_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/settings",
+      "relative_path": "/settings",
+      "function": "update_payroll_settings",
+      "summary": "update_payroll_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/settings",
+      "relative_path": "/settings",
+      "function": "update_payroll_settings",
+      "summary": "update_payroll_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/settings/history",
+      "relative_path": "/settings/history",
+      "function": "get_settings_history",
+      "summary": "get_settings_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/settings/audit",
+      "relative_path": "/settings/audit",
+      "function": "get_settings_audit",
+      "summary": "get_settings_audit",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/settings/reset",
+      "relative_path": "/settings/reset",
+      "function": "reset_payroll_settings",
+      "summary": "reset_payroll_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/settings/test",
+      "relative_path": "/settings/test",
+      "function": "test_payroll_settings",
+      "summary": "test_payroll_settings",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/settings/export",
+      "relative_path": "/settings/export",
+      "function": "export_payroll_settings",
+      "summary": "export_payroll_settings",
+      "params": []
+    }
+  ],
+  "tax": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/admin/tax",
+      "relative_path": "/admin/tax",
+      "function": "get_tax_management_records",
+      "summary": "get_tax_management_records",
+      "params": [
+        "financial_year",
+        "department",
+        "designation",
+        "location",
+        "tax_regime",
+        "status",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir",
+        "search"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/tax",
+      "relative_path": "/tax",
+      "function": "get_tax_management_records",
+      "summary": "get_tax_management_records",
+      "params": [
+        "financial_year",
+        "department",
+        "designation",
+        "location",
+        "tax_regime",
+        "status",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir",
+        "search"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/admin/tax",
+      "relative_path": "/admin/tax",
+      "function": "get_tax_management_records",
+      "summary": "get_tax_management_records",
+      "params": [
+        "financial_year",
+        "department",
+        "designation",
+        "location",
+        "tax_regime",
+        "status",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir",
+        "search"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/tax",
+      "relative_path": "/tax",
+      "function": "get_tax_management_records",
+      "summary": "get_tax_management_records",
+      "params": [
+        "financial_year",
+        "department",
+        "designation",
+        "location",
+        "tax_regime",
+        "status",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir",
+        "search"
+      ]
+    }
+  ],
+  "tax_settings": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/taxes",
+      "relative_path": "/taxes",
+      "function": "list_tax_settings",
+      "summary": "list_tax_settings",
+      "params": [
+        "type_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/taxes",
+      "relative_path": "/taxes",
+      "function": "list_tax_settings",
+      "summary": "list_tax_settings",
+      "params": [
+        "type_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/taxes/audit",
+      "relative_path": "/taxes/audit",
+      "function": "get_tax_audit",
+      "summary": "get_tax_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/taxes/history",
+      "relative_path": "/taxes/history",
+      "function": "get_tax_history",
+      "summary": "get_tax_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/taxes/export",
+      "relative_path": "/taxes/export",
+      "function": "export_tax_settings",
+      "summary": "export_tax_settings",
+      "params": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/taxes/import",
+      "relative_path": "/taxes/import",
+      "function": "import_tax_settings",
+      "summary": "import_tax_settings",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/taxes/recalculate",
+      "relative_path": "/taxes/recalculate",
+      "function": "recalculate_tax_liabilities",
+      "summary": "recalculate_tax_liabilities",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/taxes/{tax_id}",
+      "relative_path": "/taxes/{tax_id}",
+      "function": "get_tax_details",
+      "summary": "get_tax_details",
+      "params": [
+        "tax_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/taxes",
+      "relative_path": "/taxes",
+      "function": "create_tax_setting",
+      "summary": "create_tax_setting",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/taxes/{tax_id}",
+      "relative_path": "/taxes/{tax_id}",
+      "function": "update_tax_setting",
+      "summary": "update_tax_setting",
+      "params": [
+        "tax_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/taxes/{tax_id}",
+      "relative_path": "/taxes/{tax_id}",
+      "function": "update_tax_setting",
+      "summary": "update_tax_setting",
+      "params": [
+        "tax_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/payroll/taxes/{tax_id}",
+      "relative_path": "/taxes/{tax_id}",
+      "function": "delete_tax_setting",
+      "summary": "delete_tax_setting",
+      "params": [
+        "tax_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/taxes/{tax_id}/activate",
+      "relative_path": "/taxes/{tax_id}/activate",
+      "function": "activate_tax_setting",
+      "summary": "activate_tax_setting",
+      "params": [
+        "tax_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/taxes/{tax_id}/deactivate",
+      "relative_path": "/taxes/{tax_id}/deactivate",
+      "function": "deactivate_tax_setting",
+      "summary": "deactivate_tax_setting",
+      "params": [
+        "tax_id"
+      ]
+    }
+  ],
+  "templates_full": [
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/templates",
+      "relative_path": "/templates",
+      "function": "list_payroll_templates",
+      "summary": "list_payroll_templates",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/payroll/templates",
+      "relative_path": "/templates",
+      "function": "list_payroll_templates",
+      "summary": "list_payroll_templates",
+      "params": [
+        "category_filter"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/templates/audit",
+      "relative_path": "/templates/audit",
+      "function": "get_template_audit",
+      "summary": "get_template_audit",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/templates/history",
+      "relative_path": "/templates/history",
+      "function": "get_template_history",
+      "summary": "get_template_history",
+      "params": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/templates/{template_id}",
+      "relative_path": "/templates/{template_id}",
+      "function": "get_template_details",
+      "summary": "get_template_details",
+      "params": [
+        "template_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/templates",
+      "relative_path": "/templates",
+      "function": "create_template",
+      "summary": "create_template",
+      "params": [
+        "payload"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/payroll/templates/{template_id}",
+      "relative_path": "/templates/{template_id}",
+      "function": "update_template",
+      "summary": "update_template",
+      "params": [
+        "template_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/payroll/templates/{template_id}",
+      "relative_path": "/templates/{template_id}",
+      "function": "update_template",
+      "summary": "update_template",
+      "params": [
+        "template_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/templates/{template_id}/duplicate",
+      "relative_path": "/templates/{template_id}/duplicate",
+      "function": "duplicate_template",
+      "summary": "duplicate_template",
+      "params": [
+        "template_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/templates/{template_id}/preview",
+      "relative_path": "/templates/{template_id}/preview",
+      "function": "preview_template",
+      "summary": "preview_template",
+      "params": [
+        "template_id",
+        "payload"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/templates/{template_id}/publish",
+      "relative_path": "/templates/{template_id}/publish",
+      "function": "publish_template",
+      "summary": "publish_template",
+      "params": [
+        "template_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/payroll/templates/{template_id}/archive",
+      "relative_path": "/templates/{template_id}/archive",
+      "function": "archive_template",
+      "summary": "archive_template",
+      "params": [
+        "template_id"
+      ]
+    }
+  ]
+}

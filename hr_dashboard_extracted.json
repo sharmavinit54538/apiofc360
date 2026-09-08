@@ -1,0 +1,1443 @@
+[
+  {
+    "path": "/api/v1/hr-admin/users",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_user",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "Create internal company user"
+  },
+  {
+    "path": "/api/v1/hr-admin/users",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_users",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "List internal company users"
+  },
+  {
+    "path": "/api/v1/hr-admin/users/{user_id}",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_user",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "Get internal company user details"
+  },
+  {
+    "path": "/api/v1/hr-admin/users/{user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "update_user",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "Update internal company user"
+  },
+  {
+    "path": "/api/v1/hr-admin/users/{user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_user",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "Deactivate internal company user"
+  },
+  {
+    "path": "/api/v1/hr-admin/users/{user_id}/resend-invite",
+    "methods": [
+      "POST"
+    ],
+    "name": "resend_invite",
+    "tags": [
+      "HR Admin User Management"
+    ],
+    "summary": "Resend invitation email to internal company user"
+  },
+  {
+    "path": "/api/v1/employees/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_employee_dashboard_stats",
+    "tags": [
+      "Employee Management"
+    ],
+    "summary": "Get employee stats overview"
+  },
+  {
+    "path": "/api/v1/employees/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_employee_dashboard_stats",
+    "tags": [
+      "Employee Management"
+    ],
+    "summary": "Get employee management dashboard analytics"
+  },
+  {
+    "path": "/api/v1/departments/{id}/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_stats",
+    "tags": [
+      "Department Management"
+    ],
+    "summary": "Get department statistics"
+  },
+  {
+    "path": "/api/v1/assets/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_analytics",
+    "tags": [
+      "Asset Management"
+    ],
+    "summary": "Get aggregated asset analytics data"
+  },
+  {
+    "path": "/api/v1/applications/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_stats",
+    "tags": [
+      "Application Management"
+    ],
+    "summary": "Get recruitment metrics dashboard"
+  },
+  {
+    "path": "/api/v1/exits/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_exit_stats",
+    "tags": [
+      "Exit Management"
+    ],
+    "summary": "Get exit dashboard statistics"
+  },
+  {
+    "path": "/api/v1/calendar/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard",
+    "tags": [
+      "Calendar Management"
+    ],
+    "summary": "Get calendar dashboard view"
+  },
+  {
+    "path": "/api/v1/documents/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_document_summary",
+    "tags": [
+      "Document Management"
+    ],
+    "summary": "Get document summary statistics"
+  },
+  {
+    "path": "/api/v1/attendance/face/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_attendance_analytics",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)"
+  },
+  {
+    "path": "/api/v1/internal/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard",
+    "tags": [
+      "Communication Dashboard"
+    ],
+    "summary": "Get unified internal communication dashboard feed"
+  },
+  {
+    "path": "/api/v1/ai/dashboard/{resume_document_id}",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_candidate_dashboard",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "summary": "Stage 7 \u2014 Candidate AI Hiring Dashboard"
+  },
+  {
+    "path": "/api/v1/ai/chat/analytics",
+    "methods": [
+      "POST"
+    ],
+    "name": "run_workforce_analytics",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "summary": "Run Workforce Analytics Query"
+  },
+  {
+    "path": "/api/v1/ai/recruiter/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruiter_dashboard",
+    "tags": [
+      "AI Recruiter"
+    ],
+    "summary": "Get AI Recruiter Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/recruiter/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_analytics",
+    "tags": [
+      "AI Recruiter"
+    ],
+    "summary": "Get Recruitment Analytics"
+  },
+  {
+    "path": "/api/v1/ai/attendance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_attendance_dashboard",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get AI Attendance Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/performance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_performance_dashboard",
+    "tags": [
+      "AI Performance Coach"
+    ],
+    "summary": "Get AI Performance Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/performance/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_performance_analytics",
+    "tags": [
+      "AI Performance Coach"
+    ],
+    "summary": "Get Performance Analytics Overview"
+  },
+  {
+    "path": "/api/v1/ai/leave/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_leave_dashboard",
+    "tags": [
+      "AI Leave Assistant"
+    ],
+    "summary": "Get AI Leave Assistant Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/leave/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_leave_analytics",
+    "tags": [
+      "AI Leave Assistant"
+    ],
+    "summary": "Get Leave Analytics Overview"
+  },
+  {
+    "path": "/api/v1/ai/payroll/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get AI Payroll Insights Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/payroll/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_analytics",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Analytics Overview"
+  },
+  {
+    "path": "/api/v1/payroll/salary-processing/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "path": "/api/v1/payroll/salary-processing/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "path": "/api/v1/payroll/bank-transfers/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "path": "/api/v1/payroll/compliance/dashboard",
+    "methods": [
+      "HEAD"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/payroll/compliance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "path": "/api/v1/payroll/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "path": "/api/v1/ai/workforce/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_workforce_dashboard",
+    "tags": [
+      "AI Workforce Planning"
+    ],
+    "summary": "Get AI Workforce Planning Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/workforce/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_workforce_analytics",
+    "tags": [
+      "AI Workforce Planning"
+    ],
+    "summary": "Get Workforce Analytics Overview"
+  },
+  {
+    "path": "/api/v1/ai/workforce/dashboard/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_agent_dashboard_stats",
+    "tags": [
+      "AI Workforce Planning"
+    ],
+    "summary": "Get AI Agent Telemetry Dashboard Stats"
+  },
+  {
+    "path": "/api/v1/ai-workforce/dashboard/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_agent_dashboard_stats",
+    "tags": [
+      "AI Agent Runner"
+    ],
+    "summary": "Get AI Agent Telemetry Dashboard Stats"
+  },
+  {
+    "path": "/api/v1/ai/employee-health/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_health_dashboard",
+    "tags": [
+      "AI Employee Health"
+    ],
+    "summary": "Get AI Employee Health Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/employee-health/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_health_analytics",
+    "tags": [
+      "AI Employee Health"
+    ],
+    "summary": "Get Employee Health Analytics"
+  },
+  {
+    "path": "/api/v1/ai/meeting/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_meeting_dashboard",
+    "tags": [
+      "AI Meeting Intelligence"
+    ],
+    "summary": "Get AI Meeting Intelligence Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/meeting/discussion-analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_discussion_analytics",
+    "tags": [
+      "AI Meeting Intelligence"
+    ],
+    "summary": "Get Discussion Topic Analytics"
+  },
+  {
+    "path": "/api/v1/ai/compliance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "AI Compliance Monitor"
+    ],
+    "summary": "Get AI Compliance Monitor Dashboard KPIs"
+  },
+  {
+    "path": "/api/v1/ai/compliance/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_analytics",
+    "tags": [
+      "AI Compliance Monitor"
+    ],
+    "summary": "Get Compliance Analytics"
+  },
+  {
+    "path": "/api/v1/ai/analytics/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_analytics_dashboard",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Complete AI Insights Dashboard Data"
+  },
+  {
+    "path": "/api/v1/ai/analytics/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_analytics_kpis",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Executive Analytics KPIs"
+  },
+  {
+    "path": "/api/v1/ai/analytics/headcount-forecast",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_headcount_forecast",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Headcount Forecast"
+  },
+  {
+    "path": "/api/v1/ai/analytics/hiring-demand",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_hiring_demand",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Department Hiring Demand"
+  },
+  {
+    "path": "/api/v1/ai/analytics/payroll-trend",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_trend",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Payroll Trends & Forecast"
+  },
+  {
+    "path": "/api/v1/ai/analytics/skill-gap",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_skill_gap",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Skill Gap Analysis"
+  },
+  {
+    "path": "/api/v1/ai/analytics/recruitment",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Recruitment Intelligence"
+  },
+  {
+    "path": "/api/v1/ai/analytics/performance",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_performance_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Performance Intelligence"
+  },
+  {
+    "path": "/api/v1/ai/analytics/workforce",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_workforce_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Workforce Intelligence"
+  },
+  {
+    "path": "/api/v1/ai/analytics/health",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_health_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Employee Health Analytics"
+  },
+  {
+    "path": "/api/v1/ai/analytics/compliance",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Compliance Analytics"
+  },
+  {
+    "path": "/api/v1/ai/analytics/attrition",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_attrition_prediction",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Attrition Prediction Metrics"
+  },
+  {
+    "path": "/api/v1/ai/analytics/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_executive_summary",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get AI Executive Summary"
+  },
+  {
+    "path": "/api/v1/ai/analytics/generate",
+    "methods": [
+      "POST"
+    ],
+    "name": "generate_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Trigger Analytics Computation"
+  },
+  {
+    "path": "/api/v1/ai/analytics/predict",
+    "methods": [
+      "POST"
+    ],
+    "name": "predict_analytics",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Run Predictive Model Simulation"
+  },
+  {
+    "path": "/api/v1/ai-insights/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_insights_dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "summary": "Retrieve complete AI workforce intelligence dashboard dataset."
+  },
+  {
+    "path": "/api/v1/ai-insights/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_insights_dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "summary": "Get complete AI Insights dashboard metrics"
+  },
+  {
+    "path": "/api/v1/ai/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_insights_dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "summary": "Retrieve complete AI workforce intelligence dashboard dataset."
+  },
+  {
+    "path": "/api/v1/ai/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_ai_insights_dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "summary": "Retrieve complete AI workforce intelligence dashboard dataset."
+  },
+  {
+    "path": "/api/v1/settings/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_settings_summary",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/cto/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_cto_dashboard_metrics",
+    "tags": [
+      "CTO Enterprise Hub"
+    ],
+    "summary": "Fetch real-time enterprise CTO dashboard metrics, engineering KPIs, system health, and AI insights."
+  },
+  {
+    "path": "/api/v1/super-admin/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_super_admin_statistics",
+    "tags": [
+      "Super Admin Platform Administration"
+    ],
+    "summary": "Fetch platform-wide statistics, live financials, and dynamic charts derived from PostgreSQL."
+  },
+  {
+    "path": "/api/v1/super-admin/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_super_admin_analytics",
+    "tags": [
+      "Super Admin Platform Administration"
+    ],
+    "summary": "Get platform telemetry based on real entity activity."
+  },
+  {
+    "path": "/api/v1/super-admin/analytics/ai-usage",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_super_admin_ai_usage",
+    "tags": [
+      "Super Admin Platform Administration"
+    ],
+    "summary": "Get AI Copilot token consumption telemetry."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/status",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_onboarding_status",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Get onboarding completion status."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_onboarding_data",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Get all saved onboarding wizard data."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_onboarding_data",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Get all saved onboarding wizard data."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/",
+    "methods": [
+      "POST"
+    ],
+    "name": "save_onboarding_wizard",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Save full or top-level onboarding wizard data."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding",
+    "methods": [
+      "POST"
+    ],
+    "name": "save_onboarding_wizard",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Save full or top-level onboarding wizard data."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/step/{step_index}",
+    "methods": [
+      "POST"
+    ],
+    "name": "save_onboarding_step",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Save an onboarding step payload (Step 0, 1, 2, 3)."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/complete",
+    "methods": [
+      "POST"
+    ],
+    "name": "complete_onboarding",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": "Mark onboarding as fully completed."
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/workflows",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_workflows",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/workflows",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_workflow",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/workflows/{workflow_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_workflow",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/new-hires",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_new_hires",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/new-hires",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_new_hire",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/new-hires/{hire_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "update_new_hire",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/new-hires/{hire_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_new_hire",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/documents",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_documents",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/documents",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_document",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/documents/{doc_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "update_document",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/documents/{doc_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_document",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/tasks",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_tasks",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/tasks",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_task",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/tasks/{task_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "update_task",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hr-admin/onboarding/tasks/{task_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_task",
+    "tags": [
+      "HR Admin Onboarding"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/hierarchy/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_analytics",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "summary": "Get hierarchy analytics metrics"
+  },
+  {
+    "path": "/api/v1/recruitment/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_analytics",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "summary": "Get recruitment funnel and pipeline analytics"
+  },
+  {
+    "path": "/api/v1/recruitment/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_dashboard_stats",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "summary": "Get recruitment summary"
+  },
+  {
+    "path": "/api/v1/recruitment/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_dashboard_stats",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "summary": "Get recruitment dashboard"
+  },
+  {
+    "path": "/api/v1/recruitment/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruitment_dashboard_stats",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "summary": "Get recruitment stats"
+  },
+  {
+    "path": "/api/v1/reports/engagement/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_engagement_summary",
+    "tags": [
+      "Reports Management v1"
+    ],
+    "summary": "Get Company Engagement Summary Metrics"
+  },
+  {
+    "path": "/api/v2/employee-support/hr-copilot/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "hr_copilot_stats",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "summary": "Aggregate support statistics for HR managers"
+  },
+  {
+    "path": "/api/v2/hr-analytics/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "summary": "Get unified executive HR dashboard metrics"
+  },
+  {
+    "path": "/api/v2/hr-analytics/snapshots",
+    "methods": [
+      "POST"
+    ],
+    "name": "compute_snapshot",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "summary": "Trigger new manual analytics snapshot computation"
+  },
+  {
+    "path": "/api/v2/hr-analytics/attrition-prediction/{employee_id}",
+    "methods": [
+      "POST"
+    ],
+    "name": "predict_attrition",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "summary": "Evaluate attrition risk score for an employee"
+  },
+  {
+    "path": "/api/v2/hr-analytics/forecast",
+    "methods": [
+      "POST"
+    ],
+    "name": "run_forecast",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "summary": "Run AI predictive workforce forecasts"
+  },
+  {
+    "path": "/api/v2/hr-analytics/leaves/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_leave_analytics",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "summary": "Get unified leave assistant analytics and conflict metrics"
+  },
+  {
+    "path": "/api/v2/payroll/salary-processing/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "path": "/api/v2/payroll/salary-processing/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "path": "/api/v2/payroll/bank-transfers/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "path": "/api/v2/payroll/compliance/dashboard",
+    "methods": [
+      "HEAD"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v2/payroll/compliance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "path": "/api/v2/payroll/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "path": "/v2/payroll/salary-processing/kpis",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "path": "/v2/payroll/salary-processing/analytics",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "path": "/v2/payroll/bank-transfers/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "path": "/v2/payroll/compliance/dashboard",
+    "methods": [
+      "HEAD"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/v2/payroll/compliance/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "path": "/v2/payroll/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "path": "/api/v2/travel/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_travel_stats",
+    "tags": [
+      "Travel Management"
+    ],
+    "summary": "Get travel request summary statistics"
+  },
+  {
+    "path": "/api/v2/reports/stats",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_report_stats",
+    "tags": [
+      "Reports Management"
+    ],
+    "summary": "Get report stats dashboard overview"
+  },
+  {
+    "path": "/api/v2/reports/analytics/headcount",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_headcount_analytics",
+    "tags": [
+      "Reports Management"
+    ],
+    "summary": "Get headcount growth analytics"
+  },
+  {
+    "path": "/api/v2/reports/analytics/department",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_department_analytics",
+    "tags": [
+      "Reports Management"
+    ],
+    "summary": "Get department-wise employee distribution"
+  },
+  {
+    "path": "/api/v2/reports/analytics/tenure",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_tenure_analytics",
+    "tags": [
+      "Reports Management"
+    ],
+    "summary": "Get tenure ranges distribution"
+  },
+  {
+    "path": "/api/v2/analytics/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_dashboard_summary",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get recruitment dashboard summary"
+  },
+  {
+    "path": "/api/v2/analytics/hiring-funnel",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_hiring_funnel",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get hiring funnel with stage-by-stage conversion"
+  },
+  {
+    "path": "/api/v2/analytics/offer-acceptance-rate",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_offer_acceptance_rate",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get offer acceptance rate"
+  },
+  {
+    "path": "/api/v2/analytics/time-to-hire",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_time_to_hire",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get average time-to-hire metrics"
+  },
+  {
+    "path": "/api/v2/analytics/source-performance",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_source_performance",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Analyze sourcing channel performance"
+  },
+  {
+    "path": "/api/v2/analytics/recruiter-performance",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_recruiter_performance",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get recruiter performance metrics"
+  },
+  {
+    "path": "/api/v2/analytics/department",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_department_analytics",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get department-level hiring analytics"
+  },
+  {
+    "path": "/api/v2/analytics/interview-success",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_interview_success_rate",
+    "tags": [
+      "Recruitment Analytics v2"
+    ],
+    "summary": "Get interview completion and pass rates"
+  },
+  {
+    "path": "/settings/summary",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_settings_summary",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/dashboard/recruitment",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_alternate_recruitment_dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/dashboard/recruitment",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_alternate_recruitment_dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/analytics/recruitment",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_alternate_recruitment_dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "summary": ""
+  },
+  {
+    "path": "/api/v1/analytics/recruitment",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_alternate_recruitment_dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "summary": ""
+  }
+]

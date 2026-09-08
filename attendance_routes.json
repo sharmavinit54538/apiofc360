@@ -1,0 +1,173 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v1/attendance/face/check-in",
+    "name": "face_check_in",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Record daily attendance check-in with a face photograph"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/attendance/face/check-out",
+    "name": "face_check_out",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Record daily attendance check-out with a face photograph"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/me",
+    "name": "get_today_punch_state",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Get today's daily face attendance punch state for current employee"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/history",
+    "name": "get_own_attendance_history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Retrieve personal paginated daily attendance logs history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/team",
+    "name": "get_team_attendance_history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Retrieve direct report employees' daily attendance logs history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/company",
+    "name": "get_company_attendance_history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Retrieve company-wide paginated daily attendance logs history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/analytics",
+    "name": "get_attendance_analytics",
+    "tags": [
+      "Face Attendance"
+    ],
+    "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/dashboard",
+    "name": "get_attendance_dashboard",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get AI Attendance Dashboard KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/trend",
+    "name": "get_attendance_trend",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Attendance Trend Chart Data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/late-arrivals",
+    "name": "get_late_arrivals",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Late Arrival Detection Data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/anomalies",
+    "name": "get_anomalies",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Attendance Anomaly Detection Results"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/absence-pattern",
+    "name": "get_absence_patterns",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get AI Absence Pattern Insights"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/overtime",
+    "name": "get_overtime",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Overtime Tracking Metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/shift-violations",
+    "name": "get_shift_violations",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Shift Violation Detection Data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/health-score",
+    "name": "get_health_score",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Composite Attendance Health Score"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/attendance/watchlist",
+    "name": "get_watchlist",
+    "tags": [
+      "AI Attendance Monitor"
+    ],
+    "summary": "Get Absentee Watchlist"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/attendance",
+    "name": "get_attendance",
+    "tags": [
+      "AI Insights"
+    ],
+    "summary": ""
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/attendance",
+    "name": "export_attendance",
+    "tags": [
+      "Exports"
+    ],
+    "summary": ""
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/face-attendance",
+    "name": "export_face_attendance",
+    "tags": [
+      "Exports"
+    ],
+    "summary": ""
+  }
+]

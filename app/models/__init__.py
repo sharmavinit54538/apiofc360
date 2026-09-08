@@ -18,6 +18,7 @@ from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
+from app.models.employee_invitation import EmployeeInvitation
 
 # Employee module models
 from app.models.employee import Employee
