@@ -126,8 +126,8 @@ class OrganizationInput(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    company_name: str = Field(
-        ...,
+    company_name: str | None = Field(
+        default=None,
         min_length=1,
         max_length=150,
         validation_alias=AliasChoices("company_name", "companyName", "name", "title"),
@@ -168,11 +168,20 @@ class OrganizationInput(BaseModel):
     )
 
 
+class OrganizationSummary(BaseModel):
+    """Lightweight summary of organization for status and progress responses."""
+
+    id: str
+    name: str
+    company_name: str | None = None
+
+
 class OrganizationResponse(BaseModel):
     """Response containing Organization details."""
 
     id: str
-    company_name: str
+    name: str = ""
+    company_name: str = ""
     industry: str | None = None
     company_size: str | None = None
     website: str | None = None
@@ -187,6 +196,7 @@ class OrganizationResponse(BaseModel):
     company_stamp_url: str | None = None
     status: str = "PENDING"
     onboarding_completed: bool = False
+    organization: dict[str, Any] | None = None
 
 
 # Compatibility alias for existing codebase
@@ -574,11 +584,14 @@ class OnboardingStatusResponse(BaseModel):
     departments_completed: bool = False
     designations_completed: bool = False
     employees_invited: bool = False
+    organization: OrganizationSummary | dict[str, Any] | None = None
 
 
 class OnboardingProgressResponse(BaseModel):
     """Comprehensive payload returning all saved onboarding progress data."""
 
+    company_id: str | None = None
+    organization: OrganizationSummary | dict[str, Any] | None = None
     onboarding_completed: bool
     current_step: int
     status: str = "in_progress"

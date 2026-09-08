@@ -228,30 +228,37 @@ class HRAdminOnboardingService:
         """Retrieve organization details."""
         company = await self.get_company(company_id)
         prof = company.company_profile or {}
+        canonical_name = company.name or prof.get("company_name") or prof.get("name") or "Organization"
+
+        org_data = {
+            "id": str(company.id),
+            "name": canonical_name,
+            "company_name": canonical_name,
+            "industry": prof.get("industry"),
+            "company_size": prof.get("company_size") or prof.get("companySize"),
+            "website": prof.get("website"),
+            "country": prof.get("country", "India"),
+            "address": prof.get("address"),
+            "city": prof.get("city"),
+            "state": prof.get("state"),
+            "zip_code": prof.get("zip_code") or prof.get("zipCode"),
+            "cin": prof.get("cin"),
+            "gst_number": prof.get("gst_number") or prof.get("gstNumber"),
+            "company_logo_url": prof.get("company_logo_url") or prof.get("company_logo") or prof.get("logo"),
+            "company_stamp_url": prof.get("company_stamp_url") or prof.get("company_stamp") or prof.get("stamp"),
+            "status": getattr(company, "status", "PENDING") or "PENDING",
+            "onboarding_completed": bool(company.onboarding_completed),
+        }
 
         return OrganizationResponse(
-            id=str(company.id),
-            company_name=company.name,
-            industry=prof.get("industry"),
-            company_size=prof.get("company_size") or prof.get("companySize"),
-            website=prof.get("website"),
-            country=prof.get("country", "India"),
-            address=prof.get("address"),
-            city=prof.get("city"),
-            state=prof.get("state"),
-            zip_code=prof.get("zip_code") or prof.get("zipCode"),
-            cin=prof.get("cin"),
-            gst_number=prof.get("gst_number") or prof.get("gstNumber"),
-            company_logo_url=prof.get("company_logo_url") or prof.get("company_logo") or prof.get("logo"),
-            company_stamp_url=prof.get("company_stamp_url") or prof.get("company_stamp") or prof.get("stamp"),
-            status=getattr(company, "status", "PENDING") or "PENDING",
-            onboarding_completed=bool(company.onboarding_completed),
+            **org_data,
+            organization=org_data,
         )
 
     async def create_organization(self, user_id: uuid.UUID, payload: OrganizationInput) -> OrganizationResponse:
         """Create a new organization for the HR Admin."""
         user = await self.get_user(user_id)
-        clean_name = payload.company_name.strip()
+        clean_name = payload.company_name.strip() if payload.company_name else "Organization"
 
         # If user already has a company, update it instead of creating duplicates
         if user.company_id:
@@ -286,12 +293,17 @@ class HRAdminOnboardingService:
     async def update_organization(self, company_id: uuid.UUID, payload: OrganizationInput) -> OrganizationResponse:
         """Update organization details."""
         company = await self.get_company(company_id)
-        clean_name = payload.company_name.strip()
+        if payload.company_name and payload.company_name.strip():
+            clean_name = payload.company_name.strip()
+            company.name = clean_name
+        else:
+            clean_name = company.name
 
-        company.name = clean_name
         prof = company.company_profile or {}
-        prof.update(payload.model_dump())
+        update_dict = payload.model_dump(exclude_unset=True)
+        prof.update(update_dict)
         prof["company_name"] = clean_name
+        prof["name"] = clean_name
         prof["companyName"] = clean_name
         company.company_profile = prof
         flag_modified(company, "company_profile")
@@ -1020,8 +1032,9 @@ class HRAdminOnboardingService:
         leaves = await self.list_leave_policies(company_id)
         invites = await self.list_pending_invitations(company_id)
         progress = await self.get_or_create_progress(company_id, user_id)
+        company = await self.get_company(company_id)
 
-        status_resp = self._build_status_response(progress)
+        status_resp = self._build_status_response(progress, company=company)
 
         return OnboardingReviewResponse(
             organization=org.model_dump(),
@@ -1237,14 +1250,29 @@ class HRAdminOnboardingService:
         leaves = await self.list_leave_policies(company_id)
         invites = await self.list_pending_invitations(company_id)
 
+        # Merge authoritative company name from companies.name into response representation without mutating DB JSONB
+        raw_profile = dict(company.company_profile or {})
+        canonical_name = company.name or raw_profile.get("company_name") or raw_profile.get("name") or "Organization"
+        raw_profile["name"] = canonical_name
+        raw_profile["company_name"] = canonical_name
+        raw_profile["companyName"] = canonical_name
+
+        org_summary = {
+            "id": str(company.id),
+            "name": canonical_name,
+            "company_name": canonical_name,
+        }
+
         return OnboardingProgressResponse(
+            company_id=str(company.id),
+            organization=org_summary,
             onboarding_completed=bool(progress.onboarding_completed or company.onboarding_completed),
             current_step=progress.current_step,
             status=progress.status or "in_progress",
             started_at=progress.started_at.isoformat() if progress.started_at else None,
             completed_at=progress.completed_at.isoformat() if progress.completed_at else None,
             last_updated_at=progress.updated_at.isoformat() if progress.updated_at else None,
-            company_profile=company.company_profile,
+            company_profile=raw_profile,
             hr_settings=sched.model_dump(),
             admin_profile=admin.model_dump(),
             departments=[d.model_dump() for d in depts],
@@ -1263,7 +1291,11 @@ class HRAdminOnboardingService:
             },
         )
 
-    def _build_status_response(self, progress: OnboardingProgress) -> OnboardingStatusResponse:
+    def _build_status_response(
+        self,
+        progress: OnboardingProgress,
+        company: Company | None = None,
+    ) -> OnboardingStatusResponse:
         total_steps = 6
         completed_count = sum([
             progress.admin_completed,
@@ -1274,6 +1306,15 @@ class HRAdminOnboardingService:
             progress.employees_invited,
         ])
         pct = 100.0 if progress.onboarding_completed else round((completed_count / total_steps) * 100.0, 2)
+
+        org_summary = None
+        if company:
+            canonical_name = company.name or (company.company_profile or {}).get("company_name") or "Organization"
+            org_summary = {
+                "id": str(company.id),
+                "name": canonical_name,
+                "company_name": canonical_name,
+            }
 
         return OnboardingStatusResponse(
             onboarding_completed=bool(progress.onboarding_completed),
@@ -1289,6 +1330,7 @@ class HRAdminOnboardingService:
             departments_completed=progress.departments_completed,
             designations_completed=progress.designations_completed,
             employees_invited=progress.employees_invited,
+            organization=org_summary,
         )
 
     async def _sync_completed_steps(self, progress: OnboardingProgress) -> None:

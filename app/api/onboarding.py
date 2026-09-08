@@ -138,7 +138,8 @@ async def get_onboarding_status(
     user_id, company_id = context
     service = HRAdminOnboardingService(session)
     progress = await service.get_or_create_progress(company_id, user_id)
-    status_resp = service._build_status_response(progress)
+    company = await service.get_company(company_id)
+    status_resp = service._build_status_response(progress, company=company)
     return OnboardingAPIResponse(
         success=True,
         message="Onboarding status retrieved successfully.",
