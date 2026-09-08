@@ -259,8 +259,199 @@ class PayrollService:
         }
 
     # ===========================================================================
-    # 2. SALARY PROCESSING ENGINE
+    # 2. SALARY PROCESSING ENGINE & CALCULATION HELPERS
     # ===========================================================================
+
+    @staticmethod
+    def _compute_tds(
+        emp: Employee,
+        sal_struct: SalaryStructure,
+        config: StatutoryComplianceConfig,
+        declaration: Optional[EmployeeInvestmentDeclaration],
+        period_month: int,
+        arrears: Decimal = Decimal("0.00"),
+    ) -> Decimal:
+        """Compute monthly TDS according to Indian Income Tax rules (New vs Old Regime).
+
+        Calculates annualized projected taxable income, applies FY standard deduction,
+        computes slab liability including 87A rebate and 4% cess, and divides by remaining FY months.
+        """
+        regime = (sal_struct.tax_regime or config.default_tax_regime or "NEW").upper()
+
+        other_monthly = Decimal("0.00")
+        if sal_struct.other_allowances and isinstance(sal_struct.other_allowances, dict):
+            for v in sal_struct.other_allowances.values():
+                try:
+                    other_monthly += Decimal(str(v))
+                except Exception:
+                    pass
+
+        basic_annual = sal_struct.basic_monthly * Decimal("12.0")
+        hra_annual = sal_struct.hra_monthly * Decimal("12.0")
+        conveyance_annual = sal_struct.conveyance_monthly * Decimal("12.0")
+        special_annual = sal_struct.special_allowance_monthly * Decimal("12.0")
+        other_annual = other_monthly * Decimal("12.0")
+        bonus_annual = sal_struct.annual_bonus
+
+        projected_annual_gross = (
+            basic_annual + hra_annual + conveyance_annual + special_annual + other_annual + bonus_annual + arrears
+        )
+
+        month_index_in_fy = (period_month - 4) % 12 + 1
+        remaining_months = Decimal(str(max(1, 12 - month_index_in_fy + 1)))
+
+        if regime == "NEW":
+            # New Tax Regime (Section 115BAC)
+            # Standard Deduction: ₹75,000
+            standard_deduction = Decimal("75000.00")
+            taxable_income = max(Decimal("0.00"), projected_annual_gross - standard_deduction)
+
+            # Section 87A rebate: Taxable income <= ₹7,00,000 gets full rebate (₹0 tax)
+            if taxable_income <= Decimal("700000.00"):
+                return Decimal("0.00")
+
+            # New Regime Slabs:
+            # 0 to 3,00,000: Nil
+            # 3,00,001 to 7,00,000: 5% (₹20,000)
+            # 7,00,001 to 10,00,000: 10% (₹30,000)
+            # 10,00,001 to 12,00,000: 15% (₹30,000)
+            # 12,00,001 to 15,00,000: 20% (₹60,000)
+            # Above 15,00,000: 30%
+            tax = Decimal("0.00")
+            if taxable_income > Decimal("1500000.00"):
+                tax += (taxable_income - Decimal("1500000.00")) * Decimal("0.30")
+                tax += Decimal("140000.00")  # 20k + 30k + 30k + 60k
+            elif taxable_income > Decimal("1200000.00"):
+                tax += (taxable_income - Decimal("1200000.00")) * Decimal("0.20")
+                tax += Decimal("80000.00")   # 20k + 30k + 30k
+            elif taxable_income > Decimal("1000000.00"):
+                tax += (taxable_income - Decimal("1000000.00")) * Decimal("0.15")
+                tax += Decimal("50000.00")   # 20k + 30k
+            elif taxable_income > Decimal("700000.00"):
+                tax += (taxable_income - Decimal("700000.00")) * Decimal("0.10")
+                tax += Decimal("20000.00")   # 20k
+            elif taxable_income > Decimal("300000.00"):
+                tax += (taxable_income - Decimal("300000.00")) * Decimal("0.05")
+
+            tax_with_cess = tax * Decimal("1.04")
+            monthly_tds = (tax_with_cess / remaining_months).quantize(Decimal("0.01"))
+            return max(Decimal("0.00"), monthly_tds)
+
+        else:
+            # Old Tax Regime
+            # Standard Deduction: ₹50,000
+            standard_deduction = Decimal("50000.00")
+
+            # HRA Exemption: Least of 3 conditions
+            hra_exemption = Decimal("0.00")
+            rent_paid_monthly = sal_struct.rent_paid_monthly or Decimal("0.00")
+            if rent_paid_monthly > 0:
+                rent_annual = rent_paid_monthly * Decimal("12.0")
+                cond1 = hra_annual
+                cond2 = max(Decimal("0.00"), rent_annual - (basic_annual * Decimal("0.10")))
+                metro_rate = Decimal("0.50") if sal_struct.is_metro_city else Decimal("0.40")
+                cond3 = basic_annual * metro_rate
+                hra_exemption = min(cond1, cond2, cond3)
+
+            # Section 80 Deductions
+            sec_80c = min(Decimal("150000.00"), declaration.section_80c) if declaration else Decimal("0.00")
+            sec_80d = min(Decimal("50000.00"), declaration.section_80d) if declaration else Decimal("0.00")
+            sec_80ccd = min(Decimal("50000.00"), declaration.section_80ccd1b_nps) if declaration else Decimal("0.00")
+            sec_24b = min(Decimal("200000.00"), declaration.home_loan_interest_24b) if declaration else Decimal("0.00")
+            sec_80g = declaration.section_80g if declaration else Decimal("0.00")
+            other_ded = declaration.other_deductions if declaration else Decimal("0.00")
+
+            total_exemptions = (
+                standard_deduction + hra_exemption + sec_80c + sec_80d + sec_80ccd + sec_24b + sec_80g + other_ded
+            )
+            taxable_income = max(Decimal("0.00"), projected_annual_gross - total_exemptions)
+
+            # Section 87A rebate for Old Regime: Taxable income <= ₹5,00,000 gets full rebate (₹0 tax)
+            if taxable_income <= Decimal("500000.00"):
+                return Decimal("0.00")
+
+            # Old Regime Slabs:
+            # 0 to 2,50,000: Nil
+            # 2,50,001 to 5,00,000: 5% (₹12,500)
+            # 5,00,001 to 10,00,000: 20% (₹1,00,000)
+            # Above 10,00,000: 30%
+            tax = Decimal("0.00")
+            if taxable_income > Decimal("1000000.00"):
+                tax += (taxable_income - Decimal("1000000.00")) * Decimal("0.30")
+                tax += Decimal("112500.00")  # 12.5k + 100k
+            elif taxable_income > Decimal("500000.00"):
+                tax += (taxable_income - Decimal("500000.00")) * Decimal("0.20")
+                tax += Decimal("12500.00")
+            elif taxable_income > Decimal("250000.00"):
+                tax += (taxable_income - Decimal("250000.00")) * Decimal("0.05")
+
+            tax_with_cess = tax * Decimal("1.04")
+            monthly_tds = (tax_with_cess / remaining_months).quantize(Decimal("0.01"))
+            return max(Decimal("0.00"), monthly_tds)
+
+    @staticmethod
+    def _compute_pt(gross_earnings: Decimal, state: Optional[str], month: int) -> Decimal:
+        """Compute Professional Tax (PT) based on state slab table."""
+        st = (state or "TELANGANA").upper().strip()
+
+        if st in ("TELANGANA", "ANDHRA PRADESH", "TS", "AP"):
+            if gross_earnings > Decimal("20000.00"):
+                return Decimal("200.00")
+            elif gross_earnings > Decimal("15000.00"):
+                return Decimal("150.00")
+            return Decimal("0.00")
+
+        elif st in ("MAHARASHTRA", "MH"):
+            if gross_earnings > Decimal("10000.00"):
+                # February has ₹300 PT in Maharashtra
+                return Decimal("300.00") if month == 2 else Decimal("200.00")
+            elif gross_earnings > Decimal("7500.00"):
+                return Decimal("175.00")
+            return Decimal("0.00")
+
+        elif st in ("KARNATAKA", "KA"):
+            if gross_earnings >= Decimal("15000.00"):
+                return Decimal("200.00")
+            return Decimal("0.00")
+
+        elif st in ("WEST BENGAL", "WB"):
+            if gross_earnings > Decimal("40000.00"):
+                return Decimal("200.00")
+            elif gross_earnings > Decimal("25000.00"):
+                return Decimal("150.00")
+            elif gross_earnings > Decimal("15000.00"):
+                return Decimal("130.00")
+            elif gross_earnings > Decimal("10000.00"):
+                return Decimal("110.00")
+            return Decimal("0.00")
+
+        elif st in ("TAMIL NADU", "TN"):
+            if gross_earnings > Decimal("75000.00"):
+                return Decimal("1095.00")
+            elif gross_earnings > Decimal("60000.00"):
+                return Decimal("760.00")
+            elif gross_earnings > Decimal("45000.00"):
+                return Decimal("510.00")
+            elif gross_earnings > Decimal("30000.00"):
+                return Decimal("235.00")
+            elif gross_earnings > Decimal("21000.00"):
+                return Decimal("100.00")
+            return Decimal("0.00")
+
+        elif st in ("GUJARAT", "GJ"):
+            if gross_earnings > Decimal("12000.00"):
+                return Decimal("200.00")
+            return Decimal("0.00")
+
+        elif st in ("MADHYA PRADESH", "MP"):
+            if gross_earnings > Decimal("18750.00"):
+                return Decimal("212.00") if month == 3 else Decimal("208.00")
+            return Decimal("0.00")
+
+        else:
+            # Stubbed with ₹0 PT for unlisted state; logged visibly
+            logger.info("PT for state '%s' defaulted to ₹0.00 (slab table not configured).", st)
+            return Decimal("0.00")
 
     async def initialize_payroll_run(
         self,
@@ -278,15 +469,23 @@ class PayrollService:
         """Run full salary calculation engine for a PayCycle."""
         cycle = await self.repo.get_cycle(payroll_run_id)
         if not cycle:
-            # Fallback: try old PayrollRun table
             from app.models.payroll import PayrollRun
             run_res = await self.db.execute(
                 select(PayrollRun).where(PayrollRun.id == payroll_run_id)  # type: ignore
             )
             old_run = run_res.scalar_one_or_none()
             if not old_run:
-                raise ValueError("Payroll run not found.")
-            return await self._process_old_payroll_run(old_run)
+                raise NotFoundException("Pay cycle / Payroll run not found.")
+            cycle = await self.repo.get_cycle_by_period(old_run.company_id, old_run.period_month, old_run.period_year)
+            if not cycle:
+                cycle = PayCycle(
+                    id=old_run.id,
+                    company_id=old_run.company_id,
+                    period_month=old_run.period_month,
+                    period_year=old_run.period_year,
+                    status=old_run.status,
+                )
+                await self.repo.create_cycle(cycle)
 
         return await self._process_pay_cycle(cycle)
 
@@ -335,6 +534,25 @@ class PayrollService:
             await self.db.refresh(cycle)
             return cycle
 
+        # Ensure matching PayrollRun exists for FK integrity
+        from app.models.payroll import PayrollRun
+        run_res = await self.db.execute(select(PayrollRun).where(PayrollRun.id == cycle.id))
+        old_run = run_res.scalar_one_or_none()
+        if not old_run:
+            old_run = PayrollRun(
+                id=cycle.id,
+                company_id=cycle.company_id,
+                period_month=cycle.period_month,
+                period_year=cycle.period_year,
+                status="PROCESSING",
+                total_employees=0,
+                total_gross=Decimal("0.00"),
+                total_deductions=Decimal("0.00"),
+                total_net=Decimal("0.00"),
+            )
+            self.db.add(old_run)
+            await self.db.flush()
+
         # Extract employee IDs for batch loading
         employee_ids = [emp.id for emp in employees]
 
@@ -342,7 +560,6 @@ class PayrollService:
         total_days = calendar.monthrange(cycle.period_year, cycle.period_month)[1]
         financial_year = f"{cycle.period_year}-{cycle.period_year + 1}"
 
-        # Batch load all required data in parallel
         salary_structures_map = await self.repo.batch_get_salary_structures(employee_ids)
         attendance_inputs_map = await self.repo.batch_get_payroll_attendance_inputs(
             employee_ids, cycle.period_month, cycle.period_year
@@ -361,11 +578,10 @@ class PayrollService:
         )
         active_loans_map = await self.repo.batch_get_active_loans(employee_ids)
         investment_declarations_map = await self.repo.batch_get_investment_declarations(
-            employee_ids, f"{cycle.period_year}-{cycle.period_year + 1}"
+            employee_ids, financial_year
         )
         bank_accounts_map = await self.repo.batch_get_primary_bank_accounts(employee_ids)
 
-        total_days = calendar.monthrange(cycle.period_year, cycle.period_month)[1]
         total_employees = 0
         total_gross = Decimal("0.00")
         total_deductions = Decimal("0.00")
@@ -386,7 +602,7 @@ class PayrollService:
                 logger.warning("Skipping employee %s: no active salary structure.", emp.id)
                 continue
 
-            # Attendance / LOP - use batched data
+            # Attendance / LOP
             att_input = attendance_inputs_map.get(emp.id)
             lop_days = Decimal("0.0")
             arrears = Decimal("0.00")
@@ -396,14 +612,14 @@ class PayrollService:
                 arrears = Decimal(str(att_input.arrears))
                 one_time_bonus = Decimal(str(att_input.one_time_bonus))
 
-            # Overtime - use batched data
+            # Overtime
             ot_entry = overtime_entries_map.get(emp.id)
             ot_amount = Decimal(str(ot_entry.ot_amount)) if ot_entry else Decimal("0.00")
 
-            # Bonus awards - use batched data
+            # Bonus awards
             queued_bonus = bonus_awards_map.get(emp.id, Decimal("0.00"))
 
-            # Reimbursements - use batched data
+            # Reimbursements
             queued_reimb = reimbursement_claims_map.get(emp.id, Decimal("0.00"))
 
             paid_days = max(Decimal("0.0"), Decimal(str(total_days)) - lop_days)
@@ -417,55 +633,58 @@ class PayrollService:
             base_bonus = (sal_struct.annual_bonus / Decimal("12.0")).quantize(Decimal("0.01"))
             total_bonus = base_bonus + one_time_bonus + queued_bonus
 
-            gross_earnings = basic + hra + conveyance + special_allowance + arrears + total_bonus + ot_amount + queued_reimb
+            # Other Allowances (prorated by ratio)
+            other_allowances_monthly = Decimal("0.00")
+            if sal_struct.other_allowances and isinstance(sal_struct.other_allowances, dict):
+                for v in sal_struct.other_allowances.values():
+                    try:
+                        other_allowances_monthly += Decimal(str(v))
+                    except Exception:
+                        pass
+            other_allowances_total = (other_allowances_monthly * ratio).quantize(Decimal("0.01"))
 
-            # Statutory deductions
+            gross_earnings = (
+                basic + hra + conveyance + special_allowance + other_allowances_total + arrears + total_bonus + ot_amount + queued_reimb
+            )
+
+            # Statutory deductions: PF
             employee_pf = Decimal("0.00")
             employer_pf = Decimal("0.00")
             if config.pf_enabled:
-                pf_wage = min(basic, config.pf_wage_ceiling)
+                pf_wage = basic if config.pf_on_full_basic else min(basic, config.pf_wage_ceiling)
                 employee_pf = (pf_wage * config.employee_pf_rate).quantize(Decimal("0.01"))
                 employer_pf = (pf_wage * config.employer_pf_rate).quantize(Decimal("0.01"))
 
+            # Statutory deductions: ESI (Continuous contribution period eligibility: Apr-Sep / Oct-Mar)
             employee_esi = Decimal("0.00")
             employer_esi = Decimal("0.00")
-            if config.esi_enabled and gross_earnings <= config.esi_wage_ceiling:
-                employee_esi = (gross_earnings * config.employee_esi_rate).quantize(Decimal("0.01"))
-                employer_esi = (gross_earnings * config.employer_esi_rate).quantize(Decimal("0.01"))
+            if config.esi_enabled:
+                base_monthly_gross = (
+                    sal_struct.basic_monthly + sal_struct.hra_monthly +
+                    sal_struct.conveyance_monthly + sal_struct.special_allowance_monthly + other_allowances_monthly
+                )
+                if base_monthly_gross <= config.esi_wage_ceiling or gross_earnings <= config.esi_wage_ceiling:
+                    employee_esi = (gross_earnings * config.employee_esi_rate).quantize(Decimal("0.01"))
+                    employer_esi = (gross_earnings * config.employer_esi_rate).quantize(Decimal("0.01"))
 
-            professional_tax = Decimal("0.00")
-            if gross_earnings > Decimal("20000.00"):
-                professional_tax = Decimal("200.00")
-            elif gross_earnings > Decimal("15000.00"):
-                professional_tax = Decimal("150.00")
+            # Professional Tax (State lookup)
+            pt_state = config.pt_state or getattr(emp, "work_location", None) or "TELANGANA"
+            professional_tax = self._compute_pt(gross_earnings, pt_state, cycle.period_month)
 
-            # TDS
-            tds = Decimal("0.00")
-            regime = sal_struct.tax_regime or config.default_tax_regime
-            if regime == "NEW":
-                if basic > Decimal("15000.00"):
-                    tds = ((basic - Decimal("15000.00")) * Decimal("0.10")).quantize(Decimal("0.01"))
-            else:
-                # Use batched investment declarations
-                decl = investment_declarations_map.get(emp.id)
-                deductions_val = Decimal("0.00")
-                if decl:
-                    deductions_val = decl.section_80c + decl.section_80d + decl.section_80ccd1b_nps
-                taxable_basic = basic - (deductions_val / Decimal("12.0"))
-                if taxable_basic > Decimal("15000.00"):
-                    tds = ((taxable_basic - Decimal("15000.00")) * Decimal("0.10")).quantize(Decimal("0.01"))
+            # TDS (Annualized Tax calculation with slabs & rebate)
+            decl = investment_declarations_map.get(emp.id)
+            tds = self._compute_tds(emp, sal_struct, config, decl, cycle.period_month, arrears)
 
-            # Voluntary deductions - use batched data
+            # Voluntary deductions
             vol_deductions = voluntary_deductions_map.get(emp.id, Decimal("0.00"))
 
-            # Active loan EMIs - use batched data
+            # Active loan EMIs
             loans = active_loans_map.get(emp.id, [])
             loan_emi_total = Decimal("0.00")
             for loan in loans:
                 if loan.outstanding_balance > 0 and loan.installments_paid < loan.total_installments:
                     emi = min(loan.emi_amount, loan.outstanding_balance)
                     loan_emi_total += emi
-                    # Create installment record
                     inst = AdvanceLoanInstallment(
                         id=uuid.uuid4(),
                         loan_id=loan.id,
@@ -504,7 +723,7 @@ class PayrollService:
                 hra=hra,
                 conveyance=conveyance,
                 special_allowance=special_allowance,
-                other_allowances_total=Decimal("0.00"),
+                other_allowances_total=other_allowances_total,
                 arrears=arrears,
                 bonus=total_bonus,
                 lop_deduction=lop_deduction,
@@ -544,110 +763,20 @@ class PayrollService:
         cycle.total_reimbursements = total_reimbursements
         cycle.status = "VALIDATED"
 
+        if old_run:
+            old_run.total_employees = total_employees
+            old_run.total_gross = total_gross
+            old_run.total_deductions = total_deductions
+            old_run.total_net = total_net
+            old_run.status = "PROCESSED"
+
         await self.db.commit()
         await self.db.refresh(cycle)
         logger.info("PayCycle %s processed: %d employees, gross=%s, net=%s",
                     cycle.id, total_employees, total_gross, total_net)
         return cycle
 
-    async def _process_old_payroll_run(self, run: Any) -> Any:
-        """Legacy: process using old PayrollRun table."""
-        run.status = "PROCESSING"
-        await self.db.commit()
-        config_stmt = select(StatutoryComplianceConfig).where(StatutoryComplianceConfig.is_active == True)  # noqa: E712
-        if run.company_id:
-            config_stmt = config_stmt.where(StatutoryComplianceConfig.company_id == run.company_id)
-        config_res = await self.db.execute(config_stmt)
-        config = config_res.scalar_one_or_none()
-        if not config:
-            config = StatutoryComplianceConfig(
-                id=uuid.uuid4(), company_id=run.company_id, pf_enabled=True,
-                employee_pf_rate=Decimal("0.12"), employer_pf_rate=Decimal("0.12"),
-                pf_wage_ceiling=Decimal("15000.00"), esi_enabled=True,
-                employee_esi_rate=Decimal("0.0075"), employer_esi_rate=Decimal("0.0325"),
-                esi_wage_ceiling=Decimal("21000.00"), pt_state="TELANGANA",
-                default_tax_regime="NEW", lop_basis="CALENDAR_DAYS",
-            )
-            self.db.add(config)
-            await self.db.flush()
 
-        emp_stmt = select(Employee).where(Employee.status == "ACTIVE")
-        if run.company_id:
-            emp_stmt = emp_stmt.where(Employee.company_id == run.company_id)
-        emp_res = await self.db.execute(emp_stmt)
-        employees = emp_res.scalars().all()
-        total_days = calendar.monthrange(run.period_year, run.period_month)[1]
-        total_employees = 0
-        total_gross = total_deductions = total_net = Decimal("0.00")
-        payslip_serial_base = (await self.db.execute(select(func.count(Payslip.id)))).scalar() or 0
-
-        for emp in employees:
-            sal_stmt = select(SalaryStructure).where(SalaryStructure.employee_id == emp.id, SalaryStructure.is_active == True)  # noqa: E712
-            sal_res = await self.db.execute(sal_stmt)
-            sal_struct = sal_res.scalar_one_or_none()
-            if not sal_struct:
-                continue
-
-            from app.models.payroll import PayrollAttendanceInput
-            att_res = await self.db.execute(
-                select(PayrollAttendanceInput).where(
-                    PayrollAttendanceInput.employee_id == emp.id,
-                    PayrollAttendanceInput.period_month == run.period_month,
-                    PayrollAttendanceInput.period_year == run.period_year,
-                )
-            )
-            att_input = att_res.scalar_one_or_none()
-            lop_days = Decimal(str(att_input.lop_days)) if att_input else Decimal("0.0")
-            arrears = Decimal(str(att_input.arrears)) if att_input else Decimal("0.00")
-            one_time_bonus = Decimal(str(att_input.one_time_bonus)) if att_input else Decimal("0.00")
-            paid_days = max(Decimal("0.0"), Decimal(str(total_days)) - lop_days)
-            ratio = paid_days / Decimal(str(total_days))
-            basic = (sal_struct.basic_monthly * ratio).quantize(Decimal("0.01"))
-            hra = (sal_struct.hra_monthly * ratio).quantize(Decimal("0.01"))
-            conveyance = (sal_struct.conveyance_monthly * ratio).quantize(Decimal("0.01"))
-            special_allowance = (sal_struct.special_allowance_monthly * ratio).quantize(Decimal("0.01"))
-            lop_deduction = (sal_struct.basic_monthly * (lop_days / Decimal(str(total_days)))).quantize(Decimal("0.01"))
-            total_bonus = (sal_struct.annual_bonus / Decimal("12.0")).quantize(Decimal("0.01")) + one_time_bonus
-            gross_earnings = basic + hra + conveyance + special_allowance + arrears + total_bonus
-            employee_pf = (min(basic, config.pf_wage_ceiling) * config.employee_pf_rate).quantize(Decimal("0.01")) if config.pf_enabled else Decimal("0.00")
-            employer_pf = (min(basic, config.pf_wage_ceiling) * config.employer_pf_rate).quantize(Decimal("0.01")) if config.pf_enabled else Decimal("0.00")
-            employee_esi = (gross_earnings * config.employee_esi_rate).quantize(Decimal("0.01")) if config.esi_enabled and gross_earnings <= config.esi_wage_ceiling else Decimal("0.00")
-            employer_esi = (gross_earnings * config.employer_esi_rate).quantize(Decimal("0.01")) if config.esi_enabled and gross_earnings <= config.esi_wage_ceiling else Decimal("0.00")
-            professional_tax = Decimal("200.00") if gross_earnings > Decimal("20000.00") else (Decimal("150.00") if gross_earnings > Decimal("15000.00") else Decimal("0.00"))
-            tds = ((basic - Decimal("15000.00")) * Decimal("0.10")).quantize(Decimal("0.01")) if basic > Decimal("15000.00") else Decimal("0.00")
-            total_ded = employee_pf + employee_esi + professional_tax + tds
-            net_pay = gross_earnings - total_ded
-            payslip_serial_base += 1
-            payslip_no = f"PAY-{run.period_year}{run.period_month:02d}-{payslip_serial_base:05d}"
-            payslip = Payslip(
-                id=uuid.uuid4(), company_id=run.company_id, payroll_run_id=run.id,
-                employee_id=emp.id, salary_structure_id=sal_struct.id,
-                payslip_number=payslip_no, period_month=run.period_month,
-                period_year=run.period_year, total_days_in_month=total_days,
-                paid_days=paid_days, lop_days=lop_days, basic=basic, hra=hra,
-                conveyance=conveyance, special_allowance=special_allowance,
-                other_allowances_total=Decimal("0.00"), arrears=arrears, bonus=total_bonus,
-                lop_deduction=lop_deduction, gross_earnings=gross_earnings,
-                employee_pf=employee_pf, employer_pf=employer_pf, employee_esi=employee_esi,
-                employer_esi=employer_esi, professional_tax=professional_tax, tds=tds,
-                other_deductions=Decimal("0.00"), total_deductions=total_ded, net_pay=net_pay,
-                net_pay_words=f"{net_pay} Only", payment_status="PENDING",
-            )
-            self.db.add(payslip)
-            total_employees += 1
-            total_gross += gross_earnings
-            total_deductions += total_ded
-            total_net += net_pay
-
-        run.total_employees = total_employees
-        run.total_gross = total_gross
-        run.total_deductions = total_deductions
-        run.total_net = total_net
-        run.status = "PROCESSED"
-        run.run_at = datetime.utcnow()
-        await self.db.commit()
-        await self.db.refresh(run)
-        return run
 
     # ===========================================================================
     # 3. OVERTIME

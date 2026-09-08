@@ -26,18 +26,19 @@ def upgrade() -> None:
     op.execute("""
         UPDATE employees
         SET role = CASE
-            WHEN LOWER(role) IN ('super_admin', 'superadmin') THEN 'super_admin'
-            WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
-            WHEN LOWER(role) = 'manager' THEN 'manager'
-            WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
-            WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
-            WHEN LOWER(role) = 'intern' THEN 'intern'
+            WHEN LOWER(role::text) IN ('super_admin', 'superadmin') THEN 'super_admin'
+            WHEN LOWER(role::text) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+            WHEN LOWER(role::text) = 'manager' THEN 'manager'
+            WHEN LOWER(role::text) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
+            WHEN LOWER(role::text) IN ('it_admin', 'itadmin') THEN 'it_admin'
+            WHEN LOWER(role::text) = 'intern' THEN 'intern'
             ELSE 'employee'
         END
         WHERE role IS NOT NULL;
     """)
 
     # 2. Update users table data if enum or string
+    op.execute("DROP INDEX IF EXISTS uq_single_super_admin")
     if has_enum:
         # Alter column to varchar temporarily to update values
         op.execute("ALTER TABLE users ALTER COLUMN role DROP DEFAULT")
@@ -53,11 +54,11 @@ def upgrade() -> None:
             UPDATE users
             SET role = CASE
                 WHEN is_super_admin = TRUE THEN 'super_admin'
-                WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
-                WHEN LOWER(role) = 'manager' THEN 'manager'
-                WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
-                WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
-                WHEN LOWER(role) = 'intern' THEN 'intern'
+                WHEN LOWER(role::text) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+                WHEN LOWER(role::text) = 'manager' THEN 'manager'
+                WHEN LOWER(role::text) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
+                WHEN LOWER(role::text) IN ('it_admin', 'itadmin') THEN 'it_admin'
+                WHEN LOWER(role::text) = 'intern' THEN 'intern'
                 ELSE 'employee'
             END;
         """)
@@ -66,12 +67,12 @@ def upgrade() -> None:
         op.execute("""
             UPDATE users
             SET role = CASE
-                WHEN LOWER(role) IN ('super_admin', 'superadmin') THEN 'super_admin'
-                WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
-                WHEN LOWER(role) = 'manager' THEN 'manager'
-                WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
-                WHEN LOWER(role) IN ('it_admin', 'itadmin') THEN 'it_admin'
-                WHEN LOWER(role) = 'intern' THEN 'intern'
+                WHEN LOWER(role::text) IN ('super_admin', 'superadmin') THEN 'super_admin'
+                WHEN LOWER(role::text) IN ('admin', 'hr', 'hr_admin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+                WHEN LOWER(role::text) = 'manager' THEN 'manager'
+                WHEN LOWER(role::text) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'executive') THEN 'executive'
+                WHEN LOWER(role::text) IN ('it_admin', 'itadmin') THEN 'it_admin'
+                WHEN LOWER(role::text) = 'intern' THEN 'intern'
                 ELSE 'employee'
             END
             WHERE role IS NOT NULL;

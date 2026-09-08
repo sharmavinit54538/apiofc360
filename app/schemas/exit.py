@@ -240,6 +240,7 @@ class FnfCreate(BaseModel):
     last_salary: Decimal = Field(Decimal("0.00"), ge=0)
     pending_salary: Decimal = Field(Decimal("0.00"), ge=0)
     leave_encashment: Decimal = Field(Decimal("0.00"), ge=0)
+    gratuity: Decimal = Field(Decimal("0.00"), ge=0)
     bonus: Decimal = Field(Decimal("0.00"), ge=0)
     incentives: Decimal = Field(Decimal("0.00"), ge=0)
     recoveries: Decimal = Field(Decimal("0.00"), ge=0)
@@ -267,6 +268,7 @@ class FnfResponse(BaseModel):
     last_salary: Decimal
     pending_salary: Decimal
     leave_encashment: Decimal
+    gratuity: Decimal = Decimal("0.00")
     bonus: Decimal
     incentives: Decimal
     recoveries: Decimal
@@ -277,6 +279,34 @@ class FnfResponse(BaseModel):
     net_payable_amount: Decimal
     payment_status: str
     payment_date: date | None
+
+
+class FnfPreviewResponse(BaseModel):
+    exit_id: uuid.UUID
+    employee_id: uuid.UUID
+    employee_name: str
+    joining_date: date | None
+    last_working_date: date
+    tenure_years: float
+    basic_monthly: float
+    last_salary: float
+    pending_salary: float
+    leave_encashment: float
+    unused_leave_days: float
+    gratuity: float
+    bonus: float
+    incentives: float
+    recoveries: float
+    notice_recovery: float
+    required_notice_days: int
+    actual_notice_days: int
+    asset_recovery: float
+    loan_recovery: float
+    other_deductions: float
+    total_earnings: float
+    total_deductions: float
+    net_payable_amount: float
+    payment_status: str
 
 
 # ---------------------------------------------------------------------------

@@ -89,6 +89,8 @@ class LeavePolicy(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     days_allowed: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255))
+    leave_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="ANNUAL")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -128,12 +130,12 @@ class OnboardingProgress(Base):
     - Last update timestamp
 
     Step mapping:
-        1 = Company Details
-        2 = Admin Profile
-        3 = HR Settings
-        4 = Departments
-        5 = Designations
-        6 = Invite Employees
+        1 = Admin Profile
+        2 = Company Setup
+        3 = Organization & Departments
+        4 = Work Schedule & Leave Policies
+        5 = Employee Invitations
+        6 = Review & Activate
         7 = Completed (dashboard)
     """
 
@@ -150,7 +152,19 @@ class OnboardingProgress(Base):
         nullable=False,
         unique=True,
     )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="not_started",
+        server_default=text("'not_started'"),
+    )  # not_started, in_progress, completed
+    completed_steps: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # Per-step completion boolean flags — source of truth for idempotency/ordering
     company_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
@@ -164,9 +178,19 @@ class OnboardingProgress(Base):
     # Optional generic JSON blob for additional persisted data
     data: Mapped[dict | None] = mapped_column(JSON)
 
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
+
 

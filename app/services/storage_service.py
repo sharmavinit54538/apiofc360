@@ -17,17 +17,28 @@ logger = logging.getLogger(__name__)
 # Allowed MIME types & extension map
 ALLOWED_MIME_TYPES = {
     "application/pdf": [".pdf"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "application/msword": [".doc"],
+    "application/x-zip-compressed": [".docx"],
+    "application/zip": [".docx"],
+    "application/octet-stream": [".pdf", ".docx", ".doc", ".txt", ".png", ".jpg", ".jpeg", ".tif", ".tiff"],
+    "text/plain": [".txt"],
+    "text/x-plain": [".txt"],
+    "text/markdown": [".txt"],
+    "application/txt": [".txt"],
     "image/png": [".png"],
     "image/jpeg": [".jpg", ".jpeg"],
     "image/jpg": [".jpg", ".jpeg"],
     "image/tiff": [".tif", ".tiff"],
 }
 
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 # File signatures (magic bytes) for content validation
 FILE_SIGNATURES = {
     ".pdf": [b"%PDF"],
+    ".docx": [b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"],
+    ".doc": [b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", b"PK\x03\x04"],  # CFBF or modern word xml
     ".png": [b"\x89PNG\r\n\x1a\n"],
     ".jpg": [b"\xff\xd8\xff"],
     ".jpeg": [b"\xff\xd8\xff"],
@@ -77,7 +88,7 @@ class StorageService:
         ext = os.path.splitext(original_filename)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise AppException(
-                message=f"Unsupported file format '{ext}'. Supported formats: PDF, PNG, JPG, JPEG, TIFF.",
+                message=f"Unsupported file format '{ext}'. Supported formats: PDF, DOCX, DOC, TXT, PNG, JPG, JPEG, TIFF.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -85,7 +96,7 @@ class StorageService:
         content_type = (file.content_type or "").lower()
         if content_type and content_type not in ALLOWED_MIME_TYPES:
             raise AppException(
-                message=f"Unsupported MIME type '{content_type}'. Allowed: PDF, PNG, JPEG, TIFF.",
+                message=f"Unsupported MIME type '{content_type}'. Allowed: PDF, DOCX, DOC, TXT, PNG, JPEG, TIFF.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -94,9 +105,33 @@ class StorageService:
 
     def _validate_file_signature(self, file_bytes: bytes, ext: str) -> None:
         """Validate file content matches expected file signature for the extension."""
+        if ext == ".txt":
+            # For plain text files, verify that it decodes cleanly and is not binary data
+            try:
+                # Try UTF-8 first, fallback to Latin-1
+                try:
+                    text_sample = file_bytes[:4096].decode("utf-8")
+                except UnicodeDecodeError:
+                    text_sample = file_bytes[:4096].decode("latin-1")
+
+                # Check that it doesn't contain high ratio of non-printable binary control characters
+                non_printable = sum(1 for c in text_sample if ord(c) < 32 and c not in "\r\n\t\f\b")
+                if len(text_sample) > 0 and (non_printable / len(text_sample)) > 0.15:
+                    raise AppException(
+                        message="File marked as .txt appears to be binary or corrupted.",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+                return
+            except AppException:
+                raise
+            except Exception as exc:
+                raise AppException(
+                    message=f"Invalid text file encoding or content: {exc}",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
         expected_signatures = FILE_SIGNATURES.get(ext, [])
         if not expected_signatures:
-            # Unknown extension - this shouldn't happen due to earlier check
             return
 
         file_header = file_bytes[:8]  # Read first 8 bytes
@@ -173,4 +208,10 @@ class StorageService:
             return "image/png"
         if ext in [".tif", ".tiff"]:
             return "image/tiff"
+        if ext == ".docx":
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if ext == ".doc":
+            return "application/msword"
+        if ext == ".txt":
+            return "text/plain"
         return "application/pdf"

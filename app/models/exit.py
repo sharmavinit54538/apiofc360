@@ -152,6 +152,7 @@ class FnfSettlement(Base):
     last_salary: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     pending_salary: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     leave_encashment: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
+    gratuity: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     bonus: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     incentives: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
 

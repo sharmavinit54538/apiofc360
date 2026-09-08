@@ -21,36 +21,37 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add missing employee fields to match SQLAlchemy model."""
-    # Personal information fields
-    op.add_column('employees', sa.Column('middle_name', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('father_name', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('mother_name', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('spouse_name', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('nationality', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('preferred_language', sa.String(length=50), nullable=True))
-    op.add_column('employees', sa.Column('aadhaar_number', sa.String(length=20), nullable=True))
-    op.add_column('employees', sa.Column('passport_number', sa.String(length=20), nullable=True))
-    op.add_column('employees', sa.Column('driving_license', sa.String(length=30), nullable=True))
-    op.add_column('employees', sa.Column('voter_id', sa.String(length=20), nullable=True))
-    op.add_column('employees', sa.Column('tax_regime', sa.String(length=20), nullable=True))
-    op.add_column('employees', sa.Column('upi_id', sa.String(length=50), nullable=True))
-    
-    # ESI number - note: different from esi_number (statutory)
-    op.add_column('employees', sa.Column('esic_number', sa.String(length=30), nullable=True))
-    
-    # Work and employment details
-    op.add_column('employees', sa.Column('work_mode', sa.String(length=30), nullable=True))
-    op.add_column('employees', sa.Column('business_unit', sa.String(length=100), nullable=True))
-    op.add_column('employees', sa.Column('employee_category', sa.String(length=50), nullable=True))
-    op.add_column('employees', sa.Column('probation_period_months', sa.Integer(), nullable=True))
-    
-    # Onboarding fields
-    op.add_column('employees', sa.Column('onboarding_data', sa.dialects.postgresql.JSONB(), nullable=True))
-    op.add_column('employees', sa.Column('employee_onboarding_completed', sa.Boolean(), nullable=False, server_default=sa.text('false')))
-    op.add_column('employees', sa.Column('employee_onboarding_step', sa.Integer(), nullable=False, server_default=sa.text('1')))
-    
-    # Cost center
-    op.add_column('employees', sa.Column('cost_center_id', sa.String(length=100), nullable=True))
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    emp_cols = [c['name'] for c in inspector.get_columns('employees')]
+
+    cols = [
+        ('middle_name', sa.String(length=100), None, True),
+        ('father_name', sa.String(length=100), None, True),
+        ('mother_name', sa.String(length=100), None, True),
+        ('spouse_name', sa.String(length=100), None, True),
+        ('nationality', sa.String(length=100), None, True),
+        ('preferred_language', sa.String(length=50), None, True),
+        ('aadhaar_number', sa.String(length=20), None, True),
+        ('passport_number', sa.String(length=20), None, True),
+        ('driving_license', sa.String(length=30), None, True),
+        ('voter_id', sa.String(length=20), None, True),
+        ('tax_regime', sa.String(length=20), None, True),
+        ('upi_id', sa.String(length=50), None, True),
+        ('esic_number', sa.String(length=30), None, True),
+        ('work_mode', sa.String(length=30), None, True),
+        ('business_unit', sa.String(length=100), None, True),
+        ('employee_category', sa.String(length=50), None, True),
+        ('probation_period_months', sa.Integer(), None, True),
+        ('onboarding_data', sa.dialects.postgresql.JSONB(), None, True),
+        ('employee_onboarding_completed', sa.Boolean(), sa.text('false'), False),
+        ('employee_onboarding_step', sa.Integer(), sa.text('1'), False),
+        ('cost_center_id', sa.String(length=100), None, True),
+    ]
+
+    for col_name, col_type, default_val, is_nullable in cols:
+        if col_name not in emp_cols:
+            op.add_column('employees', sa.Column(col_name, col_type, nullable=is_nullable, server_default=default_val))
 
 
 def downgrade() -> None:

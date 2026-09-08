@@ -53,6 +53,7 @@ def upgrade() -> None:
         """)
 
     # 3. Standardize users table data and ensure canonical enum values
+    op.execute("DROP INDEX IF EXISTS uq_single_super_admin")
     if has_enum:
         op.execute("ALTER TABLE users ALTER COLUMN role DROP DEFAULT")
         op.execute("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50) USING role::VARCHAR")
@@ -60,12 +61,12 @@ def upgrade() -> None:
     op.execute("""
         UPDATE users
         SET role = CASE
-            WHEN LOWER(role) IN ('super_admin', 'superadmin', 'super_administrator') THEN 'super_admin'
-            WHEN LOWER(role) IN ('admin', 'hr', 'hr_admin', 'hradmin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
-            WHEN LOWER(role) IN ('manager', 'lead', 'team_lead') THEN 'manager'
-            WHEN LOWER(role) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'vp', 'director', 'executive') THEN 'executive'
-            WHEN LOWER(role) IN ('it_admin', 'itadmin', 'it', 'tech_admin') THEN 'it_admin'
-            WHEN LOWER(role) IN ('intern', 'internship', 'trainee') THEN 'intern'
+            WHEN LOWER(role::text) IN ('super_admin', 'superadmin', 'super_administrator') THEN 'super_admin'
+            WHEN LOWER(role::text) IN ('admin', 'hr', 'hr_admin', 'hradmin', 'hr_manager', 'payroll_admin', 'finance') THEN 'hr_admin'
+            WHEN LOWER(role::text) IN ('manager', 'lead', 'team_lead') THEN 'manager'
+            WHEN LOWER(role::text) IN ('ceo', 'cfo', 'cto', 'coo', 'cmo', 'clo', 'ciso', 'cio', 'vp', 'director', 'executive') THEN 'executive'
+            WHEN LOWER(role::text) IN ('it_admin', 'itadmin', 'it', 'tech_admin') THEN 'it_admin'
+            WHEN LOWER(role::text) IN ('intern', 'internship', 'trainee') THEN 'intern'
             ELSE 'employee'
         END
         WHERE role IS NOT NULL;

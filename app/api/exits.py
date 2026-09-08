@@ -20,6 +20,7 @@ from app.schemas.exit import (
     ExitListResponse,
     ExitResponse,
     FnfCreate,
+    FnfPreviewResponse,
     FnfResponse,
     KTCreate,
     KTResponse,
@@ -428,6 +429,27 @@ async def submit_exit_interview(
 # ---------------------------------------------------------------------------
 # Full & Final Settlement (FNF)
 # ---------------------------------------------------------------------------
+
+@router.get(
+    "/{id}/fnf-preview",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[FnfPreviewResponse],
+    summary="Preview automated FNF payroll settlement calculations",
+)
+async def get_fnf_preview(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[ExitService, Depends(get_exit_service)],
+) -> APIResponse[FnfPreviewResponse]:
+    """Auto-calculate Gratuity, Leave Encashment, Pending Salary, Notice Recovery, and Loan Recovery for FNF."""
+    res = await service.get_fnf_preview(id)
+    return APIResponse[FnfPreviewResponse](
+        success=True,
+        message="FNF settlement calculation preview generated successfully.",
+        data=res,
+        errors=None,
+    )
+
 
 @router.patch(
     "/{id}/fnf",

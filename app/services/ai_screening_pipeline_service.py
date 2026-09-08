@@ -81,8 +81,8 @@ class AIScreeningPipelineService:
         raw_text = ocr_res["raw_text"]
         ocr_engine = ocr_res["ocr_engine"]
 
-        # 3. Parse Resume
-        parsed_raw = self.parser_service.parse_resume(raw_text)
+        # 3. Parse Resume (async LLM call)
+        parsed_raw = await self.parser_service.parse_resume(raw_text)
 
         # 4. Clean & Normalize Data
         parsed_clean = self.cleaner_service.clean_parsed_data(parsed_raw, raw_text=raw_text)
@@ -100,6 +100,8 @@ class AIScreeningPipelineService:
             phone=parsed_clean.get("phone"),
             name=parsed_clean.get("candidate_name"),
             linkedin=parsed_clean.get("linkedin"),
+            company=parsed_clean.get("current_company"),
+            company_id=company_id,
         )
 
         # 7. Get Job Data & ATS Score Calculation
@@ -153,6 +155,10 @@ class AIScreeningPipelineService:
             current_company=parsed_clean.get("current_company"),
             current_role=parsed_clean.get("current_designation"),
             years_experience=parsed_clean.get("total_experience_years") or 0.0,
+            skills=parsed_clean.get("skills") or [],
+            location=parsed_clean.get("current_location") or parsed_clean.get("address"),
+            resume_path=saved_file["file_path"],
+            resume_name=saved_file["original_filename"],
         )
 
         # 10. Save AIResumeDocument record
@@ -174,6 +180,7 @@ class AIScreeningPipelineService:
         resume_doc = await self.repo.create_resume_document(resume_doc)
 
         # 11. Save CandidateMatchScore record
+        confidence_val = float(parsed_raw.get("parsing_confidence") or 0.95)
         match_score_obj = CandidateMatchScore(
             resume_document_id=resume_doc.id,
             job_id=job_id or uuid.uuid4(),
@@ -187,7 +194,7 @@ class AIScreeningPipelineService:
             location_match_score=ats_breakdown.get("certifications_score", 0.0) / 100.0,
             salary_match_score=ats_breakdown.get("resume_quality_score", 0.0) / 100.0,
             availability_score=ats_breakdown.get("job_match", 0.0) / 100.0,
-            ai_confidence_score=0.95,
+            ai_confidence_score=confidence_val,
             matching_skills=ats_breakdown["matched_skills"],
             missing_skills=ats_breakdown["missing_skills"],
             extra_skills=ats_breakdown["extra_skills"],
@@ -198,6 +205,7 @@ class AIScreeningPipelineService:
                 "duplicate_info": dup_res,
                 "score_breakdown": ats_breakdown.get("score_breakdown", {}),
                 "recommendations": ats_breakdown.get("recommendations", []),
+                "parsing_confidence": confidence_val,
             },
             recommendation=ai_insights["hiring_recommendation"],
             computed_by=uploaded_by,
@@ -214,6 +222,7 @@ class AIScreeningPipelineService:
             ats_score=ats_score,
             rank=1,
             match_tier=match_tier,
+            parsing_confidence=confidence_val,
             candidate_details=ParsedResumeSchema.model_validate(parsed_clean),
             ats_breakdown=ATSScoreBreakdownSchema.model_validate(ats_breakdown),
             ai_insights=AIInsightsSchema.model_validate(ai_insights),
@@ -221,6 +230,131 @@ class AIScreeningPipelineService:
             duplicate_info=DuplicateDetectionSchema.model_validate(dup_res),
             created_at=resume_doc.created_at,
         )
+
+    async def parse_resume_direct(
+        self,
+        raw_text: str,
+        job_id: uuid.UUID | None = None,
+        company_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Parse raw resume text directly (dry-run / direct API)."""
+        parsed_raw = await self.parser_service.parse_resume(raw_text)
+        parsed_clean = self.cleaner_service.clean_parsed_data(parsed_raw, raw_text=raw_text)
+
+        quality_res = self.quality_service.analyze_quality(
+            raw_text=raw_text,
+            parsed_data=parsed_clean,
+            ocr_engine="direct_text",
+        )
+
+        job_data = {"title": "Target Role", "job_description": "", "min_experience": 0.0, "skills": []}
+        if job_id:
+            job_obj = await self.repo.get_job_by_id(job_id)
+            if job_obj:
+                job_skills = [getattr(s, "skill_name", getattr(s, "name", "")) for s in (job_obj.skills or [])]
+                job_data = {
+                    "title": job_obj.title,
+                    "job_description": job_obj.job_description or "",
+                    "min_experience": float(job_obj.min_experience or 0),
+                    "skills": job_skills,
+                }
+
+        ats_breakdown = self.ats_service.calculate_ats_score(
+            candidate_data=parsed_clean,
+            job_data=job_data,
+            formatting_score=quality_res["formatting_score"],
+        )
+
+        ai_insights = self.ranking_service.generate_ai_insights(
+            candidate_name=parsed_clean.get("candidate_name") or "Candidate",
+            ats_score=ats_breakdown["overall_ats_score"],
+            ats_breakdown=ats_breakdown,
+            parsed_data=parsed_clean,
+            job_title=job_data["title"],
+        )
+
+        confidence_val = float(parsed_raw.get("parsing_confidence") or 0.95)
+
+        return {
+            "candidate": parsed_clean,
+            "skills": parsed_clean.get("skills", []),
+            "technical_skills": parsed_clean.get("technical_skills", []),
+            "soft_skills": parsed_clean.get("soft_skills", []),
+            "experience": parsed_clean.get("work_history", []),
+            "education": parsed_clean.get("education", []),
+            "ats_breakdown": ats_breakdown,
+            "ai_insights": ai_insights,
+            "quality_analysis": quality_res,
+            "parsing_confidence": confidence_val,
+        }
+
+    async def match_candidate_for_job(
+        self, candidate_id: uuid.UUID, job_id: uuid.UUID
+    ) -> dict[str, Any]:
+        """Match a specific candidate against a specific job and return match breakdown."""
+        job = await self.repo.get_job_by_id(job_id)
+        if not job:
+            raise AppException(
+                message=f"Job with ID '{job_id}' not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        cand = await self.repo.get_candidate_by_id(candidate_id)
+        if not cand:
+            raise AppException(
+                message=f"Candidate with ID '{candidate_id}' not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        resume = await self.repo.get_latest_resume_doc(candidate_id)
+        parsed_data = resume.parsed_data if resume and resume.parsed_data else {
+            "candidate_name": f"{cand.first_name} {cand.last_name}".strip(),
+            "email": cand.email,
+            "phone": cand.phone,
+            "skills": cand.skills or [],
+            "total_experience_years": float(cand.years_experience or 0),
+            "current_designation": cand.current_role or "",
+            "education": [],
+            "summary": cand.summary or "",
+        }
+
+        job_skills = [getattr(s, "skill_name", getattr(s, "name", "")) for s in (job.skills or [])]
+        job_data = {
+            "title": job.title,
+            "job_description": job.job_description or "",
+            "min_experience": float(job.min_experience or 0),
+            "skills": job_skills,
+        }
+
+        ats_res = self.ats_service.calculate_ats_score(
+            candidate_data=parsed_data,
+            job_data=job_data,
+        )
+
+        cand_name = parsed_data.get("candidate_name") or f"{cand.first_name} {cand.last_name}".strip()
+        ai_insights = self.ranking_service.generate_ai_insights(
+            candidate_name=cand_name,
+            ats_score=ats_res["overall_ats_score"],
+            ats_breakdown=ats_res,
+            parsed_data=parsed_data,
+            job_title=job.title,
+        )
+
+        return {
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "job_title": job.title,
+            "overall_match_score": ats_res["overall_ats_score"],
+            "skill_match_score": ats_res["skill_match_score"],
+            "experience_match_score": ats_res["experience_match_score"],
+            "education_match_score": ats_res["education_match_score"],
+            "location_match_score": ats_res.get("certifications_score", 0.0),
+            "matched_skills": ats_res["matched_skills"],
+            "missing_required_skills": ats_res["missing_skills"],
+            "extra_skills": ats_res["extra_skills"],
+            "recommendation": ai_insights.get("hiring_recommendation") or "Good Match",
+            "ai_insights": ai_insights,
+        }
 
     async def get_candidate_profile_full(self, candidate_id: uuid.UUID) -> dict[str, Any]:
         """Fetch complete candidate profile details."""
