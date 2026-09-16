@@ -22,7 +22,7 @@ from app.db.database import AsyncSessionLocal
 from app.main import app
 from app.models.company import Company
 from app.models.user import User, UserRole
-from app.services.token_service import TokenService
+from app.utils.jwt import decode_token
 
 
 @pytest.fixture
@@ -37,10 +37,12 @@ def company_name_a(unique_suffix):
 
 @pytest.fixture
 def hr_admin_data_a(company_name_a, unique_suffix):
+    rand_phone = f"98{secrets.randbelow(90000000) + 10000000}"
+    letters = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(6)).capitalize()
     return {
-        "name": f"Admin A {unique_suffix}",
+        "name": f"Admin Alpha {letters}",
         "email": f"hr_a_{unique_suffix}@ofc360enterprise.com",
-        "phone": f"987{secrets.token_hex(3)[:7]}",
+        "phone": rand_phone,
         "password": "SecurePassword@123",
         "company_name": company_name_a,
     }
@@ -53,13 +55,29 @@ def company_name_b(unique_suffix):
 
 @pytest.fixture
 def hr_admin_data_b(company_name_b, unique_suffix):
+    rand_phone = f"99{secrets.randbelow(90000000) + 10000000}"
+    letters = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(6)).capitalize()
     return {
-        "name": f"Admin B {unique_suffix}",
+        "name": f"Admin Beta {letters}",
         "email": f"hr_b_{unique_suffix}@nexuscorp.com",
-        "phone": f"988{secrets.token_hex(3)[:7]}",
+        "phone": rand_phone,
         "password": "SecurePassword@123",
         "company_name": company_name_b,
     }
+
+
+async def register_and_activate_hr_admin(client: AsyncClient, admin_data: dict) -> None:
+    """Register user and company via public API, then mark verified in DB so standard password login returns access token."""
+    reg_resp = await client.post("/api/v1/auth/register", json=admin_data)
+    assert reg_resp.status_code == 201, f"Registration failed: {reg_resp.text}"
+
+    async with AsyncSessionLocal() as db:
+        user_res = await db.execute(select(User).where(User.email == admin_data["email"]))
+        user = user_res.scalar_one()
+        user.is_verified = True
+        user.is_active = True
+        user.account_status = "ACTIVE"
+        await db.commit()
 
 
 @pytest.mark.asyncio
@@ -87,8 +105,7 @@ async def test_2_login_hr_admin_token_contains_company_id(hr_admin_data_a, compa
     """Test 2: Login as HR Admin -> verify JWT access token contains company_id and returns company_name."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        # Ensure registered
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
 
         login_resp = await client.post(
             "/api/v1/auth/login",
@@ -98,10 +115,10 @@ async def test_2_login_hr_admin_token_contains_company_id(hr_admin_data_a, compa
         data = login_resp.json()
 
         access_token = data.get("access_token") or (data.get("data") or {}).get("access_token")
-        assert access_token, "No access_token returned in login response."
+        assert access_token, f"No access_token returned in login response: {data}"
 
         # Decode token claims
-        claims = TokenService.decode_access_token(access_token)
+        claims = decode_token(access_token)
         assert claims.get("company_id") is not None, "JWT access token does not contain 'company_id' claim."
         assert claims.get("role") == "hr_admin", f"Expected role hr_admin, got {claims.get('role')}"
 
@@ -111,7 +128,7 @@ async def test_3_get_onboarding_status_returns_organization(hr_admin_data_a, com
     """Test 3: GET onboarding/status -> verify organization.id == authenticated company_id and organization.name == 'OFC360 Enterprise'."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
 
         login_resp = await client.post(
             "/api/v1/auth/login",
@@ -119,7 +136,7 @@ async def test_3_get_onboarding_status_returns_organization(hr_admin_data_a, com
         )
         data = login_resp.json()
         token = data.get("access_token") or (data.get("data") or {}).get("access_token")
-        claims = TokenService.decode_access_token(token)
+        claims = decode_token(token)
         company_id = claims["company_id"]
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -143,14 +160,14 @@ async def test_4_get_onboarding_progress_returns_registered_company_name(hr_admi
     """Test 4: GET onboarding/progress -> verify organization.name == 'OFC360 Enterprise' and company_profile exposes company_name."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
 
         login_resp = await client.post(
             "/api/v1/auth/login",
             json={"email": hr_admin_data_a["email"], "password": hr_admin_data_a["password"]},
         )
         token = (login_resp.json().get("access_token")) or (login_resp.json().get("data", {}).get("access_token"))
-        claims = TokenService.decode_access_token(token)
+        claims = decode_token(token)
         company_id = claims["company_id"]
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -178,7 +195,7 @@ async def test_5_get_onboarding_organization_returns_canonical_name(hr_admin_dat
     """Test 5: GET onboarding/organization -> verify organization.name == 'OFC360 Enterprise'."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
 
         login_resp = await client.post(
             "/api/v1/auth/login",
@@ -209,14 +226,14 @@ async def test_6_complete_onboarding_maintains_company_association(hr_admin_data
     """Test 6: Complete onboarding -> verify same company remains associated (status=ACTIVE, onboarding_completed=True)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
 
         login_resp = await client.post(
             "/api/v1/auth/login",
             json={"email": hr_admin_data_a["email"], "password": hr_admin_data_a["password"]},
         )
         token = (login_resp.json().get("access_token")) or (login_resp.json().get("data", {}).get("access_token"))
-        claims = TokenService.decode_access_token(token)
+        claims = decode_token(token)
         company_id = claims["company_id"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -241,8 +258,8 @@ async def test_7_multi_tenant_isolation_company_b_cannot_see_company_a(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         # Register both
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
-        await client.post("/api/v1/auth/register", json=hr_admin_data_b)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_b)
 
         # Login as Admin B
         login_b = await client.post(
@@ -274,8 +291,8 @@ async def test_8_backend_ignores_tampered_frontend_company_id(
     """Test 8: Try passing another company's company_id/company_name from frontend -> verify backend ignores/rejects it."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        await client.post("/api/v1/auth/register", json=hr_admin_data_a)
-        await client.post("/api/v1/auth/register", json=hr_admin_data_b)
+        await register_and_activate_hr_admin(client, hr_admin_data_a)
+        await register_and_activate_hr_admin(client, hr_admin_data_b)
 
         # Login as Admin A to obtain company_id_a
         login_a = await client.post(
@@ -283,7 +300,7 @@ async def test_8_backend_ignores_tampered_frontend_company_id(
             json={"email": hr_admin_data_a["email"], "password": hr_admin_data_a["password"]},
         )
         token_a = (login_a.json().get("access_token")) or (login_a.json().get("data", {}).get("access_token"))
-        claims_a = TokenService.decode_access_token(token_a)
+        claims_a = decode_token(token_a)
         company_id_a = claims_a["company_id"]
 
         # Login as Admin B
@@ -292,7 +309,7 @@ async def test_8_backend_ignores_tampered_frontend_company_id(
             json={"email": hr_admin_data_b["email"], "password": hr_admin_data_b["password"]},
         )
         token_b = (login_b.json().get("access_token")) or (login_b.json().get("data", {}).get("access_token"))
-        claims_b = TokenService.decode_access_token(token_b)
+        claims_b = decode_token(token_b)
         company_id_b = claims_b["company_id"]
         headers_b = {"Authorization": f"Bearer {token_b}"}
 
