@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Upgrade core package management tools
-RUN pip install --upgrade pip setuptools wheel
+# Upgrade core package management tools (pin setuptools<81 for pkg_resources compatibility in face_recognition_models)
+RUN pip install --upgrade pip "setuptools<81" wheel
 
 # 1. Provision dlib using prebuilt binary wheel (or optimized parallel compile fallback)
 # This step is isolated and runs before general requirements to ensure maximum layer caching
@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
 # Verify the virtual environment passes dependency consistency checks
-RUN pip check && python -c "import dlib, face_recognition, numpy; print('[Builder] Verified dlib and face_recognition import successfully!')"
+RUN pip check && python -c "import dlib, face_recognition, face_recognition_models, numpy; assert face_recognition.face_locations is not None; print('[Builder] Verified dlib and face_recognition import successfully!')"
 
 
 # ==============================================================================
@@ -90,7 +90,7 @@ USER appuser
 EXPOSE 8000
 
 # Smoke test imports in the final runtime container
-RUN python -c "import dlib, face_recognition, cv2, numpy, fastapi; print('[Runtime] Smoke test PASSED: All biometrics and web modules load cleanly.')"
+RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics and web modules load cleanly.')"
 
 # Container healthcheck probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
