@@ -24,6 +24,13 @@ async def check_db():
 sys.exit(asyncio.run(check_db()))
 "
 
+    mkdir -p /app/uploads/face_attendance 2>/dev/null || true
+
+    if [ -f "scripts/migrate_face_attendance.py" ]; then
+        echo "[Entrypoint] Ensuring face attendance schema columns..."
+        python scripts/migrate_face_attendance.py || true
+    fi
+
     if [ -f "alembic.ini" ]; then
         echo "[Entrypoint] Running database migrations (alembic upgrade heads)..."
         alembic upgrade heads

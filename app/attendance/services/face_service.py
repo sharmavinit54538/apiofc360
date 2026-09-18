@@ -33,7 +33,15 @@ class FaceRecognitionService:
     def decode_base64_image(image_base64: str) -> np.ndarray:
         """Decodes base64 string (raw or data-URI scheme) into an RGB numpy array.
         
-        Raises HTTPException 400 if the image cannot be decoded.
+        Validates:
+        - Presence and string type
+        - Safe removal of data URI MIME prefixes (data:image/jpeg;base64, etc.)
+        - Safe base64 decoding and padding resolution
+        - Image format verification (JPEG, PNG, WEBP)
+        - Reasonable dimensions (min 60x60, max 4096x4096)
+        - Converts to RGB format
+        
+        Raises HTTPException 400 with user-friendly messages on validation failures.
         """
         if not image_base64 or not isinstance(image_base64, str):
             raise HTTPException(
@@ -41,25 +49,65 @@ class FaceRecognitionService:
                 detail="Image base64 data is required.",
             )
 
-        # Strip Data URL header if present (e.g. data:image/jpeg;base64,...)
-        clean_base64 = image_base64
+        clean_base64 = image_base64.strip()
+        # Safely remove Data URL prefix if present (e.g. data:image/jpeg;base64, or data:image/png;base64,)
         if "," in clean_base64:
-            clean_base64 = clean_base64.split(",", 1)[1]
+            clean_base64 = clean_base64.split(",", 1)[1].strip()
 
-        try:
-            image_bytes = base64.b64decode(clean_base64)
-            if not image_bytes:
-                raise ValueError("Empty image bytes")
-            pil_image = Image.open(io.BytesIO(image_bytes))
-            # Ensure RGB format for face_recognition
-            if pil_image.mode != "RGB":
-                pil_image = pil_image.convert("RGB")
-            return np.array(pil_image)
-        except Exception as exc:
-            logger.warning("Failed to decode base64 image: %s", str(exc))
+        if not clean_base64:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid image format or corrupted base64 string.",
+                detail="Image base64 payload is empty.",
+            )
+
+        try:
+            # Fix padding if necessary
+            missing_padding = len(clean_base64) % 4
+            if missing_padding:
+                clean_base64 += "=" * (4 - missing_padding)
+
+            image_bytes = base64.b64decode(clean_base64, validate=False)
+            if not image_bytes:
+                raise ValueError("Decoded image bytes are empty.")
+        except Exception as exc:
+            logger.warning("Failed to decode base64 string: %s", str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Malformed base64 image data.",
+            )
+
+        try:
+            pil_image = Image.open(io.BytesIO(image_bytes))
+            img_format = (pil_image.format or "").upper()
+            if img_format not in ("JPEG", "JPG", "PNG", "WEBP"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported image format: '{img_format}'. Please provide a valid JPEG or PNG image.",
+                )
+
+            width, height = pil_image.size
+            if width < 60 or height < 60:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Image resolution is too low. Please provide a clear, higher-resolution face photo.",
+                )
+
+            # Cap oversized dimensions to protect memory during feature extraction
+            if width > 4096 or height > 4096:
+                pil_image.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
+
+            # Ensure RGB format for dlib / face_recognition
+            if pil_image.mode != "RGB":
+                pil_image = pil_image.convert("RGB")
+
+            return np.array(pil_image)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("Failed to process image bytes: %s", str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid image format or corrupted image file.",
             )
 
     @staticmethod
@@ -67,8 +115,8 @@ class FaceRecognitionService:
         """Detects single face in the image and returns its 128-dimensional embedding.
         
         Enforces:
-        - 0 faces detected => 400: "No face detected. Please look directly at the camera."
-        - Multiple faces detected => 400: "Multiple faces detected. Only one face allowed."
+        - 0 faces detected => 400: "No face detected. Please capture your face again."
+        - Multiple faces detected => 400: "Multiple faces detected. Please ensure only one person is visible."
         """
         if not HAS_FACE_RECOGNITION:
             raise HTTPException(
@@ -83,13 +131,13 @@ class FaceRecognitionService:
         if num_faces == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No face detected. Please look directly at the camera.",
+                detail="No face detected. Please capture your face again.",
             )
 
         if num_faces > 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Multiple faces detected. Only one face allowed.",
+                detail="Multiple faces detected. Please ensure only one person is visible.",
             )
 
         # Extract 128-dimensional encodings for the detected face
@@ -97,7 +145,7 @@ class FaceRecognitionService:
         if not encodings:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not extract facial features. Please ensure proper lighting and face the camera directly.",
+                detail="Could not extract facial features. Please ensure proper lighting and look directly at the camera.",
             )
 
         embedding: List[float] = encodings[0].tolist()

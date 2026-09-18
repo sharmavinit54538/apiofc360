@@ -122,6 +122,8 @@ async def face_enroll(
 
     # 5. Persist to employee record
     now = datetime.now(timezone.utc)
+    was_already_enrolled = bool(getattr(employee, "is_face_enrolled", False) and getattr(employee, "face_embedding", None))
+    
     employee.face_embedding = embedding
     employee.is_face_enrolled = True
     employee.face_enrolled_at = now
@@ -131,21 +133,26 @@ async def face_enroll(
     # Also update user record if available
     user = await db.get(User, user_id)
     if user:
-        user.is_face_enrolled = True
-        user.face_enrolled_at = now
+        if hasattr(user, "is_face_enrolled"):
+            user.is_face_enrolled = True
+        if hasattr(user, "face_enrolled_at"):
+            user.face_enrolled_at = now
 
     # 6. Audit log
-    details = f"Face Enrolled: Date={now.date()} | Image={image_url} | EmbeddingDim={len(embedding)}"
-    await write_audit_log(db, user_id, "FACE_ENROLLED", None, details)
+    action = "FACE_RE_ENROLLED" if was_already_enrolled else "FACE_ENROLLED"
+    details = f"Face {'Re-enrolled' if was_already_enrolled else 'Enrolled'}: Date={now.date()} | Image={image_url} | EmbeddingDim={len(embedding)}"
+    await write_audit_log(db, user_id, action, None, details, company_id=company_id)
 
     await db.commit()
     await db.refresh(employee)
 
+    msg = "Face re-enrolled successfully" if was_already_enrolled else "Face enrolled successfully"
     return {
         "success": True,
-        "message": "Face enrolled successfully",
+        "message": msg,
         "data": {
             "is_enrolled": True,
             "enrolled_at": now.isoformat(),
+            "action": "re-enrolled" if was_already_enrolled else "enrolled",
         },
     }
