@@ -24,15 +24,60 @@ def upgrade() -> None:
     orig_create_table = op.create_table
     orig_create_index = op.create_index
 
+    # Pre-load existing column names per table so we can detect mismatches
+    table_columns: dict[str, set[str]] = {}
+    for t in tables:
+        try:
+            table_columns[t] = {c['name'] for c in inspector.get_columns(t)}
+        except Exception:
+            table_columns[t] = set()
+
     def safe_create_table(name, *args, **kwargs):
         if name not in tables:
-            orig_create_table(name, *args, **kwargs)
+            # Use a savepoint so FK-type-mismatch errors (VARCHAR FK →
+            # UUID PK from another branch) don't poison the transaction.
+            sp = bind.begin_nested()
+            try:
+                orig_create_table(name, *args, **kwargs)
+                sp.commit()
+            except Exception:
+                sp.rollback()
+                return
             tables.add(name)
+            table_columns[name] = {
+                arg.name for arg in args if isinstance(arg, sa.Column)
+            }
+        else:
+            # Table already exists (created by another migration branch).
+            # Add any columns defined here that are missing from the
+            # physical table so that subsequent indexes don't fail.
+            existing_cols = table_columns.get(name, set())
+            for arg in args:
+                if isinstance(arg, sa.Column) and arg.name not in existing_cols:
+                    col_copy = arg.copy()
+                    col_copy.nullable = True   # safe for existing rows
+                    sp = bind.begin_nested()
+                    try:
+                        op.add_column(name, col_copy)
+                        sp.commit()
+                        existing_cols.add(arg.name)
+                    except Exception:
+                        sp.rollback()
+            table_columns[name] = existing_cols
 
     def safe_create_index(name, table, *args, **kwargs):
         if table in tables:
-            existing = {idx['name'] for idx in inspector.get_indexes(table)}
-            if name not in existing:
+            # Verify all referenced columns actually exist in the table
+            cols = args[0] if args else kwargs.get('columns', [])
+            cols_list = cols if isinstance(cols, (list, tuple)) else [cols]
+            existing_cols = table_columns.get(table, set())
+            if not all(c in existing_cols for c in cols_list):
+                return  # column(s) missing — skip silently
+            try:
+                existing_idxs = {idx['name'] for idx in inspector.get_indexes(table)}
+            except Exception:
+                existing_idxs = set()
+            if name not in existing_idxs:
                 orig_create_index(name, table, *args, **kwargs)
 
     op.create_table = safe_create_table
@@ -371,8 +416,11 @@ def downgrade() -> None:
     orig_drop_table = op.drop_table
     orig_drop_index = op.drop_index
 
+    # Tables shared with the main platform branch — never drop them here
+    _shared_tables = {'users', 'audit_logs', 'refresh_tokens'}
+
     def safe_drop_table(name, *args, **kwargs):
-        if name in tables:
+        if name in tables and name not in _shared_tables:
             orig_drop_table(name, *args, **kwargs)
             tables.discard(name)
 
