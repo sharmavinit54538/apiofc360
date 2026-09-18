@@ -43,19 +43,6 @@ class RateLimiter:
             if user_id:
                 return f"user:{user_id}"
 
-        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-            try:
-                from jose import jwt
-                from app.core.config import settings
-                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"verify_exp": False})
-                user_id = payload.get("sub")
-                if user_id:
-                    return f"user:{user_id}"
-            except Exception:
-                pass
-
         # Fallback to IP address
         forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
         if forwarded:
@@ -203,26 +190,6 @@ async def check_onboarding_rate_limit(request: Request) -> None:
         logger.warning("Onboarding rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
         raise RateLimitExceeded(
             detail=f"Too many requests. Please try again in {retry_after} seconds.",
-            retry_after=retry_after,
-        )
-
-
-async def check_attendance_rate_limit(request: Request) -> None:
-    """Strict rate limit for attendance check-in and check-out endpoints."""
-    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
-        request,
-        scope="attendance_action",
-        limit=settings.ATTENDANCE_RATE_LIMIT_LIMIT,
-        window_seconds=settings.ATTENDANCE_RATE_LIMIT_WINDOW,
-    )
-    if not allowed:
-        logger.warning(
-            "Attendance rate limit exceeded | key=%s | retry_after=%ds",
-            rate_limiter._get_client_key(request),
-            retry_after,
-        )
-        raise RateLimitExceeded(
-            detail=f"Too many attendance requests. Please try again in {retry_after} seconds.",
             retry_after=retry_after,
         )
 

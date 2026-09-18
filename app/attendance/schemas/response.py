@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 
 class AttendanceResponse(BaseModel):
@@ -29,15 +29,6 @@ class AttendanceResponse(BaseModel):
     working_hours: Optional[float] = None
     created_at: datetime
     updated_at: datetime
-
-    @model_validator(mode="after")
-    def transform_image_urls(self) -> "AttendanceResponse":
-        """Rewrite raw disk image paths to secure authenticated image streaming endpoint."""
-        if self.face_image_url and not self.face_image_url.startswith("/attendance/face/image"):
-            self.face_image_url = f"/attendance/face/image/{self.id}"
-        if self.checkout_image_url and not self.checkout_image_url.startswith("/attendance/face/image"):
-            self.checkout_image_url = f"/attendance/face/image/{self.id}?type=checkout"
-        return self
 
 
 class AttendanceTodayResponse(BaseModel):

@@ -13,7 +13,6 @@ from app.attendance.models.attendance import Attendance
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.validation_service import AttendanceValidationService
 from app.attendance.utils.helpers import save_face_image, write_audit_log
-from app.models.company import Company
 
 
 class AttendanceCheckInService:
@@ -37,9 +36,6 @@ class AttendanceCheckInService:
         """Verify conditions, save photo, and mark employee checked-in."""
         employee = await self.repo.get_employee_by_user_id(user_id)
         employee = self.validator.validate_employee(employee, company_id)
-
-        company = await self.db.get(Company, company_id)
-        self.validator.validate_location(company, latitude, longitude)
 
         self.validator.validate_image(file)
         await self.validator.assert_no_active_session(employee.id)

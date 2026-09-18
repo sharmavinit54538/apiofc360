@@ -5,7 +5,6 @@ from fastapi import Request
 
 from app.core.rate_limiter import (
     RateLimitExceeded,
-    check_attendance_rate_limit,
     check_forgot_password_rate_limit,
     check_login_rate_limit,
     check_onboarding_rate_limit,
@@ -18,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "RateLimitExceeded",
-    "check_attendance_rate_limit",
     "check_forgot_password_rate_limit",
     "check_login_rate_limit",
     "check_onboarding_rate_limit",

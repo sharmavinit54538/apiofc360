@@ -770,17 +770,7 @@ def create_app() -> FastAPI:
         }
 
     from fastapi.staticfiles import StaticFiles
-    from fastapi import HTTPException
     import os
-
-    @app.get("/uploads/face_attendance/{path:path}")
-    async def block_public_face_attendance(path: str):
-        """Disallow direct unauthenticated static file downloads for face attendance photos."""
-        raise HTTPException(
-            status_code=403,
-            detail="Direct access to face attendance photos is prohibited. Use authenticated endpoint /attendance/face/image/{id}.",
-        )
-
     os.makedirs("uploads", exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 

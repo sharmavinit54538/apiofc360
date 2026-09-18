@@ -80,14 +80,16 @@ class AttendanceHistoryService:
         company_id: uuid.UUID,
         branch: Optional[str] = None,
         department: Optional[str] = None,
+        dept: Optional[str] = None,
         page: int = 1,
         limit: int = 20,
     ) -> tuple[list[Attendance], int]:
         """Fetches check-in logs for entire company with branch and department filters."""
+        effective_dept = department or dept
         items, total = await self.history_repo.get_company_history(
             company_id=company_id,
             branch=branch,
-            department=department,
+            department=effective_dept,
             page=page,
             limit=limit,
         )
