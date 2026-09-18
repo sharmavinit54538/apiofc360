@@ -43,6 +43,19 @@ class RateLimiter:
             if user_id:
                 return f"user:{user_id}"
 
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            try:
+                from jose import jwt
+                from app.core.config import settings
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"verify_exp": False})
+                user_id = payload.get("sub")
+                if user_id:
+                    return f"user:{user_id}"
+            except Exception:
+                pass
+
         # Fallback to IP address
         forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
         if forwarded:

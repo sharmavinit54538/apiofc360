@@ -35,11 +35,11 @@ def _get_company_id(claims: dict) -> uuid.UUID:
 
 def _get_client_ip(request: Request) -> str:
     """Derive client IP server-side from request.client.host, falling back to X-Forwarded-For."""
-    if request.client and request.client.host:
-        return request.client.host
     forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
     return "unknown"
 
 

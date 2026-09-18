@@ -36,8 +36,10 @@ async def get_attendance_image(
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> FileResponse:
     """Securely stream check-in or check-out photo proof with RBAC authorization."""
-    # 1. Fetch attendance record
-    attendance = await db.get(Attendance, attendance_id)
+    # 1. Fetch attendance record with bypass_tenant=True for proper RBAC evaluation
+    att_stmt = select(Attendance).where(Attendance.id == attendance_id).execution_options(bypass_tenant=True)
+    att_res = await db.execute(att_stmt)
+    attendance = att_res.scalars().first()
     if not attendance:
         raise AppException(
             message="Attendance record not found.",
@@ -71,7 +73,9 @@ async def get_attendance_image(
 
     else:
         # Check if caller is the owning employee or their manager
-        emp_res = await db.execute(select(Employee).where(Employee.user_id == user_id))
+        emp_res = await db.execute(
+            select(Employee).where(Employee.user_id == user_id).execution_options(bypass_tenant=True)
+        )
         current_emp = emp_res.scalars().first()
 
         if current_emp:
@@ -80,7 +84,10 @@ async def get_attendance_image(
                 authorized = True
             # Manager of the employee
             elif user_role in ("MANAGER", "TEAM_LEAD"):
-                target_emp = await db.get(Employee, attendance.employee_id)
+                target_emp_res = await db.execute(
+                    select(Employee).where(Employee.id == attendance.employee_id).execution_options(bypass_tenant=True)
+                )
+                target_emp = target_emp_res.scalars().first()
                 if target_emp and target_emp.reporting_manager_id == current_emp.id:
                     authorized = True
 

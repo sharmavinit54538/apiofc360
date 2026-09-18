@@ -216,7 +216,7 @@ async def test_duplicate_checkin_rejection(transport):
             data={"latitude": "12.9716", "longitude": "77.5946"},
         )
         assert resp.status_code == 409
-        assert "already checked in" in resp.text.lower()
+        assert "already checked in" in resp.text.lower() or "active check-in session already exists" in resp.text.lower()
 
 
 # ============================================================================

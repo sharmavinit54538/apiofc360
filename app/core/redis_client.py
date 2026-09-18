@@ -45,13 +45,19 @@ class RedisClient:
 
     async def connect(self) -> bool:
         """Attempt to connect to Redis server. Required in production."""
+        if self._connected and self._redis:
+            return True
+        now = time.time()
+        if not self._connected and not self._is_production and (now - getattr(self, "_last_fail_time", 0.0)) < 10.0:
+            return False
+
         try:
             import redis.asyncio as aioredis  # type: ignore
             self._redis = aioredis.from_url(
                 self._url,
                 decode_responses=True,
-                socket_connect_timeout=5.0,
-                socket_timeout=5.0,
+                socket_connect_timeout=2.0 if not self._is_production else 5.0,
+                socket_timeout=2.0 if not self._is_production else 5.0,
                 max_connections=50,
             )
             await self._redis.ping()
@@ -60,6 +66,7 @@ class RedisClient:
             return True
         except Exception as exc:
             self._connected = False
+            self._last_fail_time = time.time()
             if self._is_production:
                 logger.critical("Redis connection REQUIRED in production but unavailable: %s", exc)
                 raise RuntimeError(f"Redis connection required in production: {exc}") from exc
