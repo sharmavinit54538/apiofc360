@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import uuid
 
-from sqlalchemy import String, DateTime, func, Boolean, Integer, JSON, text
+from sqlalchemy import String, DateTime, func, Boolean, Integer, JSON, Float, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,4 +53,22 @@ class Company(Base):
     hr_settings: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
+    )
+    office_latitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    office_longitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    geofence_radius_meters: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="Asia/Kolkata",
+        server_default=text("'Asia/Kolkata'"),
     )

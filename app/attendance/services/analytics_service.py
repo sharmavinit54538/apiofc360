@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance.models.attendance import Attendance
 from app.models.employee import Employee
+from app.models.company import Company
 
 
 class AttendanceAnalyticsService:
@@ -47,11 +49,27 @@ class AttendanceAnalyticsService:
         hours = [r.working_hours for r in today_records if r.working_hours is not None]
         avg_hours = round(sum(hours) / len(hours), 2) if hours else 0.0
 
-        # 5. Late Check-ins (check-in after 09:30 AM local/UTC time)
+        # 5. Late Check-ins (check-in after 09:30 AM in company's local timezone)
+        company = await self.db.get(Company, company_id)
+        tz_name = (company.timezone if company and company.timezone else None) or "Asia/Kolkata"
+        if not tz_name and company:
+            hr_settings = getattr(company, "hr_settings", None) or {}
+            if isinstance(hr_settings, dict):
+                tz_name = hr_settings.get("timezone") or "Asia/Kolkata"
+
+        try:
+            target_tz = ZoneInfo(tz_name)
+        except Exception:
+            target_tz = ZoneInfo("Asia/Kolkata")
+
         late = 0
         for record in today_records:
             if record.check_in_time:
-                if record.check_in_time.hour > 9 or (record.check_in_time.hour == 9 and record.check_in_time.minute > 30):
+                check_in_dt = record.check_in_time
+                if check_in_dt.tzinfo is None:
+                    check_in_dt = check_in_dt.replace(tzinfo=timezone.utc)
+                local_time = check_in_dt.astimezone(target_tz)
+                if local_time.hour > 9 or (local_time.hour == 9 and local_time.minute > 30):
                     late += 1
 
         return {

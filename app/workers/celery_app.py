@@ -18,6 +18,7 @@ try:
         include=[
             "app.workers.resume_tasks",
             "app.workers.notification_tasks",
+            "app.workers.attendance_tasks",
         ],
     )
 
@@ -36,6 +37,7 @@ try:
         task_routes={
             "app.workers.resume_tasks.*": {"queue": "resume_parsing"},
             "app.workers.notification_tasks.*": {"queue": "notifications"},
+            "app.workers.attendance_tasks.*": {"queue": "maintenance"},
         },
         task_default_queue="default",
     )

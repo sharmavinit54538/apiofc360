@@ -14,6 +14,7 @@ from app.attendance.repositories.attendance_repository import AttendanceReposito
 from app.attendance.services.validation_service import AttendanceValidationService
 from app.attendance.utils.helpers import save_face_image, write_audit_log
 from app.core.exceptions import BadRequestException
+from app.models.company import Company
 
 
 class AttendanceCheckOutService:
@@ -37,6 +38,9 @@ class AttendanceCheckOutService:
         """Verify conditions, compute working hours, and record checkout."""
         employee = await self.repo.get_employee_by_user_id(user_id)
         employee = self.validator.validate_employee(employee, company_id)
+
+        company = await self.db.get(Company, company_id)
+        self.validator.validate_location(company, latitude, longitude)
 
         self.validator.validate_image(file)
 
