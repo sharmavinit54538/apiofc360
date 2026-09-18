@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+    Boolean, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,7 +43,14 @@ class Attendance(Base):
     check_out_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     face_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    captured_face_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     checkout_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Present", server_default=text("'Present'"))
+    punch_type: Mapped[str] = mapped_column(String(10), nullable=False, default="IN", server_default=text("'IN'"))
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    punch_verified_by: Mapped[str | None] = mapped_column(String(20), nullable=True, default="FACE", server_default=text("'FACE'"))
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)

@@ -34,6 +34,26 @@ async def save_face_image(file: UploadFile) -> str:
     return relative_path
 
 
+async def save_base64_image(image_base64: str, prefix: str = "face") -> str:
+    """Saves a base64 encoded image to disk and returns its relative path URL."""
+    import base64
+
+    clean_base64 = image_base64
+    if "," in clean_base64:
+        clean_base64 = clean_base64.split(",", 1)[1]
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    unique_filename = f"{prefix}_{uuid.uuid4().hex}.jpg"
+    relative_path = os.path.join("uploads", "face_attendance", unique_filename).replace("\\", "/")
+    save_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+    image_data = base64.b64decode(clean_base64)
+    with open(save_path, "wb") as f:
+        f.write(image_data)
+
+    return relative_path
+
+
 async def write_audit_log(
     db: AsyncSession,
     user_id: uuid.UUID,

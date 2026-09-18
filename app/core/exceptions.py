@@ -302,7 +302,14 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     """Render HTTP exceptions with the common response envelope."""
 
     status_code = exc.status_code
-    message = str(exc.detail) if exc.detail else "Request failed."
+    code = None
+    detail_dict = {}
+    if isinstance(exc.detail, dict):
+        message = exc.detail.get("message", "Request failed.")
+        code = exc.detail.get("code")
+        detail_dict = exc.detail
+    else:
+        message = str(exc.detail) if exc.detail else "Request failed."
 
     user_id = None
     role = None
@@ -318,9 +325,15 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         logger.info(log_msg)
     else:
         logger.warning(log_msg)
+
+    err_payload = error_response_content(message=message, code=code)
+    if detail_dict:
+        for k, v in detail_dict.items():
+            err_payload[k] = v
+
     response = JSONResponse(
         status_code=status_code,
-        content=jsonable_encoder(error_response_content(message=message)),
+        content=jsonable_encoder(err_payload),
     )
     return add_cors_headers(request, response)
 

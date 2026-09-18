@@ -21,7 +21,13 @@ class AttendanceResponse(BaseModel):
     check_in_time: datetime
     check_out_time: Optional[datetime] = None
     face_image_url: Optional[str] = None
+    captured_face_url: Optional[str] = None
     checkout_image_url: Optional[str] = None
+    status: Optional[str] = "Present"
+    punch_type: Optional[str] = "IN"
+    verified: Optional[bool] = True
+    punch_verified_by: Optional[str] = "FACE"
+    notes: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     device_info: Optional[str] = None

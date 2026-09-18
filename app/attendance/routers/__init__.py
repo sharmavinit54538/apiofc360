@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.attendance.routers.checkin import router as checkin_router
 from app.attendance.routers.checkout import router as checkout_router
+from app.attendance.routers.enrollment import router as enrollment_router
 from app.attendance.routers.me import router as me_router
 from app.attendance.routers.history import router as history_router
 from app.attendance.routers.team import router as team_router
@@ -13,6 +14,7 @@ from app.attendance.routers.analytics import router as analytics_router
 router = APIRouter(prefix="/attendance", tags=["Face Attendance"])
 
 # Include sub-routes
+router.include_router(enrollment_router)
 router.include_router(checkin_router)
 router.include_router(checkout_router)
 router.include_router(me_router)

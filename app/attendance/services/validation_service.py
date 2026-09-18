@@ -1,14 +1,13 @@
-"""Daily Face Attendance request validation service."""
-
 from __future__ import annotations
 
 import uuid
 from datetime import date
-from fastapi import UploadFile, status
+from fastapi import HTTPException, UploadFile, status
 
 from app.core.exceptions import AppException, ConflictException
 from app.models.employee import Employee
 from app.attendance.repositories.attendance_repository import AttendanceRepository
+from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 
 # Validation Constants
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
@@ -70,3 +69,54 @@ class AttendanceValidationService:
             raise ConflictException(
                 message=f"Employee has already checked in on {dt.isoformat()}."
             )
+
+    def validate_face_enrolled(self, employee: Employee) -> None:
+        """Enforce mandatory face enrollment guard.
+        
+        Raises HTTPException 403 if face has not been enrolled.
+        """
+        if not getattr(employee, "is_face_enrolled", False) or not getattr(employee, "face_embedding", None):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "FACE_NOT_ENROLLED",
+                    "message": "Face not enrolled. Please complete face registration first."
+                },
+            )
+
+    def validate_face_match(
+        self,
+        employee: Employee,
+        live_embedding: list[float],
+        threshold: float = MATCH_DISTANCE_THRESHOLD,
+    ) -> float:
+        """Validates that live face embedding matches registered profile embedding.
+        
+        Raises HTTPException 400 with FACE_MISMATCH code if distance > threshold.
+        """
+        saved_embedding = getattr(employee, "face_embedding", None)
+        if not saved_embedding:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "FACE_NOT_ENROLLED",
+                    "message": "Face not enrolled. Please complete face registration first."
+                },
+            )
+
+        is_match, distance = FaceRecognitionService.compare_embeddings(
+            saved_embedding=saved_embedding,
+            live_embedding=live_embedding,
+            threshold=threshold,
+        )
+
+        if not is_match:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "FACE_MISMATCH",
+                    "message": "Face verification failed. Face does not match registered profile."
+                },
+            )
+
+        return distance
