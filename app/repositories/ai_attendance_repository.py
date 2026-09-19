@@ -343,36 +343,73 @@ class AIAttendanceRepository:
         company_id: Optional[uuid.UUID] = None,
         department_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
-        """Compute overtime tracking metrics."""
+        """Compute overtime tracking metrics from real database records."""
+        ot_calc = func.sum(Attendance.working_hours - 8.0)
         stmt = (
-            select(func.sum(Attendance.working_hours - 8.0))
+            select(ot_calc)
+            .join(Employee, Attendance.employee_id == Employee.id)
             .where(and_(Attendance.working_hours.is_not(None), Attendance.working_hours > 8.0))
         )
         if company_id:
             stmt = stmt.where(Attendance.company_id == company_id)
+        if department_id:
+            stmt = stmt.where(Employee.department_id == department_id)
 
         res = await self.session.execute(stmt)
-        total_ot = res.scalar() or 0.0
+        total_ot = float(res.scalar() or 0.0)
 
-        daily_ot = round(float(total_ot) / 30.0, 1) if total_ot > 0 else 12.4
+        daily_ot = round(total_ot / 30.0, 1) if total_ot > 0 else 0.0
         weekly_ot = round(daily_ot * 5.0, 1)
         monthly_ot = round(daily_ot * 22.0, 1)
-        budget_impact = round(monthly_ot * 450.0, 2)  # Avg OT rate $450/hr
+        budget_impact = round(monthly_ot * 450.0, 2)
+
+        # Real department-wise OT query
+        dept_stmt = (
+            select(
+                func.coalesce(Department.department_name, Employee.department).label("dept_name"),
+                func.sum(Attendance.working_hours - 8.0).label("dept_ot"),
+            )
+            .join(Employee, Attendance.employee_id == Employee.id)
+            .join(Department, Employee.department_id == Department.id, isouter=True)
+            .where(and_(Attendance.working_hours.is_not(None), Attendance.working_hours > 8.0))
+        )
+        if company_id:
+            dept_stmt = dept_stmt.where(Attendance.company_id == company_id)
+        dept_stmt = dept_stmt.group_by(func.coalesce(Department.department_name, Employee.department)).limit(10)
+        dept_res = await self.session.execute(dept_stmt)
+        dept_ot_list = [
+            {"department": r[0] or "General", "ot_hours": round(float(r[1] or 0.0), 1)}
+            for r in dept_res.fetchall()
+        ]
+
+        # Real employee-wise OT query
+        emp_stmt = (
+            select(
+                Employee.first_name,
+                Employee.last_name,
+                func.sum(Attendance.working_hours - 8.0).label("emp_ot"),
+            )
+            .join(Employee, Attendance.employee_id == Employee.id)
+            .where(and_(Attendance.working_hours.is_not(None), Attendance.working_hours > 8.0))
+        )
+        if company_id:
+            emp_stmt = emp_stmt.where(Attendance.company_id == company_id)
+        if department_id:
+            emp_stmt = emp_stmt.where(Employee.department_id == department_id)
+        emp_stmt = emp_stmt.group_by(Employee.id, Employee.first_name, Employee.last_name).order_by(func.sum(Attendance.working_hours - 8.0).desc()).limit(10)
+        emp_res = await self.session.execute(emp_stmt)
+        emp_ot_list = [
+            {"employee_name": f"{r[0]} {r[1]}".strip(), "ot_hours": round(float(r[2] or 0.0), 1)}
+            for r in emp_res.fetchall()
+        ]
 
         return {
             "daily_ot_hours": daily_ot,
             "weekly_ot_hours": weekly_ot,
             "monthly_ot_hours": monthly_ot,
             "budget_impact_amount": budget_impact,
-            "department_wise_ot": [
-                {"department": "Engineering", "ot_hours": round(monthly_ot * 0.5, 1)},
-                {"department": "Sales", "ot_hours": round(monthly_ot * 0.3, 1)},
-                {"department": "Operations", "ot_hours": round(monthly_ot * 0.2, 1)},
-            ],
-            "employee_wise_ot": [
-                {"employee_name": "Dev User", "ot_hours": 18.5},
-                {"employee_name": "John Doe", "ot_hours": 14.0},
-            ],
+            "department_wise_ot": dept_ot_list,
+            "employee_wise_ot": emp_ot_list,
         }
 
     async def get_absentee_watchlist(
@@ -385,7 +422,7 @@ class AIAttendanceRepository:
             select(Employee, Department)
             .join(Department, Employee.department_id == Department.id, isouter=True)
             .where(and_(Employee.is_deleted == False, Employee.status.ilike("ACTIVE")))
-            .limit(10)
+            .limit(20)
         )
         if company_id:
             stmt = stmt.where(Employee.company_id == company_id)
@@ -395,23 +432,36 @@ class AIAttendanceRepository:
         res = (await self.session.execute(stmt)).all()
 
         watchlist = []
+        # Target period = last 30 days
+        start_30d = date.today() - timedelta(days=30)
         for emp, dept in res:
-            # Query attendance count for employee
-            att_cnt_stmt = select(func.count(Attendance.id)).where(Attendance.employee_id == emp.id)
+            att_cnt_stmt = select(func.count(Attendance.id)).where(
+                and_(Attendance.employee_id == emp.id, Attendance.date >= start_30d)
+            )
             att_cnt = (await self.session.execute(att_cnt_stmt)).scalar() or 0
 
-            # Flag if attendance is low
-            if att_cnt < 15:
+            late_cnt_stmt = select(func.count(Attendance.id)).where(
+                and_(Attendance.employee_id == emp.id, Attendance.date >= start_30d, Attendance.is_late == True)
+            )
+            late_cnt = (await self.session.execute(late_cnt_stmt)).scalar() or 0
+
+            # Working days in month roughly 22
+            expected_work_days = 22
+            absent_days = max(0, expected_work_days - att_cnt)
+
+            if att_cnt < 18:
                 emp_name = f"{emp.first_name} {emp.last_name}".strip()
+                att_pct = round((att_cnt / expected_work_days) * 100.0, 1) if expected_work_days > 0 else 0.0
                 watchlist.append({
                     "employee_id": emp.id,
                     "employee_name": emp_name,
-                    "department": dept.department_name if dept else "General",
-                    "absent_days": max(3, 20 - att_cnt),
-                    "late_count": 4,
-                    "attendance_percentage": round(max(65.0, att_cnt * 4.5), 1),
+                    "department": dept.department_name if dept else (emp.department or "General"),
+                    "absent_days": absent_days,
+                    "late_count": late_cnt,
+                    "attendance_percentage": min(100.0, max(0.0, att_pct)),
                     "risk_level": "HIGH" if att_cnt < 10 else "MEDIUM",
                     "recommendation": "Schedule HR 1-on-1 counseling session and review shift allocation.",
                 })
 
         return watchlist
+

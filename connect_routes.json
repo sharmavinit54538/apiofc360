@@ -1,0 +1,416 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/colleagues",
+    "name": "get_colleagues",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "1. User Discovery - List Colleagues"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/search",
+    "name": "unified_search",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "2. Unified Search"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/conversations",
+    "name": "get_conversations",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "3. Get Conversations"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/conversations",
+    "name": "create_conversation",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "4. Create or Retrieve Direct Conversation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "name": "get_conversation_messages",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "5. Get Conversation Messages"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "name": "send_conversation_message",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "6. Send Conversation Message"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{messageId}/reactions",
+    "name": "toggle_reaction",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "7. Toggle Message Reaction"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/messages/{messageId}/pin",
+    "name": "pin_message",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "8. Pin/Unpin Message"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/messages/{messageId}",
+    "name": "delete_message",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "9. Delete Message"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "name": "get_message_thread",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "10. Get Message Thread"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "name": "post_thread_reply",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "11. Post Thread Reply"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels",
+    "name": "get_channels",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "12. Get Channels"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels",
+    "name": "create_channel",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "13. Create Channel"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "name": "get_channel_detail",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "14. Get Channel Details"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "name": "update_channel",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "14b. Update Channel"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "name": "delete_channel",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "14c. Delete Channel"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/members",
+    "name": "add_channel_members",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "14d. Add Channel Members"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}/members/{userId}",
+    "name": "remove_channel_member",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "14e. Remove Channel Member"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "name": "get_channel_messages",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "15. Get Channel Messages"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "name": "send_channel_message",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "16. Send Channel Message"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/leave",
+    "name": "leave_channel",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "17. Leave Channel"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}/archive",
+    "name": "archive_channel",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "18. Archive Channel"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/ice-servers",
+    "name": "get_ice_servers",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "19a. Get ICE Servers"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/history",
+    "name": "get_call_history",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "19. Get Call History"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/{callId}",
+    "name": "get_call_detail",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "20a. Get Call Details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/calls/initiate",
+    "name": "initiate_call",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "20. Initiate Call"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/calls/{callId}/status",
+    "name": "update_call_status",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "21. Update Call Status"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/calls/{callId}/signal",
+    "name": "call_signal",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "22. WebRTC Signaling Relay"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/meetings",
+    "name": "get_meetings",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "23. Get Meetings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings",
+    "name": "create_meeting",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "24. Create Meeting"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/meetings/{meetingId}",
+    "name": "get_meeting_detail",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "25. Get Meeting Details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/join",
+    "name": "join_meeting",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "26. Join Meeting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/leave",
+    "name": "leave_meeting",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "27. Leave Meeting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/messages",
+    "name": "send_meeting_message",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "28. Send Meeting Message"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/files",
+    "name": "get_shared_files",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "29. Get Shared Files"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/files/upload",
+    "name": "upload_shared_file",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "30. Upload Shared File"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/files/{fileId}",
+    "name": "delete_shared_file",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "31. Delete Shared File"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/connect/presence",
+    "name": "update_presence",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "32. Update User Presence"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/presence/batch",
+    "name": "batch_presence",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "33. Batch Presence Lookup"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/notifications",
+    "name": "get_notifications",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "34. Get Notifications"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/notifications/{notificationId}/read",
+    "name": "mark_notification_read",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "35. Mark Notification as Read"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/notifications",
+    "name": "clear_notifications",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "36. Clear Notifications"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/settings/sound",
+    "name": "get_sound_settings",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "37. Get Sound Settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/connect/settings/sound",
+    "name": "update_sound_settings",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "38. Update Sound Settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/ai/transform",
+    "name": "ai_transform",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "39. AI Communication Copilot Transform"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/mail/dispatch",
+    "name": "mail_dispatch",
+    "tags": [
+      "OFC360 Connect"
+    ],
+    "summary": "40. Connect Mail Dispatch"
+  }
+]

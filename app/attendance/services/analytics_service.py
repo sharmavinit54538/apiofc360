@@ -47,12 +47,12 @@ class AttendanceAnalyticsService:
         hours = [r.working_hours for r in today_records if r.working_hours is not None]
         avg_hours = round(sum(hours) / len(hours), 2) if hours else 0.0
 
-        # 5. Late Check-ins (check-in after 09:30 AM local/UTC time)
-        late = 0
-        for record in today_records:
-            if record.check_in_time:
-                if record.check_in_time.hour > 9 or (record.check_in_time.hour == 9 and record.check_in_time.minute > 30):
-                    late += 1
+        # 5. Late Check-ins based on assigned shift engine
+        late = sum(
+            1 for r in today_records
+            if r.is_late is True or (r.is_late is None and r.check_in_time and (r.check_in_time.hour > 9 or (r.check_in_time.hour == 9 and r.check_in_time.minute > 30)))
+        )
+
 
         return {
             "total_active_employees": total_active,
