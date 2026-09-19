@@ -17,6 +17,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.employee import Employee
     from app.models.company import Company
+    from app.attendance.models.attendance_break import AttendanceBreak
 
 
 class Attendance(Base):
@@ -54,10 +55,20 @@ class Attendance(Base):
 
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)
+    location_accuracy: Mapped[float | None] = mapped_column(nullable=True)
     device_info: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     working_hours: Mapped[float | None] = mapped_column(nullable=True)
+    break_duration: Mapped[float | None] = mapped_column(nullable=True, default=0.0, server_default=text("0.0"))
+
+    liveness_score: Mapped[float | None] = mapped_column(nullable=True)
+    face_distance: Mapped[float | None] = mapped_column(nullable=True)
+
+    is_late: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False, server_default=text("false"))
+    late_minutes: Mapped[int | None] = mapped_column(nullable=True, default=0, server_default=text("0"))
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    shift_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -65,3 +76,5 @@ class Attendance(Base):
     # Relationships
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
     company: Mapped[Company | None] = relationship("Company", lazy="select")
+    breaks: Mapped[list[AttendanceBreak]] = relationship("AttendanceBreak", back_populates="attendance", cascade="all, delete-orphan", lazy="select")
+

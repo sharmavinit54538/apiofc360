@@ -1,20 +1,23 @@
-"""Daily Face Attendance check-in controller route."""
+"""Daily Face Attendance check-in controller routes."""
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+import base64
+import logging
+from typing import Annotated, Any, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException
-from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
-from app.schemas.auth import APIResponse
 from app.attendance.schemas.face import CheckInRequest
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.checkin_service import AttendanceCheckInService
+from app.core.exceptions import AppException
+from app.db.database import get_db_session
+from app.middleware.auth import get_current_user_claims
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -30,89 +33,105 @@ def _get_company_id(claims: dict) -> uuid.UUID:
             message="Company context missing in user authentication claims.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
-    return uuid.UUID(company_id_str)
+    return uuid.UUID(str(company_id_str))
 
 
-@router.post(
-    "/checkin",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[AttendanceResponse],
-    summary="Record daily attendance check-in with AI face recognition",
-)
-@router.post(
-    "/face/checkin",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[AttendanceResponse],
-    include_in_schema=False,
-)
-async def ai_face_check_in(
-    payload: CheckInRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
-    db: Annotated[AsyncSession, Depends(get_db_session)],
-) -> APIResponse[AttendanceResponse]:
-    """Punch daily attendance via AI face biometric recognition.
-    
-    Validates:
-    - Employee face is enrolled (403 FACE_NOT_ENROLLED)
-    - Single live face detected (400 if 0 or >1 faces)
-    - Face matches registered baseline embedding (400 FACE_MISMATCH if distance > 0.50)
-    - Inserts attendance record with status='Present', punch_type='IN', verified=True
-    """
-    user_id = _get_user_id(claims)
-    company_id = _get_company_id(claims)
-
+async def _handle_checkin_request(
+    request: Request,
+    user_id: uuid.UUID,
+    company_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict:
+    """Unified handler accepting either JSON body or multipart/form-data."""
+    content_type = request.headers.get("content-type", "").lower()
     service = AttendanceCheckInService(db)
+    client_ip = request.client.host if request.client else None
+
+    image_b64: Optional[str] = None
+    location_dict: Optional[dict] = None
+    notes: Optional[str] = None
+    device_info: Optional[str] = None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file")
+        if not file_obj or not hasattr(file_obj, "read"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "FACE_QUALITY_LOW", "message": "Uploaded face image file is required."},
+            )
+        file_bytes = await file_obj.read()
+        image_b64 = base64.b64encode(file_bytes).decode("utf-8")
+
+        lat = form.get("latitude")
+        lng = form.get("longitude")
+        acc = form.get("accuracy")
+        if lat is not None and lng is not None:
+            location_dict = {
+                "latitude": float(lat),
+                "longitude": float(lng),
+                "accuracy": float(acc) if acc is not None else None,
+            }
+        notes = form.get("notes")
+        device_info = form.get("device_info")
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "BAD_REQUEST", "message": "Invalid JSON request payload."},
+            )
+        image_b64 = body.get("image_base64")
+        location_dict = body.get("location")
+        notes = body.get("notes")
+        device_info = body.get("device_info")
+
+    if not image_b64:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "FACE_QUALITY_LOW", "message": "Face image is required."},
+        )
+
     record = await service.check_in_with_face_base64(
         user_id=user_id,
         company_id=company_id,
-        image_base64=payload.image_base64,
-        location=payload.location,
-        notes=payload.notes,
-        device_info=payload.device_info,
-        ip_address=payload.ip_address,
+        image_base64=image_b64,
+        location=location_dict,
+        notes=notes,
+        device_info=device_info,
+        ip_address=client_ip,
     )
 
-    return APIResponse[AttendanceResponse](
-        success=True,
-        message="Checked in successfully.",
-        data=AttendanceResponse.model_validate(record),
-        errors=None,
-    )
+    return {
+        "success": True,
+        "message": "Checked in successfully.",
+        "data": AttendanceResponse.model_validate(record).model_dump(mode="json"),
+        "error": None,
+    }
 
 
 @router.post(
     "/face/check-in",
     status_code=status.HTTP_201_CREATED,
-    response_model=APIResponse[AttendanceResponse],
-    summary="Record daily attendance check-in with a face photograph file (multipart)",
+    summary="Record daily attendance check-in with real face matching (JSON or multipart)",
 )
-async def face_check_in(
-    file: UploadFile = File(..., description="Captured face image proof"),
-    latitude: Optional[float] = Form(None, description="Check-in latitude coordinates"),
-    longitude: Optional[float] = Form(None, description="Check-in longitude coordinates"),
-    device_info: Optional[str] = Form(None, description="IP/device description info string"),
-    ip_address: Optional[str] = Form(None, description="Requesting network IP address"),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
-    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-) -> APIResponse[AttendanceResponse]:
-    """Record daily check-in with multipart file upload."""
+@router.post(
+    "/checkin",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+@router.post(
+    "/face/checkin",
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+async def ai_face_check_in(
+    request: Request,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict:
+    """Punch daily attendance via AI face biometric recognition."""
     user_id = _get_user_id(claims)
     company_id = _get_company_id(claims)
-
-    service = AttendanceCheckInService(db)
-    record = await service.check_in(
-        user_id=user_id,
-        company_id=company_id,
-        file=file,
-        latitude=latitude,
-        longitude=longitude,
-        device_info=device_info,
-        ip_address=ip_address,
-    )
-
-    return APIResponse[AttendanceResponse](
-        success=True,
-        message="Checked in successfully.",
-        data=AttendanceResponse.model_validate(record),
-        errors=None,
-    )
+    return await _handle_checkin_request(request, user_id, company_id, db)

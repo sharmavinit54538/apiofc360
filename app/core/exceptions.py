@@ -329,7 +329,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     err_payload = error_response_content(message=message, code=code)
     if detail_dict:
         for k, v in detail_dict.items():
-            err_payload[k] = v
+            if k not in ("message", "code"):
+                err_payload[k] = v
+    if code:
+        err_payload["error"] = {"code": code, "message": message}
+    elif "error" not in err_payload or err_payload["error"] is None:
+        err_payload["error"] = {"code": f"HTTP_{status_code}", "message": message}
+
 
     response = JSONResponse(
         status_code=status_code,
