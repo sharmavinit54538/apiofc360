@@ -437,13 +437,44 @@ class ExitService:
             logger.exception("submit_exit_interview: db error", exc_info=exc)
             raise DatabaseException() from exc
 
+    async def get_fnf_preview(self, exit_uuid: uuid.UUID) -> dict:
+        try:
+            exit_obj = await self.repo.get_exit_by_id(exit_uuid)
+            if not exit_obj:
+                raise AppException(message="Exit request not found.", status_code=status.HTTP_404_NOT_FOUND)
+
+            from app.services.fnf_calculation_service import FnfCalculationService
+            fnf_calc = FnfCalculationService(self.session)
+            return await fnf_calc.calculate_fnf_preview(exit_uuid)
+        except AppException:
+            raise
+        except Exception as exc:
+            logger.exception("get_fnf_preview error", exc_info=exc)
+            raise AppException(message=f"Failed to calculate FNF preview: {str(exc)}", status_code=status.HTTP_400_BAD_REQUEST)
+
     async def submit_fnf(self, exit_uuid: uuid.UUID, payload: FnfCreate) -> FnfResponse:
         try:
             exit_obj = await self.repo.get_exit_by_id(exit_uuid)
             if not exit_obj:
                 raise AppException(message="Exit request not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            fnf = await self.repo.upsert_fnf(exit_uuid, payload.model_dump())
+            data = payload.model_dump()
+            # If all amounts are zero/empty, auto-calculate from FnfCalculationService
+            total_provided = sum(Decimal(str(v)) for k, v in data.items() if isinstance(v, (int, float, Decimal)) and k != "net_payable_amount")
+            if total_provided == Decimal("0.00"):
+                from app.services.fnf_calculation_service import FnfCalculationService
+                preview = await FnfCalculationService(self.session).calculate_fnf_preview(exit_uuid)
+                data.update({
+                    "last_salary": Decimal(str(preview["last_salary"])),
+                    "pending_salary": Decimal(str(preview["pending_salary"])),
+                    "leave_encashment": Decimal(str(preview["leave_encashment"])),
+                    "gratuity": Decimal(str(preview["gratuity"])),
+                    "bonus": Decimal(str(preview["bonus"])),
+                    "notice_recovery": Decimal(str(preview["notice_recovery"])),
+                    "loan_recovery": Decimal(str(preview["loan_recovery"])),
+                })
+
+            fnf = await self.repo.upsert_fnf(exit_uuid, data)
             await self.session.commit()
             return FnfResponse.model_validate(fnf)
         except AppException:

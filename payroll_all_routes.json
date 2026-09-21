@@ -1,0 +1,5180 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/dashboard",
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get AI Payroll Insights Dashboard KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/forecast",
+    "name": "get_payroll_forecast",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Forecast"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/cost-analysis",
+    "name": "get_payroll_cost_analysis",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Cost Analysis"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/cost-by-department",
+    "name": "get_cost_by_department",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Cost By Department"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/benchmarking",
+    "name": "get_salary_benchmarking",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Salary Benchmarking Analysis"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/anomalies",
+    "name": "get_payroll_anomalies",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Anomaly Detections"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/fraud-detection",
+    "name": "get_payroll_fraud_detection",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Fraud Flags"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/health-score",
+    "name": "get_payroll_health_score",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Health Index"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/analytics",
+    "name": "get_payroll_analytics",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Payroll Analytics Overview"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/employee/{employee_id}",
+    "name": "get_employee_payroll_detail",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Get Employee Payroll Details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/forecast",
+    "name": "forecast_payroll",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Generate AI Payroll Forecast"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/analyze",
+    "name": "analyze_payroll",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Analyze Payroll Run via AI"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/detect-anomalies",
+    "name": "detect_anomalies",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Detect Payroll Anomalies via AI"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/detect-fraud",
+    "name": "detect_fraud",
+    "tags": [
+      "AI Payroll Insights"
+    ],
+    "summary": "Detect Payroll Fraud via AI"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles",
+    "name": "list_payroll_cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll cycles"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles/logs",
+    "name": "get_payroll_cycle_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles/history",
+    "name": "get_payroll_cycle_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles/{cycle_id}",
+    "name": "get_payroll_cycle_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payroll cycle details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles",
+    "name": "create_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll cycle"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll cycle"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll cycle"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/cycles/{cycle_id}",
+    "name": "delete_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles/{cycle_id}/activate",
+    "name": "activate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles/{cycle_id}/lock",
+    "name": "lock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Lock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles/{cycle_id}/unlock",
+    "name": "unlock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Unlock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles/{cycle_id}/duplicate",
+    "name": "duplicate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles/{cycle_id}/archive",
+    "name": "archive_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive payroll cycle"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing",
+    "name": "get_salary_processing_list",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/hero",
+    "name": "get_salary_processing_hero",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing hero card metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/kpis",
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/approval-workflow",
+    "name": "get_salary_processing_approval_workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get approval workflow"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/ai-insights",
+    "name": "get_salary_processing_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/validations",
+    "name": "get_salary_processing_validations",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get validation panel error items"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/analytics",
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/run",
+    "name": "trigger_salary_processing_run",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Trigger payroll run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/approve",
+    "name": "approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/rollback",
+    "name": "rollback_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/recalculate/{employee_id}",
+    "name": "recalculate_employee_salary",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate salary"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/resolve-exception/{exception_id}",
+    "name": "resolve_salary_exception",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Resolve exception"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/auto-fix",
+    "name": "auto_fix_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Auto-fix validation issues"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-payout",
+    "name": "batch_payout_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch payout"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-approve",
+    "name": "batch_approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch approve"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-recalculate",
+    "name": "batch_recalculate_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch recalculate"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/payslips",
+    "name": "generate_payslips_for_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/bank-transfer",
+    "name": "initiate_bank_transfer_from_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/export",
+    "name": "export_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export salary processing data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/employees/{employee_id}/salary-structure",
+    "name": "get_employee_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get employee salary structure"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-structures",
+    "name": "list_salary_structures_alias",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary structures"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-structures/audit",
+    "name": "get_salary_structures_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structures audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-structures/ai-insights",
+    "name": "get_salary_structures_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}",
+    "name": "get_salary_structure_by_id",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure by ID"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-structures",
+    "name": "create_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary structure"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}",
+    "name": "update_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}/clone",
+    "name": "clone_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clone salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}/assign",
+    "name": "assign_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Assign salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}/approve",
+    "name": "approve_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-structures/{structure_id}/rollback",
+    "name": "rollback_salary_structure_version",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary structure version"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/admin/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List admin payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips/{payslip_id}/preview",
+    "name": "get_payslip_preview",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip preview data"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/payslips/bulk-generate",
+    "name": "bulk_generate_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/payslips/bulk-email",
+    "name": "bulk_email_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk email payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/payslips/bulk-download",
+    "name": "bulk_download_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk download payslips ZIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips/{payslip_id}/pdf",
+    "name": "download_payslip_pdf",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Download single payslip PDF"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/payslips/{payslip_id}/email",
+    "name": "email_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Email single payslip"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/payslips/{payslip_id}/regenerate",
+    "name": "regenerate_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Regenerate single payslip"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/payslips/{payslip_id}",
+    "name": "delete_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips/{payslip_id}/audit-logs",
+    "name": "get_payslip_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get audit logs for payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips/{payslip_id}",
+    "name": "get_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/overtime",
+    "name": "list_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List overtime entries"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime",
+    "name": "create_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime/{overtime_id}/approve",
+    "name": "approve_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime/{overtime_id}/reject",
+    "name": "reject_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bonus/plans",
+    "name": "list_bonus_plans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bonus plans"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bonuses",
+    "name": "list_bonuses",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all bonuses"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bonuses",
+    "name": "create_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bonuses/{bonus_id}/approve",
+    "name": "approve_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bonuses/{bonus_id}/reject",
+    "name": "reject_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bonuses/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/deductions",
+    "name": "list_deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List deductions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/reimbursements",
+    "name": "list_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List reimbursement claims"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/reimbursements",
+    "name": "create_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/reimbursements/{claim_id}/approve",
+    "name": "approve_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/reimbursements/{claim_id}/reject",
+    "name": "reject_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/reimbursements/bulk-approve",
+    "name": "bulk_approve_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk approve reimbursement claims"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/reimbursements/audit-logs",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/reimbursements/ai-insights",
+    "name": "get_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement AI insights"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/reimbursements/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/loans",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans alias"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/advances",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/advances",
+    "name": "create_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/advances/{loan_id}/approve",
+    "name": "approve_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/advances/{loan_id}/reject",
+    "name": "reject_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/advances/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank/disbursements",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank disbursements alias"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank-transfers",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank transfers"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank-transfers/dashboard",
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank-transfers/audit",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank-transfers/{transfer_id}",
+    "name": "get_transfer_detail",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer detail"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/batch",
+    "name": "create_transfer_batch",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create transfer batch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/generate-file",
+    "name": "generate_bank_file",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate NEFT bank file"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/initiate",
+    "name": "initiate_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/reconcile",
+    "name": "reconcile_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reconcile bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/{transfer_id}/retry",
+    "name": "retry_transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Retry failed transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/bank-transfers/{transfer_id}/mark-paid",
+    "name": "mark_as_paid",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Mark transfer as paid"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/config",
+    "name": "get_statutory_config",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance configuration"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/dashboard",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/dashboard",
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/copilot/chat",
+    "name": "get_payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot status & history"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/copilot/chat",
+    "name": "payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Payroll AI copilot chat"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/copilot/history",
+    "name": "get_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot chat history"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/copilot/clear",
+    "name": "clear_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clear payroll copilot chat history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/settings",
+    "name": "get_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll settings"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/settings/history",
+    "name": "get_settings_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/settings/audit",
+    "name": "get_settings_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change audit log"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/settings/reset",
+    "name": "reset_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reset payroll settings to statutory presets"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/settings/test",
+    "name": "test_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Test settings configuration integrity"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/settings/export",
+    "name": "export_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export settings configuration JSON snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/admin/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list for admin"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/components",
+    "name": "list_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary components"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/components/audit",
+    "name": "get_salary_component_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/components/history",
+    "name": "get_salary_component_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/components/{component_id}",
+    "name": "get_salary_component_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single component details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/components",
+    "name": "create_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary component"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update salary component"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary component"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/components/{component_id}",
+    "name": "delete_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/components/{component_id}/duplicate",
+    "name": "duplicate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/components/{component_id}/activate",
+    "name": "activate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/components/{component_id}/deactivate",
+    "name": "deactivate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/components/reorder",
+    "name": "reorder_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reorder components display order"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/allowances",
+    "name": "list_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all allowances"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/allowances/audit",
+    "name": "get_allowance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/allowances/history",
+    "name": "get_allowance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/allowances/export",
+    "name": "export_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export allowances snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/allowances/{allowance_id}",
+    "name": "get_allowance_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single allowance details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/allowances",
+    "name": "create_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new allowance definition"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update allowance definition"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update allowance definition"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/allowances/{allowance_id}",
+    "name": "delete_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete custom allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/allowances/{allowance_id}/duplicate",
+    "name": "duplicate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate allowance definition"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/allowances/{allowance_id}/activate",
+    "name": "activate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/allowances/{allowance_id}/deactivate",
+    "name": "deactivate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate allowance"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/taxes",
+    "name": "list_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all tax rules & configurations"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/taxes/audit",
+    "name": "get_tax_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/taxes/history",
+    "name": "get_tax_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/taxes/export",
+    "name": "export_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export tax configuration snapshot"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/taxes/import",
+    "name": "import_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Import tax configuration rules"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/taxes/recalculate",
+    "name": "recalculate_tax_liabilities",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate live tax liabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/taxes/{tax_id}",
+    "name": "get_tax_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single tax setting details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/taxes",
+    "name": "create_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new tax setting"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update tax setting"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update tax setting"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/taxes/{tax_id}",
+    "name": "delete_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/taxes/{tax_id}/activate",
+    "name": "activate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/taxes/{tax_id}/deactivate",
+    "name": "deactivate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate tax setting"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/overtime/settings",
+    "name": "get_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get company overtime policy settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/overtime/settings",
+    "name": "update_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update company overtime policy settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime/calculate",
+    "name": "calculate_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Calculate live overtime pay"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/overtime/request",
+    "name": "create_overtime_request",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Submit employee overtime request"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/overtime/history",
+    "name": "get_overtime_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/overtime/audit",
+    "name": "get_overtime_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/rules",
+    "name": "list_compliance_rules",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List statutory compliance rules"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/audit",
+    "name": "get_compliance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/history",
+    "name": "get_compliance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/calendar",
+    "name": "get_compliance_calendar",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory due dates calendar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/compliance/validate",
+    "name": "validate_statutory_compliance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Run statutory compliance audit scan"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/compliance/challan",
+    "name": "generate_statutory_challan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate EPFO ECR or ESIC Challan"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/{rule_id}",
+    "name": "get_compliance_rule_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single compliance rule details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/compliance",
+    "name": "create_compliance_rule",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new statutory compliance rule"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/templates",
+    "name": "list_payroll_templates",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll document templates"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/templates/audit",
+    "name": "get_template_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/templates/history",
+    "name": "get_template_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/templates/{template_id}",
+    "name": "get_template_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single template details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/templates",
+    "name": "create_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll template"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll template"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/templates/{template_id}/duplicate",
+    "name": "duplicate_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/templates/{template_id}/preview",
+    "name": "preview_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Preview merged HTML template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/templates/{template_id}/publish",
+    "name": "publish_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Publish template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/templates/{template_id}/archive",
+    "name": "archive_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive template"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/security/roles",
+    "name": "list_security_roles",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List all RBAC security roles"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/security/policies",
+    "name": "get_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get enterprise security policies"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/payroll/security/policies",
+    "name": "update_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Update enterprise security policies"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/security/sessions",
+    "name": "get_active_sessions",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get active user sessions"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/security/sessions/{session_id}",
+    "name": "revoke_user_session",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Revoke active user session"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/security/logout-all",
+    "name": "force_logout_all",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Force logout all active user sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/security/ip-whitelist",
+    "name": "get_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List whitelisted IP ranges"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/security/ip-whitelist",
+    "name": "add_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Add whitelisted IP range"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/payroll/security/ip-whitelist/{ip_id}",
+    "name": "delete_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Remove whitelisted IP range"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/security/audit",
+    "name": "get_security_audit",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get security audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/analytics/payroll-trend",
+    "name": "get_payroll_trend",
+    "tags": [
+      "AI Analytics Center"
+    ],
+    "summary": "Get Payroll Trends & Forecast"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/payroll",
+    "name": "export_payroll",
+    "tags": [
+      "Exports"
+    ],
+    "summary": ""
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles",
+    "name": "list_payroll_cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll cycles"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles/logs",
+    "name": "get_payroll_cycle_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles/history",
+    "name": "get_payroll_cycle_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles/{cycle_id}",
+    "name": "get_payroll_cycle_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payroll cycle details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles",
+    "name": "create_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll cycle"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll cycle"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll cycle"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/cycles/{cycle_id}",
+    "name": "delete_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{cycle_id}/activate",
+    "name": "activate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{cycle_id}/lock",
+    "name": "lock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Lock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{cycle_id}/unlock",
+    "name": "unlock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Unlock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{cycle_id}/duplicate",
+    "name": "duplicate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{cycle_id}/archive",
+    "name": "archive_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive payroll cycle"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing",
+    "name": "get_salary_processing_list",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/hero",
+    "name": "get_salary_processing_hero",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing hero card metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/kpis",
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/approval-workflow",
+    "name": "get_salary_processing_approval_workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get approval workflow"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/ai-insights",
+    "name": "get_salary_processing_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/validations",
+    "name": "get_salary_processing_validations",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get validation panel error items"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/analytics",
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/run",
+    "name": "trigger_salary_processing_run",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Trigger payroll run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/approve",
+    "name": "approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/rollback",
+    "name": "rollback_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/recalculate/{employee_id}",
+    "name": "recalculate_employee_salary",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate salary"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/resolve-exception/{exception_id}",
+    "name": "resolve_salary_exception",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Resolve exception"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/auto-fix",
+    "name": "auto_fix_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Auto-fix validation issues"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-payout",
+    "name": "batch_payout_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch payout"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-approve",
+    "name": "batch_approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch approve"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-recalculate",
+    "name": "batch_recalculate_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch recalculate"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/payslips",
+    "name": "generate_payslips_for_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/bank-transfer",
+    "name": "initiate_bank_transfer_from_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/export",
+    "name": "export_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export salary processing data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/employees/{employee_id}/salary-structure",
+    "name": "get_employee_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get employee salary structure"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-structures",
+    "name": "list_salary_structures_alias",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary structures"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-structures/audit",
+    "name": "get_salary_structures_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structures audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-structures/ai-insights",
+    "name": "get_salary_structures_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}",
+    "name": "get_salary_structure_by_id",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure by ID"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures",
+    "name": "create_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary structure"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}",
+    "name": "update_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}/clone",
+    "name": "clone_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clone salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}/assign",
+    "name": "assign_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Assign salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}/approve",
+    "name": "approve_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures/{structure_id}/rollback",
+    "name": "rollback_salary_structure_version",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary structure version"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/admin/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List admin payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{payslip_id}/preview",
+    "name": "get_payslip_preview",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip preview data"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/payslips/bulk-generate",
+    "name": "bulk_generate_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/payslips/bulk-email",
+    "name": "bulk_email_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk email payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/payslips/bulk-download",
+    "name": "bulk_download_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk download payslips ZIP"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{payslip_id}/pdf",
+    "name": "download_payslip_pdf",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Download single payslip PDF"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/payslips/{payslip_id}/email",
+    "name": "email_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Email single payslip"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/payslips/{payslip_id}/regenerate",
+    "name": "regenerate_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Regenerate single payslip"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/payslips/{payslip_id}",
+    "name": "delete_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{payslip_id}/audit-logs",
+    "name": "get_payslip_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get audit logs for payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{payslip_id}",
+    "name": "get_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/overtime",
+    "name": "list_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List overtime entries"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime",
+    "name": "create_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime/{overtime_id}/approve",
+    "name": "approve_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime/{overtime_id}/reject",
+    "name": "reject_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bonus/plans",
+    "name": "list_bonus_plans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bonus plans"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bonuses",
+    "name": "list_bonuses",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all bonuses"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bonuses",
+    "name": "create_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bonuses/{bonus_id}/approve",
+    "name": "approve_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bonuses/{bonus_id}/reject",
+    "name": "reject_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bonuses/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/deductions",
+    "name": "list_deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List deductions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/reimbursements",
+    "name": "list_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List reimbursement claims"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/reimbursements",
+    "name": "create_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/reimbursements/{claim_id}/approve",
+    "name": "approve_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/reimbursements/{claim_id}/reject",
+    "name": "reject_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/reimbursements/bulk-approve",
+    "name": "bulk_approve_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk approve reimbursement claims"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/reimbursements/audit-logs",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/reimbursements/ai-insights",
+    "name": "get_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement AI insights"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/reimbursements/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/loans",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans alias"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/advances",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/advances",
+    "name": "create_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/advances/{loan_id}/approve",
+    "name": "approve_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/advances/{loan_id}/reject",
+    "name": "reject_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/advances/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank/disbursements",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank disbursements alias"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank-transfers",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank transfers"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank-transfers/dashboard",
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank-transfers/audit",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank-transfers/{transfer_id}",
+    "name": "get_transfer_detail",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer detail"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/batch",
+    "name": "create_transfer_batch",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create transfer batch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/generate-file",
+    "name": "generate_bank_file",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate NEFT bank file"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/initiate",
+    "name": "initiate_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/reconcile",
+    "name": "reconcile_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reconcile bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/{transfer_id}/retry",
+    "name": "retry_transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Retry failed transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/bank-transfers/{transfer_id}/mark-paid",
+    "name": "mark_as_paid",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Mark transfer as paid"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/config",
+    "name": "get_statutory_config",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance configuration"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/dashboard",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/dashboard",
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/copilot/chat",
+    "name": "get_payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot status & history"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/copilot/chat",
+    "name": "payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Payroll AI copilot chat"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/copilot/history",
+    "name": "get_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot chat history"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/copilot/clear",
+    "name": "clear_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clear payroll copilot chat history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/settings",
+    "name": "get_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll settings"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/settings/history",
+    "name": "get_settings_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/settings/audit",
+    "name": "get_settings_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change audit log"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/settings/reset",
+    "name": "reset_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reset payroll settings to statutory presets"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/settings/test",
+    "name": "test_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Test settings configuration integrity"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/settings/export",
+    "name": "export_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export settings configuration JSON snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/admin/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list for admin"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/components",
+    "name": "list_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary components"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/components/audit",
+    "name": "get_salary_component_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/components/history",
+    "name": "get_salary_component_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/components/{component_id}",
+    "name": "get_salary_component_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single component details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/components",
+    "name": "create_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary component"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update salary component"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary component"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/components/{component_id}",
+    "name": "delete_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/components/{component_id}/duplicate",
+    "name": "duplicate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/components/{component_id}/activate",
+    "name": "activate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/components/{component_id}/deactivate",
+    "name": "deactivate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/components/reorder",
+    "name": "reorder_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reorder components display order"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/allowances",
+    "name": "list_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all allowances"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/allowances/audit",
+    "name": "get_allowance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/allowances/history",
+    "name": "get_allowance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/allowances/export",
+    "name": "export_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export allowances snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/allowances/{allowance_id}",
+    "name": "get_allowance_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single allowance details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/allowances",
+    "name": "create_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new allowance definition"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update allowance definition"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update allowance definition"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/allowances/{allowance_id}",
+    "name": "delete_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete custom allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/allowances/{allowance_id}/duplicate",
+    "name": "duplicate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate allowance definition"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/allowances/{allowance_id}/activate",
+    "name": "activate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/allowances/{allowance_id}/deactivate",
+    "name": "deactivate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate allowance"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/taxes",
+    "name": "list_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all tax rules & configurations"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/taxes/audit",
+    "name": "get_tax_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/taxes/history",
+    "name": "get_tax_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/taxes/export",
+    "name": "export_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export tax configuration snapshot"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/taxes/import",
+    "name": "import_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Import tax configuration rules"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/taxes/recalculate",
+    "name": "recalculate_tax_liabilities",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate live tax liabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/taxes/{tax_id}",
+    "name": "get_tax_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single tax setting details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/taxes",
+    "name": "create_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new tax setting"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update tax setting"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update tax setting"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/taxes/{tax_id}",
+    "name": "delete_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/taxes/{tax_id}/activate",
+    "name": "activate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/taxes/{tax_id}/deactivate",
+    "name": "deactivate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate tax setting"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/overtime/settings",
+    "name": "get_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get company overtime policy settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/overtime/settings",
+    "name": "update_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update company overtime policy settings"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime/calculate",
+    "name": "calculate_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Calculate live overtime pay"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/overtime/request",
+    "name": "create_overtime_request",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Submit employee overtime request"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/overtime/history",
+    "name": "get_overtime_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/overtime/audit",
+    "name": "get_overtime_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/rules",
+    "name": "list_compliance_rules",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List statutory compliance rules"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/audit",
+    "name": "get_compliance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/history",
+    "name": "get_compliance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/calendar",
+    "name": "get_compliance_calendar",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory due dates calendar"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/compliance/validate",
+    "name": "validate_statutory_compliance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Run statutory compliance audit scan"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/compliance/challan",
+    "name": "generate_statutory_challan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate EPFO ECR or ESIC Challan"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/{rule_id}",
+    "name": "get_compliance_rule_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single compliance rule details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/compliance",
+    "name": "create_compliance_rule",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new statutory compliance rule"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/templates",
+    "name": "list_payroll_templates",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll document templates"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/templates/audit",
+    "name": "get_template_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/templates/history",
+    "name": "get_template_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template version history"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/templates/{template_id}",
+    "name": "get_template_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single template details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/templates",
+    "name": "create_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll template"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll template"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/templates/{template_id}/duplicate",
+    "name": "duplicate_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/templates/{template_id}/preview",
+    "name": "preview_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Preview merged HTML template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/templates/{template_id}/publish",
+    "name": "publish_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Publish template"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/templates/{template_id}/archive",
+    "name": "archive_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive template"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/security/roles",
+    "name": "list_security_roles",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List all RBAC security roles"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/security/policies",
+    "name": "get_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get enterprise security policies"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/payroll/security/policies",
+    "name": "update_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Update enterprise security policies"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/security/sessions",
+    "name": "get_active_sessions",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get active user sessions"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/security/sessions/{session_id}",
+    "name": "revoke_user_session",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Revoke active user session"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/security/logout-all",
+    "name": "force_logout_all",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Force logout all active user sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/security/ip-whitelist",
+    "name": "get_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List whitelisted IP ranges"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/security/ip-whitelist",
+    "name": "add_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Add whitelisted IP range"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/payroll/security/ip-whitelist/{ip_id}",
+    "name": "delete_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Remove whitelisted IP range"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/security/audit",
+    "name": "get_security_audit",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get security audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/cycles",
+    "name": "list_payroll_cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll cycles"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/cycles/logs",
+    "name": "get_payroll_cycle_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/cycles/history",
+    "name": "get_payroll_cycle_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll cycle history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/cycles/{cycle_id}",
+    "name": "get_payroll_cycle_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payroll cycle details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles",
+    "name": "create_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll cycle"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll cycle"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/cycles/{cycle_id}",
+    "name": "update_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll cycle"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/cycles/{cycle_id}",
+    "name": "delete_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles/{cycle_id}/activate",
+    "name": "activate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles/{cycle_id}/lock",
+    "name": "lock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Lock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles/{cycle_id}/unlock",
+    "name": "unlock_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Unlock payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles/{cycle_id}/duplicate",
+    "name": "duplicate_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate payroll cycle"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/cycles/{cycle_id}/archive",
+    "name": "archive_payroll_cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive payroll cycle"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing",
+    "name": "get_salary_processing_list",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing list"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/hero",
+    "name": "get_salary_processing_hero",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary processing hero card metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/kpis",
+    "name": "get_salary_processing_kpis",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll health KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/approval-workflow",
+    "name": "get_salary_processing_approval_workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get approval workflow"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/ai-insights",
+    "name": "get_salary_processing_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/validations",
+    "name": "get_salary_processing_validations",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get validation panel error items"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-processing/analytics",
+    "name": "get_salary_processing_analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get analytics"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/run",
+    "name": "trigger_salary_processing_run",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Trigger payroll run"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/approve",
+    "name": "approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/rollback",
+    "name": "rollback_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary processing run"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/recalculate/{employee_id}",
+    "name": "recalculate_employee_salary",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate salary"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/resolve-exception/{exception_id}",
+    "name": "resolve_salary_exception",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Resolve exception"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/auto-fix",
+    "name": "auto_fix_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Auto-fix validation issues"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/batch-payout",
+    "name": "batch_payout_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch payout"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/batch-approve",
+    "name": "batch_approve_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch approve"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/batch-recalculate",
+    "name": "batch_recalculate_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch recalculate"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/payslips",
+    "name": "generate_payslips_for_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Batch generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/bank-transfer",
+    "name": "initiate_bank_transfer_from_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-processing/export",
+    "name": "export_salary_processing",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export salary processing data"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/employees/{employee_id}/salary-structure",
+    "name": "get_employee_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get employee salary structure"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-structures",
+    "name": "list_salary_structures_alias",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary structures"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-structures/audit",
+    "name": "get_salary_structures_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structures audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-structures/ai-insights",
+    "name": "get_salary_structures_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure AI insights"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/salary-structures/{structure_id}",
+    "name": "get_salary_structure_by_id",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary structure by ID"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-structures",
+    "name": "create_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary structure"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/salary-structures/{structure_id}",
+    "name": "update_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-structures/{structure_id}/clone",
+    "name": "clone_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clone salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-structures/{structure_id}/assign",
+    "name": "assign_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Assign salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-structures/{structure_id}/approve",
+    "name": "approve_salary_structure",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve salary structure"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/salary-structures/{structure_id}/rollback",
+    "name": "rollback_salary_structure_version",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Rollback salary structure version"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/admin/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List admin payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/payslips",
+    "name": "list_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List payslips"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/payslips/{payslip_id}/preview",
+    "name": "get_payslip_preview",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip preview data"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/payslips/bulk-generate",
+    "name": "bulk_generate_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk generate payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/payslips/bulk-email",
+    "name": "bulk_email_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk email payslips"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/payslips/bulk-download",
+    "name": "bulk_download_payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk download payslips ZIP"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/payslips/{payslip_id}/pdf",
+    "name": "download_payslip_pdf",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Download single payslip PDF"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/payslips/{payslip_id}/email",
+    "name": "email_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Email single payslip"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/payslips/{payslip_id}/regenerate",
+    "name": "regenerate_single_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Regenerate single payslip"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/payslips/{payslip_id}",
+    "name": "delete_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/payslips/{payslip_id}/audit-logs",
+    "name": "get_payslip_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get audit logs for payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/payslips/{payslip_id}",
+    "name": "get_payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single payslip"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/overtime",
+    "name": "list_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List overtime entries"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime",
+    "name": "create_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime/{overtime_id}/approve",
+    "name": "approve_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime/{overtime_id}/reject",
+    "name": "reject_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject overtime entry"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bonus/plans",
+    "name": "list_bonus_plans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bonus plans"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bonuses",
+    "name": "list_bonuses",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all bonuses"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bonuses",
+    "name": "create_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bonuses/{bonus_id}/approve",
+    "name": "approve_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bonuses/{bonus_id}/reject",
+    "name": "reject_bonus",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject bonus request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bonuses/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/deductions",
+    "name": "list_deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List deductions"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/reimbursements",
+    "name": "list_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List reimbursement claims"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/reimbursements",
+    "name": "create_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/reimbursements/{claim_id}/approve",
+    "name": "approve_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/reimbursements/{claim_id}/reject",
+    "name": "reject_reimbursement",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject reimbursement claim"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/reimbursements/bulk-approve",
+    "name": "bulk_approve_reimbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Bulk approve reimbursement claims"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/reimbursements/audit-logs",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/reimbursements/ai-insights",
+    "name": "get_ai_insights",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get reimbursement AI insights"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/reimbursements/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/loans",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans alias"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/advances",
+    "name": "list_loans",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List advances/loans"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/advances",
+    "name": "create_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/advances/{loan_id}/approve",
+    "name": "approve_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Approve advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/advances/{loan_id}/reject",
+    "name": "reject_loan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reject advance request"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/advances/copilot",
+    "name": "copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Copilot chat assistant"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bank/disbursements",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank disbursements alias"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bank-transfers",
+    "name": "list_bank_transfers",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List bank transfers"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bank-transfers/dashboard",
+    "name": "get_dashboard_metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer dashboard metrics"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bank-transfers/audit",
+    "name": "get_audit_logs",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/bank-transfers/{transfer_id}",
+    "name": "get_transfer_detail",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get bank transfer detail"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/batch",
+    "name": "create_transfer_batch",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create transfer batch"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/generate-file",
+    "name": "generate_bank_file",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate NEFT bank file"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/initiate",
+    "name": "initiate_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Initiate bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/reconcile",
+    "name": "reconcile_payments",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reconcile bank transfer payments"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/{transfer_id}/retry",
+    "name": "retry_transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Retry failed transfer"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/bank-transfers/{transfer_id}/mark-paid",
+    "name": "mark_as_paid",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Mark transfer as paid"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/config",
+    "name": "get_statutory_config",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance configuration"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/dashboard",
+    "name": "get_compliance_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory compliance dashboard"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/dashboard",
+    "name": "get_payroll_dashboard",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get main payroll dashboard data"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/copilot/chat",
+    "name": "get_payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot status & history"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/copilot/chat",
+    "name": "payroll_copilot_chat",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Payroll AI copilot chat"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/copilot/history",
+    "name": "get_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll copilot chat history"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/copilot/clear",
+    "name": "clear_payroll_copilot_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Clear payroll copilot chat history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/settings",
+    "name": "get_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get payroll settings"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/settings",
+    "name": "update_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll settings"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/settings/history",
+    "name": "get_settings_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/settings/audit",
+    "name": "get_settings_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get settings change audit log"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/settings/reset",
+    "name": "reset_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reset payroll settings to statutory presets"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/settings/test",
+    "name": "test_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Test settings configuration integrity"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/settings/export",
+    "name": "export_payroll_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export settings configuration JSON snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/admin/tax",
+    "name": "get_tax_management_records",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax management list for admin"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/components",
+    "name": "list_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all salary components"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/components/audit",
+    "name": "get_salary_component_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/components/history",
+    "name": "get_salary_component_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get salary components version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/components/{component_id}",
+    "name": "get_salary_component_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single component details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/components",
+    "name": "create_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new salary component"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update salary component"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/components/{component_id}",
+    "name": "update_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update salary component"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/components/{component_id}",
+    "name": "delete_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/components/{component_id}/duplicate",
+    "name": "duplicate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/components/{component_id}/activate",
+    "name": "activate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/components/{component_id}/deactivate",
+    "name": "deactivate_salary_component",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate salary component"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/components/reorder",
+    "name": "reorder_salary_components",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Reorder components display order"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/allowances",
+    "name": "list_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all allowances"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/allowances/audit",
+    "name": "get_allowance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/allowances/history",
+    "name": "get_allowance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get allowance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/allowances/export",
+    "name": "export_allowances",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export allowances snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/allowances/{allowance_id}",
+    "name": "get_allowance_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single allowance details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/allowances",
+    "name": "create_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new allowance definition"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update allowance definition"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/allowances/{allowance_id}",
+    "name": "update_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update allowance definition"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/allowances/{allowance_id}",
+    "name": "delete_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete custom allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/allowances/{allowance_id}/duplicate",
+    "name": "duplicate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate allowance definition"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/allowances/{allowance_id}/activate",
+    "name": "activate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate allowance"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/allowances/{allowance_id}/deactivate",
+    "name": "deactivate_allowance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate allowance"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/taxes",
+    "name": "list_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all tax rules & configurations"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/taxes/audit",
+    "name": "get_tax_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/taxes/history",
+    "name": "get_tax_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get tax version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/taxes/export",
+    "name": "export_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Export tax configuration snapshot"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/taxes/import",
+    "name": "import_tax_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Import tax configuration rules"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/taxes/recalculate",
+    "name": "recalculate_tax_liabilities",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Recalculate live tax liabilities"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/taxes/{tax_id}",
+    "name": "get_tax_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single tax setting details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/taxes",
+    "name": "create_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new tax setting"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update tax setting"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/taxes/{tax_id}",
+    "name": "update_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update tax setting"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/taxes/{tax_id}",
+    "name": "delete_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Delete tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/taxes/{tax_id}/activate",
+    "name": "activate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Activate tax setting"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/taxes/{tax_id}/deactivate",
+    "name": "deactivate_tax_setting",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Deactivate tax setting"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/overtime/settings",
+    "name": "get_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get company overtime policy settings"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/overtime/settings",
+    "name": "update_overtime_settings",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update company overtime policy settings"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime/calculate",
+    "name": "calculate_overtime",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Calculate live overtime pay"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/overtime/request",
+    "name": "create_overtime_request",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Submit employee overtime request"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/overtime/history",
+    "name": "get_overtime_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/overtime/audit",
+    "name": "get_overtime_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get overtime policy audit logs"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/rules",
+    "name": "list_compliance_rules",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List statutory compliance rules"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/audit",
+    "name": "get_compliance_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/history",
+    "name": "get_compliance_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get compliance version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/calendar",
+    "name": "get_compliance_calendar",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get statutory due dates calendar"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/compliance/validate",
+    "name": "validate_statutory_compliance",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Run statutory compliance audit scan"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/compliance/challan",
+    "name": "generate_statutory_challan",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Generate EPFO ECR or ESIC Challan"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/compliance/{rule_id}",
+    "name": "get_compliance_rule_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single compliance rule details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/compliance",
+    "name": "create_compliance_rule",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new statutory compliance rule"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/templates",
+    "name": "list_payroll_templates",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "List all payroll document templates"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/templates/audit",
+    "name": "get_template_audit",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/templates/history",
+    "name": "get_template_history",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get template version history"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/templates/{template_id}",
+    "name": "get_template_details",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Get single template details"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/templates",
+    "name": "create_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Create new payroll template"
+  },
+  {
+    "method": "PATCH",
+    "path": "/v2/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Partial update payroll template"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/templates/{template_id}",
+    "name": "update_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Update payroll template"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/templates/{template_id}/duplicate",
+    "name": "duplicate_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Duplicate template"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/templates/{template_id}/preview",
+    "name": "preview_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Preview merged HTML template"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/templates/{template_id}/publish",
+    "name": "publish_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Publish template"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/templates/{template_id}/archive",
+    "name": "archive_template",
+    "tags": [
+      "Payroll"
+    ],
+    "summary": "Archive template"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/security/roles",
+    "name": "list_security_roles",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List all RBAC security roles"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/security/policies",
+    "name": "get_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get enterprise security policies"
+  },
+  {
+    "method": "PUT",
+    "path": "/v2/payroll/security/policies",
+    "name": "update_security_policy",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Update enterprise security policies"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/security/sessions",
+    "name": "get_active_sessions",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get active user sessions"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/security/sessions/{session_id}",
+    "name": "revoke_user_session",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Revoke active user session"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/security/logout-all",
+    "name": "force_logout_all",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Force logout all active user sessions"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/security/ip-whitelist",
+    "name": "get_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "List whitelisted IP ranges"
+  },
+  {
+    "method": "POST",
+    "path": "/v2/payroll/security/ip-whitelist",
+    "name": "add_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Add whitelisted IP range"
+  },
+  {
+    "method": "DELETE",
+    "path": "/v2/payroll/security/ip-whitelist/{ip_id}",
+    "name": "delete_ip_whitelist",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Remove whitelisted IP range"
+  },
+  {
+    "method": "GET",
+    "path": "/v2/payroll/security/audit",
+    "name": "get_security_audit",
+    "tags": [
+      "Payroll",
+      "Enterprise Payroll Security"
+    ],
+    "summary": "Get security audit log"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/tax/profile/{employee_id}",
+    "name": "get_employee_tax_profile",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Get employee tax profile"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/calculate",
+    "name": "run_tax_calculation",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Run TDS tax calculation"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/declarations/{declaration_id}/approve",
+    "name": "approve_tax_declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Approve tax declaration"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/declarations/{declaration_id}/reject",
+    "name": "reject_tax_declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Reject tax declaration"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/proofs/{proof_id}/verify",
+    "name": "verify_tax_proof",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Verify tax proof document"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/year-end-process",
+    "name": "run_year_end_process",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Lock FY and generate Form 16"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/tax/audit-logs/{employee_id}",
+    "name": "get_tax_audit_logs",
+    "tags": [
+      "Tax Management"
+    ],
+    "summary": "Get tax audit logs for employee"
+  }
+]

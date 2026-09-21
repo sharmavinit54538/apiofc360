@@ -57,9 +57,11 @@ from app.api.v1.reports import router as reports_v1_router
 from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
+from app.api.v1.intelligence import router as intelligence_router
 from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
+from app.api.payments import router as payments_router
 from app.api.sidebar import router as sidebar_router
 from app.api.cto.dashboard import router as cto_dashboard_router
 from app.api.super_admin import router as super_admin_router
@@ -108,6 +110,7 @@ from app.api.v2.screening import router as screening_router
 from app.api.v2.offer_letters import router as offer_letters_router
 from app.api.v2.interview_agent import router as interview_agent_router
 from app.api.v2.analytics import router as analytics_v2_router
+from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
 from app.api.global_notifications import router as global_notifications_router
 from app.api.generate_api import router as generate_router
 from app.api.connect import router as connect_router
@@ -570,6 +573,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
     app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
     app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
     app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
@@ -593,6 +597,7 @@ def create_app() -> FastAPI:
     app.include_router(connect_router, prefix=settings.API_V1_PREFIX)
     app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
     app.include_router(reports_v1_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(intelligence_router, prefix=settings.API_V1_PREFIX)
 
     # ── API v2 routers ─────────────────────────────────────────────────────────
     app.include_router(doc_intel_router, prefix="/api/v2")
@@ -601,6 +606,7 @@ def create_app() -> FastAPI:
     app.include_router(hr_analytics_router, prefix="/api/v2")
     app.include_router(hr_workflow_router, prefix="/api/v2")
     app.include_router(payroll_router, prefix="/api/v2")
+    app.include_router(payroll_router, prefix="/v2")
     app.include_router(tax_router, prefix="/api/v2")
     app.include_router(performance_router, prefix="/api/v2")
     app.include_router(policy_router, prefix="/api/v2")
@@ -636,12 +642,20 @@ def create_app() -> FastAPI:
     app.include_router(offer_letters_router, prefix="/api/v2")
     app.include_router(interview_agent_router, prefix="/api/v2")
     app.include_router(analytics_v2_router, prefix="/api/v2")
+    app.include_router(resume_ats_checker_router, prefix="/api/v2")
+    app.include_router(resume_ats_checker_router, prefix="/v2")
+    app.include_router(resume_ats_checker_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(resume_ats_checker_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")
     app.include_router(generate_router, prefix="/api")
+    app.include_router(intelligence_router, prefix="/api")
     app.include_router(settings_api_router)
     app.include_router(billing_router)
+    app.include_router(payments_router)
+    app.include_router(onboarding_router)
+    app.include_router(hr_admin_onboarding_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

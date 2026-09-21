@@ -70,7 +70,7 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def create_migration_engine() -> AsyncEngine:
+def create_migration_engine() -> AsyncEngine:
     """Create a dedicated async engine for migrations with robust timeouts.
     
     Uses NullPool to avoid connection pooling issues during migrations.
@@ -91,11 +91,11 @@ async def create_migration_engine() -> AsyncEngine:
 
 async def run_async_migrations() -> None:
     """Run migrations through SQLAlchemy's async engine with robust connection handling."""
-    engine = await create_migration_engine()
+    engine = create_migration_engine()
     
     try:
-        # Use a single connection for all migrations with explicit transaction
-        async with engine.begin() as connection:
+        # Use a single connection for all migrations; transaction is managed by context.begin_transaction()
+        async with engine.connect() as connection:
             # Set PostgreSQL session timeouts for this connection
             await connection.execute(text("SET statement_timeout = '300s'"))
             await connection.execute(text("SET lock_timeout = '120s'"))
@@ -111,7 +111,18 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations online."""
-    asyncio.run(run_async_migrations())
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, run_async_migrations())
+            future.result()
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

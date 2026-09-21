@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 import uuid
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -60,8 +61,20 @@ class JobCreate(BaseModel):
     status: str = "DRAFT"
 
     # Configured Rounds List (names of rounds in order)
-    rounds: list[str] = Field(..., min_length=1, description="List of round names in order, e.g. ['Technical', 'Manager', 'HR']")
+    rounds: list[str] = Field(default_factory=lambda: ["Screening", "Technical Interview", "HR Round"], description="List of round names in order, e.g. ['Technical', 'Manager', 'HR']")
     skills: list[str] = Field([], description="List of required skill names")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_list_fields_to_strings(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        for field_name in ("responsibilities", "requirements", "benefits"):
+            val = d.get(field_name)
+            if isinstance(val, list):
+                d[field_name] = "\n".join(f"- {item}" if not str(item).startswith("-") else str(item) for item in val)
+        return d
 
     @field_validator("employment_type")
     @classmethod
@@ -78,6 +91,157 @@ class JobCreate(BaseModel):
         if v not in JOB_STATUS_VALUES:
             raise ValueError("status must be: " + ", ".join(JOB_STATUS_VALUES))
         return v
+
+
+# ---------------------------------------------------------------------------
+# AI Job Description Generator Schemas
+# ---------------------------------------------------------------------------
+
+class JobDescriptionStructuredRequest(BaseModel):
+    """Request payload for AI Job Description generation."""
+    job_title: str = Field(..., min_length=1, max_length=200, description="Job title / role name")
+    skills: list[str] = Field(default_factory=list, description="Required skills list")
+    location: str = Field("Remote", min_length=1, max_length=150, description="Job location")
+    experience_min: float = Field(0.0, ge=0.0, description="Minimum years of experience")
+    experience_max: float | None = Field(None, ge=0.0, description="Maximum years of experience")
+    experience: str | None = Field(None, description="Experience level string, e.g. '3-6 years'")
+    employment_type: str = Field("Full-time", description="Employment type (Full-time, Part-time, Contract, etc.)")
+    department: str = Field("Engineering", description="Department name")
+    seniority_level: str | None = Field(None, description="Junior, Mid-Level, Senior, Lead, Executive, etc.")
+    work_mode: str | None = Field("Remote", description="Remote, Hybrid, or Onsite")
+    salary_min: float | None = Field(None, ge=0.0, description="Minimum salary")
+    salary_max: float | None = Field(None, ge=0.0, description="Maximum salary")
+    currency: str | None = Field("USD", description="Salary currency")
+    industry: str | None = Field("Technology", description="Industry domain")
+    company_name: str | None = Field(None, description="Company name")
+    education: list[str] | str | None = Field(None, description="Education requirements")
+    additional_requirements: str | None = Field(None, description="Additional custom instructions")
+    tone: str = Field("Professional", description="Professional, Startup, Corporate, or Technical")
+    length: str = Field("Standard", description="Short, Standard, or Detailed")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_aliases_and_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        
+        d = dict(data)
+        # Aliases for job_title
+        if "title" in d and "job_title" not in d:
+            d["job_title"] = d["title"]
+        if "job_title" in d and isinstance(d["job_title"], str):
+            d["job_title"] = d["job_title"].strip()
+
+        # Aliases for skills
+        if "required_skills" in d and "skills" not in d:
+            d["skills"] = d["required_skills"]
+        if "skills" in d:
+            raw_skills = d["skills"]
+            if isinstance(raw_skills, str):
+                d["skills"] = [s.strip() for s in raw_skills.split(",") if s.strip()]
+            elif isinstance(raw_skills, list):
+                cleaned = []
+                for item in raw_skills:
+                    if isinstance(item, str):
+                        for sub in item.split(","):
+                            s = sub.strip()
+                            if s and s not in cleaned:
+                                cleaned.append(s)
+                    elif item:
+                        s = str(item).strip()
+                        if s and s not in cleaned:
+                            cleaned.append(s)
+                d["skills"] = cleaned
+
+        # Aliases for experience
+        if "min_experience" in d and "experience_min" not in d:
+            d["experience_min"] = d["min_experience"]
+        if "max_experience" in d and "experience_max" not in d:
+            d["experience_max"] = d["max_experience"]
+        if "seniority" in d and "seniority_level" not in d:
+            d["seniority_level"] = d["seniority"]
+
+        # Parse string experience if experience_min/max not explicitly provided
+        if ("experience_min" not in d or d.get("experience_min") in (0, 0.0, None)) and d.get("experience"):
+            exp_str = str(d["experience"]).lower()
+            import re
+            nums = re.findall(r"\d+(?:\.\d+)?", exp_str)
+            if len(nums) >= 2:
+                try:
+                    d["experience_min"] = float(nums[0])
+                    d["experience_max"] = float(nums[1])
+                except Exception:
+                    pass
+            elif len(nums) == 1:
+                try:
+                    d["experience_min"] = float(nums[0])
+                except Exception:
+                    pass
+
+        return d
+
+    @field_validator("job_title")
+    @classmethod
+    def validate_title_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Job title is required and cannot be blank.")
+        return v.strip()
+
+    @field_validator("skills")
+    @classmethod
+    def validate_skills_non_empty(cls, v: list[str]) -> list[str]:
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        if not cleaned:
+            raise ValueError("At least one required skill must be provided.")
+        return cleaned
+
+    @field_validator("experience_max")
+    @classmethod
+    def validate_experience_range(cls, v: float | None, info) -> float | None:
+        if v is not None:
+            min_val = info.data.get("experience_min", 0.0)
+            if v < min_val:
+                raise ValueError(f"experience_max ({v}) cannot be less than experience_min ({min_val}).")
+        return v
+
+
+class JobDescriptionExperienceSchema(BaseModel):
+    min_years: float = 0.0
+    max_years: float | None = None
+    text: str = ""
+
+
+class JobDescriptionStructuredResponse(BaseModel):
+    """Structured, recruiter-editable Job Description response."""
+    model_config = ConfigDict(extra="ignore")
+
+    title: str
+    summary: str
+    about_role: str
+    responsibilities: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    experience: JobDescriptionExperienceSchema = Field(default_factory=JobDescriptionExperienceSchema)
+    education: list[str] = Field(default_factory=list)
+    qualifications: list[str] = Field(default_factory=list)
+    nice_to_have: list[str] = Field(default_factory=list)
+    benefits: list[str] = Field(default_factory=list)
+    location: str
+    work_mode: str
+    employment_type: str
+    department: str
+    seniority_level: str | None = None
+    ats_keywords: list[str] = Field(default_factory=list)
+    suggested_salary_range: dict[str, Any] | None = None
+    hiring_process_steps: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobDescriptionModifyStructuredRequest(BaseModel):
+    """Request to modify/rewrite an existing generated JD."""
+    current_jd: dict[str, Any] | str = Field(..., description="Current structured JD dictionary or markdown text")
+    action: str = Field("improve", description="improve, expand, shorten, professional, startup, technical, custom")
+    custom_instruction: str | None = None
 
 
 class JobUpdate(BaseModel):

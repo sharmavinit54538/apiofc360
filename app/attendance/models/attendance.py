@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+    Boolean, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,6 +17,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.employee import Employee
     from app.models.company import Company
+    from app.attendance.models.attendance_break import AttendanceBreak
 
 
 class Attendance(Base):
@@ -43,14 +44,31 @@ class Attendance(Base):
     check_out_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     face_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    captured_face_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     checkout_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Present", server_default=text("'Present'"))
+    punch_type: Mapped[str] = mapped_column(String(10), nullable=False, default="IN", server_default=text("'IN'"))
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    punch_verified_by: Mapped[str | None] = mapped_column(String(20), nullable=True, default="FACE", server_default=text("'FACE'"))
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)
+    location_accuracy: Mapped[float | None] = mapped_column(nullable=True)
     device_info: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     working_hours: Mapped[float | None] = mapped_column(nullable=True)
+    break_duration: Mapped[float | None] = mapped_column(nullable=True, default=0.0, server_default=text("0.0"))
+
+    liveness_score: Mapped[float | None] = mapped_column(nullable=True)
+    face_distance: Mapped[float | None] = mapped_column(nullable=True)
+
+    is_late: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False, server_default=text("false"))
+    late_minutes: Mapped[int | None] = mapped_column(nullable=True, default=0, server_default=text("0"))
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    shift_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -58,3 +76,5 @@ class Attendance(Base):
     # Relationships
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
     company: Mapped[Company | None] = relationship("Company", lazy="select")
+    breaks: Mapped[list[AttendanceBreak]] = relationship("AttendanceBreak", back_populates="attendance", cascade="all, delete-orphan", lazy="select")
+
