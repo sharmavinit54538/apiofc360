@@ -247,3 +247,41 @@ async def test_specialized_ai_chat_endpoints(token_company_a: str):
         assert rec_res.status_code == 200
         assert rec_res.json()["data"]["answer"]
 
+
+@pytest.mark.asyncio
+async def test_ai_hub_backward_compatibility_endpoints(token_company_a: str):
+    """Verify that legacy /api/v1/ai-hub/chat-assistant/* endpoints work via compatibility bridge."""
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {token_company_a}"}
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Create
+        create_res = await ac.post(
+            "/api/v1/ai-hub/chat-assistant/conversations",
+            json={"title": "Compatibility Test", "initialMessage": "Hello from legacy frontend"},
+            headers=headers,
+        )
+        assert create_res.status_code == 201
+        conv_id = create_res.json()["data"]["conversationId"]
+
+        # List
+        list_res = await ac.get("/api/v1/ai-hub/chat-assistant/conversations", headers=headers)
+        assert list_res.status_code == 200
+
+        # Detail
+        detail_res = await ac.get(f"/api/v1/ai-hub/chat-assistant/conversations/{conv_id}", headers=headers)
+        assert detail_res.status_code == 200
+
+        # Message
+        msg_res = await ac.post(
+            "/api/v1/ai-hub/chat-assistant/message",
+            json={"conversationId": conv_id, "content": "Follow up question"},
+            headers=headers,
+        )
+        assert msg_res.status_code == 200
+
+        # Delete
+        del_res = await ac.delete(f"/api/v1/ai-hub/chat-assistant/conversations/{conv_id}", headers=headers)
+        assert del_res.status_code == 200
+
+

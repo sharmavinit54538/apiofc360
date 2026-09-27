@@ -45,8 +45,30 @@ async def run_migrations_with_lock():
     try:
         print('[Entrypoint] Waiting for migration lock (pg_advisory_lock)...')
         await conn.execute('SELECT pg_advisory_lock(483921747)')
-        print('[Entrypoint] Lock acquired – running alembic upgrade heads...')
-        result = subprocess.run(['alembic', 'upgrade', 'heads'], capture_output=False)
+        print('[Entrypoint] Lock acquired.')
+
+        # Pre-flight check: ensure no multiple heads / branch divergence
+        print('[Entrypoint] Pre-flight: checking for multiple Alembic heads...')
+        heads_check = subprocess.run(
+            ['alembic', 'heads', '--resolve-dependencies'],
+            capture_output=True,
+            text=True
+        )
+        if heads_check.returncode != 0:
+            print(f'[Entrypoint] ERROR: Failed to inspect alembic heads:\n{heads_check.stderr}')
+            return heads_check.returncode
+
+        head_lines = [line.strip() for line in heads_check.stdout.strip().splitlines() if line.strip()]
+        if len(head_lines) > 1:
+            print('[Entrypoint] FATAL: Multiple Alembic heads detected! Migration history has diverged:')
+            for h in head_lines:
+                print(f'  - {h}')
+            print('[Entrypoint] Aborting deploy. Merge migration branches using `alembic merge heads` before deploying.')
+            return 1
+
+        active_head = head_lines[0] if head_lines else 'None'
+        print(f'[Entrypoint] Single head verified ({active_head}) – running alembic upgrade head...')
+        result = subprocess.run(['alembic', 'upgrade', 'head'], capture_output=False)
         if result.returncode != 0:
             print(f'[Entrypoint] ERROR: alembic upgrade failed with exit code {result.returncode}')
             return result.returncode
