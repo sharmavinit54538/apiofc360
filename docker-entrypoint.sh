@@ -32,9 +32,33 @@ sys.exit(asyncio.run(check_db()))
     fi
 
     if [ -f "alembic.ini" ]; then
-        echo "[Entrypoint] Running database migrations (alembic upgrade heads)..."
-        alembic upgrade heads
-        echo "[Entrypoint] Database migrations completed successfully."
+        echo "[Entrypoint] Acquiring advisory lock for database migrations..."
+        # Use Postgres advisory lock to prevent concurrent migration races
+        # when multiple API replicas start simultaneously.
+        # Lock key 483921747 is an arbitrary fixed integer.
+        python -c "
+import asyncio, sys, subprocess
+from app.db.database import get_asyncpg_connection
+
+async def run_migrations_with_lock():
+    conn = await get_asyncpg_connection()
+    try:
+        print('[Entrypoint] Waiting for migration lock (pg_advisory_lock)...')
+        await conn.execute('SELECT pg_advisory_lock(483921747)')
+        print('[Entrypoint] Lock acquired – running alembic upgrade heads...')
+        result = subprocess.run(['alembic', 'upgrade', 'heads'], capture_output=False)
+        if result.returncode != 0:
+            print(f'[Entrypoint] ERROR: alembic upgrade failed with exit code {result.returncode}')
+            return result.returncode
+        print('[Entrypoint] Database migrations completed successfully.')
+        return 0
+    finally:
+        await conn.execute('SELECT pg_advisory_unlock(483921747)')
+        await conn.close()
+        print('[Entrypoint] Migration lock released.')
+
+sys.exit(asyncio.run(run_migrations_with_lock()))
+"
     fi
 fi
 
