@@ -14,10 +14,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+from app.attendance.models.attendance_break import AttendanceBreak
+
 if TYPE_CHECKING:
     from app.models.employee import Employee
     from app.models.company import Company
-    from app.attendance.models.attendance_break import AttendanceBreak
 
 
 class Attendance(Base):

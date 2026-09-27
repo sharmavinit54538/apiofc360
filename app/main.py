@@ -47,6 +47,7 @@ from app.api.v1.ai_attendance import router as ai_attendance_router
 from app.api.v1.ai_performance import router as ai_performance_router
 from app.api.v1.ai_leave import router as ai_leave_router
 from app.api.v1.ai_payroll import router as ai_payroll_router
+from app.api.v1.payroll.router import router as v1_payroll_router
 from app.api.payroll.router import router as full_payroll_router
 from app.api.v1.ai_workforce import router as ai_workforce_router, ai_workforce_direct_router
 from app.api.v1.employee_health import router as employee_health_router
@@ -580,6 +581,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_leave_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_payroll_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(v1_payroll_router, prefix=settings.API_V1_PREFIX)
     app.include_router(full_payroll_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_workforce_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_workforce_direct_router, prefix=settings.API_V1_PREFIX)

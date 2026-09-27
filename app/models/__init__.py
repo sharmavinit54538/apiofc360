@@ -302,12 +302,28 @@ from app.models.payroll import (
     TaxDeclarationProof,
     BankDisbursementRecord,
 )
+from app.models.payroll_models import (
+    PayrollPeriod,
+    PayrollRunEmployee,
+    PayComponent,
+    Compensation,
+    CompensationRevision,
+    VariableInput,
+    PaymentBatch,
+    PaymentBatchItem,
+    PaymentBatchBankFile,
+    FullAndFinalSettlement,
+    ProvisionSlip,
+    CompanyBankAccount,
+    PayrollReportExport,
+)
 
 # Timesheet module models
 from app.models.timesheet import Timesheet, TimesheetEntry
 
 # Attendance module models
 from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance_break import AttendanceBreak
 
 # Leave module models
 from app.models.leave import LeaveRequest
@@ -565,4 +581,18 @@ __all__ = [
     "UserMFA",
     "PaymentTransaction",
     "PaymentStatus",
+    "PayrollPeriod",
+    "PayrollRunEmployee",
+    "PayComponent",
+    "Compensation",
+    "CompensationRevision",
+    "VariableInput",
+    "PaymentBatch",
+    "PaymentBatchItem",
+    "PaymentBatchBankFile",
+    "FullAndFinalSettlement",
+    "ProvisionSlip",
+    "CompanyBankAccount",
+    "PayrollReportExport",
+    "AttendanceBreak",
 ]
