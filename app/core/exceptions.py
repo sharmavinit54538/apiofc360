@@ -96,23 +96,40 @@ def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
 
     origin = request.headers.get("origin")
     if origin:
+        cleaned_origin = str(origin).strip().strip("'\"").rstrip("/")
         is_allowed = False
         allowed_origins = [
-            "https://www.ofc360.com",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
             "https://ofc360.com",
+            "https://www.ofc360.com",
             "https://api.ofc360.com",
-        ] + list(settings.ALLOWED_ORIGINS) + list(settings.BACKEND_CORS_ORIGINS) + list(settings.DEV_CORS_ORIGINS)
-        if origin in allowed_origins:
+            "https://app.ofc360.com",
+            "https://ofc360.vercel.app",
+        ]
+        if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+            allowed_origins.extend(settings.CORS_ORIGINS)
+        if getattr(settings, "ALLOWED_ORIGINS", None):
+            allowed_origins.extend(settings.ALLOWED_ORIGINS)
+        if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+            allowed_origins.extend(settings.BACKEND_CORS_ORIGINS)
+        if getattr(settings, "DEV_CORS_ORIGINS", None):
+            allowed_origins.extend(settings.DEV_CORS_ORIGINS)
+
+        normalized_allowed = {str(o).strip().strip("'\"").rstrip("/") for o in allowed_origins if o}
+        if cleaned_origin in normalized_allowed:
             is_allowed = True
         else:
             allowed_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
-            if re.match(allowed_regex, origin):
+            if re.match(allowed_regex, cleaned_origin):
                 is_allowed = True
 
         if is_allowed:
-            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Origin"] = cleaned_origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Expose-Headers"] = "Authorization"
+            response.headers["Access-Control-Expose-Headers"] = (
+                "Authorization, Content-Type, Content-Disposition, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining"
+            )
             response.headers["Vary"] = "Origin"
 
     return response

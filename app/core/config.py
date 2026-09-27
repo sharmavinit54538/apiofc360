@@ -76,11 +76,24 @@ class Settings(BaseSettings):
     )
 
     BCRYPT_ROUNDS: int = 12
+    # Consolidated CORS origins - supported in all environments (production & development)
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://ofc360.com",
+        "https://www.ofc360.com",
+        "https://api.ofc360.com",
+        "https://app.ofc360.com",
+        "https://ofc360.vercel.app",
+    ]
     # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
+        "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
     # Development origins - only used when ENVIRONMENT is local/development/dev
@@ -98,6 +111,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
@@ -318,23 +333,36 @@ class Settings(BaseSettings):
             return val
         return value
 
-    @field_validator("BACKEND_CORS_ORIGINS", "ALLOWED_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", "BACKEND_CORS_ORIGINS", "ALLOWED_ORIGINS", "DEV_CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: Any) -> list[str]:
-        """Accept CORS origins as a JSON list or comma-separated string."""
-
+        """Accept CORS origins as a JSON list, Python list, or comma-separated string, safely sanitizing origins."""
         if isinstance(value, str):
             stripped = value.strip().strip("'").strip('"').strip()
             if stripped.startswith("["):
                 try:
                     parsed = json.loads(stripped)
                     if isinstance(parsed, list):
-                        return [str(origin).strip().strip("'").strip('"') for origin in parsed]
+                        return [
+                            str(origin).strip().strip("'\"").rstrip("/")
+                            for origin in parsed
+                            if str(origin).strip().strip("'\"").rstrip("/")
+                        ]
                 except Exception:
                     pass
             # Fallback to splitting by comma and cleaning up brackets/quotes
             cleaned = stripped.replace("[", "").replace("]", "").replace('"', '').replace("'", "")
-            return [origin.strip() for origin in cleaned.split(",") if origin.strip()]
+            return [
+                origin.strip().rstrip("/")
+                for origin in cleaned.split(",")
+                if origin.strip().rstrip("/")
+            ]
+        elif isinstance(value, (list, tuple, set)):
+            return [
+                str(origin).strip().strip("'\"").rstrip("/")
+                for origin in value
+                if str(origin).strip().strip("'\"").rstrip("/")
+            ]
         return value
 
     @field_validator("SUPER_ADMIN_EMAIL", mode="before")

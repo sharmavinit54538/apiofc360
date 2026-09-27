@@ -497,28 +497,39 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Explicit production origins that MUST be supported
-    allowed_origins_list = [
-        "https://www.ofc360.com",
+    # Explicit origins that MUST be supported across all environments (production & dev)
+    # per exact requirement: http://localhost:8080, http://127.0.0.1:8080, https://ofc360.com, https://www.ofc360.com
+    base_required_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "https://ofc360.com",
+        "https://www.ofc360.com",
         "https://api.ofc360.com",
+        "https://app.ofc360.com",
+        "https://ofc360.vercel.app",
     ]
 
-    # Add configured allowed origins from environment
-    if settings.ALLOWED_ORIGINS:
-        allowed_origins_list.extend(settings.ALLOWED_ORIGINS)
+    candidate_origins = list(base_required_origins)
+    if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+        candidate_origins.extend(settings.CORS_ORIGINS)
+    if getattr(settings, "ALLOWED_ORIGINS", None):
+        candidate_origins.extend(settings.ALLOWED_ORIGINS)
+    if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+        candidate_origins.extend(settings.BACKEND_CORS_ORIGINS)
+    if getattr(settings, "DEV_CORS_ORIGINS", None):
+        candidate_origins.extend(settings.DEV_CORS_ORIGINS)
 
-    # Add any additional configured backend CORS origins
-    if settings.BACKEND_CORS_ORIGINS:
-        allowed_origins_list.extend(settings.BACKEND_CORS_ORIGINS)
+    # Sanitize: strip whitespace, remove trailing slashes and quotes, ensure no '*' with credentials
+    cleaned_origins: list[str] = []
+    for origin in candidate_origins:
+        if not origin:
+            continue
+        c = str(origin).strip().strip("'\"").rstrip("/")
+        if c and c != "*":
+            cleaned_origins.append(c)
 
-    # Add development origins only in non-production environments
-    if settings.ENVIRONMENT.lower() in {"local", "development", "dev"}:
-        allowed_origins_list.extend(settings.DEV_CORS_ORIGINS)
-
-    # Ensure no wildcard origins are used with credentials, and remove duplicates
-    allowed_origins_list = [origin.strip() for origin in allowed_origins_list if origin and origin.strip() != "*"]
-    allowed_origins_list = list(dict.fromkeys(allowed_origins_list))
+    # Deduplicate while preserving exact order
+    allowed_origins_list = list(dict.fromkeys(cleaned_origins))
 
     # Log CORS configuration at startup for production debugging
     logger.info("CORS Configuration: %d origins allowed | environment=%s", len(allowed_origins_list), settings.ENVIRONMENT)
