@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
 # Verify the virtual environment passes dependency consistency checks
-RUN pip check && python -c "import dlib, face_recognition, face_recognition_models, numpy; assert face_recognition.face_locations is not None; print('[Builder] Verified dlib and face_recognition import successfully!')"
+RUN pip check && python -c "import dlib, face_recognition, face_recognition_models, numpy; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Builder] Verified dlib, face_recognition, and greenlet import successfully!')"
 
 
 # ==============================================================================
@@ -90,7 +90,7 @@ USER appuser
 EXPOSE 8000
 
 # Smoke test imports in the final runtime container
-RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics and web modules load cleanly.')"
+RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
 
 # Container healthcheck probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
