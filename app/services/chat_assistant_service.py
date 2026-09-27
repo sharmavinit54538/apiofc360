@@ -61,8 +61,8 @@ class ChatAssistantService:
     ) -> ChatAssistantResponse:
         """Process natural language user chat query with real data + LLM."""
         eff_co_id = company_id or uuid.uuid4()
-        conv_id = request.conversation_id or str(uuid.uuid4())
-        raw_text = (request.query or request.message or "").strip()
+        conv_id = request.conversation_id or getattr(request, "conversationId", None) or str(uuid.uuid4())
+        raw_text = (request.query or request.message or getattr(request, "content", None) or "").strip()
 
         if not raw_text:
             raw_text = "Give me a workforce overview"
@@ -92,7 +92,7 @@ class ChatAssistantService:
             context_text += f"- Department Distribution:\n{dept_info}\n"
 
         if citations:
-            policy_text = "\n".join(f"  - {c.title}: {c.snippet}" for c in citations[:3])
+            policy_text = "\n".join(f"  - {getattr(c, 'title', getattr(c, 'document', 'Policy'))}: {getattr(c, 'snippet', getattr(c, 'section', ''))}" for c in citations[:3])
             context_text += f"\nRelevant Policies:\n{policy_text}\n"
 
         # 4. Get conversation memory
@@ -100,6 +100,13 @@ class ChatAssistantService:
             session_id=conv_id,
             system_prompt=_SYSTEM_PROMPT,
         )
+
+        # Enforce multi-tenant isolation
+        if session.metadata.get("company_id") and company_id:
+            if session.metadata["company_id"] != str(company_id):
+                raise NotFoundException(message=f"Conversation '{conv_id}' not found.")
+        elif company_id:
+            session.metadata["company_id"] = str(company_id)
 
         # Add user message to memory
         session.add_message("user", raw_text)
@@ -302,14 +309,17 @@ class ChatAssistantService:
     async def get_history(
         self, company_id: Optional[uuid.UUID] = None
     ) -> ChatHistoryResponse:
-        """Fetch past chat conversations from memory."""
+        """Fetch past chat conversations from memory filtered by company."""
         sessions = self.memory.list_sessions()
         hist = []
         for s in sessions[:50]:
+            s_co_id = s.get("metadata", {}).get("company_id")
+            if company_id and s_co_id and s_co_id != str(company_id):
+                continue
             hist.append(
                 ConversationHistoryItem(
                     conversation_id=s["session_id"],
-                    title=s.get("last_message", "Conversation")[:80],
+                    title=s.get("metadata", {}).get("title") or s.get("last_message", "Conversation")[:80],
                     last_message=s.get("last_message", ""),
                     message_count=s.get("message_count", 0),
                     updated_at=datetime.fromtimestamp(s.get("updated_at", 0)),
@@ -318,30 +328,45 @@ class ChatAssistantService:
         return ChatHistoryResponse(total_conversations=len(hist), history=hist)
 
     async def get_history_detail(
-        self, conversation_id: str
+        self, conversation_id: str, company_id: Optional[uuid.UUID] = None
     ) -> ChatAssistantResponse:
-        """Fetch specific conversation history detail."""
+        """Fetch specific conversation history detail with company isolation."""
         session = self.memory.get(conversation_id)
-        if session and session.messages:
-            last_msg = session.messages[-1]
-            return ChatAssistantResponse(
-                answer=last_msg.content,
-                confidence=0.9,
-                sources=[],
-                charts=[],
-                tables=[],
-                followUpQuestions=[],
-                follow_up_questions=[],
-                conversationId=conversation_id,
-                conversation_id=conversation_id,
-            )
+        if session:
+            s_co_id = session.metadata.get("company_id")
+            if s_co_id and company_id and s_co_id != str(company_id):
+                raise NotFoundException(message=f"Conversation '{conversation_id}' not found.")
+            if session.messages:
+                last_msg = session.messages[-1]
+                return ChatAssistantResponse(
+                    answer=last_msg.content,
+                    confidence=0.9,
+                    sources=[],
+                    charts=[],
+                    tables=[],
+                    followUpQuestions=[],
+                    follow_up_questions=[],
+                    conversationId=conversation_id,
+                    conversation_id=conversation_id,
+                )
         req = ChatAssistantRequest(query="Show conversation recap", conversation_id=conversation_id)
-        return await self.process_chat(request=req)
+        return await self.process_chat(request=req, company_id=company_id)
 
-    async def delete_history(self, conversation_id: str) -> Dict[str, Any]:
-        """Delete specific chat conversation."""
+    async def delete_history(
+        self, conversation_id: str, company_id: Optional[uuid.UUID] = None
+    ) -> Dict[str, Any]:
+        """Delete specific chat conversation with company isolation."""
+        session = self.memory.get(conversation_id)
+        if session and company_id:
+            s_co_id = session.metadata.get("company_id")
+            if s_co_id and s_co_id != str(company_id):
+                raise NotFoundException(message=f"Conversation '{conversation_id}' not found.")
         deleted = self.memory.delete(conversation_id)
-        return {"deleted": deleted, "conversation_id": conversation_id}
+        return {
+            "deleted": deleted,
+            "conversation_id": conversation_id,
+            "conversationId": conversation_id,
+        }
 
     async def get_suggestions(
         self, company_id: Optional[uuid.UUID] = None
