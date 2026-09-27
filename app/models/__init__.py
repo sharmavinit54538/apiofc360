@@ -343,6 +343,9 @@ from app.models.helpdesk import (
     HelpdeskComment,
     HelpdeskInternalNote,
     HelpdeskAttachment,
+    HelpdeskFAQ,
+)
+
 # AI Hub module models
 from app.models.ai_hub import (
     AgentRun,
