@@ -137,6 +137,32 @@ from app.api.v1.ai_hub.workforce import (
     planning_router as ai_hub_workforce_planning_router,
 )
 
+# HRMS Core Modules (/api/v1/*)
+from app.routers import (
+    attendance as core_attendance_router,
+    analytics as core_analytics_router,
+    settings as core_settings_router,
+    performance as core_performance_router,
+    users as core_users_router,
+    profile as core_profile_router,
+    departments as core_departments_router,
+    compliance as core_compliance_router,
+    employee_health as core_employee_health_router,
+    leave_assistant as core_leave_assistant_router,
+    meeting_intelligence as core_meeting_intelligence_router,
+    performance_coach as core_performance_coach_router,
+    recruiter as core_recruiter_router,
+    workforce_insights as core_workforce_insights_router,
+    managers as core_managers_router,
+    policy_assistant as core_policy_assistant_router,
+    reports as core_reports_router,
+    notifications as core_notifications_router,
+    documents as core_documents_router,
+    assets as core_assets_router,
+    holidays as core_holidays_router,
+    dashboard as core_dashboard_router,
+)
+
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.core.config import settings
@@ -639,6 +665,33 @@ def create_app() -> FastAPI:
         ai_hub_recruiter_router,
         ai_hub_workforce_insights_router,
         ai_hub_workforce_planning_router,
+    ):
+        app.include_router(r, prefix=settings.API_V1_PREFIX)
+
+    # ── HRMS Core Modules (/api/v1/*) ──────────────────────────────────────────
+    for r in (
+        core_attendance_router.router,
+        core_analytics_router.router,
+        core_settings_router.router,
+        core_performance_router.router,
+        core_users_router.router,
+        core_profile_router.router,
+        core_departments_router.router,
+        core_compliance_router.router,
+        core_employee_health_router.router,
+        core_leave_assistant_router.router,
+        core_meeting_intelligence_router.router,
+        core_performance_coach_router.router,
+        core_recruiter_router.router,
+        core_workforce_insights_router.router,
+        core_managers_router.router,
+        core_policy_assistant_router.router,
+        core_reports_router.router,
+        core_notifications_router.router,
+        core_documents_router.router,
+        core_assets_router.router,
+        core_holidays_router.router,
+        core_dashboard_router.router,
     ):
         app.include_router(r, prefix=settings.API_V1_PREFIX)
 

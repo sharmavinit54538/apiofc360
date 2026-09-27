@@ -324,6 +324,16 @@ from app.models.timesheet import Timesheet, TimesheetEntry
 # Attendance module models
 from app.attendance.models.attendance import Attendance
 from app.attendance.models.attendance_break import AttendanceBreak
+from app.models.core_modules import (
+    AttendanceRegularizationRequest,
+    AnalyticsSnapshot,
+    EmploymentType,
+    Holiday,
+    PerformanceKPI,
+    ComplianceRecord,
+    EmployeeHealthRecord,
+    AIInteraction,
+)
 
 # Leave module models
 from app.models.leave import LeaveRequest
@@ -595,4 +605,12 @@ __all__ = [
     "CompanyBankAccount",
     "PayrollReportExport",
     "AttendanceBreak",
+    "AttendanceRegularizationRequest",
+    "AnalyticsSnapshot",
+    "EmploymentType",
+    "Holiday",
+    "PerformanceKPI",
+    "ComplianceRecord",
+    "EmployeeHealthRecord",
+    "AIInteraction",
 ]

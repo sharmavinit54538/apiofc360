@@ -139,7 +139,7 @@ async def _seed_test_env(role: UserRole = UserRole.HR_ADMIN):
 
         await session.commit()
 
-    token = create_access_token(data={"sub": str(user_id), "role": role.value, "company_id": str(company_id)})
+    token = create_access_token(user_id=user_id, role=role.value, company_id=company_id, email=email)
     headers = {"Authorization": f"Bearer {token}"}
     return {
         "company_id": company_id,
