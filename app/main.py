@@ -116,6 +116,26 @@ from app.api.generate_api import router as generate_router
 from app.api.connect import router as connect_router
 from app.api.helpdesk import router as helpdesk_router
 
+# AI Hub Gateway routers
+from app.api.v1.ai_hub.root import router as ai_hub_root_router
+from app.api.v1.ai_hub.agents import router as ai_hub_agents_router
+from app.api.v1.ai_hub.analytics_center import router as ai_hub_analytics_router
+from app.api.v1.ai_hub.attendance_monitor import router as ai_hub_attendance_router
+from app.api.v1.ai_hub.chat_assistant import router as ai_hub_chat_router
+from app.api.v1.ai_hub.compliance_monitor import router as ai_hub_compliance_router
+from app.api.v1.ai_hub.document_generator import router as ai_hub_docgen_router
+from app.api.v1.ai_hub.employee_health import router as ai_hub_health_router
+from app.api.v1.ai_hub.leave_assistant import router as ai_hub_leave_router
+from app.api.v1.ai_hub.meeting_intelligence import router as ai_hub_meeting_router
+from app.api.v1.ai_hub.payroll_insights import router as ai_hub_payroll_router
+from app.api.v1.ai_hub.performance_coach import router as ai_hub_performance_router
+from app.api.v1.ai_hub.policy_assistant import router as ai_hub_policy_router
+from app.api.v1.ai_hub.recruiter import router as ai_hub_recruiter_router
+from app.api.v1.ai_hub.workforce import (
+    insights_router as ai_hub_workforce_insights_router,
+    planning_router as ai_hub_workforce_planning_router,
+)
+
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.core.config import settings
@@ -598,6 +618,27 @@ def create_app() -> FastAPI:
     app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
     app.include_router(reports_v1_router, prefix=settings.API_V1_PREFIX)
     app.include_router(intelligence_router, prefix=settings.API_V1_PREFIX)
+
+    # AI Hub Gateway (/api/v1/ai-hub/*)
+    for r in (
+        ai_hub_root_router,
+        ai_hub_agents_router,
+        ai_hub_analytics_router,
+        ai_hub_attendance_router,
+        ai_hub_chat_router,
+        ai_hub_compliance_router,
+        ai_hub_docgen_router,
+        ai_hub_health_router,
+        ai_hub_leave_router,
+        ai_hub_meeting_router,
+        ai_hub_payroll_router,
+        ai_hub_performance_router,
+        ai_hub_policy_router,
+        ai_hub_recruiter_router,
+        ai_hub_workforce_insights_router,
+        ai_hub_workforce_planning_router,
+    ):
+        app.include_router(r, prefix=settings.API_V1_PREFIX)
 
     # ── API v2 routers ─────────────────────────────────────────────────────────
     app.include_router(doc_intel_router, prefix="/api/v2")
