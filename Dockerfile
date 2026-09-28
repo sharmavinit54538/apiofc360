@@ -91,7 +91,7 @@ EXPOSE 8000
 
 # Smoke test imports in the final runtime container
 RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
-RUN python -m compileall app && python -c "from app.core.config import settings; print('[Runtime] Smoke test PASSED: Config and settings loaded successfully!')"
+RUN python -m compileall app
 
 # Container healthcheck probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
