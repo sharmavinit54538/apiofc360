@@ -235,9 +235,9 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
-    CLOUDINARY_CLOUD_NAME="sfqkvhk1"
-CLOUDINARY_API_KEY="256143848656332"
-CLOUDINARY_API_SECRET="XWUxbxAr-tXLDwewBcF7F6OrU8s"
+    CLOUDINARY_CLOUD_NAME: str = "sfqkvhk1"
+    CLOUDINARY_API_KEY: str = "256143848656332"
+    CLOUDINARY_API_SECRET: str = "XWUxbxAr-tXLDwewBcF7F6OrU8s"
 
     # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
     # Cloud LLM providers are DISABLED. Only Ollama is supported.
