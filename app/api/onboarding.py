@@ -1,53 +1,75 @@
-"""Company Admin Onboarding API routes.
+"""Company Admin & HR Admin Onboarding API routes.
 
 Production-ready onboarding flow with:
-- Sequential step enforcement (cannot skip steps)
-- Idempotency (cannot re-submit a completed step)
-- Automatic redirect_step in error responses for frontend navigation
-- Per-step completion flags stored in OnboardingProgress table
-- Full transaction safety on every mutating endpoint
+- All 6 stages supported: Admin Profile, Company Setup, Departments & Designations CRUD,
+  Work Schedule & Leave Policies CRUD, Individual Employee Invitations, Review & Complete
+- Multi-tenant isolation and HR Admin role enforcement (403 Forbidden for employees)
+- Transaction-safe database persistence with zero mock data
+- Token validation & activation endpoints for invited employees
 """
 
 from __future__ import annotations
 
-import logging
-import uuid
-from typing import Annotated, Dict, Any
 from datetime import datetime, date, timezone
+import logging
+import os
+import re
+import secrets
+from typing import Annotated, Any, Dict, List, Optional
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, delete, text
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.exceptions import AppException, ConflictException, ValidationException
-from app.core.rbac import require_admin
+from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
+from app.core.rbac import require_hr_admin
 from app.db.database import get_db_session
 from app.models.company import Company
-from app.models.user import User
-from app.models.employee import Employee
 from app.models.department import Department
-from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
+from app.models.employee import Employee
+from app.models.employee_invitation import EmployeeInvitation
+from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress, Shift
+from app.models.user import User
 from app.schemas.auth import APIResponse
-from app.schemas.employee import EmployeeCreate, ActivateOnboardingRequest
+from app.schemas.employee import ActivateOnboardingRequest, EmployeeCreate
 from app.schemas.onboarding import (
-    OnboardingAPIResponse,
-    OnboardingStatusResponse,
-    OnboardingProgressResponse,
-    CompanyStepInput,
-    AdminProfileStepInput,
-    HRSettingsStepInput,
+    DepartmentCreateInput,
+    DepartmentItemResponse,
     DepartmentStepInputList,
+    DepartmentUpdateInput,
+    DesignationCreateInput,
+    DesignationItemResponse,
     DesignationStepInputList,
+    DesignationUpdateInput,
+    FileUploadResponse,
+    HRAdminProfileInput,
+    HRAdminProfileResponse,
+    IndividualInvitationInput,
+    InvitationListResponse,
+    InvitationResponse,
     InviteEmployeeStepInputList,
+    LeavePolicyCreateInput,
+    LeavePolicyResponse,
+    LeavePolicyUpdateInput,
+    OnboardingAPIResponse,
+    OnboardingProgressResponse,
+    OnboardingProgressUpdateInput,
+    OnboardingReviewResponse,
+    OnboardingStatusResponse,
+    OrganizationInput,
+    OrganizationResponse,
+    WorkScheduleInput,
+    WorkScheduleResponse,
 )
 from app.services.employee_service import (
     EmployeeService,
     get_employee_service,
-    validate_employee_invitation_token,
     mask_token,
+    validate_employee_invitation_token,
 )
-from app.services.onboarding_service import OnboardingService, StepAccess
+from app.services.hr_admin_onboarding_service import HRAdminOnboardingService
 from app.services.rate_limiter import check_onboarding_rate_limit
 
 logger = logging.getLogger(__name__)
@@ -55,792 +77,767 @@ router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# Helper: HR Admin Context Resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_company_id(claims: dict) -> uuid.UUID:
-    """Extract and validate company_id from JWT claims."""
-    company_id_str = claims.get("company_id")
-    if not company_id_str:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Company ID not found in security credentials.",
-        )
-    return uuid.UUID(company_id_str)
-
-
-async def _load_company(session: AsyncSession, company_id: uuid.UUID) -> Company:
-    """Load company or raise 404."""
-    result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalar_one_or_none()
-    if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company profile not found.")
-    return company
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /status
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get(
-    "/status",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[OnboardingStatusResponse],
-    summary="Get current company onboarding status",
-)
-async def get_onboarding_status(
-    claims: Annotated[dict, Depends(require_admin)],
+async def _resolve_admin_context(
+    claims: Annotated[dict, Depends(require_hr_admin)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Extract authenticated HR Admin user_id and linked company_id."""
+    user_id_str = claims.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID missing from credentials.")
+    user_id = uuid.UUID(str(user_id_str))
+
+    company_id: uuid.UUID | None = None
+    cid_claim = claims.get("company_id")
+    if cid_claim and str(cid_claim).lower() not in {"default", "none", ""}:
+        try:
+            company_id = uuid.UUID(str(cid_claim))
+        except (ValueError, TypeError):
+            company_id = None
+
+    if not company_id:
+        user_res = await session.execute(select(User).where(User.id == user_id))
+        user = user_res.scalar_one_or_none()
+        if user and user.company_id:
+            company_id = user.company_id
+
+    if not company_id:
+        # Auto-provision company if none exists
+        user_res = await session.execute(select(User).where(User.id == user_id))
+        user = user_res.scalar_one_or_none()
+        new_comp = Company(
+            id=uuid.uuid4(),
+            name=f"{user.name if user and user.name else 'My'} Organization",
+            onboarding_completed=False,
+            onboarding_step=1,
+            company_profile={},
+        )
+        setattr(new_comp, "status", "PENDING")
+        session.add(new_comp)
+        await session.flush()
+        if user:
+            user.company_id = new_comp.id
+        company_id = new_comp.id
+
+    return user_id, company_id
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Onboarding Status & Progress
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/status", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingStatusResponse])
+async def get_onboarding_status(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
 ) -> OnboardingAPIResponse[OnboardingStatusResponse]:
-    """Return current_step and completion flags. Used by login flow to route the user."""
-    company_id = _get_company_id(claims)
-    company = await _load_company(session, company_id)
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    
-    # Sync progress with company status
-    if company.onboarding_completed and not progress.onboarding_completed:
-        progress.onboarding_completed = True
-        progress.current_step = 7
-        session.add(progress)
-
-    await session.commit()
-
-    onboarding_completed = progress.onboarding_completed or company.onboarding_completed
-    first_incomplete = svc.get_first_incomplete_step(progress) if not onboarding_completed else 7
-
-    total_steps = 6
-    if onboarding_completed:
-        pct = 100.0
-    else:
-        pct = round((min(first_incomplete - 1, total_steps) / total_steps) * 100.0, 2)
-
+    """Get current onboarding status and active step."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    progress = await service.get_or_create_progress(company_id, user_id)
+    company = await service.get_company(company_id)
+    status_resp = service._build_status_response(progress, company=company)
     return OnboardingAPIResponse(
         success=True,
         message="Onboarding status retrieved successfully.",
-        current_step=first_incomplete,
-        onboarding_completed=onboarding_completed,
-        data=OnboardingStatusResponse(
-            onboarding_completed=onboarding_completed,
-            current_step=first_incomplete,
-            completion_percentage=pct,
-            company_completed=progress.company_completed or onboarding_completed,
-            admin_completed=progress.admin_completed or onboarding_completed,
-            hr_completed=progress.hr_completed or onboarding_completed,
-            departments_completed=progress.departments_completed or onboarding_completed,
-            designations_completed=progress.designations_completed or onboarding_completed,
-            employees_invited=progress.employees_invited or onboarding_completed,
+        current_step=status_resp.current_step,
+        onboarding_completed=status_resp.onboarding_completed,
+        data=status_resp,
+    )
+
+
+@router.get("/progress", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingProgressResponse])
+async def get_onboarding_progress(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[OnboardingProgressResponse]:
+    """Retrieve all saved onboarding progress data for form prefill."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    data = await service.get_progress_response(company_id, user_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Onboarding progress retrieved successfully.",
+        current_step=data.current_step,
+        onboarding_completed=data.onboarding_completed,
+        data=data,
+    )
+
+
+@router.put("/progress", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingProgressResponse])
+@router.patch("/progress", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingProgressResponse])
+async def save_onboarding_progress(
+    payload: OnboardingProgressUpdateInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[OnboardingProgressResponse]:
+    """Save onboarding step progress in the database."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    data = await service.save_progress(company_id, user_id, payload.current_step, payload.completed_steps, payload.status)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Onboarding progress saved successfully.",
+        current_step=data.current_step,
+        onboarding_completed=data.onboarding_completed,
+        data=data,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Stage 1: Admin Profile
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/admin-profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+@router.get("/profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+async def get_admin_profile(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[HRAdminProfileResponse]:
+    """Get HR Admin profile details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    profile = await service.get_admin_profile(user_id, company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Admin profile retrieved successfully.",
+        current_step=1,
+        onboarding_completed=False,
+        data=profile,
+    )
+
+
+@router.post("/admin-profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+@router.put("/admin-profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+@router.post("/profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+@router.put("/profile", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[HRAdminProfileResponse])
+async def save_admin_profile(
+    payload: HRAdminProfileInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[HRAdminProfileResponse]:
+    """Create or update HR Admin profile details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    profile = await service.update_admin_profile(user_id, company_id, payload)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Admin profile saved successfully.",
+        current_step=2,
+        onboarding_completed=False,
+        data=profile,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Stage 2: Company / Organization
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/company", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+@router.get("/organization", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+async def get_company_details(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[OrganizationResponse]:
+    """Get organization/company details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    org = await service.get_organization(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Company profile retrieved successfully.",
+        current_step=2,
+        onboarding_completed=org.onboarding_completed,
+        data=org,
+    )
+
+
+@router.post("/company", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+@router.put("/company", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+@router.post("/organization", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+@router.put("/organization", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OrganizationResponse])
+async def save_company_details(
+    payload: OrganizationInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[OrganizationResponse]:
+    """Create or update company profile details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    org = await service.update_organization(company_id, payload)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Company information saved successfully.",
+        current_step=3,
+        onboarding_completed=org.onboarding_completed,
+        data=org,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Stage 3: Departments CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/departments", status_code=status.HTTP_201_CREATED, response_model=OnboardingAPIResponse[Any])
+async def create_department_or_list(
+    payload: DepartmentCreateInput | DepartmentStepInputList,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Any]:
+    """Create a department (or multiple departments via batch payload)."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+
+    if isinstance(payload, DepartmentStepInputList) or hasattr(payload, "departments"):
+        # Batch save compatibility
+        created_list = []
+        for d in payload.departments:
+            clean_name = d.department_name.strip()
+            clean_code = (d.department_code or "").strip() or None
+            inp = DepartmentCreateInput(department_name=clean_name, department_code=clean_code, description=d.description)
+            try:
+                created = await service.create_department(company_id, user_id, inp)
+                created_list.append(created)
+            except ConflictException:
+                pass  # Idempotent skip of duplicates
+        return OnboardingAPIResponse(
+            success=True,
+            message="Departments configured successfully.",
+            current_step=4,
+            onboarding_completed=False,
+            data={"items": [c.model_dump() for c in created_list]},
+        )
+    else:
+        dept = await service.create_department(company_id, user_id, payload)
+        return OnboardingAPIResponse(
+            success=True,
+            message="Department created successfully.",
+            current_step=3,
+            onboarding_completed=False,
+            data=dept,
+        )
+
+
+@router.get("/departments", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[List[DepartmentItemResponse]])
+async def list_departments(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[List[DepartmentItemResponse]]:
+    """List departments belonging ONLY to this organization."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    depts = await service.list_departments(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Departments retrieved successfully.",
+        current_step=3,
+        onboarding_completed=False,
+        data=depts,
+    )
+
+
+@router.get("/departments/{department_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DepartmentItemResponse])
+async def get_department(
+    department_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[DepartmentItemResponse]:
+    """Get department details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    dept = await service.get_department(company_id, department_id)
+    return OnboardingAPIResponse(success=True, message="Department retrieved.", current_step=3, onboarding_completed=False, data=dept)
+
+
+@router.put("/departments/{department_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DepartmentItemResponse])
+@router.patch("/departments/{department_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DepartmentItemResponse])
+async def update_department(
+    department_id: uuid.UUID,
+    payload: DepartmentUpdateInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[DepartmentItemResponse]:
+    """Update department."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    dept = await service.update_department(company_id, department_id, payload)
+    return OnboardingAPIResponse(success=True, message="Department updated successfully.", current_step=3, onboarding_completed=False, data=dept)
+
+
+@router.delete("/departments/{department_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def delete_department(
+    department_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Delete department."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    await service.delete_department(company_id, department_id)
+    return OnboardingAPIResponse(success=True, message="Department deleted successfully.", current_step=3, onboarding_completed=False, data={"id": str(department_id)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Stage 3: Designations CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/designations", status_code=status.HTTP_201_CREATED, response_model=OnboardingAPIResponse[Any])
+async def create_designation_or_list(
+    payload: DesignationCreateInput | DesignationStepInputList,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Any]:
+    """Create designation(s)."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+
+    if isinstance(payload, DesignationStepInputList) or hasattr(payload, "designations"):
+        created = []
+        for name in payload.designations:
+            clean = name.strip()
+            inp = DesignationCreateInput(name=clean)
+            try:
+                d = await service.create_designation(company_id, inp)
+                created.append(d)
+            except ConflictException:
+                pass
+        return OnboardingAPIResponse(
+            success=True,
+            message="Designations configured successfully.",
+            current_step=4,
+            onboarding_completed=False,
+            data={"items": [c.model_dump() for c in created]},
+        )
+    else:
+        desig = await service.create_designation(company_id, payload)
+        return OnboardingAPIResponse(
+            success=True,
+            message="Designation created successfully.",
+            current_step=3,
+            onboarding_completed=False,
+            data=desig,
+        )
+
+
+@router.get("/designations", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[List[DesignationItemResponse]])
+async def list_designations(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[List[DesignationItemResponse]]:
+    """List designations belonging to this organization."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    desigs = await service.list_designations(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Designations retrieved successfully.",
+        current_step=3,
+        onboarding_completed=False,
+        data=desigs,
+    )
+
+
+@router.get("/designations/{designation_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DesignationItemResponse])
+async def get_designation(
+    designation_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[DesignationItemResponse]:
+    """Get designation details."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    desig = await service.get_designation(company_id, designation_id)
+    return OnboardingAPIResponse(success=True, message="Designation retrieved.", current_step=3, onboarding_completed=False, data=desig)
+
+
+@router.put("/designations/{designation_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DesignationItemResponse])
+@router.patch("/designations/{designation_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[DesignationItemResponse])
+async def update_designation(
+    designation_id: uuid.UUID,
+    payload: DesignationUpdateInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[DesignationItemResponse]:
+    """Update designation."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    desig = await service.update_designation(company_id, designation_id, payload)
+    return OnboardingAPIResponse(success=True, message="Designation updated successfully.", current_step=3, onboarding_completed=False, data=desig)
+
+
+@router.delete("/designations/{designation_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def delete_designation(
+    designation_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Delete designation."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    await service.delete_designation(company_id, designation_id)
+    return OnboardingAPIResponse(success=True, message="Designation deleted successfully.", current_step=3, onboarding_completed=False, data={"id": str(designation_id)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Stage 4: Work Schedule & HR Settings
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/hr-settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.get("/settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.get("/work-schedule", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+async def get_hr_settings(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[WorkScheduleResponse]:
+    """Get work schedule and HR settings."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    sched = await service.get_work_schedule(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="HR setup configurations retrieved.",
+        current_step=4,
+        onboarding_completed=False,
+        data=sched,
+    )
+
+
+@router.post("/hr-settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.put("/hr-settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.post("/settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.put("/settings", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.post("/work-schedule", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+@router.put("/work-schedule", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[WorkScheduleResponse])
+async def save_hr_settings(
+    payload: WorkScheduleInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[WorkScheduleResponse]:
+    """Save work schedule and HR settings."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    sched = await service.update_work_schedule(company_id, payload)
+    return OnboardingAPIResponse(
+        success=True,
+        message="HR setup configurations saved successfully.",
+        current_step=4,
+        onboarding_completed=False,
+        data=sched,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Stage 4: Leave Policies CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/leave-policies", status_code=status.HTTP_201_CREATED, response_model=OnboardingAPIResponse[LeavePolicyResponse])
+async def create_leave_policy(
+    payload: LeavePolicyCreateInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[LeavePolicyResponse]:
+    """Create leave policy for organization."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    policy = await service.create_leave_policy(company_id, payload)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Leave policy created successfully.",
+        current_step=4,
+        onboarding_completed=False,
+        data=policy,
+    )
+
+
+@router.get("/leave-policies", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[List[LeavePolicyResponse]])
+async def list_leave_policies(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[List[LeavePolicyResponse]]:
+    """List leave policies for organization."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    policies = await service.list_leave_policies(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Leave policies retrieved successfully.",
+        current_step=4,
+        onboarding_completed=False,
+        data=policies,
+    )
+
+
+@router.get("/leave-policies/{policy_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[LeavePolicyResponse])
+async def get_leave_policy(
+    policy_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[LeavePolicyResponse]:
+    """Get leave policy by ID."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    policy = await service.get_leave_policy(company_id, policy_id)
+    return OnboardingAPIResponse(success=True, message="Leave policy retrieved.", current_step=4, onboarding_completed=False, data=policy)
+
+
+@router.put("/leave-policies/{policy_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[LeavePolicyResponse])
+@router.patch("/leave-policies/{policy_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[LeavePolicyResponse])
+async def update_leave_policy(
+    policy_id: uuid.UUID,
+    payload: LeavePolicyUpdateInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[LeavePolicyResponse]:
+    """Update leave policy."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    policy = await service.update_leave_policy(company_id, policy_id, payload)
+    return OnboardingAPIResponse(success=True, message="Leave policy updated successfully.", current_step=4, onboarding_completed=False, data=policy)
+
+
+@router.delete("/leave-policies/{policy_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def delete_leave_policy(
+    policy_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Delete leave policy."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    await service.delete_leave_policy(company_id, policy_id)
+    return OnboardingAPIResponse(success=True, message="Leave policy deleted successfully.", current_step=4, onboarding_completed=False, data={"id": str(policy_id)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Stage 5: Individual Employee Invitations (NO BULK IMPORT)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/invitations", status_code=status.HTTP_201_CREATED, response_model=OnboardingAPIResponse[InvitationResponse])
+@router.post("/invite-employee", status_code=status.HTTP_201_CREATED, response_model=OnboardingAPIResponse[InvitationResponse])
+async def send_individual_invitation(
+    payload: IndividualInvitationInput,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[InvitationResponse]:
+    """Send an individual employee invitation. Bulk APIs strictly prohibited."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    inv = await service.send_individual_invitation(company_id, user_id, payload)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Employee invitation sent successfully.",
+        current_step=5,
+        onboarding_completed=False,
+        data=inv,
+    )
+
+
+@router.post("/invite-employees", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def invite_employees_batch_step(
+    payload: InviteEmployeeStepInputList,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Step 5 compatibility endpoint for wizard form submission."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+
+    invited = []
+    if not payload.skip:
+        for emp_data in payload.employees:
+            name = f"{emp_data.first_name} {emp_data.last_name}".strip()
+            inp = IndividualInvitationInput(
+                employee_name=name or "Invited Employee",
+                employee_email=emp_data.personal_email,
+                department=emp_data.department,
+                designation=emp_data.designation,
+            )
+            try:
+                inv = await service.send_individual_invitation(company_id, user_id, inp)
+                invited.append(inv)
+            except ConflictException:
+                pass
+
+    return OnboardingAPIResponse(
+        success=True,
+        message="Employee invitations processed successfully." if not payload.skip else "Invitation step skipped.",
+        current_step=6,
+        onboarding_completed=False,
+        data={"items": [i.model_dump() for i in invited]},
+    )
+
+
+@router.get("/invitations", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[List[InvitationResponse]])
+@router.get("/invitations/pending", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[List[InvitationResponse]])
+async def list_pending_invitations(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[List[InvitationResponse]]:
+    """List pending employee invitations."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    invs = await service.list_pending_invitations(company_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Pending invitations retrieved successfully.",
+        current_step=5,
+        onboarding_completed=False,
+        data=invs,
+    )
+
+
+@router.post("/invitations/{invitation_id}/resend", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[InvitationResponse])
+async def resend_invitation(
+    invitation_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[InvitationResponse]:
+    """Resend employee invitation."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    inv = await service.resend_invitation(company_id, invitation_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Invitation resent successfully.",
+        current_step=5,
+        onboarding_completed=False,
+        data=inv,
+    )
+
+
+@router.post("/invitations/{invitation_id}/cancel", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+@router.delete("/invitations/{invitation_id}", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def cancel_invitation(
+    invitation_id: uuid.UUID,
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Cancel employee invitation."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    await service.cancel_invitation(company_id, invitation_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Invitation cancelled successfully.",
+        current_step=5,
+        onboarding_completed=False,
+        data={"id": str(invitation_id)},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Stage 6: Structure Review & Complete Onboarding
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/structure", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingReviewResponse])
+@router.get("/review", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingReviewResponse])
+@router.get("/organization/structure", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[OnboardingReviewResponse])
+async def get_organization_structure(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[OnboardingReviewResponse]:
+    """Return aggregated organization structure for Review screen."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    structure = await service.get_organization_structure(company_id, user_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message="Organization structure retrieved successfully.",
+        current_step=6,
+        onboarding_completed=False,
+        data=structure,
+    )
+
+
+@router.post("/complete", status_code=status.HTTP_200_OK, response_model=OnboardingAPIResponse[Dict[str, Any]])
+async def complete_onboarding(
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+    session: AsyncSession = Depends(get_db_session),
+) -> OnboardingAPIResponse[Dict[str, Any]]:
+    """Complete HR Admin onboarding, seed required defaults, and activate organization workspace."""
+    user_id, company_id = context
+    service = HRAdminOnboardingService(session)
+    res = await service.complete_onboarding(company_id, user_id)
+    return OnboardingAPIResponse(
+        success=True,
+        message=res["message"],
+        current_step=6,
+        onboarding_completed=True,
+        data=res,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. File Upload
+# ─────────────────────────────────────────────────────────────────────────────
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".svg"}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+
+@router.post("/upload", status_code=status.HTTP_200_OK, response_model=APIResponse[FileUploadResponse])
+async def upload_onboarding_asset(
+    file: UploadFile = File(...),
+    category: str = Form(default="company_logo"),
+    context: tuple[uuid.UUID, uuid.UUID] = Depends(_resolve_admin_context),
+) -> APIResponse[FileUploadResponse]:
+    """Upload company logo, company stamp, or admin profile photo with strict validation."""
+    filename = file.filename or "upload.png"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type '{ext}'. Allowed types: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    content_type = file.content_type or ""
+    if content_type.lower() not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid MIME content-type '{content_type}'. Must be a valid image.",
+        )
+
+    contents = await file.read()
+    file_size = len(contents)
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File size ({file_size / (1024 * 1024):.1f}MB) exceeds 5MB limit.",
+        )
+    if file_size == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
+
+    safe_category = "".join(filter(str.isalnum, category.lower())) or "general"
+    upload_dir = os.path.join("uploads", "onboarding", safe_category)
+    os.makedirs(upload_dir, exist_ok=True)
+
+    clean_filename = re.sub(r"[^a-zA-Z0-9_\.-]", "_", filename)
+    unique_name = f"{secrets.token_hex(8)}_{clean_filename}"
+    file_path = os.path.join(upload_dir, unique_name)
+
+    with open(file_path, "wb") as f:
+        f.write(contents)
+
+    relative_url = f"/uploads/onboarding/{safe_category}/{unique_name}".replace("\\", "/")
+
+    return APIResponse(
+        success=True,
+        message="File uploaded successfully.",
+        data=FileUploadResponse(
+            url=relative_url,
+            filename=clean_filename,
+            size=file_size,
+            category=safe_category,
         ),
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GET /progress
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get(
-    "/progress",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[OnboardingProgressResponse],
-    summary="Get all saved onboarding data",
-)
-async def get_onboarding_progress(
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[OnboardingProgressResponse]:
-    """Retrieve all previously saved onboarding progress. Frontend uses this to prefill forms."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-    company = await _load_company(session, company_id)
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    await session.commit()
-
-    # Admin profile
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-
-    admin_emp_result = await session.execute(
-        select(Employee).where(Employee.company_email == user.email) if user else select(Employee).where(False)
-    )
-    admin_emp = admin_emp_result.scalar_one_or_none()
-
-    admin_profile = None
-    if user:
-        admin_profile = {
-            "first_name": admin_emp.first_name if admin_emp else (user.name.split()[0] if user.name else ""),
-            "last_name": admin_emp.last_name if admin_emp else (user.name.split()[1] if user.name and len(user.name.split()) > 1 else ""),
-            "mobile_number": user.phone,
-            "designation": admin_emp.designation if admin_emp else "Company Owner (Admin)",
-            "profile_photo": admin_emp.profile_photo_url if admin_emp else None,
-            "preferred_language": "English",
-        }
-
-    # Departments
-    depts_result = await session.execute(select(Department).where(Department.company_id == company_id))
-    depts = [
-        {
-            "department_code": d.department_code,
-            "department_name": d.department_name,
-            "description": d.description,
-        }
-        for d in depts_result.scalars().all()
-    ]
-
-    # Designations
-    des_result = await session.execute(select(Designation).where(Designation.company_id == company_id))
-    des = [{"name": d.name, "description": d.description} for d in des_result.scalars().all()]
-
-    # Shifts
-    shifts_result = await session.execute(select(Shift).where(Shift.company_id == company_id))
-    shifts_list = [
-        {"name": s.name, "start_time": s.start_time, "end_time": s.end_time}
-        for s in shifts_result.scalars().all()
-    ]
-
-    # Leave policies
-    lp_result = await session.execute(select(LeavePolicy).where(LeavePolicy.company_id == company_id))
-    lp_list = [
-        {"name": p.name, "days_allowed": float(p.days_allowed), "description": p.description}
-        for p in lp_result.scalars().all()
-    ]
-
-    progress_data = OnboardingProgressResponse(
-        onboarding_completed=progress.onboarding_completed,
-        current_step=progress.current_step,
-        company_profile=company.company_profile,
-        hr_settings=company.hr_settings,
-        admin_profile=admin_profile,
-        departments=depts,
-        designations=des,
-        shifts=shifts_list,
-        leave_policies=lp_list,
-        step_flags=svc.get_completion_summary(progress),
-    )
-
-    return OnboardingAPIResponse(
-        success=True,
-        message="Onboarding progress retrieved successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data=progress_data,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET & POST /company  (Step 1)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get(
-    "/company",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Get company details for onboarding (Step 1)",
-)
-async def get_onboarding_company(
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Retrieve saved company onboarding profile."""
-    company_id = _get_company_id(claims)
-    company = await _load_company(session, company_id)
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-
-    data = {
-        "id": str(company.id),
-        "name": company.name,
-        "company_name": company.name,
-        "companyName": company.name,
-        **(company.company_profile or {}),
-    }
-
-    return OnboardingAPIResponse(
-        success=True,
-        message="Company profile retrieved successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data=data,
-    )
-
-
-@router.post(
-    "/company",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Save company details (Step 1)",
-)
-
-async def save_onboarding_company(
-    payload: CompanyStepInput,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Save company profile details. Idempotent — rejects re-submission if already completed."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-    company = await _load_company(session, company_id)
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-
-    # Always update company profile and name if provided
-    if payload.company_name and payload.company_name.strip():
-        clean_name = payload.company_name.strip()
-        company.name = clean_name
-        profile = payload.model_dump()
-        profile["name"] = clean_name
-        profile["company_name"] = clean_name
-        profile["companyName"] = clean_name
-        company.company_profile = profile
-        flag_modified(company, "company_profile")
-        flag_modified(company, "name")
-
-    # Gate: check access — REDIRECT means already done, return current position gracefully
-    access = svc.check_step_access(progress, step=1)
-    if access == StepAccess.REDIRECT:
-        await session.commit()
-        return OnboardingAPIResponse(
-            success=True,
-            message="Company information updated successfully.",
-            current_step=progress.current_step,
-            onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step,
-            data={"id": str(company.id), "name": company.name, **(company.company_profile or {})},
-        )
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(
-            success=False,
-            message="Please complete the previous step first.",
-            current_step=progress.current_step,
-            onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step,
-            data={},
-        )
-
-    # Business logic — update company record (upsert-safe, no duplicate)
-    if company.onboarding_step < 2:
-        company.onboarding_step = 2
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user and user.onboarding_step < 2:
-        user.onboarding_step = 2
-
-    # Advance progress
-    svc.advance_step(progress, step=1)
-
-    await session.commit()
-    logger.info("Onboarding Step 1 (Company) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Company information saved successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /admin-profile  (Step 2)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/admin-profile",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Save admin profile details (Step 2)",
-)
-async def save_onboarding_admin_profile(
-    payload: AdminProfileStepInput,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Update Admin User and Employee details. Rejects re-submission; requires Step 1 first."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-
-    # Gate: graceful resume — REDIRECT means already done
-    access = svc.check_step_access(progress, step=2)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(
-            success=True,
-            message="Admin profile already saved. Resuming from your current step.",
-            current_step=progress.current_step,
-            onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step,
-            data={},
-        )
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(
-            success=False,
-            message="Please complete Company Details before Admin Profile.",
-            current_step=progress.current_step,
-            onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step,
-            data={},
-        )
-
-    # Load user — required
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
-
-    # Phone uniqueness check — must use raw SQL to bypass multi-tenant ORM filter
-    if payload.mobile_number:
-        phone_check = await session.execute(
-            text("SELECT id FROM users WHERE phone = :phone AND id != :uid LIMIT 1"),
-            {"phone": str(payload.mobile_number), "uid": str(user_id)},
-        )
-        if phone_check.fetchone():
-            raise ConflictException(
-                message="Mobile number is already registered to another account.",
-                field="mobile_number",
-            )
-
-    # Update User
-    user.name = f"{payload.first_name} {payload.last_name}"
-    user.phone = payload.mobile_number
-    if user.onboarding_step < 3:
-        user.onboarding_step = 3
-
-    # Update admin Employee record if it exists
-    admin_emp_result = await session.execute(
-        select(Employee).where(Employee.company_email == user.email)
-    )
-    admin_emp = admin_emp_result.scalar_one_or_none()
-    if admin_emp:
-        admin_emp.first_name = payload.first_name
-        admin_emp.last_name = payload.last_name
-        admin_emp.phone = payload.mobile_number
-        if payload.profile_photo:
-            admin_emp.profile_photo_url = payload.profile_photo
-        if payload.designation:
-            admin_emp.designation = payload.designation
-
-    # Update Company profile snapshot
-    comp_result = await session.execute(select(Company).where(Company.id == company_id))
-    company = comp_result.scalar_one_or_none()
-    if company:
-        profile = company.company_profile or {}
-        profile["admin_profile"] = payload.model_dump()
-        company.company_profile = profile
-        flag_modified(company, "company_profile")
-        if company.onboarding_step < 3:
-            company.onboarding_step = 3
-
-    # Advance progress
-    svc.advance_step(progress, step=2)
-
-    await session.commit()
-    logger.info("Onboarding Step 2 (Admin Profile) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Admin profile details saved successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /hr-settings  (Step 3)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/hr-settings",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Save HR settings (Step 3)",
-)
-async def save_onboarding_hr_settings(
-    payload: HRSettingsStepInput,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Save global HR configurations. Requires Step 2 completed first."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    access = svc.check_step_access(progress, step=3)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(success=True, message="HR Settings already saved. Resuming.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(success=False, message="Please complete Admin Profile before HR Settings.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-
-    company = await _load_company(session, company_id)
-    company.hr_settings = payload.model_dump()
-    if company.onboarding_step < 4:
-        company.onboarding_step = 4
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user and user.onboarding_step < 4:
-        user.onboarding_step = 4
-
-    svc.advance_step(progress, step=3)
-
-    await session.commit()
-    logger.info("Onboarding Step 3 (HR Settings) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="HR setup configurations saved successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /departments  (Step 4)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/departments",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Save departments (Step 4)",
-)
-async def save_onboarding_departments(
-    payload: DepartmentStepInputList,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Save company departments. Requires HR Settings completed. Replaces existing departments."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    access = svc.check_step_access(progress, step=4)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(success=True, message="Departments already saved. Resuming.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(success=False, message="Please complete HR Settings before Departments.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-
-    # Replace-safe: delete existing and re-insert (idempotent bulk replace)
-    await session.execute(delete(Department).where(Department.company_id == company_id))
-    for dept_data in payload.departments:
-        dept = Department(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            department_code=dept_data.department_code,
-            department_name=dept_data.department_name,
-            description=dept_data.description,
-            location="Headquarters",
-            status="ACTIVE",
-            created_by=user_id,
-        )
-        session.add(dept)
-
-    company = await _load_company(session, company_id)
-    if company.onboarding_step < 5:
-        company.onboarding_step = 5
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user and user.onboarding_step < 5:
-        user.onboarding_step = 5
-
-    svc.advance_step(progress, step=4)
-
-    await session.commit()
-    logger.info("Onboarding Step 4 (Departments) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Departments configured successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /designations  (Step 5)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/designations",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Save designations (Step 5)",
-)
-async def save_onboarding_designations(
-    payload: DesignationStepInputList,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Save company designations. Requires Departments completed first."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    access = svc.check_step_access(progress, step=5)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(success=True, message="Designations already saved. Resuming.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(success=False, message="Please complete Departments before Designations.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-
-    # Replace-safe bulk insert
-    await session.execute(delete(Designation).where(Designation.company_id == company_id))
-    for des_name in payload.designations:
-        des = Designation(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            name=des_name,
-            description=f"Custom designation: {des_name}",
-        )
-        session.add(des)
-
-    company = await _load_company(session, company_id)
-    if company.onboarding_step < 6:
-        company.onboarding_step = 6
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user and user.onboarding_step < 6:
-        user.onboarding_step = 6
-
-    svc.advance_step(progress, step=5)
-
-    await session.commit()
-    logger.info("Onboarding Step 5 (Designations) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Designations configured successfully.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /invite-employees  (Step 6)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/invite-employees",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Invite employees (Step 6)",
-)
-async def invite_employees(
-    payload: InviteEmployeeStepInputList,
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    employee_service: Annotated[EmployeeService, Depends(get_employee_service)],
-) -> OnboardingAPIResponse[dict]:
-    """Invite employees or skip. Requires Designations completed first."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    access = svc.check_step_access(progress, step=6)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(success=True, message="Invite step already completed. Resuming.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(success=False, message="Please complete Designations before Invite Employees.",
-            current_step=progress.current_step, onboarding_completed=progress.onboarding_completed,
-            redirect_step=progress.current_step, data={})
-
-    invite_errors = []
-    employees_invited = not payload.skip
-
-    if not payload.skip:
-        for emp_data in payload.employees:
-            try:
-                employee_create = EmployeeCreate(
-                    first_name=emp_data.first_name,
-                    last_name=emp_data.last_name,
-                    personal_email=emp_data.personal_email,
-                    phone=emp_data.phone,
-                    department=emp_data.department or "Management",
-                    designation=emp_data.designation or "Employee",
-                    joining_date=date.today(),
-                    employment_type="FULL_TIME",
-                )
-                await employee_service.create_employee(
-                    admin_id=user_id,
-                    company_id=company_id,
-                    payload=employee_create
-                )
-            except Exception as e:
-                invite_errors.append({"email": str(emp_data.personal_email), "error": str(e)})
-
-    # Persist employees_invited flag on company_profile for legacy/progress reads
-    comp_result = await session.execute(select(Company).where(Company.id == company_id))
-    company = comp_result.scalar_one_or_none()
-    if company:
-        profile = company.company_profile or {}
-        profile["employees_invited"] = employees_invited
-        company.company_profile = profile
-        flag_modified(company, "company_profile")
-        if company.onboarding_step < 7:
-            company.onboarding_step = 7
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if user and user.onboarding_step < 7:
-        user.onboarding_step = 7
-
-    await session.refresh(progress)
-    svc.advance_step(progress, step=6)
-
-    await session.commit()
-    logger.info("Onboarding Step 6 (Invite Employees) completed: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=len(invite_errors) == 0,
-        message="Employee invitations processed successfully." if not payload.skip else "Invitation step skipped.",
-        current_step=progress.current_step,
-        onboarding_completed=progress.onboarding_completed,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /complete  (Step 7)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.post(
-    "/complete",
-    status_code=status.HTTP_200_OK,
-    response_model=OnboardingAPIResponse[dict],
-    summary="Complete onboarding flow (Step 7)",
-)
-async def complete_onboarding(
-    claims: Annotated[dict, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> OnboardingAPIResponse[dict]:
-    """Complete onboarding, seed defaults, flag company as fully onboarded."""
-    company_id = _get_company_id(claims)
-    user_id = uuid.UUID(claims["sub"])
-
-    svc = OnboardingService(session)
-    progress = await svc.get_or_create_progress(company_id)
-    access = svc.check_step_access(progress, step=7)
-    if access == StepAccess.REDIRECT:
-        return OnboardingAPIResponse(success=True, message="Onboarding is already complete.",
-            current_step=7, onboarding_completed=True,
-            redirect_step=7, data={})
-    if access == StepAccess.BLOCKED:
-        return OnboardingAPIResponse(success=False, message="Please complete all previous steps before completing onboarding.",
-            current_step=progress.current_step, onboarding_completed=False,
-            redirect_step=progress.current_step, data={})
-
-    # Load company & user
-    comp_result = await session.execute(select(Company).where(Company.id == company_id))
-    company = comp_result.scalar_one_or_none()
-    if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company profile not found.")
-
-    user_result = await session.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found.")
-
-    # Seed default CompanySettings if missing
-    settings_result = await session.execute(
-        select(CompanySettings).where(CompanySettings.company_id == company_id)
-    )
-    if not settings_result.scalar_one_or_none():
-        session.add(CompanySettings(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            timezone=company.company_profile.get("timezone") if company.company_profile else "UTC",
-            currency=company.company_profile.get("currency") if company.company_profile else "USD",
-            date_format="YYYY-MM-DD",
-            time_format="12h",
-            financial_year="2026-2027",
-            week_start_day="Monday",
-            working_days={"days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]},
-            office_timing="09:00 - 18:00",
-            default_shift="General Shift",
-            leave_policy_template="Standard Template",
-        ))
-
-    # Seed default Shift if missing
-    shift_result = await session.execute(select(Shift).where(Shift.company_id == company_id))
-    if not shift_result.scalar_one_or_none():
-        session.add(Shift(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            name="General Shift",
-            start_time="09:00",
-            end_time="18:00",
-        ))
-
-    # Seed default Leave Policies if missing
-    lp_result = await session.execute(select(LeavePolicy).where(LeavePolicy.company_id == company_id))
-    if not lp_result.scalars().all():
-        for name, days, desc in [
-            ("Casual Leave", 12.0, "Casual Leave allocation"),
-            ("Sick Leave", 12.0, "Sick Leave allocation"),
-            ("Earned Leave", 15.0, "Earned Leave allocation"),
-        ]:
-            session.add(LeavePolicy(
-                id=uuid.uuid4(),
-                company_id=company_id,
-                name=name,
-                days_allowed=days,
-                description=desc,
-            ))
-
-    # Seed JSON profile defaults
-    profile = company.company_profile or {}
-    profile.setdefault("attendance_policy", "Standard Attendance Policy")
-    profile.setdefault("payroll_settings", {"salary_cycle": "Monthly", "payroll_date": 28})
-    profile.setdefault("notification_settings", {"email_notifications": True, "slack_notifications": False})
-    profile.setdefault("ai_settings", {"ai_assistant_enabled": True})
-    company.company_profile = profile
-    flag_modified(company, "company_profile")
-
-    # Mark company onboarding complete
-    company.onboarding_completed = True
-    company.onboarding_step = 7
-    user.onboarding_completed = True
-    user.onboarding_step = 7
-
-    # Advance progress — marks onboarding_completed = True
-    svc.advance_step(progress, step=7)
-
-    await session.commit()
-    logger.info("Onboarding COMPLETED: company_id=%s", company_id)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Onboarding completed successfully. Welcome to your dashboard!",
-        current_step=7,
-        onboarding_completed=True,
-        data={},
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /validate  &  GET /validate-token  (Employee activation)
+# 11. Invited Employee Self-Activation (Public / Rate-limited)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get(
@@ -879,15 +876,8 @@ async def validate_onboarding_token(
             errors=None,
         )
     except AppException as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message,
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /activate  (Employee self-activation)
-# ─────────────────────────────────────────────────────────────────────────────
 
 @router.post(
     "/activate",
@@ -901,7 +891,6 @@ async def activate_onboarding_employee(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Activate employee account, create user, clear token, and perform auto-login."""
-    from sqlalchemy import func
     from app.core.security import hash_password
     from app.services.token_service import TokenService
     from app.repositories.auth_repository import AuthRepository
@@ -912,20 +901,15 @@ async def activate_onboarding_employee(
     token_masked = mask_token(clean_token)
     logger.info("activate_onboarding: request | token=%s", token_masked)
 
-    # 1. Canonical validation and employee resolution
     try:
         employee, _ = await validate_employee_invitation_token(session=session, token=clean_token)
     except AppException as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message,
-        ) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     now = datetime.now(timezone.utc)
     password_hash = hash_password(payload.password)
     user_email = (employee.company_email or employee.personal_email).lower().strip()
 
-    # Clean and check phone
     phone_to_use = payload.phone or employee.phone
     clean_phone = "".join(filter(str.isdigit, phone_to_use)) if phone_to_use else ""
     if len(clean_phone) > 10:
@@ -933,9 +917,7 @@ async def activate_onboarding_employee(
 
     user = None
     if employee.user_id:
-        user_res = await session.execute(
-            select(User).where(User.id == employee.user_id)
-        )
+        user_res = await session.execute(select(User).where(User.id == employee.user_id))
         user = user_res.scalar_one_or_none()
 
     if not user:
@@ -993,35 +975,21 @@ async def activate_onboarding_employee(
         await session.flush()
         employee.user_id = user.id
 
-    # Update employee status and invalidate tokens
     employee.status = "ACTIVE"
     employee.is_active = True
     employee.activation_token = None
     employee.activation_token_expires_at = None
-    logger.info("activate_onboarding: employee → ACTIVE | employee_id=%s", employee.employee_id)
 
-    # Sync linked Manager record if present
-    from app.models.manager import Manager
-    mgr_res = await session.execute(
-        select(Manager).where(
-            (Manager.user_id == user.id) |
-            (
-                (Manager.company_id == employee.company_id) &
-                (
-                    (func.lower(Manager.personal_email) == user_email) |
-                    (func.lower(Manager.company_email) == user_email)
-                )
-            )
-        ).execution_options(bypass_tenant=True)
+    # Also update EmployeeInvitation table status to ACCEPTED
+    inv_res = await session.execute(
+        select(EmployeeInvitation).where(
+            EmployeeInvitation.company_id == employee.company_id,
+            func.lower(EmployeeInvitation.email) == user_email,
+            EmployeeInvitation.status == "PENDING"
+        )
     )
-    mgr = mgr_res.scalars().first()
-    if mgr:
-        mgr.status = "ACTIVE"
-        mgr.activation_token = None
-        mgr.activation_token_expires_at = None
-        if not mgr.user_id:
-            mgr.user_id = user.id
-        session.add(mgr)
+    for inv in inv_res.scalars().all():
+        inv.status = "ACCEPTED"
 
     if payload.phone:
         employee.phone = payload.phone
@@ -1038,14 +1006,12 @@ async def activate_onboarding_employee(
     await session.commit()
     logger.info("activate_onboarding: committed | user_id=%s", user.id)
 
-    # Auto-login
     token_service = TokenService(session=session, auth_repository=AuthRepository(session))
     access_token, refresh_token, expires_in = await token_service.generate_auth_tokens(
         user_id=user.id,
         role=user.role,
         company_id=user.company_id,
     )
-    logger.info("activate_onboarding: JWT generated | user_id=%s | role=%s | expires_in=%s", user.id, user.role, expires_in)
 
     return APIResponse[dict](
         success=True,

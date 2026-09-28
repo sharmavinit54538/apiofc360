@@ -1,0 +1,86 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/dashboard",
+    "function": "get_payroll_dashboard",
+    "summary": "Get AI Payroll Insights Dashboard KPIs"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/forecast",
+    "function": "get_payroll_forecast",
+    "summary": "Get Payroll Forecast"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/cost-analysis",
+    "function": "get_payroll_cost_analysis",
+    "summary": "Get Payroll Cost Analysis"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/cost-by-department",
+    "function": "get_cost_by_department",
+    "summary": "Get Cost By Department"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/benchmarking",
+    "function": "get_salary_benchmarking",
+    "summary": "Get Salary Benchmarking Analysis"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/anomalies",
+    "function": "get_payroll_anomalies",
+    "summary": "Get Payroll Anomaly Detections"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/fraud-detection",
+    "function": "get_payroll_fraud_detection",
+    "summary": "Get Payroll Fraud Flags"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/health-score",
+    "function": "get_payroll_health_score",
+    "summary": "Get Payroll Health Index"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/analytics",
+    "function": "get_payroll_analytics",
+    "summary": "Get Payroll Analytics Overview"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/payroll/employee/{employee_id}",
+    "function": "get_employee_payroll_detail",
+    "summary": "Get Employee Payroll Details"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/forecast",
+    "function": "forecast_payroll",
+    "summary": "Generate AI Payroll Forecast"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/analyze",
+    "function": "analyze_payroll",
+    "summary": "Analyze Payroll Run via AI"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/detect-anomalies",
+    "function": "detect_anomalies",
+    "summary": "Detect Payroll Anomalies via AI"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/payroll/detect-fraud",
+    "function": "detect_fraud",
+    "summary": "Detect Payroll Fraud via AI"
+  }
+]

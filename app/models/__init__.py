@@ -15,8 +15,10 @@ from app.models.security_setting import (
 from app.models.department import Department
 from app.models.company import Company
 from app.models.subscription import Subscription
+from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
+from app.models.employee_invitation import EmployeeInvitation
 
 # Employee module models
 from app.models.employee import Employee
@@ -300,12 +302,38 @@ from app.models.payroll import (
     TaxDeclarationProof,
     BankDisbursementRecord,
 )
+from app.models.payroll_models import (
+    PayrollPeriod,
+    PayrollRunEmployee,
+    PayComponent,
+    Compensation,
+    CompensationRevision,
+    VariableInput,
+    PaymentBatch,
+    PaymentBatchItem,
+    PaymentBatchBankFile,
+    FullAndFinalSettlement,
+    ProvisionSlip,
+    CompanyBankAccount,
+    PayrollReportExport,
+)
 
 # Timesheet module models
 from app.models.timesheet import Timesheet, TimesheetEntry
 
 # Attendance module models
 from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance_break import AttendanceBreak
+from app.models.core_modules import (
+    AttendanceRegularizationRequest,
+    AnalyticsSnapshot,
+    EmploymentType,
+    Holiday,
+    PerformanceKPI,
+    ComplianceRecord,
+    EmployeeHealthRecord,
+    AIInteraction,
+)
 
 # Leave module models
 from app.models.leave import LeaveRequest
@@ -344,7 +372,17 @@ from app.models.helpdesk import (
     HelpdeskFAQ,
 )
 
+# AI Hub module models
+from app.models.ai_hub import (
+    AgentRun,
+    AgentFeedback,
+    GeneratedDocument,
+)
+
 __all__ = [
+    "AgentRun",
+    "AgentFeedback",
+    "GeneratedDocument",
     "HelpdeskTicket",
     "HelpdeskComment",
     "HelpdeskInternalNote",
@@ -551,4 +589,28 @@ __all__ = [
     "IPWhitelist",
     "SecurityAuditLog",
     "UserMFA",
+    "PaymentTransaction",
+    "PaymentStatus",
+    "PayrollPeriod",
+    "PayrollRunEmployee",
+    "PayComponent",
+    "Compensation",
+    "CompensationRevision",
+    "VariableInput",
+    "PaymentBatch",
+    "PaymentBatchItem",
+    "PaymentBatchBankFile",
+    "FullAndFinalSettlement",
+    "ProvisionSlip",
+    "CompanyBankAccount",
+    "PayrollReportExport",
+    "AttendanceBreak",
+    "AttendanceRegularizationRequest",
+    "AnalyticsSnapshot",
+    "EmploymentType",
+    "Holiday",
+    "PerformanceKPI",
+    "ComplianceRecord",
+    "EmployeeHealthRecord",
+    "AIInteraction",
 ]

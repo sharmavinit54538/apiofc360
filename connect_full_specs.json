@@ -1,0 +1,497 @@
+[
+  {
+    "function": "get_colleagues",
+    "method": "GET",
+    "path": "/api/v1/connect/colleagues",
+    "summary": "1. User Discovery - List Colleagues",
+    "description": "Fetch colleagues in the company directory with search, department filter, presence filter, and pagination.",
+    "params": [
+      "search",
+      "department",
+      "presence",
+      "page",
+      "limit"
+    ]
+  },
+  {
+    "function": "unified_search",
+    "method": "GET",
+    "path": "/api/v1/connect/search",
+    "summary": "2. Unified Search",
+    "description": "Unified search across people, channels, messages, and files.",
+    "params": [
+      "q",
+      "limit"
+    ]
+  },
+  {
+    "function": "get_conversations",
+    "method": "GET",
+    "path": "/api/v1/connect/conversations",
+    "summary": "3. Get Conversations",
+    "description": "Fetch all direct conversations for the authenticated user.",
+    "params": []
+  },
+  {
+    "function": "create_conversation",
+    "method": "POST",
+    "path": "/api/v1/connect/conversations",
+    "summary": "4. Create or Retrieve Direct Conversation",
+    "description": "Idempotently create or retrieve a direct message conversation with target user.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "get_conversation_messages",
+    "method": "GET",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "summary": "5. Get Conversation Messages",
+    "description": "Fetch messages from a conversation with cursor pagination and search.",
+    "params": [
+      "conversationId",
+      "search",
+      "before",
+      "after",
+      "limit"
+    ]
+  },
+  {
+    "function": "send_conversation_message",
+    "method": "POST",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "summary": "6. Send Conversation Message",
+    "description": "Send a message (text, attachments, voice) in a conversation.",
+    "params": [
+      "conversationId",
+      "payload"
+    ]
+  },
+  {
+    "function": "toggle_reaction",
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{messageId}/reactions",
+    "summary": "7. Toggle Message Reaction",
+    "description": "Add or remove an emoji reaction on a message.",
+    "params": [
+      "messageId",
+      "payload"
+    ]
+  },
+  {
+    "function": "pin_message",
+    "method": "PATCH",
+    "path": "/api/v1/connect/messages/{messageId}/pin",
+    "summary": "8. Pin/Unpin Message",
+    "description": "Pin or unpin a message in its conversation or channel.",
+    "params": [
+      "messageId",
+      "payload"
+    ]
+  },
+  {
+    "function": "delete_message",
+    "method": "DELETE",
+    "path": "/api/v1/connect/messages/{messageId}",
+    "summary": "9. Delete Message",
+    "description": "Soft delete a message (allowed for owner, hr_admin, or super_admin).",
+    "params": [
+      "messageId"
+    ]
+  },
+  {
+    "function": "get_message_thread",
+    "method": "GET",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "summary": "10. Get Message Thread",
+    "description": "Fetch all replies in a message thread.",
+    "params": [
+      "parentMessageId"
+    ]
+  },
+  {
+    "function": "post_thread_reply",
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "summary": "11. Post Thread Reply",
+    "description": "Post a reply in a message thread.",
+    "params": [
+      "parentMessageId",
+      "payload"
+    ]
+  },
+  {
+    "function": "get_channels",
+    "method": "GET",
+    "path": "/api/v1/connect/channels",
+    "summary": "12. Get Channels",
+    "description": "Fetch team channels with search support.",
+    "params": [
+      "search"
+    ]
+  },
+  {
+    "function": "create_channel",
+    "method": "POST",
+    "path": "/api/v1/connect/channels",
+    "summary": "13. Create Channel",
+    "description": "Create a new team channel.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "get_channel_detail",
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "summary": "14. Get Channel Details",
+    "description": "Fetch channel details, members, host, and permissions.",
+    "params": [
+      "channelId"
+    ]
+  },
+  {
+    "function": "update_channel",
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "summary": "14b. Update Channel",
+    "description": "Update team channel name, description, privacy, or archive status (Creator, Host, or Admin).",
+    "params": [
+      "channelId",
+      "payload"
+    ]
+  },
+  {
+    "function": "delete_channel",
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "summary": "14c. Delete Channel",
+    "description": "Soft delete a team channel (Creator, Host, or Admin).",
+    "params": [
+      "channelId"
+    ]
+  },
+  {
+    "function": "add_channel_members",
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/members",
+    "summary": "14d. Add Channel Members",
+    "description": "Add new members to a team channel.",
+    "params": [
+      "channelId",
+      "payload"
+    ]
+  },
+  {
+    "function": "remove_channel_member",
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}/members/{userId}",
+    "summary": "14e. Remove Channel Member",
+    "description": "Remove a member from a team channel (Self, Creator, Host, or Admin).",
+    "params": [
+      "channelId",
+      "userId"
+    ]
+  },
+  {
+    "function": "get_channel_messages",
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "summary": "15. Get Channel Messages",
+    "description": "Fetch messages from a channel with cursor pagination and search.",
+    "params": [
+      "channelId",
+      "search",
+      "pinnedOnly",
+      "before",
+      "after",
+      "limit"
+    ]
+  },
+  {
+    "function": "send_channel_message",
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "summary": "16. Send Channel Message",
+    "description": "Send message to a channel.",
+    "params": [
+      "channelId",
+      "payload"
+    ]
+  },
+  {
+    "function": "leave_channel",
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/leave",
+    "summary": "17. Leave Channel",
+    "description": "Leave a team channel.",
+    "params": [
+      "channelId"
+    ]
+  },
+  {
+    "function": "archive_channel",
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}/archive",
+    "summary": "18. Archive Channel",
+    "description": "Archive or unarchive a channel (Creator or Admin).",
+    "params": [
+      "channelId",
+      "payload"
+    ]
+  },
+  {
+    "function": "get_ice_servers",
+    "method": "GET",
+    "path": "/api/v1/connect/calls/ice-servers",
+    "summary": "19a. Get ICE Servers",
+    "description": "Fetch WebRTC STUN/TURN server configuration for peer connections.",
+    "params": []
+  },
+  {
+    "function": "get_call_history",
+    "method": "GET",
+    "path": "/api/v1/connect/calls/history",
+    "summary": "19. Get Call History",
+    "description": "Fetch audio and video call history for the authenticated user.",
+    "params": [
+      "limit"
+    ]
+  },
+  {
+    "function": "get_call_detail",
+    "method": "GET",
+    "path": "/api/v1/connect/calls/{callId}",
+    "summary": "20a. Get Call Details",
+    "description": "Fetch call session details, duration, timestamps, and participants.",
+    "params": [
+      "callId"
+    ]
+  },
+  {
+    "function": "initiate_call",
+    "method": "POST",
+    "path": "/api/v1/connect/calls/initiate",
+    "summary": "20. Initiate Call",
+    "description": "Initiate an audio or video call session with target user.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "update_call_status",
+    "method": "PATCH",
+    "path": "/api/v1/connect/calls/{callId}/status",
+    "summary": "21. Update Call Status",
+    "description": "Update call status: connected, rejected, ended, missed, failed.",
+    "params": [
+      "callId",
+      "payload"
+    ]
+  },
+  {
+    "function": "call_signal",
+    "method": "POST",
+    "path": "/api/v1/connect/calls/{callId}/signal",
+    "summary": "22. WebRTC Signaling Relay",
+    "description": "Relay WebRTC signaling packets (offer, answer, ICE candidate) via server without passing media.",
+    "params": [
+      "callId",
+      "payload"
+    ]
+  },
+  {
+    "function": "get_meetings",
+    "method": "GET",
+    "path": "/api/v1/connect/meetings",
+    "summary": "23. Get Meetings",
+    "description": "Fetch upcoming, live, and past video meetings for current user.",
+    "params": [
+      "status_filter"
+    ]
+  },
+  {
+    "function": "create_meeting",
+    "method": "POST",
+    "path": "/api/v1/connect/meetings",
+    "summary": "24. Create Meeting",
+    "description": "Create an instant or scheduled video meeting with participant controls.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "get_meeting_detail",
+    "method": "GET",
+    "path": "/api/v1/connect/meetings/{meetingId}",
+    "summary": "25. Get Meeting Details",
+    "description": "Fetch meeting details, participants, permissions, and host info.",
+    "params": [
+      "meetingId"
+    ]
+  },
+  {
+    "function": "join_meeting",
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/join",
+    "summary": "26. Join Meeting",
+    "description": "Join a video meeting as a participant.",
+    "params": [
+      "meetingId"
+    ]
+  },
+  {
+    "function": "leave_meeting",
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/leave",
+    "summary": "27. Leave Meeting",
+    "description": "Leave meeting or end meeting for everyone (host only).",
+    "params": [
+      "meetingId",
+      "payload"
+    ]
+  },
+  {
+    "function": "send_meeting_message",
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/messages",
+    "summary": "28. Send Meeting Message",
+    "description": "Send chat message inside a meeting.",
+    "params": [
+      "meetingId",
+      "payload"
+    ]
+  },
+  {
+    "function": "get_shared_files",
+    "method": "GET",
+    "path": "/api/v1/connect/files",
+    "summary": "29. Get Shared Files",
+    "description": "Fetch shared files with filtering (all, shared_with_me, shared_by_me, recent, images, videos, documents, spreadsheets) and search.",
+    "params": [
+      "filter",
+      "search",
+      "page",
+      "limit"
+    ]
+  },
+  {
+    "function": "upload_shared_file",
+    "method": "POST",
+    "path": "/api/v1/connect/files/upload",
+    "summary": "30. Upload Shared File",
+    "description": "Upload a shared file (multipart/form-data) with validation of type, size, and tenant.",
+    "params": [
+      "file"
+    ]
+  },
+  {
+    "function": "delete_shared_file",
+    "method": "DELETE",
+    "path": "/api/v1/connect/files/{fileId}",
+    "summary": "31. Delete Shared File",
+    "description": "Delete a shared file (Uploader or Admin).",
+    "params": [
+      "fileId"
+    ]
+  },
+  {
+    "function": "update_presence",
+    "method": "PUT",
+    "path": "/api/v1/connect/presence",
+    "summary": "32. Update User Presence",
+    "description": "Update user presence status (online, away, busy, dnd, offline) and optional custom status.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "batch_presence",
+    "method": "POST",
+    "path": "/api/v1/connect/presence/batch",
+    "summary": "33. Batch Presence Lookup",
+    "description": "Fetch real-time presence indicators for multiple users.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "get_notifications",
+    "method": "GET",
+    "path": "/api/v1/connect/notifications",
+    "summary": "34. Get Notifications",
+    "description": "Fetch notifications for current user with unread filter.",
+    "params": [
+      "unreadOnly",
+      "type",
+      "limit"
+    ]
+  },
+  {
+    "function": "mark_notification_read",
+    "method": "PATCH",
+    "path": "/api/v1/connect/notifications/{notificationId}/read",
+    "summary": "35. Mark Notification as Read",
+    "description": "Mark a notification as read.",
+    "params": [
+      "notificationId"
+    ]
+  },
+  {
+    "function": "clear_notifications",
+    "method": "DELETE",
+    "path": "/api/v1/connect/notifications",
+    "summary": "36. Clear Notifications",
+    "description": "Clear all notifications for the current user.",
+    "params": []
+  },
+  {
+    "function": "get_sound_settings",
+    "method": "GET",
+    "path": "/api/v1/connect/settings/sound",
+    "summary": "37. Get Sound Settings",
+    "description": "Fetch audio feedback, master volume, and notification tone settings.",
+    "params": []
+  },
+  {
+    "function": "update_sound_settings",
+    "method": "PUT",
+    "path": "/api/v1/connect/settings/sound",
+    "summary": "38. Update Sound Settings",
+    "description": "Persist user sound settings.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "ai_transform",
+    "method": "POST",
+    "path": "/api/v1/connect/ai/transform",
+    "summary": "39. AI Communication Copilot Transform",
+    "description": "Transform text: professional, generate_reply, tone (friendly, diplomatic, urgent), shorten, expand, summarize.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "mail_dispatch",
+    "method": "POST",
+    "path": "/api/v1/connect/mail/dispatch",
+    "summary": "40. Connect Mail Dispatch",
+    "description": "Send email with authenticated user identity and recipient validation.",
+    "params": [
+      "payload"
+    ]
+  },
+  {
+    "function": "connect_websocket",
+    "method": "WEBSOCKET",
+    "path": "/api/v1/connect/ws",
+    "summary": "connect_websocket",
+    "description": "WebSocket endpoint for Connect real-time events, typing indicators, presence, and WebRTC signaling.",
+    "params": [
+      "websocket",
+      "token"
+    ]
+  }
+]

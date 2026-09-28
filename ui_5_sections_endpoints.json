@@ -1,0 +1,1056 @@
+{
+  "1. Workforce Analytics": [
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/dashboard",
+      "name": "get_workforce_dashboard",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get AI Workforce Planning Dashboard KPIs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/hiring-forecast",
+      "name": "get_hiring_forecast",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Hiring Forecast"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/capacity-demand",
+      "name": "get_capacity_demand",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Capacity vs Demand Matrix"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/capacity-planning",
+      "name": "get_capacity_planning",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Department Capacity Planning"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/resource-utilization",
+      "name": "get_resource_utilization",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Resource Utilization Metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/future-needs",
+      "name": "get_future_needs",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Future Workforce Needs Predictions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/optimization",
+      "name": "get_workforce_optimization",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Workforce Optimization Recommendations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/hiring-budget",
+      "name": "get_hiring_budget",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Hiring Budget Analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/analytics",
+      "name": "get_workforce_analytics",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Workforce Analytics Overview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/department/{department_id}",
+      "name": "get_department_workforce_detail",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Department Workforce Details"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/employee/{employee_id}",
+      "name": "get_employee_workforce_detail",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get Employee Workforce Details"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/analyze",
+      "name": "analyze_workforce",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Analyze Workforce Capacity via AI"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/forecast",
+      "name": "forecast_workforce",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Generate AI Hiring Forecast"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/optimize",
+      "name": "optimize_workforce",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Optimize Workforce via AI Engine"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/capacity-analysis",
+      "name": "analyze_capacity",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Run AI Capacity Analysis"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/run-mode",
+      "name": "run_ai_mode",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Run AI Agent Mode"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/dashboard/stats",
+      "name": "get_ai_agent_dashboard_stats",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Get AI Agent Telemetry Dashboard Stats"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/agents",
+      "name": "list_agent_configs",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "List all AI Agent Configurations"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/ai/workforce/agents/{agent_key}",
+      "name": "update_agent_config_endpoint",
+      "tags": [
+        "AI Workforce Planning"
+      ],
+      "summary": "Update AI Agent Config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/dashboard",
+      "name": "get_analytics_dashboard",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Complete AI Insights Dashboard Data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/kpis",
+      "name": "get_analytics_kpis",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Executive Analytics KPIs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/headcount-forecast",
+      "name": "get_headcount_forecast",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Headcount Forecast"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/hiring-demand",
+      "name": "get_hiring_demand",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Department Hiring Demand"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/payroll-trend",
+      "name": "get_payroll_trend",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Payroll Trends & Forecast"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/skill-gap",
+      "name": "get_skill_gap",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Skill Gap Analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/recruitment",
+      "name": "get_recruitment_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Recruitment Intelligence"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/performance",
+      "name": "get_performance_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Performance Intelligence"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/workforce",
+      "name": "get_workforce_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Workforce Intelligence"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/health",
+      "name": "get_health_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Employee Health Analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/compliance",
+      "name": "get_compliance_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Compliance Analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/attrition",
+      "name": "get_attrition_prediction",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Attrition Prediction Metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/summary",
+      "name": "get_executive_summary",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get AI Executive Summary"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/analytics/generate",
+      "name": "generate_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Trigger Analytics Computation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/analytics/predict",
+      "name": "predict_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Run Predictive Model Simulation"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-brain/workforce-insights",
+      "name": "ai_brain_workforce_insights",
+      "tags": [
+        "AI Brain Module"
+      ],
+      "summary": "Retrieve workforce insights analytics for AI Brain thunk."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai-brain/workforce-insights",
+      "name": "ai_brain_workforce_insights",
+      "tags": [
+        "AI Brain Module"
+      ],
+      "summary": "AI Brain Workforce Insights Endpoint"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/hr-analytics/dashboard",
+      "name": "get_dashboard",
+      "tags": [
+        "HR Analytics Engine v2"
+      ],
+      "summary": "Get unified executive HR dashboard metrics"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/snapshots",
+      "name": "compute_snapshot",
+      "tags": [
+        "HR Analytics Engine v2"
+      ],
+      "summary": "Trigger new manual analytics snapshot computation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/attrition-prediction/{employee_id}",
+      "name": "predict_attrition",
+      "tags": [
+        "HR Analytics Engine v2"
+      ],
+      "summary": "Evaluate attrition risk score for an employee"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/forecast",
+      "name": "run_forecast",
+      "tags": [
+        "HR Analytics Engine v2"
+      ],
+      "summary": "Run AI predictive workforce forecasts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/hr-analytics/leaves/analytics",
+      "name": "get_leave_analytics",
+      "tags": [
+        "HR Analytics Engine v2"
+      ],
+      "summary": "Get unified leave assistant analytics and conflict metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/analytics/headcount",
+      "name": "get_headcount_analytics",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Get headcount growth analytics"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/compensation/benchmarks",
+      "name": "register_benchmark",
+      "tags": [
+        "AI Compensation Engine v2"
+      ],
+      "summary": "Register market salary benchmarks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/compensation/recommendations/{employee_id}",
+      "name": "compile_recommendation",
+      "tags": [
+        "AI Compensation Engine v2"
+      ],
+      "summary": "Compile AI compensation recommendations for staff members"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/workforce/forecast",
+      "name": "run_workforce_forecast",
+      "tags": [
+        "AI Workforce Forecasting v2"
+      ],
+      "summary": "Run AI workforce forecasting run"
+    }
+  ],
+  "2. Performance Analytics": [
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/dashboard",
+      "name": "get_performance_dashboard",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get AI Performance Dashboard KPIs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/trends",
+      "name": "get_performance_trends",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get Performance Trend Series"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/kpi-attainment",
+      "name": "get_kpi_attainment",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get KPI Attainment by Function"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/top-performers",
+      "name": "get_top_performers",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get Top Performers Ranking"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/employee/{employee_id}",
+      "name": "get_employee_performance",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get Employee Multi-Dimensional Performance Score"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/skill-gaps",
+      "name": "get_skill_gaps",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get Skill Gap Analysis Data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/promotion-recommendations",
+      "name": "get_promotion_recommendations",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get AI Promotion Recommendations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/coaching-suggestions",
+      "name": "get_coaching_suggestions",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get AI Coaching Suggestions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/analytics",
+      "name": "get_performance_analytics",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Get Performance Analytics Overview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/evaluate",
+      "name": "evaluate_performance",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Evaluate Performance Review via AI"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/generate-coaching",
+      "name": "generate_coaching",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Generate AI Personalized Coaching"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/generate-promotion",
+      "name": "generate_promotion",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Generate AI Promotion Assessment"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/skill-gap-analysis",
+      "name": "trigger_skill_gap_analysis",
+      "tags": [
+        "AI Performance Coach"
+      ],
+      "summary": "Trigger AI Skill Gap Analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/performance",
+      "name": "get_performance_analytics",
+      "tags": [
+        "AI Analytics Center"
+      ],
+      "summary": "Get Performance Intelligence"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/performance",
+      "name": "get_performance",
+      "tags": [
+        "AI Insights"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/performance",
+      "name": "export_performance",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/cycles",
+      "name": "create_cycle",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Create a new evaluation review cycle"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals",
+      "name": "create_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Register a performance goal or OKR for tracking"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v2/performance/goals/{id}",
+      "name": "update_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Update goal details"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v2/performance/goals/{id}",
+      "name": "delete_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Delete a goal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals/assign",
+      "name": "assign_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Assign a goal to an employee"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals/{id}/complete",
+      "name": "complete_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Complete a goal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/reviews",
+      "name": "init_review",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Initialize performance review parameters"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v2/performance/reviews/{id}",
+      "name": "update_review_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Update performance review details"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v2/performance/reviews/{id}",
+      "name": "delete_review_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Delete a performance review"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/reviews/bulk-delete",
+      "name": "bulk_delete_reviews_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Bulk delete performance reviews"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/reviews/bulk-status",
+      "name": "bulk_status_reviews_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Bulk set reviews status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/reviews/import",
+      "name": "import_reviews_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Import multiple performance reviews"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/reviews/{review_id}/evaluate",
+      "name": "evaluate_review",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Trigger local LLM performance review and predictions calculation"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/performance",
+      "name": "get_performance_data",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Get all performance data"
+    }
+  ],
+  "3. Goals & OKR Analytics": [
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals",
+      "name": "create_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Register a performance goal or OKR for tracking"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v2/performance/goals/{id}",
+      "name": "update_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Update goal details"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v2/performance/goals/{id}",
+      "name": "delete_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Delete a goal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals/assign",
+      "name": "assign_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Assign a goal to an employee"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/performance/goals/{id}/complete",
+      "name": "complete_goal_api",
+      "tags": [
+        "AI Performance Management v2"
+      ],
+      "summary": "Complete a goal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/goals/generate",
+      "name": "generate_goals",
+      "tags": [
+        "AI Goal Generator v2"
+      ],
+      "summary": "Automatically generate OKRs, KPIs, or tasks goals via LLM"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/goals/adjust",
+      "name": "adjust_goals",
+      "tags": [
+        "AI Goal Generator v2"
+      ],
+      "summary": "Trigger dynamic AI goal re-calibrations"
+    }
+  ],
+  "4. Attendance Analytics": [
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/analytics",
+      "name": "get_attendance_analytics",
+      "tags": [
+        "Face Attendance"
+      ],
+      "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/dashboard",
+      "name": "get_attendance_dashboard",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get AI Attendance Dashboard KPIs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/trend",
+      "name": "get_attendance_trend",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Attendance Trend Chart Data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/late-arrivals",
+      "name": "get_late_arrivals",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Late Arrival Detection Data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/anomalies",
+      "name": "get_anomalies",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Attendance Anomaly Detection Results"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/absence-pattern",
+      "name": "get_absence_patterns",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get AI Absence Pattern Insights"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/shift-violations",
+      "name": "get_shift_violations",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Shift Violation Detection Data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/health-score",
+      "name": "get_health_score",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Composite Attendance Health Score"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/watchlist",
+      "name": "get_watchlist",
+      "tags": [
+        "AI Attendance Monitor"
+      ],
+      "summary": "Get Absentee Watchlist"
+    }
+  ],
+  "5. Reports & Exports": [
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/employees",
+      "name": "export_employees",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/departments",
+      "name": "export_departments",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/managers",
+      "name": "export_managers",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/attendance",
+      "name": "export_attendance",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/face-attendance",
+      "name": "export_face_attendance",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/leaves",
+      "name": "export_leaves",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/payroll",
+      "name": "export_payroll",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exports/performance",
+      "name": "export_performance",
+      "tags": [
+        "Exports"
+      ],
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/engagement/summary",
+      "name": "get_engagement_summary",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Company Engagement Summary Metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/engagement/trend",
+      "name": "get_engagement_trend",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Engagement Historical Trends"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/engagement/enps-trend",
+      "name": "get_enps_trend",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get eNPS Historical Trends"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/engagement/breakdown",
+      "name": "get_engagement_breakdown",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Engagement Breakdown by Department"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/engagement/surveys",
+      "name": "get_engagement_surveys",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "List Engagement Surveys & Polls"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/culture/telemetry",
+      "name": "get_culture_telemetry",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Organizational Culture & D&I Telemetry"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/culture/trend",
+      "name": "get_culture_trend",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Culture Historical Trends"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/culture/breakdown",
+      "name": "get_culture_breakdown",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Culture Breakdown by Department"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reports/culture/feedback",
+      "name": "get_culture_feedback",
+      "tags": [
+        "Reports Management v1"
+      ],
+      "summary": "Get Aggregated Culture & Feedback Analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports",
+      "name": "list_reports",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "List generated and scheduled reports"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/stats",
+      "name": "get_report_stats",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Get report stats dashboard overview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/reports",
+      "name": "create_report",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Generate or schedule a new report"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/reports/{id}/refresh",
+      "name": "refresh_report",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Refresh report compilation data"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v2/reports/{id}",
+      "name": "delete_report",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Delete a report log entry"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/analytics/headcount",
+      "name": "get_headcount_analytics",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Get headcount growth analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/analytics/department",
+      "name": "get_department_analytics",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Get department-wise employee distribution"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/analytics/tenure",
+      "name": "get_tenure_analytics",
+      "tags": [
+        "Reports Management"
+      ],
+      "summary": "Get tenure ranges distribution"
+    }
+  ]
+}

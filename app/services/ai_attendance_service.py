@@ -46,7 +46,7 @@ class AIAttendanceService:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> AttendanceDashboardResponse:
-        """Fetch dashboard KPIs."""
+        """Fetch dashboard KPIs calculated purely from database records."""
         try:
             kpis = await self.repo.get_dashboard_kpis(
                 company_id=company_id,
@@ -56,14 +56,15 @@ class AIAttendanceService:
             )
         except Exception as exc:
             logger.error("Error fetching attendance dashboard KPIs: %s", exc)
+            total_active = await self.repo.get_total_active_employees(company_id, department_id)
             kpis = {
-                "attendance_health_score": 94.0,
-                "total_attendance_percentage": 92.4,
+                "attendance_health_score": 0.0,
+                "total_attendance_percentage": 0.0,
                 "total_anomalies": 0,
-                "late_arrivals": 2,
-                "overtime_hours": 18.5,
-                "today_present_employees": 42,
-                "today_absent_employees": 3,
+                "late_arrivals": 0,
+                "overtime_hours": 0.0,
+                "today_present_employees": 0,
+                "today_absent_employees": total_active,
             }
         return AttendanceDashboardResponse(**kpis)
 
@@ -178,19 +179,20 @@ class AIAttendanceService:
         company_id: Optional[uuid.UUID] = None,
         department_id: Optional[uuid.UUID] = None,
     ) -> AttendanceHealthScoreResponse:
-        """Compute composite Attendance Health Score (0-100)."""
+        """Compute composite Attendance Health Score (0-100) from real metrics."""
         kpis = await self.repo.get_dashboard_kpis(company_id=company_id, department_id=department_id)
-        att_rate = float(kpis.get("total_attendance_percentage", 94.0))
+        att_rate = float(kpis.get("total_attendance_percentage", 0.0))
         late_cnt = int(kpis.get("late_arrivals", 0))
-        pres_cnt = max(1, int(kpis.get("today_present_employees", 1)))
+        pres_cnt = int(kpis.get("today_present_employees", 0))
 
-        late_rate = round((late_cnt / pres_cnt * 100.0), 1)
-        leave_rate = round(max(0.0, 100.0 - att_rate), 1)
-        ot_rate = 6.3
-        shift_compliance = round(max(0.0, 100.0 - (late_rate * 0.8)), 1)
+        late_rate = round((late_cnt / pres_cnt * 100.0), 1) if pres_cnt > 0 else 0.0
+        leave_rate = round(max(0.0, 100.0 - att_rate), 1) if att_rate > 0 else 0.0
+        ot_hours = float(kpis.get("overtime_hours", 0.0))
+        ot_rate = round((ot_hours / max(1.0, pres_cnt * 8.0) * 100.0), 1) if pres_cnt > 0 else 0.0
+        shift_compliance = round(max(0.0, 100.0 - (late_rate * 0.8)), 1) if pres_cnt > 0 else 100.0
         policy_violations = int(kpis.get("total_anomalies", 0))
 
-        overall_score = float(kpis.get("attendance_health_score", 94.0))
+        overall_score = float(kpis.get("attendance_health_score", 0.0))
 
         return AttendanceHealthScoreResponse(
             overall_score=overall_score,
@@ -201,6 +203,7 @@ class AIAttendanceService:
             shift_compliance_rate=shift_compliance,
             policy_violations_count=policy_violations,
         )
+
 
     async def get_watchlist(
         self,

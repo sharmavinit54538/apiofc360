@@ -1,3 +1,5 @@
+
+
 """fix auth schema completeness — add missing refresh_token columns and create security tables
 
 Revision ID: 2a3b4c5d6e7f

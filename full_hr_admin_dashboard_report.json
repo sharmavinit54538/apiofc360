@@ -1,0 +1,3282 @@
+{
+  "1. HR Admin Core & User Management (/hr-admin)": [
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/users",
+      "summary": "Create internal company user",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/users",
+      "summary": "List internal company users",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/users/{user_id}",
+      "summary": "Get internal company user details",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/hr-admin/users/{user_id}",
+      "summary": "Update internal company user",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hr-admin/users/{user_id}",
+      "summary": "Deactivate internal company user",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/users/{user_id}/resend-invite",
+      "summary": "Resend invitation email to internal company user",
+      "tags": [
+        "HR Admin User Management"
+      ]
+    }
+  ],
+  "2. HR Admin Onboarding & Setup (/hr-admin/onboarding)": [
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/status",
+      "summary": "Get onboarding completion status.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/",
+      "summary": "Get all saved onboarding wizard data.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding",
+      "summary": "Get all saved onboarding wizard data.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/",
+      "summary": "Save full or top-level onboarding wizard data.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding",
+      "summary": "Save full or top-level onboarding wizard data.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/step/{step_index}",
+      "summary": "Save an onboarding step payload (Step 0, 1, 2, 3).",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/complete",
+      "summary": "Mark onboarding as fully completed.",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/workflows",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/workflows",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hr-admin/onboarding/workflows/{workflow_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/new-hires",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/new-hires",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/hr-admin/onboarding/new-hires/{hire_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hr-admin/onboarding/new-hires/{hire_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/documents",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/documents",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/hr-admin/onboarding/documents/{doc_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hr-admin/onboarding/documents/{doc_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hr-admin/onboarding/tasks",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hr-admin/onboarding/tasks",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/hr-admin/onboarding/tasks/{task_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hr-admin/onboarding/tasks/{task_id}",
+      "summary": "",
+      "tags": [
+        "HR Admin Onboarding"
+      ]
+    }
+  ],
+  "3. Main HR Admin Dashboard KPI & Summary Endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/dashboard",
+      "summary": "Get employee management dashboard analytics",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/stats",
+      "summary": "Get recruitment metrics dashboard",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exits/stats",
+      "summary": "Get exit dashboard statistics",
+      "tags": [
+        "Exit Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/dashboard",
+      "summary": "Get calendar dashboard view",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/summary",
+      "summary": "Get document summary statistics",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/timesheets/pending",
+      "summary": "Get all timesheets pending approval",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/company",
+      "summary": "Retrieve company-wide paginated daily attendance logs history",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/analytics",
+      "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/leaves/pending",
+      "summary": "Get all leaves pending approval",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/internal/dashboard",
+      "summary": "Get unified internal communication dashboard feed",
+      "tags": [
+        "Communication Dashboard"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/bank-transfers/dashboard",
+      "summary": "Get bank transfer dashboard metrics",
+      "tags": [
+        "Payroll"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/compliance/dashboard",
+      "summary": "Get statutory compliance dashboard",
+      "tags": [
+        "Payroll"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payroll/dashboard",
+      "summary": "Get main payroll dashboard data",
+      "tags": [
+        "Payroll"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/dashboard",
+      "summary": "Get complete AI Insights dashboard metrics",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/dashboard",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/analytics",
+      "summary": "Get hierarchy analytics metrics",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/dashboard",
+      "summary": "Get recruitment dashboard",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/admin/tickets",
+      "summary": "7. Helpdesk - Get All Helpdesk Tickets (Admin/Manager)",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/hr-analytics/dashboard",
+      "summary": "Get unified executive HR dashboard metrics",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/payroll/dashboard",
+      "summary": "Get main payroll dashboard data",
+      "tags": [
+        "Payroll"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/reports/stats",
+      "summary": "Get report stats dashboard overview",
+      "tags": [
+        "Reports Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/recruitment",
+      "summary": "",
+      "tags": [
+        "Recruitment Alternate Routing"
+      ]
+    }
+  ],
+  "4. AI Insights, Analytics & Workforce Intelligence": [
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/dashboard",
+      "summary": "Get AI Attendance Dashboard KPIs",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/trend",
+      "summary": "Get Attendance Trend Chart Data",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/late-arrivals",
+      "summary": "Get Late Arrival Detection Data",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/anomalies",
+      "summary": "Get Attendance Anomaly Detection Results",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/absence-pattern",
+      "summary": "Get AI Absence Pattern Insights",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/overtime",
+      "summary": "Get Overtime Tracking Metrics",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/shift-violations",
+      "summary": "Get Shift Violation Detection Data",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/health-score",
+      "summary": "Get Composite Attendance Health Score",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/attendance/watchlist",
+      "summary": "Get Absentee Watchlist",
+      "tags": [
+        "AI Attendance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/dashboard",
+      "summary": "Get AI Performance Dashboard KPIs",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/trends",
+      "summary": "Get Performance Trend Series",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/kpi-attainment",
+      "summary": "Get KPI Attainment by Function",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/top-performers",
+      "summary": "Get Top Performers Ranking",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/employee/{employee_id}",
+      "summary": "Get Employee Multi-Dimensional Performance Score",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/skill-gaps",
+      "summary": "Get Skill Gap Analysis Data",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/promotion-recommendations",
+      "summary": "Get AI Promotion Recommendations",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/coaching-suggestions",
+      "summary": "Get AI Coaching Suggestions",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/performance/analytics",
+      "summary": "Get Performance Analytics Overview",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/evaluate",
+      "summary": "Evaluate Performance Review via AI",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/generate-coaching",
+      "summary": "Generate AI Personalized Coaching",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/generate-promotion",
+      "summary": "Generate AI Promotion Assessment",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/performance/skill-gap-analysis",
+      "summary": "Trigger AI Skill Gap Analysis",
+      "tags": [
+        "AI Performance Coach"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/dashboard",
+      "summary": "Get AI Leave Assistant Dashboard KPIs",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/forecast",
+      "summary": "Get Leave Forecast",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/distribution",
+      "summary": "Get Leave Type Distribution",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/approval-suggestions",
+      "summary": "Get AI Leave Approval Suggestions",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/conflicts",
+      "summary": "Get Leave Conflict Detections",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/team-availability",
+      "summary": "Get Team Availability Analysis",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/trends",
+      "summary": "Get Leave Trends",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/analytics",
+      "summary": "Get Leave Analytics Overview",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/leave/request/{leave_request_id}",
+      "summary": "Get Leave Request Details",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/leave/analyze",
+      "summary": "Analyze Leave Request via AI",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/leave/forecast",
+      "summary": "Generate AI Leave Demand Forecast",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/leave/generate-suggestions",
+      "summary": "Generate AI Approval Suggestions",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/leave/detect-conflicts",
+      "summary": "Detect Leave Conflicts via AI",
+      "tags": [
+        "AI Leave Assistant"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/dashboard",
+      "summary": "Get AI Payroll Insights Dashboard KPIs",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/forecast",
+      "summary": "Get Payroll Forecast",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/cost-analysis",
+      "summary": "Get Payroll Cost Analysis",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/cost-by-department",
+      "summary": "Get Cost By Department",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/benchmarking",
+      "summary": "Get Salary Benchmarking Analysis",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/anomalies",
+      "summary": "Get Payroll Anomaly Detections",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/fraud-detection",
+      "summary": "Get Payroll Fraud Flags",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/health-score",
+      "summary": "Get Payroll Health Index",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/analytics",
+      "summary": "Get Payroll Analytics Overview",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/payroll/employee/{employee_id}",
+      "summary": "Get Employee Payroll Details",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/payroll/forecast",
+      "summary": "Generate AI Payroll Forecast",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/payroll/analyze",
+      "summary": "Analyze Payroll Run via AI",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/payroll/detect-anomalies",
+      "summary": "Detect Payroll Anomalies via AI",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/payroll/detect-fraud",
+      "summary": "Detect Payroll Fraud via AI",
+      "tags": [
+        "AI Payroll Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/dashboard",
+      "summary": "Get AI Workforce Planning Dashboard KPIs",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/hiring-forecast",
+      "summary": "Get Hiring Forecast",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/capacity-demand",
+      "summary": "Get Capacity vs Demand Matrix",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/capacity-planning",
+      "summary": "Get Department Capacity Planning",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/resource-utilization",
+      "summary": "Get Resource Utilization Metrics",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/future-needs",
+      "summary": "Get Future Workforce Needs Predictions",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/optimization",
+      "summary": "Get Workforce Optimization Recommendations",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/hiring-budget",
+      "summary": "Get Hiring Budget Analysis",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/analytics",
+      "summary": "Get Workforce Analytics Overview",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/department/{department_id}",
+      "summary": "Get Department Workforce Details",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/employee/{employee_id}",
+      "summary": "Get Employee Workforce Details",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/analyze",
+      "summary": "Analyze Workforce Capacity via AI",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/forecast",
+      "summary": "Generate AI Hiring Forecast",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/optimize",
+      "summary": "Optimize Workforce via AI Engine",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/capacity-analysis",
+      "summary": "Run AI Capacity Analysis",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/workforce/run-mode",
+      "summary": "Run AI Agent Mode",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/dashboard/stats",
+      "summary": "Get AI Agent Telemetry Dashboard Stats",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/workforce/agents",
+      "summary": "List all AI Agent Configurations",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/ai/workforce/agents/{agent_key}",
+      "summary": "Update AI Agent Config",
+      "tags": [
+        "AI Workforce Planning"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/dashboard",
+      "summary": "Get AI Compliance Monitor Dashboard KPIs",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/checks",
+      "summary": "Get Compliance Checks Status",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/labor-laws",
+      "summary": "Get Labor Law Monitoring",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/missing-documents",
+      "summary": "Get Missing & Expired Documents",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/risks",
+      "summary": "Get Compliance Risk Detection",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/audit-readiness",
+      "summary": "Get Audit Readiness",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/analytics",
+      "summary": "Get Compliance Analytics",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/alerts",
+      "summary": "Get Critical Compliance Alerts",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/report",
+      "summary": "Get Comprehensive Compliance Report",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/compliance/employee/{employee_id}",
+      "summary": "Get Employee Compliance Details",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/compliance/analyze",
+      "summary": "Analyze Compliance via AI Engine",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/compliance/audit",
+      "summary": "Run AI Compliance Audit",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/compliance/risk-analysis",
+      "summary": "Run AI Risk Analysis",
+      "tags": [
+        "AI Compliance Monitor"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/dashboard",
+      "summary": "Get Complete AI Insights Dashboard Data",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/kpis",
+      "summary": "Get Executive Analytics KPIs",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/headcount-forecast",
+      "summary": "Get Headcount Forecast",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/hiring-demand",
+      "summary": "Get Department Hiring Demand",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/payroll-trend",
+      "summary": "Get Payroll Trends & Forecast",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/skill-gap",
+      "summary": "Get Skill Gap Analysis",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/recruitment",
+      "summary": "Get Recruitment Intelligence",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/performance",
+      "summary": "Get Performance Intelligence",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/workforce",
+      "summary": "Get Workforce Intelligence",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/health",
+      "summary": "Get Employee Health Analytics",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/compliance",
+      "summary": "Get Compliance Analytics",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/attrition",
+      "summary": "Get Attrition Prediction Metrics",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics/summary",
+      "summary": "Get AI Executive Summary",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/analytics/generate",
+      "summary": "Trigger Analytics Computation",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/analytics/predict",
+      "summary": "Run Predictive Model Simulation",
+      "tags": [
+        "AI Analytics Center"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/insights",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/ats",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/hiring",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/analytics",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/dashboard",
+      "summary": "Get complete AI Insights dashboard metrics",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/kpi",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/attrition",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/burnout",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/attendance",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/performance",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/recruitment",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/charts",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai-insights/recommendations",
+      "summary": "",
+      "tags": [
+        "AI Insights"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/insights",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/ats",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/hiring",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/analytics",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/dashboard",
+      "summary": "Retrieve complete AI workforce intelligence dashboard dataset.",
+      "tags": [
+        "AI Analytics Engine"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/hr-analytics/dashboard",
+      "summary": "Get unified executive HR dashboard metrics",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/snapshots",
+      "summary": "Trigger new manual analytics snapshot computation",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/attrition-prediction/{employee_id}",
+      "summary": "Evaluate attrition risk score for an employee",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/hr-analytics/forecast",
+      "summary": "Run AI predictive workforce forecasts",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/hr-analytics/leaves/analytics",
+      "summary": "Get unified leave assistant analytics and conflict metrics",
+      "tags": [
+        "HR Analytics Engine v2"
+      ]
+    }
+  ],
+  "5. Employee & Department Management (HR Admin View)": [
+    {
+      "method": "POST",
+      "path": "/api/v1/employees",
+      "summary": "Create a new employee",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/stats",
+      "summary": "Get employee stats overview",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/dashboard",
+      "summary": "Get employee management dashboard analytics",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/import",
+      "summary": "Bulk import employees from Excel or CSV sheet",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/export",
+      "summary": "Export employee records as Excel, CSV, or PDF",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees",
+      "summary": "List all employees",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/{id}",
+      "summary": "Get employee by ID",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/employees/{id}",
+      "summary": "Update employee details (PATCH)",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/employees/{id}",
+      "summary": "Update employee details",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/employees/{id}",
+      "summary": "Soft delete an employee",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/send-invitation",
+      "summary": "Resend employee invitation link",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/send-invite",
+      "summary": "Resend employee invitation link (alias)",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/deactivate",
+      "summary": "Deactivate employee account",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/activate-by-admin",
+      "summary": "Activate employee account by Admin",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/validate-invitation",
+      "summary": "Validate employee invitation token",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/validate-token",
+      "summary": "Validate employee invitation token alias",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/validate",
+      "summary": "Validate employee invitation token alias",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/activate",
+      "summary": "Activate employee account (self-activation via email link)",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/approve",
+      "summary": "HR Approval for Onboarding",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/reject",
+      "summary": "Reject Onboarding",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/employees/{id}/reset-password",
+      "summary": "Admin reset of employee password",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/employees/{id}/onboarding-status",
+      "summary": "Get onboarding checklist progress",
+      "tags": [
+        "Employee Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers",
+      "summary": "Create a new manager",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers",
+      "summary": "List all managers",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers/onboarding/validate",
+      "summary": "Validate manager onboarding token",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers/validate",
+      "summary": "Validate manager activation token (canonical alias)",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers/validate-token",
+      "summary": "Validate manager activation token (alias)",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/onboarding/activate",
+      "summary": "Activate invited manager account",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/activate",
+      "summary": "Activate manager account with invitation token (canonical)",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers/profile",
+      "summary": "Get current manager's profile",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/send-invite",
+      "summary": "Resend manager invitation link by manager ID or email",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/managers/{id}",
+      "summary": "Get manager by ID",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/managers/{id}",
+      "summary": "Update manager details",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/managers/{id}/permissions",
+      "summary": "Update manager permissions",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/managers/{id}",
+      "summary": "Soft delete a manager",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/{id}/send-invitation",
+      "summary": "Resend manager invitation link",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/{id}/activate",
+      "summary": "Activate manager account",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/{id}/reset-password",
+      "summary": "Admin reset of manager password",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/onboarding/complete",
+      "summary": "Complete manager onboarding details",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/{id}/deactivate",
+      "summary": "Deactivate manager account",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/managers/{id}/activate-by-admin",
+      "summary": "Activate manager account by Admin",
+      "tags": [
+        "Manager Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/departments",
+      "summary": "Create a new department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/departments",
+      "summary": "List all departments",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/departments/{id}",
+      "summary": "Get department details by ID",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/departments/{id}",
+      "summary": "Update department details",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/departments/{id}",
+      "summary": "Soft delete a department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/departments/{id}/assign-manager",
+      "summary": "Assign Head of Department (Manager)",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/departments/{id}/assign-employees",
+      "summary": "Assign multiple employees to a department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/departments/{id}/remove-manager",
+      "summary": "Remove Head of Department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/departments/{id}/remove-employee/{employee_id}",
+      "summary": "Remove an employee from a department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/departments/{id}/employees",
+      "summary": "Get all employees in a department",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/departments/{id}/manager",
+      "summary": "Get department manager (Head of Department)",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/departments/{id}/stats",
+      "summary": "Get department statistics",
+      "tags": [
+        "Department Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/employee-onboarding",
+      "summary": "List onboarding status of all employees with optional filters.",
+      "tags": [
+        "Admin Employee Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/employee-onboarding/{employee_id}",
+      "summary": "Retrieve full onboarding data for a specific employee.",
+      "tags": [
+        "Admin Employee Onboarding"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/employee-onboarding/{employee_id}/document/{doc_id}/verify",
+      "summary": "HR/Admin updates document verification status (VERIFIED/REJECTED) with comments.",
+      "tags": [
+        "Admin Employee Onboarding"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy",
+      "summary": "Get complete organization tree",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/tree",
+      "summary": "Get nested hierarchy tree JSON",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/chart",
+      "summary": "Get hierarchy flat list optimized for React Flow",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/analytics",
+      "summary": "Get hierarchy analytics metrics",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/{employee_id}",
+      "summary": "Get employee reporting chain details",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/path/{employee_id}",
+      "summary": "Get reporting path from CEO down to employee",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/hierarchy/assign-manager",
+      "summary": "Assign reporting manager",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/hierarchy/change-manager",
+      "summary": "Transfer reporting manager",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hierarchy/remove-manager/{employee_id}",
+      "summary": "Remove manager link",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/direct-reports/{manager_id}",
+      "summary": "List direct reports of a manager",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hierarchy/team/{manager_id}",
+      "summary": "List recursive team descendants of a manager",
+      "tags": [
+        "Employee Hierarchy"
+      ]
+    }
+  ],
+  "6. Attendance, Leaves & Timesheets (HR Admin Approvals & Logs)": [
+    {
+      "method": "GET",
+      "path": "/api/v1/timesheets/weekly",
+      "summary": "Get or create weekly timesheet for current employee",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/timesheets/weekly",
+      "summary": "Save weekly timesheet entries",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/timesheets/weekly/submit",
+      "summary": "Submit weekly timesheet for approval",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/timesheets/history",
+      "summary": "Get timesheet history for current employee",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/timesheets/pending",
+      "summary": "Get all timesheets pending approval",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/timesheets/{timesheet_id}/review",
+      "summary": "Approve or reject a timesheet",
+      "tags": [
+        "Timesheet Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/attendance/face/check-in",
+      "summary": "Record daily attendance check-in with a face photograph",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/attendance/face/check-out",
+      "summary": "Record daily attendance check-out with a face photograph",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/me",
+      "summary": "Get today's daily face attendance punch state for current employee",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/history",
+      "summary": "Retrieve personal paginated daily attendance logs history",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/team",
+      "summary": "Retrieve direct report employees' daily attendance logs history",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/company",
+      "summary": "Retrieve company-wide paginated daily attendance logs history",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attendance/face/analytics",
+      "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)",
+      "tags": [
+        "Face Attendance"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/leaves/balances",
+      "summary": "Get current employee's leave balances",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/leaves/apply",
+      "summary": "Apply for leave",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/leaves/history",
+      "summary": "Get leave history for current employee",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/leaves/pending",
+      "summary": "Get all leaves pending approval",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/leaves/{leave_id}/review",
+      "summary": "Approve or reject a leave request",
+      "tags": [
+        "Leave Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/leaves/balances/{employee_id}",
+      "summary": "Get leave balances for a specific employee (Admin/Manager only)",
+      "tags": [
+        "Leave Management"
+      ]
+    }
+  ],
+  "7. Recruitment, Jobs & ATS Pipeline": [
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs",
+      "summary": "Create a new job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs",
+      "summary": "List all job postings",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{id}",
+      "summary": "Get job posting by ID",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/jobs/{id}",
+      "summary": "Update job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/jobs/{id}",
+      "summary": "Delete a job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{id}/publish",
+      "summary": "Get job publish channels",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{id}/publish",
+      "summary": "Publish job on a channel",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{id}/close",
+      "summary": "Close job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{id}/draft",
+      "summary": "Draft job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/{id}/duplicate",
+      "summary": "Duplicate a job posting",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/generate-description",
+      "summary": "Generate AI job description",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/ai-autofill",
+      "summary": "One-click AI Auto-fill for Create Job",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/modify-description",
+      "summary": "Modify AI job description",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{id}/sourcing-link",
+      "summary": "Get or auto-generate unique sourcing link",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{id}/qr",
+      "summary": "Generate QR code for the job application URL",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{id}/applicants/export",
+      "summary": "Export job applicants report",
+      "tags": [
+        "Job Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/stats",
+      "summary": "Get recruitment metrics dashboard",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications",
+      "summary": "List all applications",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{id}",
+      "summary": "Get application details",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{id}/shortlist",
+      "summary": "Shortlist candidate",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{id}/reject",
+      "summary": "Reject candidate",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{id}/hold",
+      "summary": "Put candidate on hold",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{id}/stage",
+      "summary": "Move application stage",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/bulk-move",
+      "summary": "Bulk move candidates",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/bulk-tag",
+      "summary": "Bulk tag candidates",
+      "tags": [
+        "Application Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{id}/send-interview",
+      "summary": "Initiate interview process",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/interviews/{id}/schedule",
+      "summary": "Candidate books interview schedule slot",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interviews",
+      "summary": "List all interviews",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interviews/{id}",
+      "summary": "Get interview details",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/interviews/rounds/{round_id}/pass",
+      "summary": "Pass interview round",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/interviews/rounds/{round_id}/reject",
+      "summary": "Reject interview round",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/interviews/rounds/{round_id}/hold",
+      "summary": "Hold interview round",
+      "tags": [
+        "Interview Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{id}/offer",
+      "summary": "Create and release job offer",
+      "tags": [
+        "Offer Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{id}/convert",
+      "summary": "Convert selected candidate to Employee record",
+      "tags": [
+        "Offer Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/offers/{id}/accept",
+      "summary": "Candidate accepts offer",
+      "tags": [
+        "Offer Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/offers/{id}/reject",
+      "summary": "Candidate rejects offer",
+      "tags": [
+        "Offer Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/offers",
+      "summary": "List all offers with pagination",
+      "tags": [
+        "Offer Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/candidates",
+      "summary": "Create a new candidate profile",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/candidates/{id}",
+      "summary": "Retrieve candidate profile",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/candidates",
+      "summary": "List candidates with pagination and filters",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/candidates/{id}",
+      "summary": "Update candidate profile",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/candidates/{id}",
+      "summary": "Delete candidate profile",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/candidates/import",
+      "summary": "Import candidates from CSV",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/candidates/export/csv",
+      "summary": "Export candidates to CSV",
+      "tags": [
+        "Candidate Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/analytics",
+      "summary": "Get recruitment funnel and pipeline analytics",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/summary",
+      "summary": "Get recruitment summary",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/dashboard",
+      "summary": "Get recruitment dashboard",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/stats",
+      "summary": "Get recruitment stats",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recruitment/notifications",
+      "summary": "List recruiting notifications",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/recruitment/notifications/{id}/read",
+      "summary": "Mark notification as read",
+      "tags": [
+        "Recruitment Analytics & Alerts"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ats/candidates",
+      "summary": "List ATS candidates (Alias)",
+      "tags": [
+        "Applicant Tracking System (ATS) Pipeline"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ats",
+      "summary": "List ATS candidates & pipeline entries",
+      "tags": [
+        "Applicant Tracking System (ATS) Pipeline"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ats/board",
+      "summary": "Get ATS hiring pipeline board (Alias)",
+      "tags": [
+        "Applicant Tracking System (ATS) Pipeline"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ats/pipeline",
+      "summary": "Get ATS hiring pipeline board",
+      "tags": [
+        "Applicant Tracking System (ATS) Pipeline"
+      ]
+    }
+  ],
+  "8. Company Engagement & Operational Feeds (Announcements, Events, News, Polls, Helpdesk, Assets)": [
+    {
+      "method": "POST",
+      "path": "/api/v1/announcements",
+      "summary": "Create announcement",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/announcements",
+      "summary": "List announcements",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/announcements/{id}",
+      "summary": "Get announcement details",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/announcements/{id}",
+      "summary": "Update announcement parameters",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/announcements/{id}",
+      "summary": "Delete announcement",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/announcements/{id}/publish",
+      "summary": "Publish announcement",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/announcements/{id}/archive",
+      "summary": "Archive announcement",
+      "tags": [
+        "Announcements Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets",
+      "summary": "List all company hardware assets",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/analytics",
+      "summary": "Get aggregated asset analytics data",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/filter-options",
+      "summary": "Get distinct filter option values for assets",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/upload-image",
+      "summary": "Get asset upload image requirements",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/upload-image",
+      "summary": "Upload asset image to Cloudinary",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets",
+      "summary": "Create a new asset record",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/public/{id}",
+      "summary": "Get public details of a single asset for QR scanning",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/assets/{id}",
+      "summary": "Get details of a single asset",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/assets/{id}",
+      "summary": "Update specifications of an asset",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/assets/{id}",
+      "summary": "Delete an asset record",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/assign",
+      "summary": "Assign an asset to an employee",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/return",
+      "summary": "Return asset to inventory stock room",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/transfer",
+      "summary": "Transfer assignment to another employee",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/lost",
+      "summary": "Flag asset as lost",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/retired",
+      "summary": "Decommission and retire asset",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/assets/{id}/maintenance",
+      "summary": "Add a maintenance log entry",
+      "tags": [
+        "Asset Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendar/events",
+      "summary": "Create a new calendar event",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/events",
+      "summary": "List calendar events",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/events/{id}",
+      "summary": "Get calendar event details",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/calendar/events/{id}",
+      "summary": "Update calendar event",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendar/events/{id}",
+      "summary": "Delete calendar event",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendar/holidays",
+      "summary": "Create a new holiday entry",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/holidays",
+      "summary": "List holidays",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/calendar/holidays/{id}",
+      "summary": "Update holiday details",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendar/holidays/{id}",
+      "summary": "Delete holiday entry",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/calendar/meetings",
+      "summary": "Schedule a meeting",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/meetings",
+      "summary": "List scheduled meetings",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/meetings/{id}",
+      "summary": "Get meeting details by ID",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/calendar/meetings/{id}",
+      "summary": "Update scheduled meeting",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/calendar/meetings/{id}",
+      "summary": "Cancel / delete meeting",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/birthdays",
+      "summary": "Get today's employee birthdays",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/anniversaries",
+      "summary": "Get today's employee work joining anniversaries",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/calendar/dashboard",
+      "summary": "Get calendar dashboard view",
+      "tags": [
+        "Calendar Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/categories",
+      "summary": "List document categories",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/documents/employees",
+      "summary": "Upload employee document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/employees",
+      "summary": "List employee documents",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/employees/{id}",
+      "summary": "Get employee document details",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/employees/{id}/download",
+      "summary": "Download employee document file stream",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/documents/employees/{id}",
+      "summary": "Update employee document / upload revisions",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/documents/employees/{id}",
+      "summary": "Soft delete employee document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/documents/company",
+      "summary": "Upload company document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/company",
+      "summary": "List company documents",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/company/{id}",
+      "summary": "Get company document details",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/company/{id}/download",
+      "summary": "Download company document file stream",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/documents/company/{id}",
+      "summary": "Soft delete company document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/documents/{id}/request-signature",
+      "summary": "Request signature on a document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/documents/{id}/sign",
+      "summary": "Sign a document digitally",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/{id}/signature-status",
+      "summary": "Get signature status",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/documents/{id}/verify",
+      "summary": "Verify / approve employee document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/documents/{id}/reject",
+      "summary": "Reject employee document",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/expiring",
+      "summary": "Get documents expiring soon",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/expired",
+      "summary": "Get already expired documents",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/documents/upload",
+      "summary": "Upload document for Google Document AI OCR processing",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents",
+      "summary": "List all uploaded OCR documents (OCR History)",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/summary",
+      "summary": "Get document summary statistics",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/{document_id}",
+      "summary": "Get document OCR details",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/{document_id}/json",
+      "summary": "Download full OCR JSON response",
+      "tags": [
+        "Document Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/news",
+      "summary": "Create news article",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/news",
+      "summary": "List news articles",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/news/{id}",
+      "summary": "Get news article details",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/news/{id}",
+      "summary": "Update news article",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/news/{id}",
+      "summary": "Delete news article",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/news/{id}/publish",
+      "summary": "Publish news article",
+      "tags": [
+        "Company News Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/events",
+      "summary": "Create event",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events",
+      "summary": "List events",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/{id}",
+      "summary": "Get event details",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/events/{id}",
+      "summary": "Update event details",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/events/{id}",
+      "summary": "Delete event",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/events/{id}/publish",
+      "summary": "Publish event",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/events/{id}/cancel",
+      "summary": "Cancel event",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/events/{id}/register",
+      "summary": "Register for event",
+      "tags": [
+        "Company Events Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/polls",
+      "summary": "Create poll",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/polls",
+      "summary": "List polls",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/polls/{id}",
+      "summary": "Get poll details",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/polls/{id}/vote",
+      "summary": "Cast vote on a poll option",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/polls/{id}/close",
+      "summary": "Close poll",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/polls/{id}",
+      "summary": "Delete poll",
+      "tags": [
+        "Polls Management"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/internal/dashboard",
+      "summary": "Get unified internal communication dashboard feed",
+      "tags": [
+        "Communication Dashboard"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/tickets/my",
+      "summary": "1. Helpdesk - Get My Support Tickets",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/tickets",
+      "summary": "2. Helpdesk - Create Support Ticket",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}",
+      "summary": "3. Helpdesk - Get Ticket by ID",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}/comments",
+      "summary": "4. Helpdesk - Get Ticket Discussion Comments",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}/comments",
+      "summary": "5. Helpdesk - Add Ticket Comment",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/tickets/attachments/upload",
+      "summary": "6. Helpdesk - Upload Ticket Attachment",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/admin/tickets",
+      "summary": "7. Helpdesk - Get All Helpdesk Tickets (Admin/Manager)",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}/status",
+      "summary": "8. Helpdesk - Update Ticket Status",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}/assign",
+      "summary": "9. Helpdesk - Assign Ticket to Agent",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/tickets/{ticketId}/internal-notes",
+      "summary": "10. Helpdesk - Add Internal Staff Note",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/faqs",
+      "summary": "11. Helpdesk - Get Knowledge Base FAQs",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/admin/faqs",
+      "summary": "12. Helpdesk - Create or Update FAQ (Admin)",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/helpdesk/ai/chat",
+      "summary": "13. Helpdesk - AI Support Copilot Chat",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/helpdesk/admin/metrics",
+      "summary": "14. Helpdesk - Get SLA & KPI Metrics (Admin/Executive)",
+      "tags": [
+        "OFC360 Helpdesk & Support"
+      ]
+    }
+  ]
+}

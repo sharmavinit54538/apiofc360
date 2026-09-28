@@ -15,9 +15,10 @@ class ComplianceCheckItem(BaseModel):
     category: str = Field("Labor Law", description="Check category e.g. Labor Law, Payroll, Attendance")
     check_name: str = Field("Working Hours & Overtime Limit", description="Check title")
     status: str = Field("PASSED", description="PASSED | FAILED | WARNING")
-    description: str = Field("All employees are compliant with max 48 hours weekly limit.")
+    description: str = Field("All employees are compliant with statutory requirements.")
     affected_count: int = Field(0, description="Count of affected employees")
     severity: str = Field("LOW", description="LOW | MEDIUM | HIGH | CRITICAL")
+    recommendation: Optional[str] = Field(None, description="Actionable recommendation")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,10 +80,10 @@ class ComplianceDashboardResponse(BaseModel):
     """Compliance Monitor Dashboard KPIs supporting dual camelCase and snake_case for frontend thunk fetchComplianceReport."""
 
     # camelCase properties for frontend thunk compatibility
-    complianceScore: float = Field(92.5, description="Overall Compliance Score (0-100)")
-    openRisks: int = Field(4, description="Open Compliance Risks Count")
-    missingDocs: int = Field(12, description="Missing / Expired Documents Count")
-    auditReadiness: str = Field("94.0%", description="Audit Readiness Percentage")
+    complianceScore: float = Field(0.0, description="Overall Compliance Score (0-100)")
+    openRisks: int = Field(0, description="Open Compliance Risks Count")
+    missingDocs: int = Field(0, description="Missing / Expired Documents Count")
+    auditReadiness: str = Field("0.0%", description="Audit Readiness Percentage")
     complianceTrend: list[dict[str, Any]] = Field(default_factory=list)
     risksByCategory: list[dict[str, Any]] = Field(default_factory=list)
     complianceChecks: list[ComplianceCheckItem] = Field(default_factory=list)
@@ -91,19 +92,24 @@ class ComplianceDashboardResponse(BaseModel):
     alerts: list[ComplianceAlertItem] = Field(default_factory=list)
 
     # Standard snake_case properties
-    compliance_score: float = Field(92.5, description="Overall Compliance Score")
-    open_risks: int = Field(4, description="Open Compliance Risks Count")
-    missing_docs: int = Field(12, description="Missing / Expired Documents Count")
-    audit_readiness: str = Field("94.0%", description="Audit Readiness Percentage")
+    compliance_score: float = Field(0.0, description="Overall Compliance Score")
+    open_risks: int = Field(0, description="Open Compliance Risks Count")
+    missing_docs: int = Field(0, description="Missing / Expired Documents Count")
+    audit_readiness: str = Field("0.0%", description="Audit Readiness Percentage")
+    audit_readiness_pct: float = Field(0.0, description="Audit Readiness Percentage as float")
     compliance_trend: list[dict[str, Any]] = Field(default_factory=list)
     risks_by_category: list[dict[str, Any]] = Field(default_factory=list)
     compliance_checks: list[ComplianceCheckItem] = Field(default_factory=list)
     labor_law_status: dict[str, Any] = Field(default_factory=dict)
 
-    # Additional KPIs
-    policy_violations: int = Field(1, description="Active Policy Violations")
-    expired_documents: int = Field(3, description="Expired Documents Count")
-    critical_risks: int = Field(1, description="Critical Severity Risks Count")
+    # Additional KPIs & Counters
+    policy_violations: int = Field(0, description="Active Policy Violations")
+    expired_documents: int = Field(0, description="Expired Documents Count")
+    critical_risks: int = Field(0, description="Critical Severity Risks Count")
+    total_checks: int = Field(0, description="Total checks count")
+    passed_checks: int = Field(0, description="Passed checks count")
+    warning_checks: int = Field(0, description="Warning checks count")
+    failed_checks: int = Field(0, description="Failed checks count")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -111,10 +117,10 @@ class ComplianceDashboardResponse(BaseModel):
 class ComplianceChecksResponse(BaseModel):
     """Compliance checks summary."""
 
-    passed_checks: int = 18
-    failed_checks: int = 2
-    warning_checks: int = 4
-    compliance_pct: float = 90.0
+    passed_checks: int = 0
+    failed_checks: int = 0
+    warning_checks: int = 0
+    compliance_pct: float = 0.0
     checks: list[ComplianceCheckItem] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -124,10 +130,11 @@ class LaborLawsResponse(BaseModel):
     """Labor law monitoring status."""
 
     overall_status: str = "COMPLIANT"
-    violations_count: int = 1
+    violations_count: int = 0
     violations: list[dict[str, Any]] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     applicable_rules: list[LaborLawRule] = Field(default_factory=list)
+    summary: Optional[str] = Field(None, description="Plain language LLM narrative summary")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -135,9 +142,9 @@ class LaborLawsResponse(BaseModel):
 class MissingDocumentsResponse(BaseModel):
     """Missing & expired documents breakdown."""
 
-    expired_count: int = 3
-    missing_count: int = 9
-    pending_verification_count: int = 4
+    expired_count: int = 0
+    missing_count: int = 0
+    pending_verification_count: int = 0
     items: list[MissingDocumentItem] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -146,8 +153,8 @@ class MissingDocumentsResponse(BaseModel):
 class RiskDetectionResponse(BaseModel):
     """Compliance risk detection summary."""
 
-    overall_risk_score: float = 14.5
-    critical_risks_count: int = 1
+    overall_risk_score: float = 0.0
+    critical_risks_count: int = 0
     risks: list[RiskItem] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -156,7 +163,7 @@ class RiskDetectionResponse(BaseModel):
 class AuditReadinessResponse(BaseModel):
     """Audit readiness breakdown."""
 
-    readiness_pct: float = 94.0
+    readiness_pct: float = 0.0
     missing_evidence: list[str] = Field(default_factory=list)
     pending_actions: list[str] = Field(default_factory=list)
     checklist: list[dict[str, Any]] = Field(default_factory=list)

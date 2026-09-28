@@ -1,0 +1,6356 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/register",
+    "summary": "Register User",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "register_user_api_v1_auth_register_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/verify-email",
+    "summary": "Verify Email",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "verify_email_api_v1_auth_verify_email_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/resend-otp",
+    "summary": "Resend Otp",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "resend_otp_api_v1_auth_resend_otp_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/login",
+    "summary": "Login",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "login_api_v1_auth_login_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/refresh-token",
+    "summary": "Refresh Token",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "refresh_token_api_v1_auth_refresh_token_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/refresh",
+    "summary": "Refresh",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "refresh_api_v1_auth_refresh_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/logout",
+    "summary": "Logout",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "logout_api_v1_auth_logout_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/forgot-password",
+    "summary": "Forgot Password",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "forgot_password_api_v1_auth_forgot_password_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/reset-password",
+    "summary": "Reset Password",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "reset_password_api_v1_auth_reset_password_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/auth/status",
+    "summary": "Check auth status",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "get_auth_status_api_v1_auth_status_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/auth/me",
+    "summary": "Get current user profile",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "get_me_api_v1_auth_me_get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/auth/change-password",
+    "summary": "Change account password",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "change_password_api_v1_auth_change_password_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/auth/change-email",
+    "summary": "Initiate email change",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "change_email_api_v1_auth_change_email_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/verify-new-email",
+    "summary": "Verify new email OTP",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "verify_new_email_api_v1_auth_verify_new_email_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/auth/change-phone",
+    "summary": "Change phone number",
+    "tags": [
+      "Authentication"
+    ],
+    "operation_id": "change_phone_api_v1_auth_change_phone_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees",
+    "summary": "Create a new employee",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "create_employee_api_v1_employees_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees",
+    "summary": "List all employees",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "list_employees_api_v1_employees_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees/stats",
+    "summary": "Get employee stats overview",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "get_employee_dashboard_stats_api_v1_employees_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees/dashboard",
+    "summary": "Get employee management dashboard analytics",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "get_employee_dashboard_stats_api_v1_employees_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/import",
+    "summary": "Bulk import employees from Excel or CSV sheet",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "import_employees_api_v1_employees_import_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees/export",
+    "summary": "Export employee records as Excel, CSV, or PDF",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "export_employees_api_v1_employees_export_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees/{id}",
+    "summary": "Get employee by ID",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "get_employee_api_v1_employees__id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/employees/{id}",
+    "summary": "Update employee details (PATCH)",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "update_employee_api_v1_employees__id__patch"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employees/{id}",
+    "summary": "Update employee details",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "update_employee_api_v1_employees__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/employees/{id}",
+    "summary": "Soft delete an employee",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "delete_employee_api_v1_employees__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/send-invitation",
+    "summary": "Resend employee invitation link",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "send_invitation_api_v1_employees__id__send_invitation_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/send-invite",
+    "summary": "Resend employee invitation link (alias)",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "send_invite_alias_api_v1_employees__id__send_invite_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/deactivate",
+    "summary": "Deactivate employee account",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "deactivate_employee_api_v1_employees__id__deactivate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/activate-by-admin",
+    "summary": "Activate employee account by Admin",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "activate_employee_by_admin_api_v1_employees__id__activate_by_admin_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/activate",
+    "summary": "Activate employee account (self-activation via email link)",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "activate_employee_api_v1_employees__id__activate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/approve",
+    "summary": "HR Approval for Onboarding",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "approve_employee_api_v1_employees__id__approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/reject",
+    "summary": "Reject Onboarding",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "reject_employee_api_v1_employees__id__reject_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employees/{id}/reset-password",
+    "summary": "Admin reset of employee password",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "reset_password_api_v1_employees__id__reset_password_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employees/{id}/onboarding-status",
+    "summary": "Get onboarding checklist progress",
+    "tags": [
+      "Employee Management"
+    ],
+    "operation_id": "get_onboarding_status_api_v1_employees__id__onboarding_status_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers",
+    "summary": "Create a new manager",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "create_manager_api_v1_managers_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/managers",
+    "summary": "List all managers",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "list_managers_api_v1_managers_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/managers/onboarding/validate",
+    "summary": "Validate manager onboarding token",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "validate_manager_onboarding_token_api_v1_managers_onboarding_validate_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/onboarding/activate",
+    "summary": "Activate invited manager account",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "activate_manager_onboarding_api_v1_managers_onboarding_activate_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/managers/profile",
+    "summary": "Get current manager's profile",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "get_manager_profile_api_v1_managers_profile_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/send-invite",
+    "summary": "Resend manager invitation link by manager ID or email",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "send_invite_by_id_or_email_api_v1_managers_send_invite_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/managers/{id}",
+    "summary": "Get manager by ID",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "get_manager_api_v1_managers__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/managers/{id}",
+    "summary": "Update manager details",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "update_manager_api_v1_managers__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/managers/{id}",
+    "summary": "Soft delete a manager",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "delete_manager_api_v1_managers__id__delete"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/managers/{id}/permissions",
+    "summary": "Update manager permissions",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "update_manager_permissions_api_v1_managers__id__permissions_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/{id}/send-invitation",
+    "summary": "Resend manager invitation link",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "send_invitation_api_v1_managers__id__send_invitation_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/{id}/activate",
+    "summary": "Activate manager account",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "activate_manager_api_v1_managers__id__activate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/{id}/reset-password",
+    "summary": "Admin reset of manager password",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "reset_password_api_v1_managers__id__reset_password_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/onboarding/complete",
+    "summary": "Complete manager onboarding details",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "complete_onboarding_api_v1_managers_onboarding_complete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/{id}/deactivate",
+    "summary": "Deactivate manager account",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "deactivate_manager_api_v1_managers__id__deactivate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/managers/{id}/activate-by-admin",
+    "summary": "Activate manager account by Admin",
+    "tags": [
+      "Manager Management"
+    ],
+    "operation_id": "activate_manager_by_admin_api_v1_managers__id__activate_by_admin_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/departments",
+    "summary": "Create a new department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "create_department_api_v1_departments_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/departments",
+    "summary": "List all departments",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "list_departments_api_v1_departments_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/departments/{id}",
+    "summary": "Get department details by ID",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "get_department_api_v1_departments__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/departments/{id}",
+    "summary": "Update department details",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "update_department_api_v1_departments__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/departments/{id}",
+    "summary": "Soft delete a department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "delete_department_api_v1_departments__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/departments/{id}/assign-manager",
+    "summary": "Assign Head of Department (Manager)",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "assign_manager_api_v1_departments__id__assign_manager_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/departments/{id}/assign-employees",
+    "summary": "Assign multiple employees to a department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "assign_employees_api_v1_departments__id__assign_employees_post"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/departments/{id}/remove-manager",
+    "summary": "Remove Head of Department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "remove_manager_api_v1_departments__id__remove_manager_delete"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/departments/{id}/remove-employee/{employee_id}",
+    "summary": "Remove an employee from a department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "remove_employee_api_v1_departments__id__remove_employee__employee_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/departments/{id}/employees",
+    "summary": "Get all employees in a department",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "get_employees_api_v1_departments__id__employees_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/departments/{id}/manager",
+    "summary": "Get department manager (Head of Department)",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "get_manager_api_v1_departments__id__manager_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/departments/{id}/stats",
+    "summary": "Get department statistics",
+    "tags": [
+      "Department Management"
+    ],
+    "operation_id": "get_stats_api_v1_departments__id__stats_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs",
+    "summary": "Create a new job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "create_job_api_v1_jobs_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs",
+    "summary": "List all job postings",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "list_jobs_api_v1_jobs_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs/{id}",
+    "summary": "Get job posting by ID",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_job_api_v1_jobs__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/jobs/{id}",
+    "summary": "Update job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "update_job_api_v1_jobs__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/jobs/{id}",
+    "summary": "Delete a job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "delete_job_api_v1_jobs__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs/{id}/publish",
+    "summary": "Get job publish channels",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_publish_channels_api_v1_jobs__id__publish_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/{id}/publish",
+    "summary": "Publish job on a channel",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "publish_job_api_v1_jobs__id__publish_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/{id}/close",
+    "summary": "Close job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "close_job_api_v1_jobs__id__close_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/{id}/draft",
+    "summary": "Draft job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "draft_job_api_v1_jobs__id__draft_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/{id}/duplicate",
+    "summary": "Duplicate a job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "duplicate_job_api_v1_jobs__id__duplicate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/generate-description",
+    "summary": "Generate AI job description",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "generate_description_api_v1_jobs_generate_description_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/ai-autofill",
+    "summary": "One-click AI Auto-fill for Create Job",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "ai_autofill_api_v1_jobs_ai_autofill_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/jobs/modify-description",
+    "summary": "Modify AI job description",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "modify_description_api_v1_jobs_modify_description_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs/{id}/sourcing-link",
+    "summary": "Get or auto-generate unique sourcing link",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_sourcing_link_api_v1_jobs__id__sourcing_link_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs/{id}/qr",
+    "summary": "Generate QR code for the job application URL",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "generate_qr_api_v1_jobs__id__qr_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/jobs/{id}/applicants/export",
+    "summary": "Export job applicants report",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "export_applicants_api_v1_jobs__id__applicants_export_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/assets",
+    "summary": "List all company hardware assets",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "list_assets_api_v1_assets_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets",
+    "summary": "Create a new asset record",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "create_asset_api_v1_assets_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/assets/analytics",
+    "summary": "Get aggregated asset analytics data",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "get_analytics_api_v1_assets_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/assets/filter-options",
+    "summary": "Get distinct filter option values for assets",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "get_filter_options_api_v1_assets_filter_options_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/upload-image",
+    "summary": "Upload asset image to Cloudinary",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "upload_asset_image_api_v1_assets_upload_image_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/assets/public/{id}",
+    "summary": "Get public details of a single asset for QR scanning",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "get_public_asset_api_v1_assets_public__id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/assets/{id}",
+    "summary": "Get details of a single asset",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "get_asset_api_v1_assets__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/assets/{id}",
+    "summary": "Update specifications of an asset",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "update_asset_api_v1_assets__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/assets/{id}",
+    "summary": "Delete an asset record",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "delete_asset_api_v1_assets__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/assign",
+    "summary": "Assign an asset to an employee",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "assign_asset_api_v1_assets__id__assign_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/return",
+    "summary": "Return asset to inventory stock room",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "return_asset_api_v1_assets__id__return_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/transfer",
+    "summary": "Transfer assignment to another employee",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "transfer_asset_api_v1_assets__id__transfer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/lost",
+    "summary": "Flag asset as lost",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "mark_lost_api_v1_assets__id__lost_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/retired",
+    "summary": "Decommission and retire asset",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "mark_retired_api_v1_assets__id__retired_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/assets/{id}/maintenance",
+    "summary": "Add a maintenance log entry",
+    "tags": [
+      "Asset Management"
+    ],
+    "operation_id": "add_maintenance_api_v1_assets__id__maintenance_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/applications/stats",
+    "summary": "Get recruitment metrics dashboard",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "get_recruitment_stats_api_v1_applications_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/applications",
+    "summary": "List all applications",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "list_applications_api_v1_applications_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/applications/{id}",
+    "summary": "Get application details",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "get_application_api_v1_applications__id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/applications/{id}/shortlist",
+    "summary": "Shortlist candidate",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "shortlist_candidate_api_v1_applications__id__shortlist_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/applications/{id}/reject",
+    "summary": "Reject candidate",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "reject_candidate_api_v1_applications__id__reject_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/applications/{id}/hold",
+    "summary": "Put candidate on hold",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "hold_candidate_api_v1_applications__id__hold_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/applications/{id}/stage",
+    "summary": "Move application stage",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "move_application_stage_api_v1_applications__id__stage_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/applications/bulk-move",
+    "summary": "Bulk move candidates",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "bulk_move_candidates_api_v1_applications_bulk_move_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/applications/bulk-tag",
+    "summary": "Bulk tag candidates",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "bulk_tag_candidates_api_v1_applications_bulk_tag_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/applications/stats",
+    "summary": "Get recruitment metrics dashboard",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "get_recruitment_stats_api_applications_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/applications",
+    "summary": "List all applications",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "list_applications_api_applications_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/applications/{id}",
+    "summary": "Get application details",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "get_application_api_applications__id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/applications/{id}/shortlist",
+    "summary": "Shortlist candidate",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "shortlist_candidate_api_applications__id__shortlist_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/applications/{id}/reject",
+    "summary": "Reject candidate",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "reject_candidate_api_applications__id__reject_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/applications/{id}/hold",
+    "summary": "Put candidate on hold",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "hold_candidate_api_applications__id__hold_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/applications/{id}/stage",
+    "summary": "Move application stage",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "move_application_stage_api_applications__id__stage_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/applications/bulk-move",
+    "summary": "Bulk move candidates",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "bulk_move_candidates_api_applications_bulk_move_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/applications/bulk-tag",
+    "summary": "Bulk tag candidates",
+    "tags": [
+      "Application Management"
+    ],
+    "operation_id": "bulk_tag_candidates_api_applications_bulk_tag_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/applications/{id}/send-interview",
+    "summary": "Initiate interview process",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "send_interview_api_v1_applications__id__send_interview_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/interviews/{id}/schedule",
+    "summary": "Candidate books interview schedule slot",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "schedule_interview_slot_api_v1_interviews__id__schedule_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/interviews",
+    "summary": "List all interviews",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "list_interviews_api_v1_interviews_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/interviews/{id}",
+    "summary": "Get interview details",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "get_interview_api_v1_interviews__id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/interviews/rounds/{round_id}/pass",
+    "summary": "Pass interview round",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "pass_round_api_v1_interviews_rounds__round_id__pass_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/interviews/rounds/{round_id}/reject",
+    "summary": "Reject interview round",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "reject_round_api_v1_interviews_rounds__round_id__reject_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/interviews/rounds/{round_id}/hold",
+    "summary": "Hold interview round",
+    "tags": [
+      "Interview Management"
+    ],
+    "operation_id": "hold_round_api_v1_interviews_rounds__round_id__hold_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/applications/{id}/offer",
+    "summary": "Create and release job offer",
+    "tags": [
+      "Offer Management"
+    ],
+    "operation_id": "create_offer_api_v1_applications__id__offer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/applications/{id}/convert",
+    "summary": "Convert selected candidate to Employee record",
+    "tags": [
+      "Offer Management"
+    ],
+    "operation_id": "convert_candidate_api_v1_applications__id__convert_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/offers/{id}/accept",
+    "summary": "Candidate accepts offer",
+    "tags": [
+      "Offer Management"
+    ],
+    "operation_id": "accept_offer_api_v1_offers__id__accept_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/offers/{id}/reject",
+    "summary": "Candidate rejects offer",
+    "tags": [
+      "Offer Management"
+    ],
+    "operation_id": "reject_offer_api_v1_offers__id__reject_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/offers",
+    "summary": "List all offers with pagination",
+    "tags": [
+      "Offer Management"
+    ],
+    "operation_id": "list_offers_api_v1_offers_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/exits/resign",
+    "summary": "Submit employee resignation",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "submit_resignation_api_v1_exits_resign_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits/my-request",
+    "summary": "Get currently logged in employee's resignation request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "get_my_request_api_v1_exits_my_request_get"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/exits/my-request",
+    "summary": "Cancel own resignation request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "cancel_my_request_api_v1_exits_my_request_delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits/stats",
+    "summary": "Get exit dashboard statistics",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "get_exit_stats_api_v1_exits_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits",
+    "summary": "List all exit requests",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "list_exits_api_v1_exits_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits/{id}",
+    "summary": "Get exit details by ID",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "get_exit_api_v1_exits__id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/approve",
+    "summary": "HR approves exit request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "hr_approve_api_v1_exits__id__approve_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/reject",
+    "summary": "HR rejects exit request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "hr_reject_api_v1_exits__id__reject_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/start-notice-period",
+    "summary": "Start notice period",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "start_notice_period_api_v1_exits__id__start_notice_period_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/complete",
+    "summary": "Complete offboarding and deactivate account",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "complete_exit_api_v1_exits__id__complete_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/manager-approve",
+    "summary": "Manager approves exit request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "manager_approve_api_v1_exits__id__manager_approve_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/manager-reject",
+    "summary": "Manager rejects exit request",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "manager_reject_api_v1_exits__id__manager_reject_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/knowledge-transfer-complete",
+    "summary": "Complete Knowledge Transfer handover details",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "knowledge_transfer_complete_api_v1_exits__id__knowledge_transfer_complete_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits/{id}/assets",
+    "summary": "Get assets return checklist",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "get_assets_checklist_api_v1_exits__id__assets_get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/asset-return",
+    "summary": "Update asset return status",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "return_asset_api_v1_exits__id__asset_return_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/clearance",
+    "summary": "Update department dues clearance status",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "update_clearance_api_v1_exits__id__clearance_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/exits/{id}/exit-interview",
+    "summary": "Submit Exit Interview details",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "submit_exit_interview_api_v1_exits__id__exit_interview_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/exits/{id}/fnf",
+    "summary": "Submit FNF payroll settlement details",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "submit_fnf_api_v1_exits__id__fnf_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exits/{id}/documents",
+    "summary": "Get generated exit documents",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "get_exit_documents_api_v1_exits__id__documents_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/exits/{id}/generate-documents",
+    "summary": "Generate exit documents",
+    "tags": [
+      "Exit Management"
+    ],
+    "operation_id": "generate_exit_documents_api_v1_exits__id__generate_documents_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/calendar/events",
+    "summary": "Create a new calendar event",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "create_event_api_v1_calendar_events_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/events",
+    "summary": "List calendar events",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "list_events_api_v1_calendar_events_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/events/{id}",
+    "summary": "Get calendar event details",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "get_event_api_v1_calendar_events__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/calendar/events/{id}",
+    "summary": "Update calendar event",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "update_event_api_v1_calendar_events__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/calendar/events/{id}",
+    "summary": "Delete calendar event",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "delete_event_api_v1_calendar_events__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/calendar/holidays",
+    "summary": "Create a new holiday entry",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "create_holiday_api_v1_calendar_holidays_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/holidays",
+    "summary": "List holidays",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "list_holidays_api_v1_calendar_holidays_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/calendar/holidays/{id}",
+    "summary": "Update holiday details",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "update_holiday_api_v1_calendar_holidays__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/calendar/holidays/{id}",
+    "summary": "Delete holiday entry",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "delete_holiday_api_v1_calendar_holidays__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/calendar/meetings",
+    "summary": "Schedule a meeting",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "create_meeting_api_v1_calendar_meetings_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/meetings",
+    "summary": "List scheduled meetings",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "list_meetings_api_v1_calendar_meetings_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/meetings/{id}",
+    "summary": "Get meeting details by ID",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "get_meeting_api_v1_calendar_meetings__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/calendar/meetings/{id}",
+    "summary": "Update scheduled meeting",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "update_meeting_api_v1_calendar_meetings__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/calendar/meetings/{id}",
+    "summary": "Cancel / delete meeting",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "delete_meeting_api_v1_calendar_meetings__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/birthdays",
+    "summary": "Get today's employee birthdays",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "list_birthdays_api_v1_calendar_birthdays_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/anniversaries",
+    "summary": "Get today's employee work joining anniversaries",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "list_anniversaries_api_v1_calendar_anniversaries_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/calendar/dashboard",
+    "summary": "Get calendar dashboard view",
+    "tags": [
+      "Calendar Management"
+    ],
+    "operation_id": "get_dashboard_api_v1_calendar_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/categories",
+    "summary": "List document categories",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_categories_api_v1_documents_categories_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/documents/employees",
+    "summary": "Upload employee document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "upload_employee_document_api_v1_documents_employees_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/employees",
+    "summary": "List employee documents",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_employee_documents_api_v1_documents_employees_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/employees/{id}",
+    "summary": "Get employee document details",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "get_employee_document_api_v1_documents_employees__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/documents/employees/{id}",
+    "summary": "Update employee document / upload revisions",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "update_employee_document_api_v1_documents_employees__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/documents/employees/{id}",
+    "summary": "Soft delete employee document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "delete_employee_document_api_v1_documents_employees__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/employees/{id}/download",
+    "summary": "Download employee document file stream",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "download_employee_document_api_v1_documents_employees__id__download_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/documents/company",
+    "summary": "Upload company document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "upload_company_document_api_v1_documents_company_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/company",
+    "summary": "List company documents",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_company_documents_api_v1_documents_company_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/company/{id}",
+    "summary": "Get company document details",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "get_company_document_api_v1_documents_company__id__get"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/documents/company/{id}",
+    "summary": "Soft delete company document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "delete_company_document_api_v1_documents_company__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/company/{id}/download",
+    "summary": "Download company document file stream",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "download_company_document_api_v1_documents_company__id__download_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/documents/{id}/request-signature",
+    "summary": "Request signature on a document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "request_signature_api_v1_documents__id__request_signature_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/documents/{id}/sign",
+    "summary": "Sign a document digitally",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "sign_document_api_v1_documents__id__sign_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/{id}/signature-status",
+    "summary": "Get signature status",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "get_signature_status_api_v1_documents__id__signature_status_get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/documents/{id}/verify",
+    "summary": "Verify / approve employee document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "verify_document_api_v1_documents__id__verify_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/documents/{id}/reject",
+    "summary": "Reject employee document",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "reject_document_api_v1_documents__id__reject_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/expiring",
+    "summary": "Get documents expiring soon",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_expiring_documents_api_v1_documents_expiring_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/expired",
+    "summary": "Get already expired documents",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_expired_documents_api_v1_documents_expired_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/documents/upload",
+    "summary": "Upload document for Google Document AI OCR processing",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "upload_document_ocr_api_v1_documents_upload_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents",
+    "summary": "List all uploaded OCR documents (OCR History)",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "list_documents_ocr_api_v1_documents_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/{document_id}",
+    "summary": "Get document OCR details",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "get_document_ocr_detail_api_v1_documents__document_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/documents/{document_id}/json",
+    "summary": "Download full OCR JSON response",
+    "tags": [
+      "Document Management"
+    ],
+    "operation_id": "download_document_ocr_json_api_v1_documents__document_id__json_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/timesheets/weekly",
+    "summary": "Get or create weekly timesheet for current employee",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "get_weekly_timesheet_api_v1_timesheets_weekly_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/timesheets/weekly",
+    "summary": "Save weekly timesheet entries",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "save_weekly_entries_api_v1_timesheets_weekly_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/timesheets/weekly/submit",
+    "summary": "Submit weekly timesheet for approval",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "submit_weekly_timesheet_api_v1_timesheets_weekly_submit_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/timesheets/history",
+    "summary": "Get timesheet history for current employee",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "get_history_api_v1_timesheets_history_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/timesheets/pending",
+    "summary": "Get all timesheets pending approval",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "get_pending_api_v1_timesheets_pending_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/timesheets/{timesheet_id}/review",
+    "summary": "Approve or reject a timesheet",
+    "tags": [
+      "Timesheet Management"
+    ],
+    "operation_id": "review_timesheet_api_v1_timesheets__timesheet_id__review_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/attendance/face/check-in",
+    "summary": "Record daily attendance check-in with a face photograph",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "face_check_in_api_v1_attendance_face_check_in_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/attendance/face/check-out",
+    "summary": "Record daily attendance check-out with a face photograph",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "face_check_out_api_v1_attendance_face_check_out_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/me",
+    "summary": "Get today's daily face attendance punch state for current employee",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "get_today_punch_state_api_v1_attendance_face_me_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/history",
+    "summary": "Retrieve personal paginated daily attendance logs history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "get_own_attendance_history_api_v1_attendance_face_history_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/team",
+    "summary": "Retrieve direct report employees' daily attendance logs history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "get_team_attendance_history_api_v1_attendance_face_team_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/company",
+    "summary": "Retrieve company-wide paginated daily attendance logs history",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "get_company_attendance_history_api_v1_attendance_face_company_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/attendance/face/analytics",
+    "summary": "Retrieve attendance dashboard analytics summary (Admin and Managers)",
+    "tags": [
+      "Face Attendance"
+    ],
+    "operation_id": "get_attendance_analytics_api_v1_attendance_face_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/leaves/balances",
+    "summary": "Get current employee's leave balances",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "get_balances_api_v1_leaves_balances_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/leaves/apply",
+    "summary": "Apply for leave",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "apply_leave_api_v1_leaves_apply_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/leaves/history",
+    "summary": "Get leave history for current employee",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "get_history_api_v1_leaves_history_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/leaves/pending",
+    "summary": "Get all leaves pending approval",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "get_pending_api_v1_leaves_pending_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/leaves/{leave_id}/review",
+    "summary": "Approve or reject a leave request",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "review_leave_api_v1_leaves__leave_id__review_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/leaves/balances/{employee_id}",
+    "summary": "Get leave balances for a specific employee (Admin/Manager only)",
+    "tags": [
+      "Leave Management"
+    ],
+    "operation_id": "get_employee_balances_api_v1_leaves_balances__employee_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/document-templates",
+    "summary": "List all document templates",
+    "tags": [
+      "Document Template Management"
+    ],
+    "operation_id": "list_templates_api_v1_document_templates_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/document-templates",
+    "summary": "Create a new document template",
+    "tags": [
+      "Document Template Management"
+    ],
+    "operation_id": "create_template_api_v1_document_templates_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/document-templates/{id}/generate",
+    "summary": "Generate document from template for employee",
+    "tags": [
+      "Document Template Management"
+    ],
+    "operation_id": "generate_document_api_v1_document_templates__id__generate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/announcements",
+    "summary": "Create announcement",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "create_announcement_api_v1_announcements_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/announcements",
+    "summary": "List announcements",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "list_announcements_api_v1_announcements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/announcements/{id}",
+    "summary": "Get announcement details",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "get_announcement_api_v1_announcements__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/announcements/{id}",
+    "summary": "Update announcement parameters",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "update_announcement_api_v1_announcements__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/announcements/{id}",
+    "summary": "Delete announcement",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "delete_announcement_api_v1_announcements__id__delete"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/announcements/{id}/publish",
+    "summary": "Publish announcement",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "publish_announcement_api_v1_announcements__id__publish_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/announcements/{id}/archive",
+    "summary": "Archive announcement",
+    "tags": [
+      "Announcements Management"
+    ],
+    "operation_id": "archive_announcement_api_v1_announcements__id__archive_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/news",
+    "summary": "Create news article",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "create_news_api_v1_news_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/news",
+    "summary": "List news articles",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "list_news_api_v1_news_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/news/{id}",
+    "summary": "Get news article details",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "get_news_api_v1_news__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/news/{id}",
+    "summary": "Update news article",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "update_news_api_v1_news__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/news/{id}",
+    "summary": "Delete news article",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "delete_news_api_v1_news__id__delete"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/news/{id}/publish",
+    "summary": "Publish news article",
+    "tags": [
+      "Company News Management"
+    ],
+    "operation_id": "publish_news_api_v1_news__id__publish_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/events",
+    "summary": "Create event",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "create_event_api_v1_events_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/events",
+    "summary": "List events",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "list_events_api_v1_events_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/events/{id}",
+    "summary": "Get event details",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "get_event_api_v1_events__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/events/{id}",
+    "summary": "Update event details",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "update_event_api_v1_events__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/events/{id}",
+    "summary": "Delete event",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "delete_event_api_v1_events__id__delete"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/events/{id}/publish",
+    "summary": "Publish event",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "publish_event_api_v1_events__id__publish_patch"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/events/{id}/cancel",
+    "summary": "Cancel event",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "cancel_event_api_v1_events__id__cancel_patch"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/events/{id}/register",
+    "summary": "Register for event",
+    "tags": [
+      "Company Events Management"
+    ],
+    "operation_id": "register_event_api_v1_events__id__register_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/polls",
+    "summary": "Create poll",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "create_poll_api_v1_polls_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/polls",
+    "summary": "List polls",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "list_polls_api_v1_polls_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/polls/{id}",
+    "summary": "Get poll details",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "get_poll_api_v1_polls__id__get"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/polls/{id}",
+    "summary": "Delete poll",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "delete_poll_api_v1_polls__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/polls/{id}/vote",
+    "summary": "Cast vote on a poll option",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "cast_vote_api_v1_polls__id__vote_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/polls/{id}/close",
+    "summary": "Close poll",
+    "tags": [
+      "Polls Management"
+    ],
+    "operation_id": "close_poll_api_v1_polls__id__close_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/internal/dashboard",
+    "summary": "Get unified internal communication dashboard feed",
+    "tags": [
+      "Communication Dashboard"
+    ],
+    "operation_id": "get_dashboard_api_v1_internal_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/upload-resume",
+    "summary": "Stage 1 \u2014 Upload Candidate Resume",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "upload_resume_api_v1_ai_upload_resume_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/extract",
+    "summary": "Stage 2 \u2014 Extract Structured Resume Data",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "extract_resume_api_v1_ai_extract_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/embedding",
+    "summary": "Stage 3 \u2014 Generate Resume & Job Embeddings",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "generate_embeddings_api_v1_ai_embedding_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/match",
+    "summary": "Stage 3 \u2014 Semantic Skill Matching",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "match_candidate_api_v1_ai_match_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/analyze",
+    "summary": "Stage 4 \u2014 AI Qualitative Evaluation via Llama3",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "analyze_candidate_api_v1_ai_analyze_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/rank",
+    "summary": "Stage 5 \u2014 Compute Multi-Dimensional Ranking Scores",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "rank_candidate_api_v1_ai_rank_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/interview",
+    "summary": "Stage 6 \u2014 Generate Targeted Interview Questions",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "generate_interview_questions_api_v1_ai_interview_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/dashboard/{resume_document_id}",
+    "summary": "Stage 7 \u2014 Candidate AI Hiring Dashboard",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "get_candidate_dashboard_api_v1_ai_dashboard__resume_document_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/job-ranking/{job_id}",
+    "summary": "Get Ranked Candidates for a Job",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "get_job_ranking_api_v1_ai_job_ranking__job_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/copilot",
+    "summary": "Interactive AI Recruiter Copilot",
+    "tags": [
+      "AI Hiring Copilot"
+    ],
+    "operation_id": "run_copilot_tool_route_api_v1_ai_copilot_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/chat",
+    "summary": "Send a message to the AI Chat Assistant (Streaming)",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "chat_message_api_v1_ai_chat_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/history",
+    "summary": "Get user conversation list",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "get_history_api_v1_ai_history_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/history/{conversation_id}",
+    "summary": "Get conversation detail",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "get_conversation_api_v1_ai_history__conversation_id__get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/ai/history/{conversation_id}",
+    "summary": "Rename conversation title",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "rename_conversation_api_v1_ai_history__conversation_id__patch"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/ai/history/{conversation_id}",
+    "summary": "Delete conversation session",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "delete_conversation_api_v1_ai_history__conversation_id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/ai/clear",
+    "summary": "Clear all conversations",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "clear_history_api_v1_ai_clear_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/suggestions",
+    "summary": "Get dynamic AI prompt suggestions",
+    "tags": [
+      "AI Chat Assistant"
+    ],
+    "operation_id": "get_suggestions_api_v1_ai_suggestions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/insights",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_insights_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/ats",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_ats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/hiring",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_hiring_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/analytics",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/dashboard",
+    "summary": "Get complete AI Insights dashboard metrics",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/kpi",
+    "summary": "Get Kpis",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_kpis_api_v1_ai_insights_kpi_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/attrition",
+    "summary": "Get Attrition",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_attrition_api_v1_ai_insights_attrition_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/burnout",
+    "summary": "Get Burnout",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_burnout_api_v1_ai_insights_burnout_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/attendance",
+    "summary": "Get Attendance",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_attendance_api_v1_ai_insights_attendance_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/performance",
+    "summary": "Get Performance",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_performance_api_v1_ai_insights_performance_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/recruitment",
+    "summary": "Get Recruitment",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_recruitment_api_v1_ai_insights_recruitment_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/charts",
+    "summary": "Get Charts",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_charts_api_v1_ai_insights_charts_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai-insights/recommendations",
+    "summary": "Get Recommendations",
+    "tags": [
+      "AI Insights"
+    ],
+    "operation_id": "get_recommendations_api_v1_ai_insights_recommendations_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/insights",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_insights_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/ats",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_ats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/hiring",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_hiring_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/analytics",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ai/dashboard",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "AI Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_ai_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/analytics/recruitment",
+    "summary": "Get Alternate Recruitment Dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "operation_id": "get_alternate_recruitment_dashboard_api_v1_analytics_recruitment_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/analytics/ats",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_analytics_ats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/analytics/hiring",
+    "summary": "Get Ai Insights Dashboard",
+    "tags": [
+      "Analytics Engine"
+    ],
+    "operation_id": "get_ai_insights_dashboard_api_v1_analytics_hiring_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/general",
+    "summary": "Get General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_general_settings_api_v1_settings_general_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/general",
+    "summary": "Update General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_general_settings_api_v1_settings_general_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/company",
+    "summary": "Get Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_company_settings_api_v1_settings_company_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_v1_settings_company_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_v1_settings_company_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_v1_settings_company_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/roles",
+    "summary": "Get Roles",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_roles_api_v1_settings_roles_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/settings/roles",
+    "summary": "Create Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "create_role_api_v1_settings_roles_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/roles/{role_id}",
+    "summary": "Update Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_role_api_v1_settings_roles__role_id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/settings/roles/{role_id}",
+    "summary": "Delete Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "delete_role_api_v1_settings_roles__role_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/permissions",
+    "summary": "Get Permissions",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_permissions_api_v1_settings_permissions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/audit-logs",
+    "summary": "Get Audit Logs",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_audit_logs_api_v1_settings_audit_logs_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/billing",
+    "summary": "Get Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_billing_api_v1_settings_billing_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/billing",
+    "summary": "Update Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_billing_api_v1_settings_billing_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/security",
+    "summary": "Get Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_security_api_v1_settings_security_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/security",
+    "summary": "Update Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_security_api_v1_settings_security_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/notifications",
+    "summary": "Get Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_notifications_api_v1_settings_notifications_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/notifications",
+    "summary": "Update Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_notifications_api_v1_settings_notifications_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/integrations",
+    "summary": "Get Integrations",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_integrations_api_v1_settings_integrations_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/integrations",
+    "summary": "Toggle Integration",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "toggle_integration_api_v1_settings_integrations_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/profile",
+    "summary": "Get Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_profile_api_v1_settings_profile_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/profile",
+    "summary": "Update Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_profile_api_v1_settings_profile_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/general",
+    "summary": "Get General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_general_settings_api_settings_general_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/general",
+    "summary": "Update General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_general_settings_api_settings_general_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/company",
+    "summary": "Get Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_company_settings_api_settings_company_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_settings_company_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_settings_company_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_api_settings_company_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/roles",
+    "summary": "Get Roles",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_roles_api_settings_roles_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/settings/roles",
+    "summary": "Create Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "create_role_api_settings_roles_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/roles/{role_id}",
+    "summary": "Update Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_role_api_settings_roles__role_id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/settings/roles/{role_id}",
+    "summary": "Delete Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "delete_role_api_settings_roles__role_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/permissions",
+    "summary": "Get Permissions",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_permissions_api_settings_permissions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/audit-logs",
+    "summary": "Get Audit Logs",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_audit_logs_api_settings_audit_logs_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/billing",
+    "summary": "Get Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_billing_api_settings_billing_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/billing",
+    "summary": "Update Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_billing_api_settings_billing_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/security",
+    "summary": "Get Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_security_api_settings_security_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/security",
+    "summary": "Update Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_security_api_settings_security_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/notifications",
+    "summary": "Get Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_notifications_api_settings_notifications_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/notifications",
+    "summary": "Update Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_notifications_api_settings_notifications_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/integrations",
+    "summary": "Get Integrations",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_integrations_api_settings_integrations_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/integrations",
+    "summary": "Toggle Integration",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "toggle_integration_api_settings_integrations_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/profile",
+    "summary": "Get Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_profile_api_settings_profile_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/profile",
+    "summary": "Update Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_profile_api_settings_profile_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/general",
+    "summary": "Get General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_general_settings_settings_general_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/general",
+    "summary": "Update General Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_general_settings_settings_general_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/company",
+    "summary": "Get Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_company_settings_settings_company_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_settings_company_put"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_settings_company_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/settings/company",
+    "summary": "Update Company Settings",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_company_settings_settings_company_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/roles",
+    "summary": "Get Roles",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_roles_settings_roles_get"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/roles",
+    "summary": "Create Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "create_role_settings_roles_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/roles/{role_id}",
+    "summary": "Update Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_role_settings_roles__role_id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/settings/roles/{role_id}",
+    "summary": "Delete Role",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "delete_role_settings_roles__role_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/permissions",
+    "summary": "Get Permissions",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_permissions_settings_permissions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/audit-logs",
+    "summary": "Get Audit Logs",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_audit_logs_settings_audit_logs_get"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/billing",
+    "summary": "Get Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_billing_settings_billing_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/billing",
+    "summary": "Update Billing",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_billing_settings_billing_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/security",
+    "summary": "Get Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_security_settings_security_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/security",
+    "summary": "Update Security",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_security_settings_security_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/notifications",
+    "summary": "Get Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_notifications_settings_notifications_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/notifications",
+    "summary": "Update Notifications",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_notifications_settings_notifications_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/integrations",
+    "summary": "Get Integrations",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_integrations_settings_integrations_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/integrations",
+    "summary": "Toggle Integration",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "toggle_integration_settings_integrations_put"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/profile",
+    "summary": "Get Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "get_profile_settings_profile_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/profile",
+    "summary": "Update Profile",
+    "tags": [
+      "Settings & Administration"
+    ],
+    "operation_id": "update_profile_settings_profile_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sidebar/permissions",
+    "summary": "Get sidebar navigation permissions and menu structure",
+    "tags": [
+      "Sidebar Permissions"
+    ],
+    "operation_id": "get_sidebar_permissions_api_v1_sidebar_permissions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/onboarding/status",
+    "summary": "Get current company onboarding status",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "get_onboarding_status_api_v1_onboarding_status_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/onboarding/progress",
+    "summary": "Get all saved onboarding data",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "get_onboarding_progress_api_v1_onboarding_progress_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/company",
+    "summary": "Save company details (Step 1)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "save_onboarding_company_api_v1_onboarding_company_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/admin-profile",
+    "summary": "Save admin profile details (Step 2)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "save_onboarding_admin_profile_api_v1_onboarding_admin_profile_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/hr-settings",
+    "summary": "Save HR settings (Step 3)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "save_onboarding_hr_settings_api_v1_onboarding_hr_settings_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/departments",
+    "summary": "Save departments (Step 4)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "save_onboarding_departments_api_v1_onboarding_departments_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/designations",
+    "summary": "Save designations (Step 5)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "save_onboarding_designations_api_v1_onboarding_designations_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/invite-employees",
+    "summary": "Invite employees (Step 6)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "invite_employees_api_v1_onboarding_invite_employees_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/complete",
+    "summary": "Complete onboarding flow (Step 7)",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "complete_onboarding_api_v1_onboarding_complete_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/onboarding/validate",
+    "summary": "Validate employee onboarding token",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "validate_onboarding_token_alias_api_v1_onboarding_validate_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/onboarding/validate-token",
+    "summary": "Validate employee onboarding token",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "validate_onboarding_token_api_v1_onboarding_validate_token_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/onboarding/activate",
+    "summary": "Activate invited employee account",
+    "tags": [
+      "Onboarding"
+    ],
+    "operation_id": "activate_onboarding_employee_api_v1_onboarding_activate_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employee-onboarding/status",
+    "summary": "Get Status",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "get_status_api_v1_employee_onboarding_status_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/employee-onboarding/progress",
+    "summary": "Get Progress",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "get_progress_api_v1_employee_onboarding_progress_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/1",
+    "summary": "Save Step 1",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_1_api_v1_employee_onboarding_step_1_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/2",
+    "summary": "Save Step 2",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_2_api_v1_employee_onboarding_step_2_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/3",
+    "summary": "Save Step 3",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_3_api_v1_employee_onboarding_step_3_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/4",
+    "summary": "Save Step 4",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_4_api_v1_employee_onboarding_step_4_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/5",
+    "summary": "Save Step 5",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_5_api_v1_employee_onboarding_step_5_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/6",
+    "summary": "Save Step 6",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_6_api_v1_employee_onboarding_step_6_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/7",
+    "summary": "Save Step 7",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_7_api_v1_employee_onboarding_step_7_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employee-onboarding/step/8/upload",
+    "summary": "Upload Document",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "upload_document_api_v1_employee_onboarding_step_8_upload_post"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/employee-onboarding/step/8/document/{doc_id}",
+    "summary": "Delete Document",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "delete_document_api_v1_employee_onboarding_step_8_document__doc_id__delete"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/8",
+    "summary": "Save Step 8",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_8_api_v1_employee_onboarding_step_8_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/employee-onboarding/step/9",
+    "summary": "Save Step 9",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_step_9_api_v1_employee_onboarding_step_9_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employee-onboarding/complete",
+    "summary": "Complete Flow",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "complete_flow_api_v1_employee_onboarding_complete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/employee-onboarding/draft",
+    "summary": "Save Draft State",
+    "tags": [
+      "Employee Onboarding"
+    ],
+    "operation_id": "save_draft_state_api_v1_employee_onboarding_draft_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/employee-onboarding",
+    "summary": "List Progress",
+    "tags": [
+      "Admin Employee Onboarding"
+    ],
+    "operation_id": "list_progress_api_v1_admin_employee_onboarding_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/employee-onboarding/{employee_id}",
+    "summary": "Get Progress Details",
+    "tags": [
+      "Admin Employee Onboarding"
+    ],
+    "operation_id": "get_progress_details_api_v1_admin_employee_onboarding__employee_id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/employee-onboarding/{employee_id}/document/{doc_id}/verify",
+    "summary": "Verify Onboarding Document",
+    "tags": [
+      "Admin Employee Onboarding"
+    ],
+    "operation_id": "verify_onboarding_document_api_v1_admin_employee_onboarding__employee_id__document__doc_id__verify_put"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy",
+    "summary": "Get complete organization tree",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_hierarchy_api_v1_hierarchy_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/tree",
+    "summary": "Get nested hierarchy tree JSON",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_hierarchy_tree_api_v1_hierarchy_tree_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/chart",
+    "summary": "Get hierarchy flat list optimized for React Flow",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_hierarchy_chart_api_v1_hierarchy_chart_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/analytics",
+    "summary": "Get hierarchy analytics metrics",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_analytics_api_v1_hierarchy_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/{employee_id}",
+    "summary": "Get employee reporting chain details",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_employee_hierarchy_details_api_v1_hierarchy__employee_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/path/{employee_id}",
+    "summary": "Get reporting path from CEO down to employee",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_reporting_path_api_v1_hierarchy_path__employee_id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/hierarchy/assign-manager",
+    "summary": "Assign reporting manager",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "assign_manager_api_v1_hierarchy_assign_manager_put"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/hierarchy/change-manager",
+    "summary": "Transfer reporting manager",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "change_manager_api_v1_hierarchy_change_manager_put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/hierarchy/remove-manager/{employee_id}",
+    "summary": "Remove manager link",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "remove_manager_api_v1_hierarchy_remove_manager__employee_id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/direct-reports/{manager_id}",
+    "summary": "List direct reports of a manager",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_direct_reports_api_v1_hierarchy_direct_reports__manager_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hierarchy/team/{manager_id}",
+    "summary": "List recursive team descendants of a manager",
+    "tags": [
+      "Employee Hierarchy"
+    ],
+    "operation_id": "get_team_api_v1_hierarchy_team__manager_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/employees",
+    "summary": "Export Employees",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_employees_api_v1_exports_employees_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/departments",
+    "summary": "Export Departments",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_departments_api_v1_exports_departments_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/managers",
+    "summary": "Export Managers",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_managers_api_v1_exports_managers_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/attendance",
+    "summary": "Export Attendance",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_attendance_api_v1_exports_attendance_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/face-attendance",
+    "summary": "Export Face Attendance",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_face_attendance_api_v1_exports_face_attendance_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/leaves",
+    "summary": "Export Leaves",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_leaves_api_v1_exports_leaves_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/payroll",
+    "summary": "Export Payroll",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_payroll_api_v1_exports_payroll_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/exports/performance",
+    "summary": "Export Performance",
+    "tags": [
+      "Exports"
+    ],
+    "operation_id": "export_performance_api_v1_exports_performance_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/candidates",
+    "summary": "Create a new candidate profile",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "create_candidate_api_v1_candidates_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/candidates",
+    "summary": "List candidates with pagination and filters",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "list_candidates_api_v1_candidates_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/candidates/{id}",
+    "summary": "Retrieve candidate profile",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "get_candidate_api_v1_candidates__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/candidates/{id}",
+    "summary": "Update candidate profile",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "update_candidate_api_v1_candidates__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/candidates/{id}",
+    "summary": "Delete candidate profile",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "delete_candidate_api_v1_candidates__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/candidates/import",
+    "summary": "Import candidates from CSV",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "import_candidates_api_v1_candidates_import_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/candidates/export/csv",
+    "summary": "Export candidates to CSV",
+    "tags": [
+      "Candidate Management"
+    ],
+    "operation_id": "export_candidates_api_v1_candidates_export_csv_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/requisitions",
+    "summary": "Create a new job requisition",
+    "tags": [
+      "Requisition Management"
+    ],
+    "operation_id": "create_requisition_api_v1_requisitions_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/requisitions",
+    "summary": "List job requisitions with status filter",
+    "tags": [
+      "Requisition Management"
+    ],
+    "operation_id": "list_requisitions_api_v1_requisitions_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/requisitions/{id}/approve",
+    "summary": "Approve or reject a job requisition",
+    "tags": [
+      "Requisition Management"
+    ],
+    "operation_id": "approve_requisition_api_v1_requisitions__id__approve_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/requisitions/{id}",
+    "summary": "Retrieve job requisition details",
+    "tags": [
+      "Requisition Management"
+    ],
+    "operation_id": "get_requisition_api_v1_requisitions__id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/vendors",
+    "summary": "Create a recruitment vendor agency",
+    "tags": [
+      "Recruitment Vendors"
+    ],
+    "operation_id": "create_vendor_api_v1_vendors_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/vendors",
+    "summary": "List registered recruitment vendors",
+    "tags": [
+      "Recruitment Vendors"
+    ],
+    "operation_id": "list_vendors_api_v1_vendors_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/vendors/{id}",
+    "summary": "Retrieve recruitment vendor agency details",
+    "tags": [
+      "Recruitment Vendors"
+    ],
+    "operation_id": "get_vendor_api_v1_vendors__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/vendors/{id}",
+    "summary": "Update recruitment vendor agency",
+    "tags": [
+      "Recruitment Vendors"
+    ],
+    "operation_id": "update_vendor_api_v1_vendors__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/vendors/{id}",
+    "summary": "Delete recruitment vendor agency",
+    "tags": [
+      "Recruitment Vendors"
+    ],
+    "operation_id": "delete_vendor_api_v1_vendors__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/crm/notes",
+    "summary": "Add a note to a candidate",
+    "tags": [
+      "Recruitment CRM"
+    ],
+    "operation_id": "create_crm_note_api_v1_crm_notes_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/crm/notes/{candidate_id}",
+    "summary": "List all notes for a candidate",
+    "tags": [
+      "Recruitment CRM"
+    ],
+    "operation_id": "list_crm_notes_api_v1_crm_notes__candidate_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/referrals",
+    "summary": "Submit employee referral",
+    "tags": [
+      "Employee Referrals"
+    ],
+    "operation_id": "create_referral_api_v1_referrals_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/referrals",
+    "summary": "List all employee referrals",
+    "tags": [
+      "Employee Referrals"
+    ],
+    "operation_id": "list_referrals_api_v1_referrals_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/referrals/{id}/status",
+    "summary": "Update employee referral status",
+    "tags": [
+      "Employee Referrals"
+    ],
+    "operation_id": "update_referral_status_api_v1_referrals__id__status_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/automations/rules",
+    "summary": "Create automation rule",
+    "tags": [
+      "Recruitment Automation"
+    ],
+    "operation_id": "create_automation_rule_api_v1_automations_rules_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/automations/rules",
+    "summary": "List automation rules",
+    "tags": [
+      "Recruitment Automation"
+    ],
+    "operation_id": "list_automation_rules_api_v1_automations_rules_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/scorecards/templates",
+    "summary": "Create scorecard template",
+    "tags": [
+      "Interview Scorecards"
+    ],
+    "operation_id": "create_scorecard_template_api_v1_scorecards_templates_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/scorecards/templates",
+    "summary": "List scorecard templates",
+    "tags": [
+      "Interview Scorecards"
+    ],
+    "operation_id": "list_scorecard_templates_api_v1_scorecards_templates_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/scorecards/submissions",
+    "summary": "Submit interview scorecard",
+    "tags": [
+      "Interview Scorecards"
+    ],
+    "operation_id": "submit_scorecard_api_v1_scorecards_submissions_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/scorecards/submissions/{round_id}",
+    "summary": "Get scorecards for an interview round",
+    "tags": [
+      "Interview Scorecards"
+    ],
+    "operation_id": "get_scorecards_api_v1_scorecards_submissions__round_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/analytics",
+    "summary": "Get recruitment funnel and pipeline analytics",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_analytics_api_v1_recruitment_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/summary",
+    "summary": "Get recruitment summary",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_api_v1_recruitment_summary_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/dashboard",
+    "summary": "Get recruitment dashboard",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_api_v1_recruitment_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/stats",
+    "summary": "Get recruitment stats",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_api_v1_recruitment_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/notifications",
+    "summary": "List recruiting notifications",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "list_notifications_api_v1_recruitment_notifications_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/recruitment/notifications/{id}/read",
+    "summary": "Mark notification as read",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "mark_read_api_v1_recruitment_notifications__id__read_put"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/recruitment/resume/upload",
+    "summary": "Upload resume for automated AI screening & ATS matching",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "upload_and_screen_resume_api_v1_recruitment_resume_upload_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/candidates",
+    "summary": "List all parsed candidates",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "list_parsed_candidates_api_v1_recruitment_candidates_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/candidates/{candidate_id}",
+    "summary": "Get complete candidate profile",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "get_candidate_profile_api_v1_recruitment_candidates__candidate_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/recruitment/candidates/{candidate_id}/ats",
+    "summary": "Get candidate ATS score breakdown & AI insights",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "get_candidate_ats_analysis_api_v1_recruitment_candidates__candidate_id__ats_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/recruitment/jobs/{job_id}/match",
+    "summary": "Recalculate ATS scores & rankings for all candidates against job description",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "match_candidates_for_job_api_v1_recruitment_jobs__job_id__match_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/recruitment/resume/upload",
+    "summary": "Upload resume for automated AI screening & ATS matching",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "upload_and_screen_resume_api_recruitment_resume_upload_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/recruitment/candidates",
+    "summary": "List all parsed candidates",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "list_parsed_candidates_api_recruitment_candidates_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/recruitment/candidates/{candidate_id}",
+    "summary": "Get complete candidate profile",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "get_candidate_profile_api_recruitment_candidates__candidate_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/recruitment/candidates/{candidate_id}/ats",
+    "summary": "Get candidate ATS score breakdown & AI insights",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "get_candidate_ats_analysis_api_recruitment_candidates__candidate_id__ats_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/recruitment/jobs/{job_id}/match",
+    "summary": "Recalculate ATS scores & rankings for all candidates against job description",
+    "tags": [
+      "AI Resume Screening & ATS Matching"
+    ],
+    "operation_id": "match_candidates_for_job_api_recruitment_jobs__job_id__match_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ats/candidates",
+    "summary": "List ATS candidates (Alias)",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_candidates_api_v1_ats_candidates_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ats",
+    "summary": "List ATS candidates & pipeline entries",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_candidates_api_v1_ats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ats/board",
+    "summary": "Get ATS hiring pipeline board (Alias)",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_pipeline_board_api_v1_ats_board_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/ats/pipeline",
+    "summary": "Get ATS hiring pipeline board",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_pipeline_board_api_v1_ats_pipeline_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ats/candidates",
+    "summary": "List ATS candidates (Alias)",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_candidates_api_ats_candidates_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ats",
+    "summary": "List ATS candidates & pipeline entries",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_candidates_api_ats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ats/board",
+    "summary": "Get ATS hiring pipeline board (Alias)",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_pipeline_board_api_ats_board_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ats/pipeline",
+    "summary": "Get ATS hiring pipeline board",
+    "tags": [
+      "Applicant Tracking System (ATS) Pipeline"
+    ],
+    "operation_id": "get_ats_pipeline_board_api_ats_pipeline_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/public/careers",
+    "summary": "List all published jobs for career portal",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "list_published_jobs_api_public_careers_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/public/careers/search",
+    "summary": "Search career portal jobs",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "search_jobs_api_public_careers_search_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/public/careers/filter",
+    "summary": "Filter career portal jobs",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "filter_jobs_api_public_careers_filter_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/public/careers/{slug}",
+    "summary": "Get job detail by slug",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "get_job_by_slug_api_public_careers__slug__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/public/careers/apply/{slug}",
+    "summary": "Apply for a job posting by ID or slug",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "apply_to_job_api_public_careers_apply__slug__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/public/careers/{slug}/apply",
+    "summary": "Apply for a job posting",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "apply_to_job_api_public_careers__slug__apply_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/public/careers/apply/{ukey}",
+    "summary": "Get job detail by unique channel key",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "get_job_by_ukey_api_public_careers_apply__ukey__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/public/careers/apply/{ukey}",
+    "summary": "Apply for a job posting using unique channel key",
+    "tags": [
+      "Public Career Portal"
+    ],
+    "operation_id": "apply_to_job_by_ukey_api_public_careers_apply__ukey__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/upload",
+    "summary": "Upload and register business documents",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "upload_documents_api_v2_document_intelligence_upload_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/classify",
+    "summary": "Automatically classify document content type",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "classify_document_api_v2_document_intelligence_classify_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/extract",
+    "summary": "Extract fields matching requested schema",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "extract_document_fields_api_v2_document_intelligence_extract_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/analyze",
+    "summary": "Generate document summary, risk levels, compliance analysis",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "analyze_document_api_v2_document_intelligence_analyze_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/compare",
+    "summary": "Compare two business documents for modifications",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "compare_documents_api_v2_document_intelligence_compare_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/validate",
+    "summary": "Run validation checks on extracted details",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "validate_document_fields_api_v2_document_intelligence_validate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/search",
+    "summary": "Semantic vector search across candidate/business files",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "semantic_search_api_v2_document_intelligence_search_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/document-intelligence/query",
+    "summary": "Natural language Question Answering RAG pipeline",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "query_rag_doc_api_v2_document_intelligence_query_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/document-intelligence/insights",
+    "summary": "Retrieve global intelligence insights for all documents",
+    "tags": [
+      "Document Intelligence v2"
+    ],
+    "operation_id": "get_insights_api_v2_document_intelligence_insights_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/employee-support/chat",
+    "summary": "Chat with the Employee Support AI Assistant",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "operation_id": "chat_employee_support_api_v2_employee_support_chat_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/employee-support/tickets",
+    "summary": "Create a support ticket manually",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "operation_id": "create_ticket_api_v2_employee_support_tickets_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/employee-support/tickets/my",
+    "summary": "Retrieve logged tickets for current employee",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "operation_id": "get_my_tickets_api_v2_employee_support_tickets_my_get"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/employee-support/tickets/{ticket_id}",
+    "summary": "Update support ticket status or comment",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "operation_id": "update_ticket_api_v2_employee_support_tickets__ticket_id__patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/employee-support/hr-copilot/stats",
+    "summary": "Aggregate support statistics for HR managers",
+    "tags": [
+      "Employee Support AI Agent v2"
+    ],
+    "operation_id": "hr_copilot_stats_api_v2_employee_support_hr_copilot_stats_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/interview-bot/sessions",
+    "summary": "Initialize an AI Interview session",
+    "tags": [
+      "AI Interview Bot v2"
+    ],
+    "operation_id": "init_session_api_v2_interview_bot_sessions_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/interview-bot/sessions/{session_id}/start",
+    "summary": "Start an active AI Interview session",
+    "tags": [
+      "AI Interview Bot v2"
+    ],
+    "operation_id": "start_session_api_v2_interview_bot_sessions__session_id__start_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/interview-bot/sessions/{session_id}/answer",
+    "summary": "Submit answer for grading and get next question",
+    "tags": [
+      "AI Interview Bot v2"
+    ],
+    "operation_id": "submit_answer_api_v2_interview_bot_sessions__session_id__answer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/interview-bot/sessions/{session_id}/proctor-alert",
+    "summary": "Log live focus or anti-cheating alerts",
+    "tags": [
+      "AI Interview Bot v2"
+    ],
+    "operation_id": "proctor_alert_api_v2_interview_bot_sessions__session_id__proctor_alert_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/interview-bot/sessions/{session_id}/finalize",
+    "summary": "Compile final AI Scorecard report",
+    "tags": [
+      "AI Interview Bot v2"
+    ],
+    "operation_id": "finalize_session_api_v2_interview_bot_sessions__session_id__finalize_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/hr-analytics/dashboard",
+    "summary": "Get unified executive HR dashboard metrics",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "get_dashboard_api_v2_hr_analytics_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/hr-analytics/snapshots",
+    "summary": "Trigger new manual analytics snapshot computation",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "compute_snapshot_api_v2_hr_analytics_snapshots_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/hr-analytics/attrition-prediction/{employee_id}",
+    "summary": "Evaluate attrition risk score for an employee",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "predict_attrition_api_v2_hr_analytics_attrition_prediction__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/hr-analytics/forecast",
+    "summary": "Run AI predictive workforce forecasts",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "run_forecast_api_v2_hr_analytics_forecast_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/hr-analytics/leaves/analytics",
+    "summary": "Get unified leave assistant analytics and conflict metrics",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "get_leave_analytics_api_v2_hr_analytics_leaves_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hr-analytics/dashboard",
+    "summary": "Get unified executive HR dashboard metrics",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "get_dashboard_api_v1_hr_analytics_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/hr-analytics/snapshots",
+    "summary": "Trigger new manual analytics snapshot computation",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "compute_snapshot_api_v1_hr_analytics_snapshots_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/hr-analytics/attrition-prediction/{employee_id}",
+    "summary": "Evaluate attrition risk score for an employee",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "predict_attrition_api_v1_hr_analytics_attrition_prediction__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/hr-analytics/forecast",
+    "summary": "Run AI predictive workforce forecasts",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "run_forecast_api_v1_hr_analytics_forecast_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/hr-analytics/leaves/analytics",
+    "summary": "Get unified leave assistant analytics and conflict metrics",
+    "tags": [
+      "HR Analytics Engine v2"
+    ],
+    "operation_id": "get_leave_analytics_api_v1_hr_analytics_leaves_analytics_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/workflows/definitions",
+    "summary": "Register a new workflow rule definition",
+    "tags": [
+      "AI Workflow Automation v2"
+    ],
+    "operation_id": "create_definition_api_v2_workflows_definitions_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/workflows/trigger",
+    "summary": "Manually trigger a workflow process instance",
+    "tags": [
+      "AI Workflow Automation v2"
+    ],
+    "operation_id": "trigger_workflow_api_v2_workflows_trigger_post"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/workflows/steps/{step_id}/decision",
+    "summary": "Submit approval or rejection step decision",
+    "tags": [
+      "AI Workflow Automation v2"
+    ],
+    "operation_id": "submit_decision_api_v2_workflows_steps__step_id__decision_patch"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/workflows/instances/my-pending",
+    "summary": "Get pending approval workflow steps assigned to user",
+    "tags": [
+      "AI Workflow Automation v2"
+    ],
+    "operation_id": "get_my_pending_api_v2_workflows_instances_my_pending_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles",
+    "summary": "Create pay cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "create_pay_cycle_api_v2_payroll_cycles_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles",
+    "summary": "List pay cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_pay_cycles_api_v2_payroll_cycles_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/cycles/{cycle_id}",
+    "summary": "Get pay cycle details",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_pay_cycle_api_v2_payroll_cycles__cycle_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing",
+    "summary": "Get salary processing list",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_list_api_v2_payroll_salary_processing_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/hero",
+    "summary": "Get salary processing hero card metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_hero_api_v2_payroll_salary_processing_hero_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/kpis",
+    "summary": "Get payroll health KPIs",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_kpis_api_v2_payroll_salary_processing_kpis_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/approval-workflow",
+    "summary": "Get approval workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_approval_workflow_api_v2_payroll_salary_processing_approval_workflow_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/ai-insights",
+    "summary": "Get AI insights",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_ai_insights_api_v2_payroll_salary_processing_ai_insights_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/validations",
+    "summary": "Get validation panel error items",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_validations_api_v2_payroll_salary_processing_validations_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-processing/analytics",
+    "summary": "Get analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_analytics_api_v2_payroll_salary_processing_analytics_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/run",
+    "summary": "Trigger payroll run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "trigger_salary_processing_run_api_v2_payroll_salary_processing_run_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/approve",
+    "summary": "Approve salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "approve_salary_processing_api_v2_payroll_salary_processing_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/rollback",
+    "summary": "Rollback salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "rollback_salary_processing_api_v2_payroll_salary_processing_rollback_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/recalculate/{employee_id}",
+    "summary": "Recalculate salary",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "recalculate_employee_salary_api_v2_payroll_salary_processing_recalculate__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/resolve-exception/{exception_id}",
+    "summary": "Resolve exception",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "resolve_salary_exception_api_v2_payroll_salary_processing_resolve_exception__exception_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/auto-fix",
+    "summary": "Auto-fix validation issues",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "auto_fix_salary_processing_api_v2_payroll_salary_processing_auto_fix_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-payout",
+    "summary": "Batch payout",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_payout_salary_processing_api_v2_payroll_salary_processing_batch_payout_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-approve",
+    "summary": "Batch approve",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_approve_salary_processing_api_v2_payroll_salary_processing_batch_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/batch-recalculate",
+    "summary": "Batch recalculate",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_recalculate_salary_processing_api_v2_payroll_salary_processing_batch_recalculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/payslips",
+    "summary": "Batch generate payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "generate_payslips_for_processing_api_v2_payroll_salary_processing_payslips_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/bank-transfer",
+    "summary": "Initiate bank transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "initiate_bank_transfer_from_processing_api_v2_payroll_salary_processing_bank_transfer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-processing/export",
+    "summary": "Export salary processing data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "export_salary_processing_api_v2_payroll_salary_processing_export_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/employees/{employee_id}/salary-structure",
+    "summary": "Get employee salary structure",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_employee_salary_structure_api_v2_payroll_employees__employee_id__salary_structure_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips",
+    "summary": "List payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_payslips_api_v2_payroll_payslips_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{payslip_id}",
+    "summary": "Get single payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payslip_api_v2_payroll_payslips__payslip_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/overtime/policies",
+    "summary": "List overtime policies",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_overtime_policies_api_v2_payroll_overtime_policies_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bonus/plans",
+    "summary": "List bonus plans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bonus_plans_api_v2_payroll_bonus_plans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/deductions",
+    "summary": "List deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_deductions_api_v2_payroll_deductions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/reimbursements",
+    "summary": "List reimbursement claims",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_reimbursements_api_v2_payroll_reimbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/loans",
+    "summary": "List advances/loans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_v2_payroll_loans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/advances",
+    "summary": "List advances/loans (alias)",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_v2_payroll_advances_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/bank/disbursements",
+    "summary": "List bank disbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bank_disbursements_api_v2_payroll_bank_disbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/compliance/config",
+    "summary": "Get statutory compliance configuration",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_statutory_config_api_v2_payroll_compliance_config_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/dashboard",
+    "summary": "Get main payroll dashboard data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payroll_dashboard_api_v2_payroll_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/cycles",
+    "summary": "Create pay cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "create_pay_cycle_api_v1_payroll_cycles_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles",
+    "summary": "List pay cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_pay_cycles_api_v1_payroll_cycles_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/cycles/{cycle_id}",
+    "summary": "Get pay cycle details",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_pay_cycle_api_v1_payroll_cycles__cycle_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing",
+    "summary": "Get salary processing list",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_list_api_v1_payroll_salary_processing_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/hero",
+    "summary": "Get salary processing hero card metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_hero_api_v1_payroll_salary_processing_hero_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/kpis",
+    "summary": "Get payroll health KPIs",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_kpis_api_v1_payroll_salary_processing_kpis_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/approval-workflow",
+    "summary": "Get approval workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_approval_workflow_api_v1_payroll_salary_processing_approval_workflow_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/ai-insights",
+    "summary": "Get AI insights",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_ai_insights_api_v1_payroll_salary_processing_ai_insights_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/validations",
+    "summary": "Get validation panel error items",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_validations_api_v1_payroll_salary_processing_validations_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/salary-processing/analytics",
+    "summary": "Get analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_analytics_api_v1_payroll_salary_processing_analytics_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/run",
+    "summary": "Trigger payroll run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "trigger_salary_processing_run_api_v1_payroll_salary_processing_run_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/approve",
+    "summary": "Approve salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "approve_salary_processing_api_v1_payroll_salary_processing_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/rollback",
+    "summary": "Rollback salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "rollback_salary_processing_api_v1_payroll_salary_processing_rollback_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/recalculate/{employee_id}",
+    "summary": "Recalculate salary",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "recalculate_employee_salary_api_v1_payroll_salary_processing_recalculate__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/resolve-exception/{exception_id}",
+    "summary": "Resolve exception",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "resolve_salary_exception_api_v1_payroll_salary_processing_resolve_exception__exception_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/auto-fix",
+    "summary": "Auto-fix validation issues",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "auto_fix_salary_processing_api_v1_payroll_salary_processing_auto_fix_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-payout",
+    "summary": "Batch payout",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_payout_salary_processing_api_v1_payroll_salary_processing_batch_payout_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-approve",
+    "summary": "Batch approve",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_approve_salary_processing_api_v1_payroll_salary_processing_batch_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/batch-recalculate",
+    "summary": "Batch recalculate",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_recalculate_salary_processing_api_v1_payroll_salary_processing_batch_recalculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/payslips",
+    "summary": "Batch generate payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "generate_payslips_for_processing_api_v1_payroll_salary_processing_payslips_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/bank-transfer",
+    "summary": "Initiate bank transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "initiate_bank_transfer_from_processing_api_v1_payroll_salary_processing_bank_transfer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/payroll/salary-processing/export",
+    "summary": "Export salary processing data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "export_salary_processing_api_v1_payroll_salary_processing_export_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/employees/{employee_id}/salary-structure",
+    "summary": "Get employee salary structure",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_employee_salary_structure_api_v1_payroll_employees__employee_id__salary_structure_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips",
+    "summary": "List payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_payslips_api_v1_payroll_payslips_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/payslips/{payslip_id}",
+    "summary": "Get single payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payslip_api_v1_payroll_payslips__payslip_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/overtime/policies",
+    "summary": "List overtime policies",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_overtime_policies_api_v1_payroll_overtime_policies_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bonus/plans",
+    "summary": "List bonus plans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bonus_plans_api_v1_payroll_bonus_plans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/deductions",
+    "summary": "List deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_deductions_api_v1_payroll_deductions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/reimbursements",
+    "summary": "List reimbursement claims",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_reimbursements_api_v1_payroll_reimbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/loans",
+    "summary": "List advances/loans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_v1_payroll_loans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/advances",
+    "summary": "List advances/loans (alias)",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_v1_payroll_advances_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/bank/disbursements",
+    "summary": "List bank disbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bank_disbursements_api_v1_payroll_bank_disbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/compliance/config",
+    "summary": "Get statutory compliance configuration",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_statutory_config_api_v1_payroll_compliance_config_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/payroll/dashboard",
+    "summary": "Get main payroll dashboard data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payroll_dashboard_api_v1_payroll_dashboard_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/cycles",
+    "summary": "Create pay cycle",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "create_pay_cycle_api_payroll_cycles_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/cycles",
+    "summary": "List pay cycles",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_pay_cycles_api_payroll_cycles_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/cycles/{cycle_id}",
+    "summary": "Get pay cycle details",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_pay_cycle_api_payroll_cycles__cycle_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing",
+    "summary": "Get salary processing list",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_list_api_payroll_salary_processing_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/hero",
+    "summary": "Get salary processing hero card metrics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_hero_api_payroll_salary_processing_hero_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/kpis",
+    "summary": "Get payroll health KPIs",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_kpis_api_payroll_salary_processing_kpis_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/approval-workflow",
+    "summary": "Get approval workflow",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_approval_workflow_api_payroll_salary_processing_approval_workflow_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/ai-insights",
+    "summary": "Get AI insights",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_ai_insights_api_payroll_salary_processing_ai_insights_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/validations",
+    "summary": "Get validation panel error items",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_validations_api_payroll_salary_processing_validations_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/salary-processing/analytics",
+    "summary": "Get analytics",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_salary_processing_analytics_api_payroll_salary_processing_analytics_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/run",
+    "summary": "Trigger payroll run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "trigger_salary_processing_run_api_payroll_salary_processing_run_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/approve",
+    "summary": "Approve salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "approve_salary_processing_api_payroll_salary_processing_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/rollback",
+    "summary": "Rollback salary processing run",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "rollback_salary_processing_api_payroll_salary_processing_rollback_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/recalculate/{employee_id}",
+    "summary": "Recalculate salary",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "recalculate_employee_salary_api_payroll_salary_processing_recalculate__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/resolve-exception/{exception_id}",
+    "summary": "Resolve exception",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "resolve_salary_exception_api_payroll_salary_processing_resolve_exception__exception_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/auto-fix",
+    "summary": "Auto-fix validation issues",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "auto_fix_salary_processing_api_payroll_salary_processing_auto_fix_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/batch-payout",
+    "summary": "Batch payout",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_payout_salary_processing_api_payroll_salary_processing_batch_payout_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/batch-approve",
+    "summary": "Batch approve",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_approve_salary_processing_api_payroll_salary_processing_batch_approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/batch-recalculate",
+    "summary": "Batch recalculate",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "batch_recalculate_salary_processing_api_payroll_salary_processing_batch_recalculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/payslips",
+    "summary": "Batch generate payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "generate_payslips_for_processing_api_payroll_salary_processing_payslips_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/bank-transfer",
+    "summary": "Initiate bank transfer",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "initiate_bank_transfer_from_processing_api_payroll_salary_processing_bank_transfer_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/payroll/salary-processing/export",
+    "summary": "Export salary processing data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "export_salary_processing_api_payroll_salary_processing_export_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/employees/{employee_id}/salary-structure",
+    "summary": "Get employee salary structure",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_employee_salary_structure_api_payroll_employees__employee_id__salary_structure_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/payslips",
+    "summary": "List payslips",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_payslips_api_payroll_payslips_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/payslips/{payslip_id}",
+    "summary": "Get single payslip",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payslip_api_payroll_payslips__payslip_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/overtime/policies",
+    "summary": "List overtime policies",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_overtime_policies_api_payroll_overtime_policies_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/bonus/plans",
+    "summary": "List bonus plans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bonus_plans_api_payroll_bonus_plans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/deductions",
+    "summary": "List deductions",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_deductions_api_payroll_deductions_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/reimbursements",
+    "summary": "List reimbursement claims",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_reimbursements_api_payroll_reimbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/loans",
+    "summary": "List advances/loans",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_payroll_loans_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/advances",
+    "summary": "List advances/loans (alias)",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_loans_api_payroll_advances_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/bank/disbursements",
+    "summary": "List bank disbursements",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "list_bank_disbursements_api_payroll_bank_disbursements_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/compliance/config",
+    "summary": "Get statutory compliance configuration",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_statutory_config_api_payroll_compliance_config_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/payroll/dashboard",
+    "summary": "Get main payroll dashboard data",
+    "tags": [
+      "Payroll"
+    ],
+    "operation_id": "get_payroll_dashboard_api_payroll_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tax/profile/{employee_id}",
+    "summary": "Get employee tax profile",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_employee_tax_profile_api_v1_tax_profile__employee_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tax/calculate",
+    "summary": "Run TDS tax calculation",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_tax_calculation_api_v1_tax_calculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tax/declarations/{declaration_id}/approve",
+    "summary": "Approve tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "approve_tax_declaration_api_v1_tax_declarations__declaration_id__approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tax/declarations/{declaration_id}/reject",
+    "summary": "Reject tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "reject_tax_declaration_api_v1_tax_declarations__declaration_id__reject_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tax/proofs/{proof_id}/verify",
+    "summary": "Verify tax proof document",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "verify_tax_proof_api_v1_tax_proofs__proof_id__verify_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tax/year-end-process",
+    "summary": "Lock FY and generate Form 16",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_year_end_process_api_v1_tax_year_end_process_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tax/audit-logs/{employee_id}",
+    "summary": "Get tax audit logs for employee",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_tax_audit_logs_api_v1_tax_audit_logs__employee_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/tax/profile/{employee_id}",
+    "summary": "Get employee tax profile",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_employee_tax_profile_api_v2_tax_profile__employee_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/calculate",
+    "summary": "Run TDS tax calculation",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_tax_calculation_api_v2_tax_calculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/declarations/{declaration_id}/approve",
+    "summary": "Approve tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "approve_tax_declaration_api_v2_tax_declarations__declaration_id__approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/declarations/{declaration_id}/reject",
+    "summary": "Reject tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "reject_tax_declaration_api_v2_tax_declarations__declaration_id__reject_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/proofs/{proof_id}/verify",
+    "summary": "Verify tax proof document",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "verify_tax_proof_api_v2_tax_proofs__proof_id__verify_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/tax/year-end-process",
+    "summary": "Lock FY and generate Form 16",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_year_end_process_api_v2_tax_year_end_process_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/tax/audit-logs/{employee_id}",
+    "summary": "Get tax audit logs for employee",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_tax_audit_logs_api_v2_tax_audit_logs__employee_id__get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/tax/profile/{employee_id}",
+    "summary": "Get employee tax profile",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_employee_tax_profile_api_tax_profile__employee_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tax/calculate",
+    "summary": "Run TDS tax calculation",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_tax_calculation_api_tax_calculate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tax/declarations/{declaration_id}/approve",
+    "summary": "Approve tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "approve_tax_declaration_api_tax_declarations__declaration_id__approve_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tax/declarations/{declaration_id}/reject",
+    "summary": "Reject tax declaration",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "reject_tax_declaration_api_tax_declarations__declaration_id__reject_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tax/proofs/{proof_id}/verify",
+    "summary": "Verify tax proof document",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "verify_tax_proof_api_tax_proofs__proof_id__verify_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/tax/year-end-process",
+    "summary": "Lock FY and generate Form 16",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "run_year_end_process_api_tax_year_end_process_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/tax/audit-logs/{employee_id}",
+    "summary": "Get tax audit logs for employee",
+    "tags": [
+      "Tax Management"
+    ],
+    "operation_id": "get_tax_audit_logs_api_tax_audit_logs__employee_id__get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/cycles",
+    "summary": "Create a new evaluation review cycle",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "create_cycle_api_v2_performance_cycles_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/goals",
+    "summary": "Register a performance goal or OKR for tracking",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "create_goal_api_api_v2_performance_goals_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/performance/goals/{id}",
+    "summary": "Update goal details",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "update_goal_api_api_v2_performance_goals__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/performance/goals/{id}",
+    "summary": "Delete a goal",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "delete_goal_api_api_v2_performance_goals__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/goals/assign",
+    "summary": "Assign a goal to an employee",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "assign_goal_api_api_v2_performance_goals_assign_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/goals/{id}/complete",
+    "summary": "Complete a goal",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "complete_goal_api_api_v2_performance_goals__id__complete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/reviews",
+    "summary": "Initialize performance review parameters",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "init_review_api_v2_performance_reviews_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/performance/reviews/{id}",
+    "summary": "Update performance review details",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "update_review_api_api_v2_performance_reviews__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/performance/reviews/{id}",
+    "summary": "Delete a performance review",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "delete_review_api_api_v2_performance_reviews__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/reviews/bulk-delete",
+    "summary": "Bulk delete performance reviews",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "bulk_delete_reviews_api_api_v2_performance_reviews_bulk_delete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/reviews/bulk-status",
+    "summary": "Bulk set reviews status",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "bulk_status_reviews_api_api_v2_performance_reviews_bulk_status_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/reviews/import",
+    "summary": "Import multiple performance reviews",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "import_reviews_api_api_v2_performance_reviews_import_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/performance/reviews/{review_id}/evaluate",
+    "summary": "Trigger local LLM performance review and predictions calculation",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "evaluate_review_api_v2_performance_reviews__review_id__evaluate_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/performance",
+    "summary": "Get all performance data",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "get_performance_data_api_v2_performance_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/cycles",
+    "summary": "Create a new evaluation review cycle",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "create_cycle_api_v1_api_v2_performance_cycles_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/goals",
+    "summary": "Register a performance goal or OKR for tracking",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "create_goal_api_api_v1_api_v2_performance_goals_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/api/v2/performance/goals/{id}",
+    "summary": "Update goal details",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "update_goal_api_api_v1_api_v2_performance_goals__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/api/v2/performance/goals/{id}",
+    "summary": "Delete a goal",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "delete_goal_api_api_v1_api_v2_performance_goals__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/goals/assign",
+    "summary": "Assign a goal to an employee",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "assign_goal_api_api_v1_api_v2_performance_goals_assign_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/goals/{id}/complete",
+    "summary": "Complete a goal",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "complete_goal_api_api_v1_api_v2_performance_goals__id__complete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/reviews",
+    "summary": "Initialize performance review parameters",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "init_review_api_v1_api_v2_performance_reviews_post"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/api/v2/performance/reviews/{id}",
+    "summary": "Update performance review details",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "update_review_api_api_v1_api_v2_performance_reviews__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/api/v2/performance/reviews/{id}",
+    "summary": "Delete a performance review",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "delete_review_api_api_v1_api_v2_performance_reviews__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/reviews/bulk-delete",
+    "summary": "Bulk delete performance reviews",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "bulk_delete_reviews_api_api_v1_api_v2_performance_reviews_bulk_delete_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/reviews/bulk-status",
+    "summary": "Bulk set reviews status",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "bulk_status_reviews_api_api_v1_api_v2_performance_reviews_bulk_status_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/reviews/import",
+    "summary": "Import multiple performance reviews",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "import_reviews_api_api_v1_api_v2_performance_reviews_import_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/api/v2/performance/reviews/{review_id}/evaluate",
+    "summary": "Trigger local LLM performance review and predictions calculation",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "evaluate_review_api_v1_api_v2_performance_reviews__review_id__evaluate_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/api/v2/performance",
+    "summary": "Get all performance data",
+    "tags": [
+      "AI Performance Management v2"
+    ],
+    "operation_id": "get_performance_data_api_v1_api_v2_performance_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/policies/documents",
+    "summary": "Upload policy manual and generate RAG vector chunk mappings",
+    "tags": [
+      "AI Policy Explainer v2"
+    ],
+    "operation_id": "upload_policy_api_v2_policies_documents_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/policies/chat",
+    "summary": "Query company policies chatbot using vector search context",
+    "tags": [
+      "AI Policy Explainer v2"
+    ],
+    "operation_id": "query_chatbot_api_v2_policies_chat_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/wellness/checkins",
+    "summary": "Log daily employee wellness check-in",
+    "tags": [
+      "AI Wellness Coach v2"
+    ],
+    "operation_id": "wellness_checkin_api_v2_wellness_checkins_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/wellness/escalation-rules",
+    "summary": "Register HR escalation rules configuration",
+    "tags": [
+      "AI Wellness Coach v2"
+    ],
+    "operation_id": "create_escalation_rule_api_v2_wellness_escalation_rules_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/wellness/anonymous-chats",
+    "summary": "Create anonymous wellness coach session",
+    "tags": [
+      "AI Wellness Coach v2"
+    ],
+    "operation_id": "init_chat_api_v2_wellness_anonymous_chats_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/wellness/anonymous-chats/{session_id}/messages",
+    "summary": "Post message and generate coach reply",
+    "tags": [
+      "AI Wellness Coach v2"
+    ],
+    "operation_id": "send_message_api_v2_wellness_anonymous_chats__session_id__messages_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/travel",
+    "summary": "List all travel requests with filtering and searching",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "list_travel_requests_api_v2_travel_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/travel",
+    "summary": "Create a new travel request",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "create_travel_request_api_v2_travel_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/travel/stats",
+    "summary": "Get travel request summary statistics",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "get_travel_stats_api_v2_travel_stats_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v2/travel/{id}",
+    "summary": "Update travel request details",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "update_travel_request_api_v2_travel__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/travel/{id}",
+    "summary": "Delete a travel request",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "delete_travel_request_api_v2_travel__id__delete"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/travel/{id}/advance",
+    "summary": "Advance travel request to the next workflow stage",
+    "tags": [
+      "Travel Management"
+    ],
+    "operation_id": "advance_travel_request_api_v2_travel__id__advance_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports",
+    "summary": "List generated and scheduled reports",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "list_reports_api_v2_reports_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/reports",
+    "summary": "Generate or schedule a new report",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "create_report_api_v2_reports_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports/stats",
+    "summary": "Get report stats dashboard overview",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "get_report_stats_api_v2_reports_stats_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/reports/{id}/refresh",
+    "summary": "Refresh report compilation data",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "refresh_report_api_v2_reports__id__refresh_post"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v2/reports/{id}",
+    "summary": "Delete a report log entry",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "delete_report_api_v2_reports__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports/analytics/headcount",
+    "summary": "Get headcount growth analytics",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "get_headcount_analytics_api_v2_reports_analytics_headcount_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports/analytics/department",
+    "summary": "Get department-wise employee distribution",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "get_department_analytics_api_v2_reports_analytics_department_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports/analytics/tenure",
+    "summary": "Get tenure ranges distribution",
+    "tags": [
+      "Reports Management"
+    ],
+    "operation_id": "get_tenure_analytics_api_v2_reports_analytics_tenure_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/productivity/logs",
+    "summary": "Record daily tracked employee productivity metrics",
+    "tags": [
+      "AI Productivity Tracking v2"
+    ],
+    "operation_id": "log_productivity_api_v2_productivity_logs_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/productivity/forecast/{employee_id}",
+    "summary": "Compile AI workforce productivity predictions and recommendations",
+    "tags": [
+      "AI Productivity Tracking v2"
+    ],
+    "operation_id": "compile_forecast_api_v2_productivity_forecast__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/goals/generate",
+    "summary": "Automatically generate OKRs, KPIs, or tasks goals via LLM",
+    "tags": [
+      "AI Goal Generator v2"
+    ],
+    "operation_id": "generate_goals_api_v2_goals_generate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/goals/adjust",
+    "summary": "Trigger dynamic AI goal re-calibrations",
+    "tags": [
+      "AI Goal Generator v2"
+    ],
+    "operation_id": "adjust_goals_api_v2_goals_adjust_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/compensation/benchmarks",
+    "summary": "Register market salary benchmarks",
+    "tags": [
+      "AI Compensation Engine v2"
+    ],
+    "operation_id": "register_benchmark_api_v2_compensation_benchmarks_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/compensation/recommendations/{employee_id}",
+    "summary": "Compile AI compensation recommendations for staff members",
+    "tags": [
+      "AI Compensation Engine v2"
+    ],
+    "operation_id": "compile_recommendation_api_v2_compensation_recommendations__employee_id__post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/behavioural/sessions",
+    "summary": "Create custom behavioral interview session",
+    "tags": [
+      "AI Behavioural Interview v2"
+    ],
+    "operation_id": "create_session_api_v2_behavioural_sessions_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/behavioural/questions/{question_id}/respond",
+    "summary": "Submit candidate response and evaluate STAR metrics",
+    "tags": [
+      "AI Behavioural Interview v2"
+    ],
+    "operation_id": "respond_question_api_v2_behavioural_questions__question_id__respond_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/emails/generate",
+    "summary": "Dynamically generate and log custom emails",
+    "tags": [
+      "AI Email Generator v2"
+    ],
+    "operation_id": "generate_email_api_v2_emails_generate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/emotions/sessions",
+    "summary": "Start emotion aware chatbot session",
+    "tags": [
+      "AI Emotion Aware Chatbot v2"
+    ],
+    "operation_id": "init_session_api_v2_emotions_sessions_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/emotions/sessions/{session_id}/messages",
+    "summary": "Post message and generate emotion adjusted reply",
+    "tags": [
+      "AI Emotion Aware Chatbot v2"
+    ],
+    "operation_id": "send_message_api_v2_emotions_sessions__session_id__messages_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/org-map/generate",
+    "summary": "Generate AI organization intelligence map",
+    "tags": [
+      "AI Org Intelligence Map v2"
+    ],
+    "operation_id": "generate_org_map_api_v2_org_map_generate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/skill-gap/analyze",
+    "summary": "Analyze skill gap for an employee",
+    "tags": [
+      "AI Skill Gap Analysis v2"
+    ],
+    "operation_id": "analyze_skill_gap_api_v2_skill_gap_analyze_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/shifts/plans",
+    "summary": "Generate AI-optimized shift plan",
+    "tags": [
+      "AI Shift Planner v2"
+    ],
+    "operation_id": "create_shift_plan_api_v2_shifts_plans_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/digital-twin/sync",
+    "summary": "Sync and forecast employee digital twin",
+    "tags": [
+      "AI Employee Digital Twin v2"
+    ],
+    "operation_id": "sync_digital_twin_api_v2_digital_twin_sync_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/voice/command",
+    "summary": "Process HR voice command transcript",
+    "tags": [
+      "AI HR Voice Assistant v2"
+    ],
+    "operation_id": "process_voice_command_api_v2_voice_command_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/mood/detect",
+    "summary": "Detect employee mood from text input",
+    "tags": [
+      "AI Mood Detection Engine v2"
+    ],
+    "operation_id": "detect_mood_api_v2_mood_detect_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/career-path/predict",
+    "summary": "Predict AI career path for an employee",
+    "tags": [
+      "AI Career Path Generator v2"
+    ],
+    "operation_id": "predict_career_path_api_v2_career_path_predict_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/career-path/predictions",
+    "summary": "Get saved career path predictions for the current employee",
+    "tags": [
+      "AI Career Path Generator v2"
+    ],
+    "operation_id": "get_saved_career_paths_api_v2_career_path_predictions_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/learning/recommend",
+    "summary": "Generate personalized learning recommendations",
+    "tags": [
+      "AI Learning Recommendation v2"
+    ],
+    "operation_id": "get_learning_recommendations_api_v2_learning_recommend_post"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/learning/recommendations",
+    "summary": "Get saved learning recommendations for the current employee",
+    "tags": [
+      "AI Learning Recommendation v2"
+    ],
+    "operation_id": "get_saved_recommendations_api_v2_learning_recommendations_get"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/workforce/forecast",
+    "summary": "Run AI workforce forecasting run",
+    "tags": [
+      "AI Workforce Forecasting v2"
+    ],
+    "operation_id": "run_workforce_forecast_api_v2_workforce_forecast_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/talent/match",
+    "summary": "Match employee to internal opportunities",
+    "tags": [
+      "AI Talent Marketplace v2"
+    ],
+    "operation_id": "find_talent_matches_api_v2_talent_match_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/meetings/analyze",
+    "summary": "Analyze meeting transcript and extract MOM, actions, decisions",
+    "tags": [
+      "AI Meeting Intelligence v2"
+    ],
+    "operation_id": "analyze_meeting_api_v2_meetings_analyze_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/compliance/audit",
+    "summary": "Run AI compliance audit",
+    "tags": [
+      "AI Compliance Monitor v2"
+    ],
+    "operation_id": "run_compliance_audit_api_v2_compliance_audit_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/risk/assess",
+    "summary": "Compute AI employee risk profile",
+    "tags": [
+      "AI Employee Risk Engine v2"
+    ],
+    "operation_id": "assess_employee_risk_api_v2_risk_assess_post"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/copilot/query",
+    "summary": "Ask strategic HR questions to Executive AI Copilot",
+    "tags": [
+      "AI Executive Copilot v2"
+    ],
+    "operation_id": "ask_copilot_api_v2_copilot_query_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs",
+    "summary": "Create a new job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "create_job_jobs_post"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs",
+    "summary": "List all job postings",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "list_jobs_jobs_get"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs/{id}",
+    "summary": "Get job posting by ID",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_job_jobs__id__get"
+  },
+  {
+    "method": "PUT",
+    "path": "/jobs/{id}",
+    "summary": "Update job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "update_job_jobs__id__put"
+  },
+  {
+    "method": "DELETE",
+    "path": "/jobs/{id}",
+    "summary": "Delete a job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "delete_job_jobs__id__delete"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs/{id}/publish",
+    "summary": "Get job publish channels",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_publish_channels_jobs__id__publish_get"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/{id}/publish",
+    "summary": "Publish job on a channel",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "publish_job_jobs__id__publish_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/{id}/close",
+    "summary": "Close job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "close_job_jobs__id__close_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/{id}/draft",
+    "summary": "Draft job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "draft_job_jobs__id__draft_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/{id}/duplicate",
+    "summary": "Duplicate a job posting",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "duplicate_job_jobs__id__duplicate_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/generate-description",
+    "summary": "Generate AI job description",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "generate_description_jobs_generate_description_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/ai-autofill",
+    "summary": "One-click AI Auto-fill for Create Job",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "ai_autofill_jobs_ai_autofill_post"
+  },
+  {
+    "method": "POST",
+    "path": "/jobs/modify-description",
+    "summary": "Modify AI job description",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "modify_description_jobs_modify_description_post"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs/{id}/sourcing-link",
+    "summary": "Get or auto-generate unique sourcing link",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "get_sourcing_link_jobs__id__sourcing_link_get"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs/{id}/qr",
+    "summary": "Generate QR code for the job application URL",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "generate_qr_jobs__id__qr_get"
+  },
+  {
+    "method": "GET",
+    "path": "/jobs/{id}/applicants/export",
+    "summary": "Export job applicants report",
+    "tags": [
+      "Job Management"
+    ],
+    "operation_id": "export_applicants_jobs__id__applicants_export_get"
+  },
+  {
+    "method": "GET",
+    "path": "/recruitment/analytics",
+    "summary": "Get recruitment funnel and pipeline analytics",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_analytics_recruitment_analytics_get"
+  },
+  {
+    "method": "GET",
+    "path": "/recruitment/summary",
+    "summary": "Get recruitment summary",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_recruitment_summary_get"
+  },
+  {
+    "method": "GET",
+    "path": "/recruitment/dashboard",
+    "summary": "Get recruitment dashboard",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_recruitment_dashboard_get"
+  },
+  {
+    "method": "GET",
+    "path": "/recruitment/stats",
+    "summary": "Get recruitment stats",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "get_recruitment_dashboard_stats_recruitment_stats_get"
+  },
+  {
+    "method": "GET",
+    "path": "/recruitment/notifications",
+    "summary": "List recruiting notifications",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "list_notifications_recruitment_notifications_get"
+  },
+  {
+    "method": "PUT",
+    "path": "/recruitment/notifications/{id}/read",
+    "summary": "Mark notification as read",
+    "tags": [
+      "Recruitment Analytics & Alerts"
+    ],
+    "operation_id": "mark_read_recruitment_notifications__id__read_put"
+  },
+  {
+    "method": "GET",
+    "path": "/dashboard/recruitment",
+    "summary": "Get Alternate Recruitment Dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "operation_id": "get_alternate_recruitment_dashboard_dashboard_recruitment_get"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/dashboard/recruitment",
+    "summary": "Get Alternate Recruitment Dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "operation_id": "get_alternate_recruitment_dashboard_api_v1_dashboard_recruitment_get"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/recruitment",
+    "summary": "Get Alternate Recruitment Dashboard",
+    "tags": [
+      "Recruitment Alternate Routing"
+    ],
+    "operation_id": "get_alternate_recruitment_dashboard_analytics_recruitment_get"
+  },
+  {
+    "method": "GET",
+    "path": "/health",
+    "summary": "Health Check",
+    "tags": [
+      "Health"
+    ],
+    "operation_id": "health_check_health_get"
+  },
+  {
+    "method": "HEAD",
+    "path": "/health",
+    "summary": "Health Check",
+    "tags": [
+      "Health"
+    ],
+    "operation_id": "health_check_health_get"
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "summary": "Root",
+    "tags": [
+      "Root"
+    ],
+    "operation_id": "root__get"
+  },
+  {
+    "method": "HEAD",
+    "path": "/",
+    "summary": "Root",
+    "tags": [
+      "Root"
+    ],
+    "operation_id": "root__get"
+  }
+]

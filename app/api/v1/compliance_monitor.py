@@ -38,7 +38,10 @@ async def get_compliance_service(
 
 def get_company_id_from_claims(claims: dict) -> Optional[uuid.UUID]:
     co_id_str = claims.get("company_id") if isinstance(claims, dict) else None
-    return uuid.UUID(str(co_id_str)) if co_id_str else None
+    try:
+        return uuid.UUID(str(co_id_str)) if co_id_str else None
+    except (ValueError, TypeError):
+        return None
 
 
 @router.get(

@@ -170,6 +170,7 @@ class ConversationMemory:
                 "last_message": last_msg,
                 "created_at": session.created_at,
                 "updated_at": session.updated_at,
+                "metadata": session.metadata,
             })
         return sessions
 

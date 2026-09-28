@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -17,6 +18,20 @@ from app.services.parser_service import ParserService
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_OCR_DOCUMENT_TYPES = {
+    "generic",
+    "aadhaar",
+    "pan",
+    "passport",
+    "driving_license",
+    "voter_id",
+    "resume",
+    "salary_slip",
+    "offer_letter",
+    "invoice",
+    "other",
+}
 
 
 class DocumentUploadService:
@@ -42,7 +57,14 @@ class DocumentUploadService:
         uploaded_by: uuid.UUID | None = None,
     ) -> DocumentOCRResponse:
         """Orchestrates end-to-end file upload, Document AI OCR processing, DB storage, and JSON response formatting."""
-        logger.info("Upload started | original_filename=%s | document_type=%s", file.filename, document_type)
+        doc_type_clean = (document_type or "generic").strip().lower()
+        if doc_type_clean not in ALLOWED_OCR_DOCUMENT_TYPES:
+            raise AppException(
+                message=f"Invalid document_type '{document_type}'. Allowed types: {', '.join(sorted(ALLOWED_OCR_DOCUMENT_TYPES))}",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        logger.info("Upload started | original_filename=%s | document_type=%s", file.filename, doc_type_clean)
 
         # Step 1: Storage and File Validation
         saved_info = await self.storage_service.save_file(file)
@@ -56,19 +78,23 @@ class DocumentUploadService:
             file_path=saved_info["file_path"],
             mime_type=saved_info["mime_type"],
             file_size=saved_info["file_size"],
-            document_type=document_type,
+            document_type=doc_type_clean,
             status="processing",
             uploaded_by=uploaded_by,
         )
         record = await self.repo.create(initial_record)
         logger.info("Created initial DocumentOCRRecord in DB | id=%s", record.id)
 
-        # Step 3: Send to Google Document AI Process API
+        # Step 3: Send to Google Document AI Process API with timeout
+        # TODO: Move long-running OCR processing to an asynchronous background task worker with polling
         try:
             logger.info("OCR processing started for document_id=%s", record.id)
-            doc_ai_res = await self.doc_ai_service.process_document(
-                file_bytes=saved_info["file_bytes"],
-                mime_type=saved_info["mime_type"],
+            doc_ai_res = await asyncio.wait_for(
+                self.doc_ai_service.process_document(
+                    file_bytes=saved_info["file_bytes"],
+                    mime_type=saved_info["mime_type"],
+                ),
+                timeout=60.0,
             )
 
             processing_time_ms = doc_ai_res.get("processing_time_ms", 0.0)
@@ -108,24 +134,47 @@ class DocumentUploadService:
                 created_at=updated_record.created_at,
             )
 
-        except Exception as exc:
-            logger.error("OCR processing failed for document_id=%s: %s", record.id, str(exc))
-            # Update record to failed status
+        except asyncio.TimeoutError:
+            logger.error("OCR processing timed out after 60s for document_id=%s", record.id)
             await self.repo.update(
                 record,
                 status="failed",
-                error_message=str(exc),
+                error_message="OCR processing timed out.",
             )
+            raise AppException(
+                message="Document AI OCR processing timed out. Please try again later.",
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except AppException:
             raise
+        except Exception as exc:
+            logger.error("OCR processing failed for document_id=%s: %s", record.id, str(exc))
+            # Update record to failed status with sanitized message
+            sanitized_err = "Google Document AI OCR processing failed."
+            await self.repo.update(
+                record,
+                status="failed",
+                error_message=sanitized_err,
+            )
+            raise AppException(
+                message="Google Document AI processing failed. Please verify the document or try again later.",
+                status_code=status.HTTP_502_BAD_GATEWAY,
+            )
 
     async def get_document_details(
         self,
         document_id: uuid.UUID,
         company_id: uuid.UUID | None = None,
         is_super_admin: bool = False,
+        user_id: uuid.UUID | None = None,
     ) -> DocumentOCRRecord:
         """Fetch complete document metadata and OCR result."""
-        record = await self.repo.get_by_id(document_id, company_id=company_id, is_super_admin=is_super_admin)
+        record = await self.repo.get_by_id(
+            document_id,
+            company_id=company_id,
+            is_super_admin=is_super_admin,
+            user_id=user_id,
+        )
         if not record:
             raise AppException(
                 message=f"Document '{document_id}' not found.",
@@ -142,6 +191,7 @@ class DocumentUploadService:
         limit: int = 20,
         offset: int = 0,
         is_super_admin: bool = False,
+        user_id: uuid.UUID | None = None,
     ) -> tuple[list[DocumentOCRRecord], int]:
         """Fetch list of OCR history records."""
         records, total = await self.repo.list_records(
@@ -152,5 +202,6 @@ class DocumentUploadService:
             limit=limit,
             offset=offset,
             is_super_admin=is_super_admin,
+            user_id=user_id,
         )
-        return list(records), total
+        return records, total

@@ -15,7 +15,10 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     ChangePhoneRequest,
     ForgotPasswordRequest,
+    GitHubAuthRequest,
+    GitHubAuthUrlResponse,
     GoogleAuthRequest,
+    GoogleAuthUrlResponse,
     LoginRequest,
     LoginResponse,
     LoginResponseData,
@@ -406,14 +409,42 @@ async def resend_email_otp(
     )
 
 
+@router.get(
+    "/google/url",
+    status_code=status.HTTP_200_OK,
+    response_model=GoogleAuthUrlResponse,
+    summary="Get Google OAuth authorization URL",
+)
+async def get_google_auth_url(redirect_uri: str | None = None) -> GoogleAuthUrlResponse:
+    """Generate Google OAuth authorize URL for frontend redirect."""
+    from app.core.config import settings
+    import urllib.parse
+
+    client_id = settings.GOOGLE_CLIENT_ID
+    cb_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI or "postmessage"
+
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "redirect_uri": cb_uri,
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+
+    query_string = urllib.parse.urlencode(params)
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{query_string}"
+    return GoogleAuthUrlResponse(url=auth_url)
+
+
 @router.post(
     "/google",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
-    summary="Google SSO for Company Admin Only",
+    summary="Google OAuth SSO Login",
     dependencies=[Depends(check_login_rate_limit)],
     responses={
-        status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Employees not allowed"},
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid Google code or token"},
         status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "Admin user not found"},
     },
 )
@@ -422,13 +453,17 @@ async def google_auth(
     request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
-    """Authenticate a Company Admin via Google SSO (Strictly restricted to Company Admins)."""
+    """Authenticate a user via Google OAuth Single Sign-On."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
     user, access_token, refresh_token, expires_in = await auth_service.login_google(
-        email=str(payload.email),
+        code=payload.code,
+        credential=payload.credential,
+        access_token=payload.access_token,
+        redirect_uri=payload.redirect_uri,
+        email=str(payload.email) if payload.email else None,
         name=payload.name,
         ip_address=ip_address,
         device=device,
@@ -485,6 +520,115 @@ async def google_auth(
 
 
 
+@router.get(
+    "/github/url",
+    status_code=status.HTTP_200_OK,
+    response_model=GitHubAuthUrlResponse,
+    summary="Get GitHub OAuth authorization URL",
+)
+async def get_github_auth_url(redirect_uri: str | None = None) -> GitHubAuthUrlResponse:
+    """Generate GitHub OAuth authorize URL for frontend redirect."""
+    from app.core.config import settings
+    import urllib.parse
+
+    client_id = settings.GITHUB_CLIENT_ID
+    cb_uri = redirect_uri or settings.GITHUB_REDIRECT_URI or None
+
+    params = {
+        "client_id": client_id,
+        "scope": "user:email",
+    }
+    if cb_uri:
+        params["redirect_uri"] = cb_uri
+
+    query_string = urllib.parse.urlencode(params)
+    auth_url = f"https://github.com/login/oauth/authorize?{query_string}"
+    return GitHubAuthUrlResponse(url=auth_url)
+
+
+@router.post(
+    "/github",
+    status_code=status.HTTP_200_OK,
+    response_model=LoginResponse,
+    summary="GitHub OAuth SSO Login",
+    dependencies=[Depends(check_login_rate_limit)],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid GitHub code or token"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "User account not found"},
+    },
+)
+async def github_auth(
+    payload: GitHubAuthRequest,
+    request: Request,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> LoginResponse:
+    """Authenticate a user via GitHub OAuth Single Sign-On."""
+
+    ip_address = request.client.host if request.client else None
+    device = request.headers.get("User-Agent")
+
+    user, access_token, refresh_token, expires_in = await auth_service.login_github(
+        code=payload.code,
+        access_token=payload.access_token,
+        redirect_uri=payload.redirect_uri,
+        email=str(payload.email) if payload.email else None,
+        name=payload.name,
+        ip_address=ip_address,
+        device=device,
+    )
+
+    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    # Safely resolve company name without triggering lazy-load errors
+    company_name = None
+    if getattr(user, "company", None):
+        try:
+            company_name = user.company.name
+        except Exception:
+            company_name = None
+
+    if not company_name and user.company_id:
+        try:
+            from sqlalchemy import select
+            from app.models.company import Company
+            comp_res = await auth_service.session.execute(
+                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+            )
+            company_name = comp_res.scalar_one_or_none()
+        except Exception:
+            company_name = None
+
+    user_data = UserLoginPublic(
+        id=user.id,
+        name=user.name or "User",
+        email=user.email,
+        phone=user.phone or None,
+        role=effective_role,
+        is_verified=bool(user.is_verified),
+        email_verified=bool(user.is_verified),
+        account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
+        must_change_password=bool(getattr(user, "must_change_password", False)),
+        onboarding_completed=bool(getattr(user, "onboarding_completed", True)),
+        company_id=user.company_id,
+        company_name=company_name,
+    )
+
+    return LoginResponse(
+        success=True,
+        message="GitHub login successful.",
+        data=LoginResponseData(
+            user=user_data,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="Bearer",
+            expires_in=expires_in,
+        ),
+        errors=None,
+    )
+
+
+
+
 @router.post(
     "/refresh-token",
     status_code=status.HTTP_200_OK,
@@ -496,17 +640,32 @@ async def google_auth(
     },
 )
 async def refresh_token(
-    payload: RefreshTokenRequest,
     request: Request,
-    token_service: Annotated[TokenService, Depends(get_token_service)],
+    payload: RefreshTokenRequest | None = None,
+    token_service: Annotated[TokenService, Depends(get_token_service)] = None,
 ) -> RefreshTokenResponse:
     """Rotate an active refresh token for a new access and refresh token pair."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
-    access_token, refresh_token, expires_in = await token_service.rotate_refresh_token(
-        refresh_token=payload.refresh_token,
+    raw_token = (
+        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or request.cookies.get("ofc360_refresh_token")
+        or request.cookies.get("refresh_token")
+        or request.cookies.get("eduflow_refresh_token")
+        or request.cookies.get("__Host-ofc_session")
+        or request.cookies.get("ofc_session")
+    )
+    if not raw_token:
+        from app.core.exceptions import AppException
+        raise AppException(
+            message="Invalid or missing refresh token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    access_token, new_refresh_token, expires_in = await token_service.rotate_refresh_token(
+        refresh_token=raw_token,
         ip_address=ip_address,
         device=device,
     )
@@ -516,7 +675,7 @@ async def refresh_token(
         message="Token refreshed successfully.",
         data=RefreshTokenResponseData(
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -535,17 +694,32 @@ async def refresh_token(
     },
 )
 async def refresh(
-    payload: RefreshTokenRequest,
     request: Request,
-    token_service: Annotated[TokenService, Depends(get_token_service)],
+    payload: RefreshTokenRequest | None = None,
+    token_service: Annotated[TokenService, Depends(get_token_service)] = None,
 ) -> RefreshTokenResponse:
     """Rotate an active refresh token for a new access and refresh token pair."""
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
-    access_token, refresh_token, expires_in = await token_service.rotate_refresh_token(
-        refresh_token=payload.refresh_token,
+    raw_token = (
+        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or request.cookies.get("ofc360_refresh_token")
+        or request.cookies.get("refresh_token")
+        or request.cookies.get("eduflow_refresh_token")
+        or request.cookies.get("__Host-ofc_session")
+        or request.cookies.get("ofc_session")
+    )
+    if not raw_token:
+        from app.core.exceptions import AppException
+        raise AppException(
+            message="Invalid or missing refresh token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    access_token, new_refresh_token, expires_in = await token_service.rotate_refresh_token(
+        refresh_token=raw_token,
         ip_address=ip_address,
         device=device,
     )
@@ -555,7 +729,7 @@ async def refresh(
         message="Token refreshed successfully.",
         data=RefreshTokenResponseData(
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),

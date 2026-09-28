@@ -76,11 +76,24 @@ class Settings(BaseSettings):
     )
 
     BCRYPT_ROUNDS: int = 12
+    # Consolidated CORS origins - supported in all environments (production & development)
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://ofc360.com",
+        "https://www.ofc360.com",
+        "https://api.ofc360.com",
+        "https://app.ofc360.com",
+        "https://ofc360.vercel.app",
+    ]
     # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
+        "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
     # Development origins - only used when ENVIRONMENT is local/development/dev
@@ -94,11 +107,16 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
+        "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
     REGISTER_RATE_LIMIT: str = "5/minute"
@@ -129,13 +147,31 @@ class Settings(BaseSettings):
     ACTIVATION_TOKEN_EXPIRE_HOURS: int = 72
     FRONTEND_BASE_URL: str = "https://ofc360.com"
 
+    # ── GitHub OAuth settings ────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = Field(default="", description="GitHub OAuth App Client ID")
+    GITHUB_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="GitHub OAuth App Client Secret")
+    GITHUB_REDIRECT_URI: str = Field(default="", description="GitHub OAuth redirect URI")
+
+    # ── Google OAuth settings ────────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = Field(default="", description="Google OAuth App Client ID")
+    GOOGLE_CLIENT_SECRET: SecretStr = Field(default=SecretStr(""), description="Google OAuth App Client Secret")
+    GOOGLE_REDIRECT_URI: str = Field(default="", description="Google OAuth redirect URI")
+
+    # ── Razorpay Payment Gateway settings ────────────────────────────────────
+    RAZORPAY_KEY_ID: str = Field(default="", description="Razorpay Key ID")
+    RAZORPAY_KEY_SECRET: SecretStr = Field(default=SecretStr(""), description="Razorpay Key Secret")
+    RAZORPAY_WEBHOOK_SECRET: SecretStr = Field(default=SecretStr(""), description="Razorpay Webhook Secret")
+    RAZORPAY_CURRENCY: str = Field(default="INR", description="Default Razorpay Currency")
+
+
+
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "llama3:latest"
-    OLLAMA_DEFAULT_MODEL: str = "llama3:latest"
+    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_PRIORITY: int = 1
     OLLAMA_TIMEOUT: int = 60
     OLLAMA_TIMEOUT_SECONDS: int = 60
     OLLAMA_KEEP_ALIVE: str = "30m"
@@ -143,6 +179,14 @@ class Settings(BaseSettings):
     OLLAMA_TEMPERATURE: float = 0.3
     OLLAMA_TOP_P: float = 0.9
     OLLAMA_NUM_PREDICT: int = 2048
+    OLLAMA_NUM_PARALLEL: int = 1
+    OLLAMA_MAX_LOADED_MODELS: int = 1
+
+    @property
+    def OLLAMA_HOST(self) -> str:
+        """Alias for OLLAMA_BASE_URL to unify host configuration across environments."""
+        return self.OLLAMA_BASE_URL
+
 
 
     # ── OCR settings ────────────────────────────────────────────────────────
@@ -159,6 +203,11 @@ class Settings(BaseSettings):
     DOCUMENT_OCR_MAX_FILE_SIZE_MB: int = 20
     ALLOWED_DOCUMENT_MIME_TYPES: list[str] = [
         "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "text/plain",
+        "text/x-plain",
+        "text/markdown",
         "image/png",
         "image/jpeg",
         "image/jpg",
@@ -189,12 +238,14 @@ class Settings(BaseSettings):
     RESUME_UPLOAD_DIR: str = "uploads/resumes"
     OFFER_LETTER_DIR: str = "uploads/offer_letters"
     MAX_RESUME_SIZE_MB: int = 10
-    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".tiff"]
+    ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".tiff"]
+    DOCUMENT_EXPIRY_WARNING_DAYS: int = 30
+    MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
-    CLOUDINARY_CLOUD_NAME: str = ""
-    CLOUDINARY_API_KEY: str = ""
-    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_CLOUD_NAME: str = "sfqkvhk1"
+    CLOUDINARY_API_KEY: str = "256143848656332"
+    CLOUDINARY_API_SECRET: str = "XWUxbxAr-tXLDwewBcF7F6OrU8s"
 
     # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
     # Cloud LLM providers are DISABLED. Only Ollama is supported.
@@ -222,10 +273,6 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "qwen3:30b"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
-    OLLAMA_PRIORITY: int = 1
 
     # LLM Routing & Limits
     LLM_PRIMARY_PROVIDER: str = "ollama"
@@ -292,23 +339,36 @@ class Settings(BaseSettings):
             return val
         return value
 
-    @field_validator("BACKEND_CORS_ORIGINS", "ALLOWED_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", "BACKEND_CORS_ORIGINS", "ALLOWED_ORIGINS", "DEV_CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: Any) -> list[str]:
-        """Accept CORS origins as a JSON list or comma-separated string."""
-
+        """Accept CORS origins as a JSON list, Python list, or comma-separated string, safely sanitizing origins."""
         if isinstance(value, str):
             stripped = value.strip().strip("'").strip('"').strip()
             if stripped.startswith("["):
                 try:
                     parsed = json.loads(stripped)
                     if isinstance(parsed, list):
-                        return [str(origin).strip().strip("'").strip('"') for origin in parsed]
+                        return [
+                            str(origin).strip().strip("'\"").rstrip("/")
+                            for origin in parsed
+                            if str(origin).strip().strip("'\"").rstrip("/")
+                        ]
                 except Exception:
                     pass
             # Fallback to splitting by comma and cleaning up brackets/quotes
             cleaned = stripped.replace("[", "").replace("]", "").replace('"', '').replace("'", "")
-            return [origin.strip() for origin in cleaned.split(",") if origin.strip()]
+            return [
+                origin.strip().rstrip("/")
+                for origin in cleaned.split(",")
+                if origin.strip().rstrip("/")
+            ]
+        elif isinstance(value, (list, tuple, set)):
+            return [
+                str(origin).strip().strip("'\"").rstrip("/")
+                for origin in value
+                if str(origin).strip().strip("'\"").rstrip("/")
+            ]
         return value
 
     @field_validator("SUPER_ADMIN_EMAIL", mode="before")

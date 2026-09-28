@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Integer,
+    BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer,
     Numeric, String, UniqueConstraint, JSON, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -198,25 +198,50 @@ class PayrollRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
 
+    period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
+    run_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))  # DRAFT/PROCESSING/PROCESSED/APPROVED/PAID/VOID/FAILED
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))  # DRAFT/PROCESSING/PROCESSED/APPROVED/FINALIZED/PAID/VOID/FAILED/REJECTED/CANCELLED
 
     total_employees: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_gross: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False, default=0)
     total_deductions: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False, default=0)
     total_net: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False, default=0)
 
+    total_gross_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_net_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+
+    validation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING", server_default=text("'PENDING'"))
+    validation_errors: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
+    validation_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    comments: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     run_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    sent_back_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    sent_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_back_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
+    period: Mapped["PayrollPeriod | None"] = relationship("PayrollPeriod", back_populates="runs", lazy="select")
+    run_employees: Mapped[list["PayrollRunEmployee"]] = relationship("PayrollRunEmployee", back_populates="run", cascade="all, delete-orphan", lazy="select")
     payslips: Mapped[list[Payslip]] = relationship("Payslip", back_populates="payroll_run", cascade="all, delete-orphan", lazy="select")
 
 

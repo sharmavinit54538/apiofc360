@@ -66,6 +66,52 @@ async def get_health_dashboard(
 
 
 @router.get(
+    "/kpi",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get AI Employee Health KPIs",
+)
+async def get_health_kpis_endpoint(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[EmployeeHealthService, Depends(get_employee_health_service)],
+    department_id: Optional[uuid.UUID] = Query(None),
+) -> APIResponse[dict]:
+    """Retrieve employee health KPI cards and summary indicators."""
+    company_id = get_company_id_from_claims(claims)
+    dash = await service.get_dashboard(company_id=company_id, department_id=department_id)
+    data = {
+        "wellbeing_score": dash.wellbeing_score,
+        "wellbeingScore": dash.wellbeingScore,
+        "burnout_risk": dash.burnout_risk,
+        "burnoutRisk": dash.burnoutRisk,
+        "avg_workload": dash.avg_workload,
+        "avgWorkload": dash.avgWorkload,
+        "ot_hours": dash.ot_hours,
+        "otHours": dash.otHours,
+        "high_risk_employees": dash.high_risk_employees,
+        "highRiskEmployees": dash.high_risk_employees,
+        "healthy_employee_pct": dash.healthy_employee_pct,
+        "healthyEmployeePct": dash.healthy_employee_pct,
+        "wellness_trend": dash.wellness_trend,
+        "wellnessTrend": dash.wellness_trend,
+        "kpis": [
+            {"key": "wellbeing_score", "label": "Wellbeing Score", "value": dash.wellbeing_score, "unit": "/100"},
+            {"key": "burnout_risk", "label": "Burnout Risk Index", "value": dash.burnout_risk, "unit": "%"},
+            {"key": "avg_workload", "label": "Average Workload", "value": dash.avg_workload, "unit": ""},
+            {"key": "ot_hours", "label": "Overtime Hours", "value": dash.ot_hours, "unit": "hrs"},
+            {"key": "healthy_employee_pct", "label": "Healthy Workforce", "value": dash.healthy_employee_pct, "unit": "%"},
+        ],
+    }
+    return APIResponse[dict](
+        success=True,
+        message="Employee health KPIs fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+
+@router.get(
     "/wellbeing-score",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[WellbeingScoreResponse],

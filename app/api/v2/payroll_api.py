@@ -14,7 +14,7 @@ from app.api.payroll.permissions import (
     _uid,
 )
 from app.api.payroll.responses import error_response, success_response
-from app.api.payroll.router import router
+from app.api.v2.payroll.router import router
 from app.api.payroll.routes.pay_cycles import (
     create_payroll_cycle as create_pay_cycle,
     get_payroll_cycle_details as get_pay_cycle,

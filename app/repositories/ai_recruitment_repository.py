@@ -38,15 +38,37 @@ class AIRecruitmentRepository:
         current_company: str | None = None,
         current_role: str | None = None,
         years_experience: float = 0.0,
+        skills: list[str] | None = None,
+        location: str | None = None,
+        resume_path: str | None = None,
+        resume_name: str | None = None,
     ) -> Candidate:
         """Fetch existing candidate by email or create a new candidate record."""
         cand = None
-        if email:
+        if email and email.strip():
             stmt = select(Candidate).where(Candidate.email.ilike(email.strip()))
             res = await self.session.execute(stmt)
             cand = res.scalar_one_or_none()
 
-        if not cand:
+        if cand:
+            # Update attributes if they were empty or provided freshly
+            if current_company:
+                cand.current_company = current_company
+            if current_role:
+                cand.current_role = current_role
+            if years_experience > 0:
+                cand.years_experience = years_experience
+            if skills and hasattr(cand, "skills"):
+                cand.skills = skills
+            if location and (not cand.location or cand.location == "Default Location"):
+                cand.location = location
+            if resume_path:
+                cand.resume_path = resume_path
+            if resume_name:
+                cand.resume_name = resume_name
+            await self.session.commit()
+            await self.session.refresh(cand)
+        else:
             names = (name or "Candidate").split(" ")
             first_name = names[0]
             last_name = " ".join(names[1:]) if len(names) > 1 else ""
@@ -56,10 +78,13 @@ class AIRecruitmentRepository:
                 last_name=last_name or "Candidate",
                 email=email or f"candidate_{uuid.uuid4().hex[:8]}@example.com",
                 phone=phone or "0000000000",
-                location="Default Location",
+                location=location or "Default Location",
                 years_experience=years_experience,
                 current_company=current_company or "",
                 current_role=current_role or "",
+                skills=skills or [],
+                resume_path=resume_path,
+                resume_name=resume_name,
                 source="AI Resume Upload",
                 is_talent_pool=False,
             )

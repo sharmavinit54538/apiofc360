@@ -29,6 +29,7 @@ class DocumentVersion(Base):
 
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

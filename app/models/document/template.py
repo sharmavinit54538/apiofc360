@@ -22,6 +22,7 @@ class DocumentTemplate(Base):
     __tablename__ = "document_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     name: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_body: Mapped[str] = mapped_column(Text, nullable=False)

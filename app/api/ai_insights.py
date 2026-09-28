@@ -1,48 +1,139 @@
-"""AI Insights API Endpoints for Workforce Intelligence — Production Ready."""
+"""AI Insights API — Workforce Intelligence Dashboard (Production).
+
+This is the SURVIVING, active analytics backend consumed by the frontend.
+
+DECISION LOG (Fix #4 — Consolidation):
+    The duplicate implementation at app/api/v1/analytics_center.py
+    (+ analytics_center_service.py + analytics_center_repository.py, mounted
+    at /ai/analytics/*) is NOT consumed by any frontend code; its router
+    registration at line 629 of main.py is kept for backward-compatibility
+    but the routes are dead.  This file (/ai-insights/*) is the single
+    source of truth used by the frontend route /ai/analytics-center via
+    the /ai-insights/* and /ai/* endpoint families.
+
+    If analytics_center.py is later removed, also delete:
+        - app/services/analytics_center_service.py
+        - app/repositories/analytics_center_repository.py
+        - app/schemas/analytics_center.py
+        - The import + include_router line in app/main.py
+
+Security fixes applied:
+    - FIX #1: Every DB query is scoped to company_id (tenant isolation)
+              AND filters out soft-deleted rows.
+    - FIX #2: All route handlers use mandatory get_current_user_claims
+              (returns 401 when unauthenticated).
+    - FIX #3: Removed hardcoded placeholder metrics (score, growth, match,
+              readiness, overtime, leave) that rendered fake zeros.
+    - FIX #5: Attrition/burnout sections use "Risk Indicators" labeling
+              instead of "AI Forecasted" / "Predictive Analytics".
+"""
 
 from typing import Annotated, Any, Dict, List
+import logging
 import uuid
-from datetime import date, timedelta
+from datetime import date
 
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import func, select, case, extract, and_
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
+from app.middleware.auth import get_current_user_claims
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.recruitment import Job, Application
+
 from app.schemas.auth import APIResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai-insights", tags=["AI Insights"])
 ai_analytics_router = APIRouter(prefix="/ai", tags=["AI Analytics Engine"])
 analytics_alias_router = APIRouter(prefix="/analytics", tags=["Analytics Engine"])
 
 
-async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
-    """Build AI Insights dashboard from real PostgreSQL data only."""
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
+def _extract_company_id(claims: dict) -> uuid.UUID:
+    """Extract and validate company_id from JWT claims.
+
+    Follows the same pattern used by other tenant-scoped routers
+    (e.g. app/api/v1/analytics_center.py → get_company_id_from_claims).
+    """
+    raw = claims.get("company_id") if isinstance(claims, dict) else None
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is not associated with a company (missing company_id in token).",
+        )
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid company_id in authentication token.",
+        )
+
+
+# ── Core dashboard builder ──────────────────────────────────────────────────
+
+async def _build_dashboard(
+    session: AsyncSession,
+    company_id: uuid.UUID,
+) -> Dict[str, Any]:
+    """Build AI Insights dashboard from real PostgreSQL data only.
+
+    Every query is scoped to the authenticated user's *company_id* to enforce
+    tenant isolation, and soft-deleted rows are excluded wherever the model
+    carries an ``is_deleted`` column.
+    """
     today = date.today()
 
-    # ─── Employee counts ───
-    emp_stmt = select(func.count(Employee.id))
+    # ─── Employee counts (tenant-scoped, non-deleted) ───
+    emp_stmt = select(func.count(Employee.id)).where(
+        Employee.company_id == company_id,
+        Employee.is_deleted == False,
+    )
     total_emp = (await session.execute(emp_stmt)).scalar() or 0
 
-    dept_stmt = select(Employee.department, func.count(Employee.id)).group_by(Employee.department)
+    dept_stmt = (
+        select(Employee.department, func.count(Employee.id))
+        .where(
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
+        )
+        .group_by(Employee.department)
+    )
     dept_rows = (await session.execute(dept_stmt)).fetchall()
     total_dept = len([d for d in dept_rows if d[0]])
 
-    # ─── Job / Recruitment counts ───
-    job_stmt = select(func.count(Job.id))
+    # ─── Job / Recruitment counts (tenant-scoped, non-deleted) ───
+    job_stmt = select(func.count(Job.id)).where(
+        Job.company_id == company_id,
+        Job.is_deleted == False,
+    )
     total_jobs = (await session.execute(job_stmt)).scalar() or 0
 
-    open_jobs_stmt = select(Job.title, Job.department, Job.vacancies).limit(20)
+    open_jobs_stmt = (
+        select(Job.title, Job.department, Job.vacancies)
+        .where(
+            Job.company_id == company_id,
+            Job.is_deleted == False,
+        )
+        .limit(20)
+    )
     open_jobs = (await session.execute(open_jobs_stmt)).fetchall()
 
-    # ─── Application counts ───
+    # ─── Application counts (tenant-scoped via Job join) ───
     try:
-        app_count_stmt = select(func.count(Application.id))
+        app_count_stmt = (
+            select(func.count(Application.id))
+            .join(Job, Application.job_id == Job.id)
+            .where(
+                Job.company_id == company_id,
+                Job.is_deleted == False,
+            )
+        )
         total_applications = (await session.execute(app_count_stmt)).scalar() or 0
     except Exception:
         total_applications = 0
@@ -57,6 +148,10 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
             Employee.basic_salary,
             Employee.joining_date,
             Employee.employee_id,
+        )
+        .where(
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
         )
         .order_by(Employee.created_at.desc())
         .limit(20)
@@ -131,9 +226,9 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
         "healthScoreDelta": 0,
     } if total_emp > 0 else None
 
-    # ─── Attrition risk — from real employees ───
+    # ─── Attrition risk — Rule-based Risk Indicators (not ML predictions) ───
     attrition = []
-    for idx, e in enumerate(real_emps[:6]):
+    for e in real_emps[:6]:
         full_name = f"{e[0] or ''} {e[1] or ''}".strip()
         if not full_name:
             continue
@@ -176,9 +271,12 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
             "action": "Compensation review" if salary < 20000 else "Regular check-in",
         })
 
-    # ─── Burnout — from real employees ───
+    # ─── Burnout — Rule-based Risk Indicators (not ML predictions) ───
+    #     FIX #3: Removed hardcoded overtime=0, leave=0 fields that
+    #     rendered fake zeros. These fields are omitted until real
+    #     attendance/leave data can be wired in.
     burnout = []
-    for idx, e in enumerate(real_emps[:6]):
+    for e in real_emps[:6]:
         full_name = f"{e[0] or ''} {e[1] or ''}".strip()
         if not full_name:
             continue
@@ -194,8 +292,6 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
         burnout.append({
             "id": str(uuid.uuid4()),
             "name": full_name,
-            "overtime": 0,
-            "leave": 0,
             "score": min(99, max(5, burnout_score)),
         })
 
@@ -208,6 +304,8 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
         ]
 
     # ─── Recruitment — from real jobs ───
+    #     FIX #3: Removed hardcoded match=0, readiness=0 placeholder
+    #     fields. Only name and role are returned for candidates.
     candidates_list = []
     try:
         cand_stmt = (
@@ -218,6 +316,10 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
                 Job.title,
             )
             .join(Job, Application.job_id == Job.id, isouter=True)
+            .where(
+                Job.company_id == company_id,
+                Job.is_deleted == False,
+            )
             .order_by(Application.created_at.desc())
             .limit(5)
         )
@@ -228,8 +330,6 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
                 "id": str(uuid.uuid4()),
                 "name": cname,
                 "role": c[3] or "Open Role",
-                "match": 0,
-                "readiness": 0,
             })
     except Exception:
         pass
@@ -242,6 +342,8 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
     }
 
     # ─── Performance — from real employees ───
+    #     FIX #3: Removed hardcoded score=0, growth="N/A" fields.
+    #     Only name and department are returned.
     top_performers = []
     support_performers = []
     for idx, e in enumerate(real_emps[:5]):
@@ -254,15 +356,12 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
                 "id": str(uuid.uuid4()),
                 "name": full_name,
                 "dept": dept_name,
-                "score": 0,
-                "growth": "N/A",
             })
         else:
             support_performers.append({
                 "id": str(uuid.uuid4()),
                 "name": full_name,
                 "dept": dept_name,
-                "score": 0,
                 "coach": "Performance review pending",
             })
 
@@ -312,7 +411,14 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
                 break
 
     # ─── Headcount growth by month — from real joining_date ───
-    joining_stmt = select(Employee.joining_date).where(Employee.joining_date.isnot(None))
+    joining_stmt = (
+        select(Employee.joining_date)
+        .where(
+            Employee.joining_date.isnot(None),
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
+        )
+    )
     joining_res = await session.execute(joining_stmt)
     joining_dates = [r[0] for r in joining_res if r[0]]
 
@@ -419,6 +525,10 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
     }
 
 
+# ── Route handlers ──────────────────────────────────────────────────────────
+# FIX #2: All routes use mandatory get_current_user_claims (401 on missing token).
+
+
 @analytics_alias_router.get("/hiring", status_code=status.HTTP_200_OK)
 @analytics_alias_router.get("/ats", status_code=status.HTTP_200_OK)
 @analytics_alias_router.get("/recruitment", status_code=status.HTTP_200_OK)
@@ -433,11 +543,12 @@ async def _build_dashboard(session: AsyncSession) -> Dict[str, Any]:
 @router.get("/ats", status_code=status.HTTP_200_OK)
 @router.get("/insights", status_code=status.HTTP_200_OK)
 async def get_ai_insights_dashboard(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[Dict[str, Any]]:
     """Retrieve complete AI workforce intelligence dashboard dataset."""
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[Dict[str, Any]](
         success=True,
         message="AI Insights dashboard data retrieved successfully.",
@@ -448,10 +559,11 @@ async def get_ai_insights_dashboard(
 
 @router.get("/kpi", status_code=status.HTTP_200_OK)
 async def get_kpis(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[List[Dict[str, Any]]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[List[Dict[str, Any]]](
         success=True,
         message="KPIs retrieved successfully.",
@@ -462,13 +574,14 @@ async def get_kpis(
 
 @router.get("/attrition", status_code=status.HTTP_200_OK)
 async def get_attrition(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[List[Dict[str, Any]]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[List[Dict[str, Any]]](
         success=True,
-        message="Attrition data retrieved successfully.",
+        message="Attrition risk indicators retrieved successfully.",
         data=data.get("attrition", []),
         errors=None,
     )
@@ -476,13 +589,14 @@ async def get_attrition(
 
 @router.get("/burnout", status_code=status.HTTP_200_OK)
 async def get_burnout(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[List[Dict[str, Any]]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[List[Dict[str, Any]]](
         success=True,
-        message="Burnout data retrieved successfully.",
+        message="Burnout risk indicators retrieved successfully.",
         data=data.get("burnout", []),
         errors=None,
     )
@@ -490,10 +604,11 @@ async def get_burnout(
 
 @router.get("/attendance", status_code=status.HTTP_200_OK)
 async def get_attendance(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[List[Dict[str, Any]]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[List[Dict[str, Any]]](
         success=True,
         message="Attendance data retrieved successfully.",
@@ -504,10 +619,11 @@ async def get_attendance(
 
 @router.get("/performance", status_code=status.HTTP_200_OK)
 async def get_performance(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[Dict[str, Any]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[Dict[str, Any]](
         success=True,
         message="Performance data retrieved successfully.",
@@ -518,10 +634,11 @@ async def get_performance(
 
 @router.get("/recruitment", status_code=status.HTTP_200_OK)
 async def get_recruitment(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[Dict[str, Any]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[Dict[str, Any]](
         success=True,
         message="Recruitment data retrieved successfully.",
@@ -532,10 +649,11 @@ async def get_recruitment(
 
 @router.get("/charts", status_code=status.HTTP_200_OK)
 async def get_charts(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[Dict[str, Any]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[Dict[str, Any]](
         success=True,
         message="Charts dataset retrieved successfully.",
@@ -546,10 +664,11 @@ async def get_charts(
 
 @router.get("/recommendations", status_code=status.HTTP_200_OK)
 async def get_recommendations(
-    claims: Annotated[dict, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[List[str]]:
-    data = await _build_dashboard(session)
+    company_id = _extract_company_id(claims)
+    data = await _build_dashboard(session, company_id)
     return APIResponse[List[str]](
         success=True,
         message="Recommendations retrieved successfully.",

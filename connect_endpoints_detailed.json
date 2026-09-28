@@ -1,0 +1,685 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/colleagues",
+    "function": "get_colleagues",
+    "summary": "1. User Discovery - List Colleagues",
+    "doc": "",
+    "params": [
+      "search",
+      "department",
+      "presence",
+      "page",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/search",
+    "function": "unified_search",
+    "summary": "2. Unified Search",
+    "doc": "",
+    "params": [
+      "q",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/conversations",
+    "function": "get_conversations",
+    "summary": "3. Get Conversations",
+    "doc": "",
+    "params": [
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/conversations",
+    "function": "create_conversation",
+    "summary": "4. Create or Retrieve Direct Conversation",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "function": "get_conversation_messages",
+    "summary": "5. Get Conversation Messages",
+    "doc": "",
+    "params": [
+      "conversationId",
+      "search",
+      "before",
+      "after",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/conversations/{conversationId}/messages",
+    "function": "send_conversation_message",
+    "summary": "6. Send Conversation Message",
+    "doc": "",
+    "params": [
+      "conversationId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{messageId}/reactions",
+    "function": "toggle_reaction",
+    "summary": "7. Toggle Message Reaction",
+    "doc": "",
+    "params": [
+      "messageId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/messages/{messageId}/pin",
+    "function": "pin_message",
+    "summary": "8. Pin/Unpin Message",
+    "doc": "",
+    "params": [
+      "messageId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/messages/{messageId}",
+    "function": "delete_message",
+    "summary": "9. Delete Message",
+    "doc": "",
+    "params": [
+      "messageId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "function": "get_message_thread",
+    "summary": "10. Get Message Thread",
+    "doc": "",
+    "params": [
+      "parentMessageId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/messages/{parentMessageId}/thread",
+    "function": "post_thread_reply",
+    "summary": "11. Post Thread Reply",
+    "doc": "",
+    "params": [
+      "parentMessageId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels",
+    "function": "get_channels",
+    "summary": "12. Get Channels",
+    "doc": "",
+    "params": [
+      "search",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels",
+    "function": "create_channel",
+    "summary": "13. Create Channel",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "function": "get_channel_detail",
+    "summary": "14. Get Channel Details",
+    "doc": "",
+    "params": [
+      "channelId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "function": "update_channel",
+    "summary": "14b. Update Channel",
+    "doc": "",
+    "params": [
+      "channelId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}",
+    "function": "delete_channel",
+    "summary": "14c. Delete Channel",
+    "doc": "",
+    "params": [
+      "channelId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/members",
+    "function": "add_channel_members",
+    "summary": "14d. Add Channel Members",
+    "doc": "",
+    "params": [
+      "channelId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/channels/{channelId}/members/{userId}",
+    "function": "remove_channel_member",
+    "summary": "14e. Remove Channel Member",
+    "doc": "",
+    "params": [
+      "channelId",
+      "userId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "function": "get_channel_messages",
+    "summary": "15. Get Channel Messages",
+    "doc": "",
+    "params": [
+      "channelId",
+      "search",
+      "pinnedOnly",
+      "before",
+      "after",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/messages",
+    "function": "send_channel_message",
+    "summary": "16. Send Channel Message",
+    "doc": "",
+    "params": [
+      "channelId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/channels/{channelId}/leave",
+    "function": "leave_channel",
+    "summary": "17. Leave Channel",
+    "doc": "",
+    "params": [
+      "channelId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/channels/{channelId}/archive",
+    "function": "archive_channel",
+    "summary": "18. Archive Channel",
+    "doc": "",
+    "params": [
+      "channelId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/ice-servers",
+    "function": "get_ice_servers",
+    "summary": "19a. Get ICE Servers",
+    "doc": "",
+    "params": [
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/history",
+    "function": "get_call_history",
+    "summary": "19. Get Call History",
+    "doc": "",
+    "params": [
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/calls/{callId}",
+    "function": "get_call_detail",
+    "summary": "20a. Get Call Details",
+    "doc": "",
+    "params": [
+      "callId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/calls/initiate",
+    "function": "initiate_call",
+    "summary": "20. Initiate Call",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/calls/{callId}/status",
+    "function": "update_call_status",
+    "summary": "21. Update Call Status",
+    "doc": "",
+    "params": [
+      "callId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/calls/{callId}/signal",
+    "function": "call_signal",
+    "summary": "22. WebRTC Signaling Relay",
+    "doc": "",
+    "params": [
+      "callId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/meetings",
+    "function": "get_meetings",
+    "summary": "23. Get Meetings",
+    "doc": "",
+    "params": [
+      "status_filter",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings",
+    "function": "create_meeting",
+    "summary": "24. Create Meeting",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/meetings/{meetingId}",
+    "function": "get_meeting_detail",
+    "summary": "25. Get Meeting Details",
+    "doc": "",
+    "params": [
+      "meetingId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/join",
+    "function": "join_meeting",
+    "summary": "26. Join Meeting",
+    "doc": "",
+    "params": [
+      "meetingId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/leave",
+    "function": "leave_meeting",
+    "summary": "27. Leave Meeting",
+    "doc": "",
+    "params": [
+      "meetingId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/meetings/{meetingId}/messages",
+    "function": "send_meeting_message",
+    "summary": "28. Send Meeting Message",
+    "doc": "",
+    "params": [
+      "meetingId",
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/files",
+    "function": "get_shared_files",
+    "summary": "29. Get Shared Files",
+    "doc": "",
+    "params": [
+      "filter",
+      "search",
+      "page",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/files/upload",
+    "function": "upload_shared_file",
+    "summary": "30. Upload Shared File",
+    "doc": "",
+    "params": [
+      "file",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/files/{fileId}",
+    "function": "delete_shared_file",
+    "summary": "31. Delete Shared File",
+    "doc": "",
+    "params": [
+      "fileId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/connect/presence",
+    "function": "update_presence",
+    "summary": "32. Update User Presence",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/presence/batch",
+    "function": "batch_presence",
+    "summary": "33. Batch Presence Lookup",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/notifications",
+    "function": "get_notifications",
+    "summary": "34. Get Notifications",
+    "doc": "",
+    "params": [
+      "unreadOnly",
+      "type",
+      "limit",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/connect/notifications/{notificationId}/read",
+    "function": "mark_notification_read",
+    "summary": "35. Mark Notification as Read",
+    "doc": "",
+    "params": [
+      "notificationId",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/connect/notifications",
+    "function": "clear_notifications",
+    "summary": "36. Clear Notifications",
+    "doc": "",
+    "params": [
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/connect/settings/sound",
+    "function": "get_sound_settings",
+    "summary": "37. Get Sound Settings",
+    "doc": "",
+    "params": [
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/connect/settings/sound",
+    "function": "update_sound_settings",
+    "summary": "38. Update Sound Settings",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/ai/transform",
+    "function": "ai_transform",
+    "summary": "39. AI Communication Copilot Transform",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/connect/mail/dispatch",
+    "function": "mail_dispatch",
+    "summary": "40. Connect Mail Dispatch",
+    "doc": "",
+    "params": [
+      "payload",
+      "user",
+      "claims",
+      "db",
+      "x_company_id"
+    ]
+  },
+  {
+    "method": "WEBSOCKET",
+    "path": "/api/v1/connect/ws",
+    "function": "connect_websocket",
+    "summary": "WebSocket endpoint for Connect real-time events, typing indicators, presence, and WebRTC signaling.",
+    "doc": "WebSocket endpoint for Connect real-time events, typing indicators, presence, and WebRTC signaling.",
+    "params": [
+      "websocket",
+      "token"
+    ]
+  }
+]

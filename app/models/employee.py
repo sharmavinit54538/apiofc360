@@ -9,7 +9,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, func, text, CheckConstraint,
+    Numeric, String, func, text, CheckConstraint, JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -97,6 +97,11 @@ class Employee(Base):
     onboarding_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     employee_onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     employee_onboarding_step: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+
+    # --------------- Biometric Face Recognition ---------------
+    face_embedding: Mapped[list[float] | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
+    is_face_enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    face_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
     # --------------- Employment ---------------

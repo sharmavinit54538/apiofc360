@@ -454,5 +454,27 @@ We are seeking a talented and driven **{title}** to join our **{dept}** departme
 - **Compensation**: Highly competitive base salary with performance bonuses.
 - **Perks**: Comprehensive health insurance, remote work allowance, flexible PTO, and continuous learning stipend.
 
-## Equal Opportunity Employer
+        ## Equal Opportunity Employer
 Our organization is an Equal Opportunity Employer. We celebrate diversity and are committed to creating an inclusive, respectful environment for all employees regardless of race, gender, background, or identity."""
+
+    async def generate_structured_jd(
+        self,
+        payload: Any,
+        company_context: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Delegate structured JD generation to JDGeneratorService."""
+        from app.services.jd_generator_service import get_jd_generator_service
+        generator = get_jd_generator_service()
+        return await generator.generate_structured_jd(payload, company_context)
+
+    async def modify_job_description(
+        self,
+        current_jd: Any,
+        action: str,
+        custom_instruction: Optional[str] = None,
+    ) -> Any:
+        """Delegate JD modification to JDGeneratorService."""
+        from app.services.jd_generator_service import get_jd_generator_service
+        generator = get_jd_generator_service()
+        return await generator.modify_job_description(current_jd, action, custom_instruction)
+

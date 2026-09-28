@@ -11,7 +11,7 @@ class LLMClientBase:
     """Base client setup for Ollama connection management."""
 
     def __init__(self) -> None:
-        self._host = settings.OLLAMA_HOST
+        self._host = settings.OLLAMA_BASE_URL
         self._default_model = settings.OLLAMA_DEFAULT_MODEL
         self._embedding_model = settings.OLLAMA_EMBEDDING_MODEL
         self._keep_alive = settings.OLLAMA_KEEP_ALIVE
