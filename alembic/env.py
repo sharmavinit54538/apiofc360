@@ -103,6 +103,7 @@ async def run_async_migrations() -> None:
             
             # Run migrations on this connection
             await connection.run_sync(do_run_migrations)
+            await connection.commit()
             
     finally:
         # Ensure engine is properly disposed

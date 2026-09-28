@@ -26,6 +26,7 @@ class APIResponse(BaseModel, Generic[DataT]):
     message: str
     data: DataT | None = None
     errors: list[ErrorDetail] | None = None
+    meta: dict[str, Any] | None = None
 
 
 class RegisterRequest(BaseModel):

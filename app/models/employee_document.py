@@ -61,6 +61,7 @@ class EmployeeDocument(Base):
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)

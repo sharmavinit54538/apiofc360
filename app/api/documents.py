@@ -1,35 +1,56 @@
 """Document Management API routes."""
 
+from __future__ import annotations
+
+from datetime import date
+import logging
+import os
+from typing import Annotated, Any
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.departments import require_admin_or_hr
+from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.repositories.document_ocr_repository import DocumentOCRRepository
+from app.repositories.employee_repository import EmployeeRepository
 from app.schemas.auth import APIResponse
 from app.schemas.document import (
+    AuditLogResponse,
+    CategoryResponse,
     CompanyDocumentCreate,
     CompanyDocumentResponse,
+    CompanyDocumentUpdate,
     EmployeeDocumentCreate,
     EmployeeDocumentResponse,
     EmployeeDocumentUpdate,
+    RejectPayload,
+    ReuploadRequestPayload,
     SignatureRequest,
     SignatureResponse,
     SignDocumentPayload,
     VerificationPayload,
+    VersionResponse,
 )
 from app.schemas.document_ocr import (
     DocumentOCRDetailResponse,
     DocumentOCRListItem,
     DocumentOCRResponse,
 )
+from app.services.document_access import (
+    assert_can_access_company_doc,
+    assert_can_access_employee_doc,
+    resolve_visible_employee_ids,
+)
 from app.services.document_service import DocumentService, get_document_service
+from app.services.storage_service import StorageService
 from app.services.upload_service import DocumentUploadService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Document Management"])
 
@@ -41,147 +62,37 @@ async def get_upload_service(
     return DocumentUploadService(repo=repo)
 
 
-async def _check_manager_document_access(
-    session: AsyncSession,
-    manager_emp,
-    target_emp,
-) -> bool:
-    """
-    Check if a manager has authorization to access a target employee's documents.
-    
-    A manager can access documents if:
-    1. The target employee reports directly or indirectly to the manager (reporting hierarchy)
-    2. The target employee is in the same department as the manager
-    3. The target employee is in the same branch/location as the manager (if applicable)
-    """
-    if not manager_emp or not target_emp:
-        return False
-    
-    # Same employee - allow (manager accessing own documents)
-    if manager_emp.id == target_emp.id:
-        return True
-    
-    # Check direct reporting relationship
-    if target_emp.reporting_manager_id == manager_emp.id:
-        return True
-    
-    # Check indirect reporting hierarchy (recursive check up to reasonable depth)
-    current_manager_id = target_emp.reporting_manager_id
-    depth = 0
-    max_depth = 10  # Prevent infinite loops
-    while current_manager_id and depth < max_depth:
-        if current_manager_id == manager_emp.id:
-            return True
-        # Fetch the next level manager
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(session)
-        next_manager = await emp_repo.get_by_id(current_manager_id)
-        if not next_manager:
-            break
-        current_manager_id = next_manager.reporting_manager_id
-        depth += 1
-    
-    # Check same department
-    if manager_emp.department_id and target_emp.department_id:
-        if manager_emp.department_id == target_emp.department_id:
-            return True
-    
-    # Check same branch/location as fallback
-    if manager_emp.branch and target_emp.branch:
-        if manager_emp.branch == target_emp.branch:
-            return True
-    
-    return False
+def _extract_company_id(claims: dict) -> uuid.UUID | None:
+    role = (claims.get("role") or "").lower()
+    company_id_raw = claims.get("company_id")
+    if role != "super_admin" and not company_id_raw:
+        raise AppException(message="Tenant context required.", status_code=status.HTTP_403_FORBIDDEN)
+    return uuid.UUID(str(company_id_raw)) if company_id_raw else None
 
 
-async def _get_manager_team_employee_ids(
-    session: AsyncSession,
-    manager_emp,
-) -> list[uuid.UUID]:
-    """
-    Get all employee IDs that a manager has access to based on reporting hierarchy and department.
-    """
-    from app.repositories.employee_repository import EmployeeRepository
-    from sqlalchemy import select
-    from app.models.employee import Employee
-    
-    emp_repo = EmployeeRepository(session)
-    employee_ids = set()
-    
-    # Add direct and indirect reports
-    async def get_reports(manager_id: uuid.UUID, depth: int = 0):
-        if depth > 10:
-            return
-        stmt = select(Employee).where(Employee.reporting_manager_id == manager_id)
-        result = await session.execute(stmt)
-        reports = result.scalars().all()
-        for report in reports:
-            employee_ids.add(report.id)
-            await get_reports(report.id, depth + 1)
-    
-    await get_reports(manager_emp.id)
-    
-    # Add employees in same department
-    if manager_emp.department_id:
-        stmt = select(Employee).where(Employee.department_id == manager_emp.department_id)
-        result = await session.execute(stmt)
-        dept_employees = result.scalars().all()
-        for emp in dept_employees:
-            employee_ids.add(emp.id)
-    
-    # Add employees in same branch
-    if manager_emp.branch:
-        stmt = select(Employee).where(Employee.branch == manager_emp.branch)
-        result = await session.execute(stmt)
-        branch_employees = result.scalars().all()
-        for emp in branch_employees:
-            employee_ids.add(emp.id)
-    
-    # Always include the manager themselves
-    employee_ids.add(manager_emp.id)
-    
-    return list(employee_ids)
-
+# ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
 
 @router.get(
     "/categories",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[list[dict]],
+    response_model=APIResponse[list[CategoryResponse]],
     summary="List document categories",
 )
 async def list_categories(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
-) -> APIResponse[list[dict]]:
+) -> APIResponse[list[CategoryResponse]]:
+    """List document categories from canonical source. Read-only without inline seeding (Rule 2.5)."""
     cats = await service.repo.list_categories()
-    if not cats:
-        default_cats = [
-            {"name": "Employee Documents", "code": "employee_docs", "is_company": False},
-            {"name": "Education", "code": "education", "is_company": False},
-            {"name": "Employment", "code": "employment", "is_company": False},
-            {"name": "Company Documents", "code": "company_docs", "is_company": True},
-        ]
-        cats = []
-        for dc in default_cats:
-            cat_obj = await service.repo.create_category(**dc)
-            cats.append(cat_obj)
-        await service.session.commit()
-    
-    return APIResponse[list[dict]](
+    data = [CategoryResponse.model_validate(c) for c in cats]
+    return APIResponse[list[CategoryResponse]](
         success=True,
         message="Document categories retrieved.",
-        data=[{"id": str(c.id), "name": c.name, "code": c.code, "is_company": c.is_company} for c in cats],
+        data=data,
         errors=None,
     )
-
-
-# Helper dependency to enforce Manager, HR or Admin role
-async def require_manager_or_hr_or_admin(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
-    role = claims.get("role")
-    if role not in {"super_admin", "hr_admin", "manager", "executive"}:
-        from app.core.exceptions import AppException
-        raise AppException(message="Access denied.", status_code=status.HTTP_403_FORBIDDEN)
-    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -197,40 +108,73 @@ async def require_manager_or_hr_or_admin(claims: Annotated[dict, Depends(get_cur
 async def upload_employee_document(
     request: Request,
     file: UploadFile,
-    employee_id: str = Form(...),
-    category_id: str = Form(...),
+    employee_id: uuid.UUID = Form(...),
+    category_id: uuid.UUID = Form(...),
     title: str = Form(...),
     description: str | None = Form(None),
-    issue_date: str | None = Form(None),
-    expiry_date: str | None = Form(None),
+    issue_date: date | None = Form(None),
+    expiry_date: date | None = Form(None),
     visibility: str = Form("PRIVATE"),
     status_field: str = Form("PENDING"),
     tags: str | None = Form(None),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    auto_verify: bool = Form(False),
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> APIResponse[EmployeeDocumentResponse]:
-    """Upload new employee document (PDF/DOCX/JPG, <= 10MB). Admin and HR only."""
-    from datetime import date
+    """Upload employee document. Allows HR/Admin and Employee Self-Service (Rule 2.7)."""
+    company_id = _extract_company_id(claims)
+    uploader_id = uuid.UUID(claims["sub"])
+    role = (claims.get("role") or "").lower()
+
+    # Employee Self-Service logic (Rule 2.7)
+    if role not in {"super_admin", "hr_admin", "it_admin", "executive"}:
+        emp_repo = EmployeeRepository(service.session)
+        caller_emp = await emp_repo.get_by_user_id(uploader_id)
+        if not caller_emp:
+            raise AppException(message="Employee profile not found.", status_code=status.HTTP_403_FORBIDDEN)
+        if employee_id != caller_emp.id:
+            raise AppException(
+                message="Employees can only upload documents for their own profile.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+        status_field = "PENDING"
+        auto_verify = False
+        allowed_vis = {"PRIVATE", "MANAGER_ONLY", "HR_ONLY"}
+        if visibility.upper() not in allowed_vis:
+            visibility = "PRIVATE"
+
+    # Input validation (Rule 3.4)
+    if expiry_date and issue_date and expiry_date < issue_date:
+        raise AppException(message="expiry_date cannot be earlier than issue_date.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
     payload = EmployeeDocumentCreate(
-        employee_id=uuid.UUID(employee_id),
-        category_id=uuid.UUID(category_id),
+        employee_id=employee_id,
+        category_id=category_id,
         title=title,
         description=description,
-        issue_date=date.fromisoformat(issue_date) if issue_date else None,
-        expiry_date=date.fromisoformat(expiry_date) if expiry_date else None,
+        issue_date=issue_date,
+        expiry_date=expiry_date,
         visibility=visibility,
         status=status_field,
         tags=tags,
     )
-    uploader_id = uuid.UUID(claims["sub"])
+
     ip_addr = request.client.host if request.client else None
-    res = await service.upload_employee_document(uploader_id, payload, file, ip_address=ip_addr)
+    res = await service.upload_employee_document(
+        uploader_id=uploader_id,
+        payload=payload,
+        file=file,
+        company_id=company_id,
+        ip_address=ip_addr,
+        auto_verify=auto_verify,
+    )
     return APIResponse[EmployeeDocumentResponse](
         success=True,
         message="Employee document uploaded successfully.",
         data=res,
         errors=None,
     )
+
 
 @router.get(
     "/employees",
@@ -246,52 +190,54 @@ async def list_employee_documents(
     status_filter: str | None = Query(None, alias="status"),
     visibility: str | None = Query(None),
     search: str | None = Query(None),
+    sort_by: str = Query("created_at"),
+    order: str = Query("desc"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[list[EmployeeDocumentResponse]]:
-    """List employee documents. Employees can only view their own documents. Admins/HR have full access. Managers can view their team's documents."""
-    # RBAC constraint: Non-HR/Admins can only query their own employee profile documents
-    role = (claims.get("role") or "").lower()
-    user_id = uuid.UUID(claims["sub"])
-    
-    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
-    if role not in allowed_exec_roles:
-        # Fetch current user's employee profile
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        emp = await emp_repo.get_by_user_id(user_id)
-        if not emp:
-            return APIResponse[list[EmployeeDocumentResponse]](success=True, message="No documents found.", data=[], errors=None)
-        employee_id = emp.id  # Force query to own profile
-    elif role == "manager" and employee_id is None:
-        # For managers without explicit employee_id filter, limit to their team
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        manager_emp = await emp_repo.get_by_user_id(user_id)
-        if manager_emp:
-            # Get all employees in manager's reporting hierarchy and department
-            team_employee_ids = await _get_manager_team_employee_ids(service.session, manager_emp)
-            # We'll need to modify the service to accept a list of employee_ids
-            # For now, if no specific employee_id is provided, we'll return empty for managers
-            # to force them to query specific employees
-            pass
+    """List employee documents with centralized RBAC and total count (Rules 1.2, 1.3, 2.3)."""
+    company_id = _extract_company_id(claims)
+
+    # Centralized access control (Rule 1.2 & 1.3)
+    visible_employee_ids = await resolve_visible_employee_ids(claims, service.session)
+    if visible_employee_ids is not None:
+        if employee_id is not None:
+            if employee_id not in visible_employee_ids:
+                raise AppException(message="Access denied to requested employee documents.", status_code=status.HTTP_403_FORBIDDEN)
+            allowed_employee_ids = [employee_id]
+        else:
+            allowed_employee_ids = visible_employee_ids
+    else:
+        allowed_employee_ids = [employee_id] if employee_id else None
 
     offset = (page - 1) * limit
-    res = await service.list_employee_documents(
-        employee_id=employee_id,
+    docs, total = await service.list_employee_documents(
+        company_id=company_id,
+        employee_ids=allowed_employee_ids,
         category_id=category_id,
         status=status_filter,
         visibility=visibility,
         search=search,
         limit=limit,
         offset=offset,
+        sort_by=sort_by,
+        order=order,
+        is_super_admin=(claims.get("role") or "").lower() == "super_admin",
     )
+
     return APIResponse[list[EmployeeDocumentResponse]](
         success=True,
         message="Employee documents retrieved.",
-        data=res,
+        data=docs,
+        meta={
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total,
+        },
         errors=None,
     )
+
 
 @router.get(
     "/employees/{id}",
@@ -305,44 +251,26 @@ async def get_employee_document(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
-    """Retrieve details of an employee document."""
+    """Retrieve details of an employee document with permission check before audit log (Rule 1.6)."""
+    company_id = _extract_company_id(claims)
     user_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.get_employee_document(user_id, id, ip_address=ip_addr)
-    
-    # Check permissions
-    role = claims.get("role")
-    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
-    if role not in allowed_exec_roles:
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        emp = await emp_repo.get_by_user_id(user_id)
-        if not emp or res.employee_id != emp.id:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
-    elif role == "manager":
-        # Manager can only access documents of employees in their reporting hierarchy or department
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        manager_emp = await emp_repo.get_by_user_id(user_id)
-        target_emp = await emp_repo.get_by_id(res.employee_id)
-        
-        if not manager_emp or not target_emp:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
-        
-        # Check if target employee is in manager's reporting hierarchy or same department
-        is_authorized = await _check_manager_document_access(service.session, manager_emp, target_emp)
-        if not is_authorized:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied: You can only access documents of employees in your reporting hierarchy or department.", status_code=status.HTTP_403_FORBIDDEN)
 
+    res = await service.get_employee_document(
+        user_id=user_id,
+        doc_uuid=id,
+        claims=claims,
+        company_id=company_id,
+        ip_address=ip_addr,
+        action="VIEW",
+    )
     return APIResponse[EmployeeDocumentResponse](
         success=True,
         message="Document details retrieved.",
         data=res,
         errors=None,
     )
+
 
 @router.get(
     "/employees/{id}/download",
@@ -353,45 +281,46 @@ async def download_employee_document(
     request: Request,
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    download: bool = Query(False, description="Set to true to force attachment download"),
 ) -> FileResponse:
-    """Download document file stream safely. Never exposes direct path."""
+    """Download document file stream safely (Rule 3.3). Never exposes direct server paths."""
+    company_id = _extract_company_id(claims)
     user_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.get_employee_document(user_id, id, ip_address=ip_addr)
-    
-    # Enforce permissions
-    role = claims.get("role")
-    allowed_exec_roles = {"super_admin", "hr_admin", "manager", "executive"}
-    if role not in allowed_exec_roles:
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        emp = await emp_repo.get_by_user_id(user_id)
-        if not emp or res.employee_id != emp.id:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
-    elif role == "manager":
-        # Manager can only access documents of employees in their reporting hierarchy or department
-        from app.repositories.employee_repository import EmployeeRepository
-        emp_repo = EmployeeRepository(service.session)
-        manager_emp = await emp_repo.get_by_user_id(user_id)
-        target_emp = await emp_repo.get_by_id(res.employee_id)
-        
-        if not manager_emp or not target_emp:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied to this document.", status_code=status.HTTP_403_FORBIDDEN)
-        
-        # Check if target employee is in manager's reporting hierarchy or same department
-        is_authorized = await _check_manager_document_access(service.session, manager_emp, target_emp)
-        if not is_authorized:
-            from app.core.exceptions import AppException
-            raise AppException(message="Access denied: You can only access documents of employees in your reporting hierarchy or department.", status_code=status.HTTP_403_FORBIDDEN)
 
-    doc_obj = await service.repo.get_employee_document_by_id(id)
-    return FileResponse(
-        path=doc_obj.file_path,
-        filename=doc_obj.file_name,
-        media_type="application/octet-stream",
+    # Verifies access BEFORE download audit log, raises 404 if unauthorized (Rule 1.6)
+    await service.get_employee_document(
+        user_id=user_id,
+        doc_uuid=id,
+        claims=claims,
+        company_id=company_id,
+        ip_address=ip_addr,
+        action="DOWNLOAD",
     )
+
+    doc = await service.repo.get_employee_document_by_id(id, company_id=company_id)
+    safe_path = service.storage.verify_safe_path(doc.file_path)
+    if not os.path.exists(safe_path):
+        logger.error("Download employee doc %s: file missing from storage at %s", id, doc.file_path)
+        raise AppException(message="File missing from storage.", status_code=status.HTTP_404_NOT_FOUND)
+
+    ext = os.path.splitext(doc.file_name or "")[1].lower()
+    media_type = StorageService.infer_mime_type(ext)
+    is_inline = not download and (media_type in ["application/pdf", "image/png", "image/jpeg"])
+    disposition = "inline" if is_inline else "attachment"
+    filename = doc.file_name or f"document{ext or '.pdf'}"
+
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    return FileResponse(
+        path=safe_path,
+        filename=filename,
+        media_type=media_type,
+        headers=headers,
+    )
+
 
 @router.put(
     "/employees/{id}",
@@ -405,34 +334,48 @@ async def update_employee_document(
     file: UploadFile | None = None,
     title: str | None = Form(None),
     description: str | None = Form(None),
-    issue_date: str | None = Form(None),
-    expiry_date: str | None = Form(None),
+    issue_date: date | None = Form(None),
+    expiry_date: date | None = Form(None),
     visibility: str | None = Form(None),
     status_field: str | None = Form(None),
     tags: str | None = Form(None),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> APIResponse[EmployeeDocumentResponse]:
-    """Update employee document metadata or upload revised version file. Admin and HR only."""
-    from datetime import date
+    """Update employee document metadata or re-upload revision (Rules 2.2, 2.7)."""
+    company_id = _extract_company_id(claims)
+    uploader_id = uuid.UUID(claims["sub"])
+
+    if expiry_date and issue_date and expiry_date < issue_date:
+        raise AppException(message="expiry_date cannot be earlier than issue_date.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
     payload = EmployeeDocumentUpdate(
         title=title,
         description=description,
-        issue_date=date.fromisoformat(issue_date) if issue_date else None,
-        expiry_date=date.fromisoformat(expiry_date) if expiry_date else None,
+        issue_date=issue_date,
+        expiry_date=expiry_date,
         visibility=visibility,
         status=status_field,
         tags=tags,
     )
-    uploader_id = uuid.UUID(claims["sub"])
+
     ip_addr = request.client.host if request.client else None
-    res = await service.update_employee_document(uploader_id, id, payload, file, ip_address=ip_addr)
+    res = await service.update_employee_document(
+        uploader_id=uploader_id,
+        doc_uuid=id,
+        payload=payload,
+        claims=claims,
+        file=file,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[EmployeeDocumentResponse](
         success=True,
         message="Employee document updated.",
         data=res,
         errors=None,
     )
+
 
 @router.delete(
     "/employees/{id}",
@@ -443,17 +386,110 @@ async def update_employee_document(
 async def delete_employee_document(
     id: uuid.UUID,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[None]:
-    """Soft delete employee document. Admin and HR only."""
+    """Soft delete employee document (Rule 2.7)."""
+    company_id = _extract_company_id(claims)
     uploader_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    await service.delete_employee_document(uploader_id, id, ip_address=ip_addr)
+
+    await service.delete_employee_document(
+        uploader_id=uploader_id,
+        doc_uuid=id,
+        claims=claims,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[None](
         success=True,
         message="Document deleted successfully.",
         data=None,
+        errors=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Versions & History Endpoints (Rule 2.8)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/employees/{id}/versions",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[VersionResponse]],
+    summary="List versions of an employee document",
+)
+async def list_document_versions(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> APIResponse[list[VersionResponse]]:
+    """Get all file revisions for a document (never exposes raw server file paths)."""
+    company_id = _extract_company_id(claims)
+    versions = await service.list_document_versions(id, claims, company_id=company_id)
+    return APIResponse[list[VersionResponse]](
+        success=True,
+        message="Document versions retrieved.",
+        data=versions,
+        errors=None,
+    )
+
+
+@router.get(
+    "/employees/{id}/versions/{version_number}/download",
+    summary="Download specific version of an employee document",
+)
+async def download_document_version(
+    id: uuid.UUID,
+    version_number: int,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+    download: bool = Query(False),
+) -> FileResponse:
+    """Download historical version file stream safely."""
+    company_id = _extract_company_id(claims)
+    safe_path, filename = await service.get_document_version_file(
+        doc_uuid=id,
+        version_number=version_number,
+        claims=claims,
+        company_id=company_id,
+    )
+
+    ext = os.path.splitext(filename)[1].lower()
+    media_type = StorageService.infer_mime_type(ext)
+    is_inline = not download and (media_type in ["application/pdf", "image/png", "image/jpeg"])
+    disposition = "inline" if is_inline else "attachment"
+
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    return FileResponse(
+        path=safe_path,
+        filename=filename,
+        media_type=media_type,
+        headers=headers,
+    )
+
+
+@router.get(
+    "/employees/{id}/history",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[AuditLogResponse]],
+    summary="Get document audit history",
+)
+async def get_document_history(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> APIResponse[list[AuditLogResponse]]:
+    """Retrieve complete audit trail for a document. Admin and HR only (Rule 2.8)."""
+    company_id = _extract_company_id(claims)
+    logs = await service.list_document_history(id, claims, company_id=company_id)
+    return APIResponse[list[AuditLogResponse]](
+        success=True,
+        message="Document history retrieved.",
+        data=logs,
         errors=None,
     )
 
@@ -471,7 +507,7 @@ async def delete_employee_document(
 async def upload_company_document(
     request: Request,
     file: UploadFile,
-    category_id: str = Form(...),
+    category_id: uuid.UUID = Form(...),
     title: str = Form(...),
     description: str | None = Form(None),
     department: str | None = Form(None),
@@ -481,23 +517,33 @@ async def upload_company_document(
     service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> APIResponse[CompanyDocumentResponse]:
     """Upload company wide document or policy manual. Admin and HR only."""
+    company_id = _extract_company_id(claims)
+    uploader_id = uuid.UUID(claims["sub"])
+
     payload = CompanyDocumentCreate(
-        category_id=uuid.UUID(category_id),
+        category_id=category_id,
         title=title,
         description=description,
         department=department,
         branch=branch,
         visibility=visibility,
     )
-    uploader_id = uuid.UUID(claims["sub"])
+
     ip_addr = request.client.host if request.client else None
-    res = await service.upload_company_document(uploader_id, payload, file, ip_address=ip_addr)
+    res = await service.upload_company_document(
+        uploader_id=uploader_id,
+        payload=payload,
+        file=file,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[CompanyDocumentResponse](
         success=True,
         message="Company document uploaded successfully.",
         data=res,
         errors=None,
     )
+
 
 @router.get(
     "/company",
@@ -513,21 +559,52 @@ async def list_company_documents(
     branch: str | None = Query(None),
     visibility: str | None = Query(None),
     search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[list[CompanyDocumentResponse]]:
-    """List company documents with visibility scope checks."""
-    res = await service.list_company_documents(
+    """List company documents with server-side visibility and tenant scoping (Rules 1.4, 1.5, 2.3)."""
+    company_id = _extract_company_id(claims)
+    role = (claims.get("role") or "").lower()
+    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+
+    viewer_dept = None
+    viewer_branch = None
+    if not is_admin:
+        emp_repo = EmployeeRepository(service.session)
+        emp = await emp_repo.get_by_user_id(uuid.UUID(claims["sub"]))
+        if emp:
+            viewer_dept = emp.department
+            viewer_branch = emp.branch
+
+    offset = (page - 1) * limit
+    docs, total = await service.list_company_documents(
+        company_id=company_id,
         category_id=category_id,
         department=department,
         branch=branch,
         visibility=visibility,
         search=search,
+        limit=limit,
+        offset=offset,
+        caller_role=role,
+        viewer_dept=viewer_dept,
+        viewer_branch=viewer_branch,
+        is_admin=is_admin,
     )
+
     return APIResponse[list[CompanyDocumentResponse]](
         success=True,
         message="Company documents retrieved.",
-        data=res,
+        data=docs,
+        meta={
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total,
+        },
         errors=None,
     )
+
 
 @router.get(
     "/company/{id}",
@@ -541,10 +618,19 @@ async def get_company_document(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[CompanyDocumentResponse]:
-    """Retrieve details of a company policy document."""
+    """Retrieve details of a company document with scoping check before audit log (Rules 1.5, 1.6)."""
+    company_id = _extract_company_id(claims)
     user_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.get_company_document(user_id, id, ip_address=ip_addr)
+
+    res = await service.get_company_document(
+        user_id=user_id,
+        doc_uuid=id,
+        claims=claims,
+        company_id=company_id,
+        ip_address=ip_addr,
+        action="VIEW",
+    )
     return APIResponse[CompanyDocumentResponse](
         success=True,
         message="Company document details retrieved.",
@@ -562,17 +648,90 @@ async def download_company_document(
     request: Request,
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    download: bool = Query(False),
 ) -> FileResponse:
-    """Download company policy document file stream safely."""
+    """Download company policy document file stream safely (Rules 1.5, 3.3)."""
+    company_id = _extract_company_id(claims)
     user_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.get_company_document(user_id, id, ip_address=ip_addr)
-    
-    doc_obj = await service.repo.get_company_document_by_id(id)
+
+    await service.get_company_document(
+        user_id=user_id,
+        doc_uuid=id,
+        claims=claims,
+        company_id=company_id,
+        ip_address=ip_addr,
+        action="DOWNLOAD",
+    )
+
+    doc = await service.repo.get_company_document_by_id(id, company_id=company_id)
+    safe_path = service.storage.verify_safe_path(doc.file_path)
+    if not os.path.exists(safe_path):
+        logger.error("Download company doc %s: file missing from storage at %s", id, doc.file_path)
+        raise AppException(message="File missing from storage.", status_code=status.HTTP_404_NOT_FOUND)
+
+    ext = os.path.splitext(doc.file_name or "")[1].lower()
+    media_type = StorageService.infer_mime_type(ext)
+    is_inline = not download and (media_type in ["application/pdf", "image/png", "image/jpeg"])
+    disposition = "inline" if is_inline else "attachment"
+    filename = doc.file_name or f"document{ext or '.pdf'}"
+
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "X-Content-Type-Options": "nosniff",
+    }
     return FileResponse(
-        path=doc_obj.file_path,
-        filename=doc_obj.file_name,
-        media_type="application/octet-stream",
+        path=safe_path,
+        filename=filename,
+        media_type=media_type,
+        headers=headers,
+    )
+
+
+@router.put(
+    "/company/{id}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[CompanyDocumentResponse],
+    summary="Update company document / upload new revision",
+)
+async def update_company_document(
+    id: uuid.UUID,
+    request: Request,
+    file: UploadFile | None = None,
+    title: str | None = Form(None),
+    description: str | None = Form(None),
+    department: str | None = Form(None),
+    branch: str | None = Form(None),
+    visibility: str | None = Form(None),
+    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    service: Annotated[DocumentService, Depends(get_document_service)] = None,
+) -> APIResponse[CompanyDocumentResponse]:
+    """Update company document metadata or upload revised version file. Admin and HR only (Rule 2.8)."""
+    company_id = _extract_company_id(claims)
+    uploader_id = uuid.UUID(claims["sub"])
+    ip_addr = request.client.host if request.client else None
+
+    payload = CompanyDocumentUpdate(
+        title=title,
+        description=description,
+        department=department,
+        branch=branch,
+        visibility=visibility,
+    )
+
+    res = await service.update_company_document(
+        uploader_id=uploader_id,
+        doc_uuid=id,
+        payload=payload,
+        file=file,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
+    return APIResponse[CompanyDocumentResponse](
+        success=True,
+        message="Company document updated.",
+        data=res,
+        errors=None,
     )
 
 
@@ -589,9 +748,16 @@ async def delete_company_document(
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[None]:
     """Soft delete company document. Admin and HR only."""
+    company_id = _extract_company_id(claims)
     uploader_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    await service.delete_company_document(uploader_id, id, ip_address=ip_addr)
+
+    await service.delete_company_document(
+        uploader_id=uploader_id,
+        doc_uuid=id,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[None](
         success=True,
         message="Company document deleted successfully.",
@@ -601,7 +767,7 @@ async def delete_company_document(
 
 
 # ---------------------------------------------------------------------------
-# Digital Signatures
+# Digital Signatures (Rule 1.8)
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -616,15 +782,23 @@ async def request_signature(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[SignatureResponse]:
-    """Request digital signature from an employee user on a document. Admin and HR only."""
+    """Request digital signature from an employee. Admin and HR only."""
+    company_id = _extract_company_id(claims)
     user_id = uuid.UUID(claims["sub"])
-    res = await service.request_signature(user_id, id, payload.signer_user_id)
+
+    res = await service.request_signature(
+        user_id=user_id,
+        doc_uuid=id,
+        signer_user_id=payload.signer_user_id,
+        company_id=company_id,
+    )
     return APIResponse[SignatureResponse](
         success=True,
         message="Signature request created successfully.",
         data=res,
         errors=None,
     )
+
 
 @router.post(
     "/{id}/sign",
@@ -639,16 +813,23 @@ async def sign_document(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[SignatureResponse]:
-    """Digitally sign a document. Signer user identity validated from claims."""
+    """Digitally sign a document with anti-tampering hash verification."""
     signer_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.sign_document(signer_id, id, device_info=payload.device_info, ip_address=ip_addr)
+
+    res = await service.sign_document(
+        signer_id=signer_id,
+        doc_uuid=id,
+        device_info=payload.device_info,
+        ip_address=ip_addr,
+    )
     return APIResponse[SignatureResponse](
         success=True,
         message="Document digitally signed successfully.",
         data=res,
         errors=None,
     )
+
 
 @router.get(
     "/{id}/signature-status",
@@ -661,11 +842,25 @@ async def get_signature_status(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[SignatureResponse]:
-    """Get status details of signature request."""
+    """Get status details of signature request with RBAC validation (Rule 1.8)."""
+    company_id = _extract_company_id(claims)
+    user_id = uuid.UUID(claims["sub"])
+    role = (claims.get("role") or "").lower()
+
+    doc = await service.repo.get_employee_document_by_id(id, company_id=company_id)
+    if not doc or doc.is_deleted:
+        raise AppException(message="Document not found.", status_code=status.HTTP_404_NOT_FOUND)
+
     sig = await service.repo.get_active_signature_request(id)
     if not sig:
-        from app.core.exceptions import AppException
         raise AppException(message="No pending signature request found.", status_code=status.HTTP_404_NOT_FOUND)
+
+    # Authorization: assigned signer, HR/Admin, or viewer with doc access
+    is_signer = sig.signer_user_id == user_id
+    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    if not (is_signer or is_admin):
+        await assert_can_access_employee_doc(claims, doc, service.session)
+
     return APIResponse[SignatureResponse](
         success=True,
         message="Signature status retrieved.",
@@ -675,7 +870,7 @@ async def get_signature_status(
 
 
 # ---------------------------------------------------------------------------
-# Verification Endpoints
+# Verification & Re-upload Endpoints (Rule 2.6)
 # ---------------------------------------------------------------------------
 
 @router.patch(
@@ -692,15 +887,25 @@ async def verify_document(
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
     """Verify and approve uploaded employee document. Admin and HR only."""
+    company_id = _extract_company_id(claims)
     verifier_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.verify_document(verifier_id, id, "APPROVED", comments=payload.comments, ip_address=ip_addr)
+
+    res = await service.verify_document(
+        verifier_id=verifier_id,
+        doc_uuid=id,
+        action="APPROVED",
+        comments=payload.comments,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[EmployeeDocumentResponse](
         success=True,
         message="Document verified and approved.",
         data=res,
         errors=None,
     )
+
 
 @router.patch(
     "/{id}/reject",
@@ -710,15 +915,24 @@ async def verify_document(
 )
 async def reject_document(
     id: uuid.UUID,
-    payload: VerificationPayload,
+    payload: RejectPayload,
     request: Request,
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
-    """Reject uploaded employee document. Admin and HR only."""
+    """Reject uploaded employee document. Comments strictly required (Rule 2.6)."""
+    company_id = _extract_company_id(claims)
     verifier_id = uuid.UUID(claims["sub"])
     ip_addr = request.client.host if request.client else None
-    res = await service.verify_document(verifier_id, id, "REJECTED", comments=payload.comments, ip_address=ip_addr)
+
+    res = await service.verify_document(
+        verifier_id=verifier_id,
+        doc_uuid=id,
+        action="REJECTED",
+        comments=payload.comments,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
     return APIResponse[EmployeeDocumentResponse](
         success=True,
         message="Document rejected successfully.",
@@ -727,8 +941,42 @@ async def reject_document(
     )
 
 
+@router.patch(
+    "/{id}/request-reupload",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[EmployeeDocumentResponse],
+    summary="Request re-upload of employee document",
+)
+async def request_reupload(
+    id: uuid.UUID,
+    payload: ReuploadRequestPayload,
+    request: Request,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> APIResponse[EmployeeDocumentResponse]:
+    """Request document re-upload with required comments (Rule 2.6)."""
+    company_id = _extract_company_id(claims)
+    verifier_id = uuid.UUID(claims["sub"])
+    ip_addr = request.client.host if request.client else None
+
+    res = await service.verify_document(
+        verifier_id=verifier_id,
+        doc_uuid=id,
+        action="RE_UPLOAD_REQUESTED",
+        comments=payload.comments,
+        company_id=company_id,
+        ip_address=ip_addr,
+    )
+    return APIResponse[EmployeeDocumentResponse](
+        success=True,
+        message="Document re-upload requested.",
+        data=res,
+        errors=None,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Expiry Tracking Endpoints
+# Expiry Tracking Endpoints (Rules 2.3, 2.4, 3.6)
 # ---------------------------------------------------------------------------
 
 @router.get(
@@ -740,15 +988,33 @@ async def reject_document(
 async def list_expiring_documents(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    days: int | None = Query(None, description="Days threshold, defaults to 30"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[list[EmployeeDocumentResponse]]:
-    """List documents expiring within next 90 days. Admin and HR only."""
-    res = await service.list_expiring_documents()
+    """List documents expiring within configured warning days (30d default). Admin and HR only."""
+    company_id = _extract_company_id(claims)
+    offset = (page - 1) * limit
+
+    docs, total = await service.list_expiring_documents(
+        company_id=company_id,
+        days=days,
+        limit=limit,
+        offset=offset,
+    )
     return APIResponse[list[EmployeeDocumentResponse]](
         success=True,
         message="Expiring documents list retrieved.",
-        data=res,
+        data=docs,
+        meta={
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total,
+        },
         errors=None,
     )
+
 
 @router.get(
     "/expired",
@@ -759,19 +1025,64 @@ async def list_expiring_documents(
 async def list_expired_documents(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DocumentService, Depends(get_document_service)],
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
 ) -> APIResponse[list[EmployeeDocumentResponse]]:
     """List expired documents. Admin and HR only."""
-    res = await service.list_expired_documents()
+    company_id = _extract_company_id(claims)
+    offset = (page - 1) * limit
+
+    docs, total = await service.list_expired_documents(
+        company_id=company_id,
+        limit=limit,
+        offset=offset,
+    )
     return APIResponse[list[EmployeeDocumentResponse]](
         success=True,
         message="Expired documents list retrieved.",
-        data=res,
+        data=docs,
+        meta={
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total,
+        },
         errors=None,
     )
 
 
 # ---------------------------------------------------------------------------
-# Google Document AI OCR Endpoints
+# Summary Statistics (Rule 2.4)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/summary",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict[str, int]],
+    summary="Get document summary statistics",
+)
+async def get_document_summary(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> APIResponse[dict[str, int]]:
+    """Retrieve document count metrics via a single grouped aggregate query (Rule 2.4)."""
+    company_id = _extract_company_id(claims)
+    visible_employee_ids = await resolve_visible_employee_ids(claims, service.session)
+
+    summary_metrics = await service.get_summary(
+        company_id=company_id,
+        employee_ids=visible_employee_ids,
+    )
+    return APIResponse[dict[str, int]](
+        success=True,
+        message="Document summary statistics retrieved successfully.",
+        data=summary_metrics,
+        errors=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Google Document AI OCR Endpoints (Rule 1.7)
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -783,14 +1094,12 @@ async def list_expired_documents(
 async def upload_document_ocr(
     file: UploadFile,
     document_type: str = Form("generic"),
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
     service: Annotated[DocumentUploadService, Depends(get_upload_service)] = None,
 ) -> DocumentOCRResponse:
-    """Upload document file (PDF, PNG, JPG, JPEG, TIFF) and extract OCR text, entities, tables, form fields using Google Document AI."""
-    company_id_raw = claims.get("company_id") if claims else None
-    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
-    user_id_raw = claims.get("sub") if claims else None
-    user_id = uuid.UUID(str(user_id_raw)) if user_id_raw else None
+    """Upload document file for Document AI OCR processing. Restricted to Admin and HR (Rule 1.7)."""
+    company_id = _extract_company_id(claims)
+    user_id = uuid.UUID(claims["sub"])
 
     res = await service.upload_and_process(
         file=file,
@@ -804,23 +1113,25 @@ async def upload_document_ocr(
 @router.get(
     "",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
+    response_model=APIResponse[dict[str, Any]],
     summary="List all uploaded OCR documents (OCR History)",
 )
 async def list_documents_ocr(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentUploadService, Depends(get_upload_service)],
     document_type: str | None = Query(None, description="Filter by document type"),
-    status_filter: str | None = Query(None, alias="status", description="Filter by status (processing, completed, failed)"),
+    status_filter: str | None = Query(None, alias="status", description="Filter by status"),
     search: str | None = Query(None, description="Search across filename and extracted text"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
-) -> APIResponse[dict]:
-    """Retrieve list of processed OCR documents with pagination and filter options."""
-    role = claims.get("role", "").lower()
+) -> APIResponse[dict[str, Any]]:
+    """Retrieve list of processed OCR documents. User-scoped for non-admins (Rule 1.7)."""
+    role = (claims.get("role") or "").lower()
     is_super_admin = role == "super_admin"
-    company_id_raw = claims.get("company_id")
-    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    company_id = _extract_company_id(claims)
+
+    user_scope = None if is_admin else uuid.UUID(claims["sub"])
     offset = (page - 1) * limit
 
     records, total = await service.list_documents(
@@ -831,10 +1142,11 @@ async def list_documents_ocr(
         limit=limit,
         offset=offset,
         is_super_admin=is_super_admin,
+        user_id=user_scope,
     )
 
     items = [DocumentOCRListItem.model_validate(r).model_dump(mode="json") for r in records]
-    return APIResponse[dict](
+    return APIResponse[dict[str, Any]](
         success=True,
         message="OCR history retrieved successfully.",
         data={
@@ -843,55 +1155,14 @@ async def list_documents_ocr(
             "page": page,
             "limit": limit,
         },
+        meta={
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_more": (page * limit) < total,
+        },
         errors=None,
     )
-
-
-@router.get(
-    "/summary",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
-    summary="Get document summary statistics",
-)
-async def get_document_summary(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
-    service: Annotated[DocumentService, Depends(get_document_service)],
-) -> APIResponse[dict]:
-    """Retrieve document count metrics and summary status."""
-    try:
-        user_id = uuid.UUID(claims["sub"])
-        docs, total = await service.list_employee_documents(user_id=user_id, limit=100)
-        expiring = await service.list_expiring_documents()
-        expired = await service.list_expired_documents()
-
-        verified_count = sum(1 for d in docs if getattr(d, "is_verified", False))
-        pending_count = sum(1 for d in docs if not getattr(d, "is_verified", False))
-
-        return APIResponse[dict](
-            success=True,
-            message="Document summary statistics retrieved successfully.",
-            data={
-                "total_documents": total,
-                "verified_documents": verified_count,
-                "pending_verification": pending_count,
-                "expiring_soon": len(expiring),
-                "expired_documents": len(expired),
-            },
-            errors=None,
-        )
-    except Exception as exc:
-        return APIResponse[dict](
-            success=True,
-            message="Document summary statistics retrieved.",
-            data={
-                "total_documents": 0,
-                "verified_documents": 0,
-                "pending_verification": 0,
-                "expiring_soon": 0,
-                "expired_documents": 0,
-            },
-            errors=None,
-        )
 
 
 @router.get(
@@ -905,13 +1176,19 @@ async def get_document_ocr_detail(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentUploadService, Depends(get_upload_service)],
 ) -> APIResponse[DocumentOCRDetailResponse]:
-    """Retrieve metadata, extracted OCR text, entities, tables, confidence, and page details for a document."""
-    role = claims.get("role", "").lower()
+    """Retrieve OCR details. Scoped by user_id for non-admin viewers (Rule 1.7)."""
+    role = (claims.get("role") or "").lower()
     is_super_admin = role == "super_admin"
-    company_id_raw = claims.get("company_id")
-    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    company_id = _extract_company_id(claims)
+    user_scope = None if is_admin else uuid.UUID(claims["sub"])
 
-    record = await service.get_document_details(document_id, company_id=company_id, is_super_admin=is_super_admin)
+    record = await service.get_document_details(
+        document_id=document_id,
+        company_id=company_id,
+        is_super_admin=is_super_admin,
+        user_id=user_scope,
+    )
     return APIResponse[DocumentOCRDetailResponse](
         success=True,
         message="Document OCR details retrieved successfully.",
@@ -930,13 +1207,19 @@ async def download_document_ocr_json(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DocumentUploadService, Depends(get_upload_service)],
 ):
-    """Download full Google Document AI JSON extraction payload for document."""
-    role = claims.get("role", "").lower()
+    """Download full Google Document AI JSON extraction payload. User-scoped (Rule 1.7)."""
+    role = (claims.get("role") or "").lower()
     is_super_admin = role == "super_admin"
-    company_id_raw = claims.get("company_id")
-    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    company_id = _extract_company_id(claims)
+    user_scope = None if is_admin else uuid.UUID(claims["sub"])
 
-    record = await service.get_document_details(document_id, company_id=company_id, is_super_admin=is_super_admin)
+    record = await service.get_document_details(
+        document_id=document_id,
+        company_id=company_id,
+        is_super_admin=is_super_admin,
+        user_id=user_scope,
+    )
     export_payload = {
         "document_id": str(record.id),
         "original_filename": record.original_filename,
@@ -955,6 +1238,7 @@ async def download_document_ocr_json(
     return JSONResponse(
         content=export_payload,
         headers={
-            "Content-Disposition": f'attachment; filename="ocr_{record.id}.json"'
+            "Content-Disposition": f'attachment; filename="ocr_{record.id}.json"',
+            "X-Content-Type-Options": "nosniff",
         },
     )

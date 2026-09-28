@@ -10,6 +10,8 @@ from typing import Sequence
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import status
+from app.core.exceptions import AppException
 from app.models.document_ocr import DocumentOCRRecord
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ class DocumentOCRRepository:
         document_id: uuid.UUID,
         company_id: uuid.UUID | None = None,
         is_super_admin: bool = False,
+        user_id: uuid.UUID | None = None,
     ) -> DocumentOCRRecord | None:
         """Fetch OCR record by UUID with tenant isolation.
         
@@ -40,14 +43,16 @@ class DocumentOCRRepository:
             document_id: The document UUID to fetch
             company_id: The company ID for tenant isolation (required for non-super-admin)
             is_super_admin: If True, bypasses tenant isolation (Super Admin access)
+            user_id: Optional user ID to restrict access to records uploaded by that user
         """
         if not is_super_admin and company_id is None:
-            raise ValueError("company_id is required for non-Super Admin access")
+            raise AppException(message="Tenant context (company_id) is required.", status_code=status.HTTP_403_FORBIDDEN)
         
         stmt = select(DocumentOCRRecord).where(DocumentOCRRecord.id == document_id)
         if not is_super_admin and company_id is not None:
             stmt = stmt.where(DocumentOCRRecord.company_id == company_id)
-        # Super Admin bypasses tenant filter
+        if user_id is not None:
+            stmt = stmt.where(DocumentOCRRecord.uploaded_by == user_id)
         
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -61,21 +66,25 @@ class DocumentOCRRepository:
         limit: int = 20,
         offset: int = 0,
         is_super_admin: bool = False,
+        user_id: uuid.UUID | None = None,
     ) -> tuple[Sequence[DocumentOCRRecord], int]:
         """Fetch paginated OCR records with filters and tenant isolation.
         
         Args:
             company_id: The company ID for tenant isolation (required for non-super-admin)
             is_super_admin: If True, bypasses tenant isolation (Super Admin access)
+            user_id: Optional user ID to restrict records to uploaded_by == user_id
         """
         if not is_super_admin and company_id is None:
-            raise ValueError("company_id is required for non-Super Admin access")
+            raise AppException(message="Tenant context (company_id) is required.", status_code=status.HTTP_403_FORBIDDEN)
         
         stmt = select(DocumentOCRRecord)
 
         conditions = []
         if not is_super_admin and company_id is not None:
             conditions.append(DocumentOCRRecord.company_id == company_id)
+        if user_id is not None:
+            conditions.append(DocumentOCRRecord.uploaded_by == user_id)
         # Super Admin bypasses tenant filter
         if document_type:
             conditions.append(DocumentOCRRecord.document_type == document_type)

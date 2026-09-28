@@ -419,12 +419,30 @@ async def lifespan(app: FastAPI):
         # Automatically provision/verify Super Admin accounts
         await ensure_superadmin_provisioned()
 
-        logger.info("🚀 Server Running at: http://127.0.0.1:8000")
+        # Seed canonical document categories and templates idempotently
+        try:
+            from app.services.document_categories import seed_canonical_categories_idempotent
+            from app.services.document_templates import seed_canonical_templates_idempotent
+            from app.db.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                await seed_canonical_categories_idempotent(session)
+                await seed_canonical_templates_idempotent(session)
+        except Exception as seed_err:
+            logger.warning("Document seed notice: %s", str(seed_err))
+
+        # Start document expiry alert background scheduler
+        try:
+            from app.services.document_expiry_service import run_document_expiry_scheduler
+            asyncio.create_task(run_document_expiry_scheduler())
+        except Exception as sched_err:
+            logger.warning("Expiry scheduler notice: %s", str(sched_err))
+
+        logger.info("Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
-            logger.info("📚 Swagger API Docs: http://127.0.0.1:8000/docs")
-            logger.info("📖 ReDoc API Docs: http://127.0.0.1:8000/redoc")
+            logger.info(" Swagger API Docs: http://127.0.0.1:8000/docs")
+            logger.info(" ReDoc API Docs: http://127.0.0.1:8000/redoc")
         else:
-            logger.info("🔒 Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
+            logger.info(" Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
         asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
@@ -878,8 +896,12 @@ def create_app() -> FastAPI:
 
     from fastapi.staticfiles import StaticFiles
     import os
-    os.makedirs("uploads", exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+    # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
+    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos"]
+    for subdir in public_subdirs:
+        dir_path = os.path.join("uploads", subdir)
+        os.makedirs(dir_path, exist_ok=True)
+        app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
 
     return app
 

@@ -231,11 +231,13 @@ class Settings(BaseSettings):
     OFFER_LETTER_DIR: str = "uploads/offer_letters"
     MAX_RESUME_SIZE_MB: int = 10
     ALLOWED_RESUME_EXTENSIONS: list[str] = [".pdf", ".doc", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".tiff"]
+    DOCUMENT_EXPIRY_WARNING_DAYS: int = 30
+    MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
-    CLOUDINARY_CLOUD_NAME: str = ""
-    CLOUDINARY_API_KEY: str = ""
-    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_CLOUD_NAME="sfqkvhk1"
+CLOUDINARY_API_KEY="256143848656332"
+CLOUDINARY_API_SECRET="XWUxbxAr-tXLDwewBcF7F6OrU8s"
 
     # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
     # Cloud LLM providers are DISABLED. Only Ollama is supported.
