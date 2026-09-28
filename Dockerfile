@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 # Production multi-stage Dockerfile for FastAPI HRMS backend (apiofc360)
 
-# ==============================================================================
+# =================================================================================
 # Stage 1: Builder (compiler toolchains, wheel prebuilt provisioning, and assembly)
-# ==============================================================================
+# =================================================================================
 FROM python:3.11-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
