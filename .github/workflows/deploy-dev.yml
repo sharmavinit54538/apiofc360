@@ -119,7 +119,7 @@ jobs:
             docker system prune -af 2>/dev/null || docker image prune -af 2>/dev/null || true
 
             echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
-            docker compose build api celery_worker
+            docker compose build --no-cache api celery_worker
 
             docker tag apiofc360-api:latest ofc360_api:\${SHORT_SHA} 2>/dev/null || true
             docker tag apiofc360-celery_worker:latest ofc360_celery_worker:\${SHORT_SHA} 2>/dev/null || true
@@ -130,7 +130,7 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Recreating API & Celery Worker containers...'
-            docker compose up -d --no-deps api celery_worker
+            docker compose up -d --force-recreate api celery_worker
           "
 
       - name: Health check
