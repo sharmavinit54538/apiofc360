@@ -29,8 +29,8 @@ jobs:
           python scripts/install_dlib.py || true
           pip install -r requirements.txt
 
-      - name: Compile Python syntax across app/
-        run: python -m compileall -q app
+      - name: Compile Python syntax across app/ and alembic/
+        run: python -m compileall -q app alembic
 
       - name: Validate settings with dummy env vars
         run: |
@@ -94,6 +94,22 @@ jobs:
             docker tag apiofc360-celery_worker:latest ofc360_celery_worker:\${PREV_SHA} 2>/dev/null || true
           "
 
+      - name: Fast-fail syntax & settings validation
+        run: |
+          sudo bash -c "
+            cd ${{ env.APP_DIR }}
+            VENV_PY=\"${{ env.APP_DIR }}/venv/bin/python\"
+            if [ -x \"\$VENV_PY\" ]; then
+              PY=\"\$VENV_PY\"
+            else
+              PY=\"python3\"
+            fi
+            echo '[Deploy] Fast-fail check: compiling syntax across app/ and alembic/...'
+            \"\$PY\" -m compileall -q app alembic
+            echo '[Deploy] Fast-fail check: verifying app.core.config settings import...'
+            \"\$PY\" -c \"from app.core.config import settings; print('[Deploy] Settings loaded OK. OLLAMA_HOST:', settings.OLLAMA_HOST)\"
+          "
+
       - name: Build new Docker image
         run: |
           sudo bash -c "
@@ -136,7 +152,9 @@ jobs:
             done
 
             if [ \"\$HEALTH_OK\" = \"false\" ]; then
-              echo '[Deploy] ❌ ERROR: Health check FAILED! Printing API & Worker container logs:'
+              echo '[Deploy] ❌ ERROR: Health check FAILED! Container status:'
+              docker compose ps
+              echo '[Deploy] Printing API & Worker container logs:'
               docker compose logs --tail 50 api celery_worker
               exit 1
             else
