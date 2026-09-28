@@ -8,24 +8,37 @@ fi
 
 cd /root/apiofc360
 
-VENV_DIR="/root/apiofc360/venv"
-PY="/root/apiofc360/venv/bin/python"
+VENV="/root/apiofc360/venv"
+PY="$VENV/bin/python"
 
-# Create virtual environment if it does not exist
-if [ ! -d "$VENV_DIR" ] || [ ! -f "$PY" ]; then
-  echo "[Deploy] Virtual environment not found at $VENV_DIR. Creating virtualenv..."
-  python3 -m venv "$VENV_DIR"
+# Check if virtualenv or pip is missing or broken
+if [ ! -f "$PY" ] || ! "$PY" -m pip --version >/dev/null 2>&1; then
+  echo "[Deploy] Virtual environment missing or broken (pip missing). Recreating virtualenv..."
+  rm -rf "$VENV"
+  if ! python3 -m venv "$VENV"; then
+    echo "[Deploy] ERROR: venv creation failed! python3-venv install karo: sudo apt-get install -y python3-venv"
+    exit 1
+  fi
+  "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  if ! "$PY" -m pip --version >/dev/null 2>&1; then
+    echo "[Deploy] ERROR: pip missing in venv! python3-venv install karo: sudo apt-get install -y python3-venv"
+    exit 1
+  fi
 fi
 
-# 1. Install dependencies
+# 1. Upgrade pip
+echo "[Deploy] Upgrading pip..."
+"$PY" -m pip install --upgrade pip
+
+# 2. Install dependencies
 echo "[Deploy] Installing dependencies from requirements.txt..."
 "$PY" -m pip install -r requirements.txt
 
-# 2. Compile Python syntax
+# 3. Compile Python syntax across app/
 echo "[Deploy] Compiling Python syntax across app/..."
 "$PY" -m compileall -q app
 
-# 3. Validate settings configuration without logging sensitive variable values
+# 4. Validate settings configuration without logging sensitive variable values
 echo "[Deploy] Validating settings configuration..."
 "$PY" -c "
 import sys
