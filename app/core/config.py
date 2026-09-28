@@ -182,13 +182,6 @@ class Settings(BaseSettings):
     OLLAMA_NUM_PARALLEL: int = 1
     OLLAMA_MAX_LOADED_MODELS: int = 1
 
-    @property
-    def OLLAMA_HOST(self) -> str:
-        """Alias for OLLAMA_BASE_URL to unify host configuration across environments."""
-        return self.OLLAMA_BASE_URL
-
-
-
     # ── OCR settings ────────────────────────────────────────────────────────
     OCR_ENGINE_PREFERENCE: str = "auto"      # auto | paddle | easyocr | tesseract
     OCR_FALLBACK_CHAIN: list[str] = ["paddle", "easyocr", "tesseract"]
@@ -273,6 +266,7 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
 
     # LLM Routing & Limits
     LLM_PRIMARY_PROVIDER: str = "ollama"
