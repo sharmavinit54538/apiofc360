@@ -81,15 +81,13 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy application source code (done AFTER dependencies for optimal Docker layer reuse)
 COPY . /app
 
-# Create non-root system user (container starts as root to manage bind mount permissions, entrypoint drops to appuser)
-RUN useradd -m -u 10001 appuser
-
 # Smoke test imports in the final runtime container and compile bytecode
 RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
 RUN python -m compileall app
 
-# Ensure uploads directory exists and application files are owned by appuser
-RUN mkdir -p /app/uploads && \
+# Create non-root system user and ensure application files are owned by appuser
+RUN useradd -m -u 10001 appuser && \
+    mkdir -p /app/uploads && \
     chown -R appuser:appuser /app
 
 EXPOSE 8000
