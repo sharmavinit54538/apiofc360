@@ -64,6 +64,52 @@ async def get_meeting_dashboard(
 
 
 @router.get(
+    "/kpi",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get AI Meeting Intelligence KPIs",
+)
+async def get_meeting_kpis_endpoint(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[MeetingAIService, Depends(get_meeting_ai_service)],
+) -> APIResponse[dict]:
+    """Retrieve meeting intelligence KPI summary cards."""
+    company_id = get_company_id_from_claims(claims)
+    dash = await service.get_dashboard(company_id=company_id)
+    data = {
+        "meetings_analyzed": dash.meetings_analyzed,
+        "meetingsAnalyzed": dash.meetingsAnalyzed,
+        "action_items": dash.action_items,
+        "actionItems": dash.actionItems,
+        "follow_ups": dash.follow_ups,
+        "followUps": dash.followUps,
+        "avg_duration": dash.avg_duration,
+        "avgDuration": dash.avgDuration,
+        "average_attendance": dash.average_attendance,
+        "averageAttendance": dash.average_attendance,
+        "decisions_captured": dash.decisions_captured,
+        "decisionsCaptured": dash.decisions_captured,
+        "completion_rate": dash.completion_rate,
+        "completionRate": dash.completion_rate,
+        "kpis": [
+            {"key": "meetings_analyzed", "label": "Meetings Analyzed", "value": dash.meetings_analyzed, "unit": "meetings"},
+            {"key": "action_items", "label": "Action Items", "value": dash.action_items, "unit": "items"},
+            {"key": "follow_ups", "label": "Follow-ups", "value": dash.follow_ups, "unit": "tasks"},
+            {"key": "avg_duration", "label": "Average Duration", "value": dash.avg_duration, "unit": ""},
+            {"key": "decisions_captured", "label": "Decisions Captured", "value": dash.decisions_captured, "unit": "decisions"},
+            {"key": "completion_rate", "label": "Completion Rate", "value": dash.completion_rate, "unit": "%"},
+        ],
+    }
+    return APIResponse[dict](
+        success=True,
+        message="Meeting intelligence KPIs fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+
+@router.get(
     "/summaries",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[MeetingSummariesResponse],

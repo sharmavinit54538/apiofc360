@@ -68,6 +68,120 @@ async def get_workforce_dashboard(
 
 
 @router.get(
+    "/kpi",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get AI Workforce Planning KPIs",
+)
+async def get_workforce_kpis_endpoint(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[AIWorkforceService, Depends(get_ai_workforce_service)],
+    department_id: Optional[uuid.UUID] = Query(None),
+) -> APIResponse[dict]:
+    """Retrieve workforce planning KPI summary metrics."""
+    company_id = get_company_id_from_claims(claims)
+    dash = await service.get_dashboard(company_id=company_id, department_id=department_id)
+    data = {
+        "planned_hires": dash.planned_hires,
+        "open_positions": dash.open_positions,
+        "capacity_utilization_pct": dash.capacity_utilization_pct,
+        "workforce_size": dash.workforce_size,
+        "active_employees": dash.active_employees,
+        "total_departments": dash.total_departments,
+        "forecast_horizon": dash.forecast_horizon,
+        "hiring_budget": dash.hiring_budget,
+        "vacancy_rate": dash.vacancy_rate,
+        "plannedHires": dash.planned_hires,
+        "openPositions": dash.open_positions,
+        "capacityUtilizationPct": dash.capacity_utilization_pct,
+        "workforceSize": dash.workforce_size,
+        "activeEmployees": dash.active_employees,
+        "totalDepartments": dash.total_departments,
+        "forecastHorizon": dash.forecast_horizon,
+        "hiringBudget": dash.hiring_budget,
+        "vacancyRate": dash.vacancy_rate,
+        "kpis": [
+            {"key": "workforce_size", "label": "Workforce Size", "value": dash.workforce_size, "unit": "employees"},
+            {"key": "capacity_utilization_pct", "label": "Capacity Utilization", "value": dash.capacity_utilization_pct, "unit": "%"},
+            {"key": "open_positions", "label": "Open Positions", "value": dash.open_positions, "unit": "roles"},
+            {"key": "planned_hires", "label": "Planned Hires", "value": dash.planned_hires, "unit": "hires"},
+            {"key": "vacancy_rate", "label": "Vacancy Rate", "value": dash.vacancy_rate, "unit": "%"},
+            {"key": "hiring_budget", "label": "Hiring Budget", "value": dash.hiring_budget, "unit": "$"},
+        ],
+    }
+    return APIResponse[dict](
+        success=True,
+        message="Workforce planning KPIs fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/headcount-trends",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get Headcount Trends",
+)
+async def get_headcount_trends_endpoint(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[AIWorkforceService, Depends(get_ai_workforce_service)],
+) -> APIResponse[dict]:
+    """Retrieve headcount and workforce trends."""
+    company_id = get_company_id_from_claims(claims)
+    analytics = await service.get_analytics(company_id=company_id)
+    data = {
+        "headcount_trends": analytics.headcount_trend,
+        "headcountTrends": analytics.headcount_trend,
+        "trends": analytics.headcount_trend,
+        "hiring_trend": analytics.hiring_trend,
+        "hiringTrend": analytics.hiring_trend,
+        "attrition_trend": analytics.attrition_trend,
+        "attritionTrend": analytics.attrition_trend,
+        "productivity_trend": analytics.productivity_trend,
+        "productivityTrend": analytics.productivity_trend,
+    }
+    return APIResponse[dict](
+        success=True,
+        message="Workforce headcount trends fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/department-comparison",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get Department Comparison",
+)
+async def get_department_comparison_endpoint(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[AIWorkforceService, Depends(get_ai_workforce_service)],
+) -> APIResponse[dict]:
+    """Retrieve department workforce capacity and demand comparison."""
+    company_id = get_company_id_from_claims(claims)
+    cap = await service.get_capacity_demand(company_id=company_id)
+    depts = [d.model_dump() if hasattr(d, "model_dump") else d for d in cap.department_capacity]
+    data = {
+        "total_capacity": cap.total_capacity,
+        "totalCapacity": cap.total_capacity,
+        "total_demand": cap.total_demand,
+        "totalDemand": cap.total_demand,
+        "department_comparison": depts,
+        "departmentComparison": depts,
+        "departments": depts,
+    }
+    return APIResponse[dict](
+        success=True,
+        message="Workforce department comparison fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+
+@router.get(
     "/hiring-forecast",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[HiringForecastResponse],
