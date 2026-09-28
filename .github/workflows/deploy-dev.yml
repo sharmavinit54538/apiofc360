@@ -40,10 +40,46 @@ jobs:
       - name: Pre-deploy validation (Syntax & Settings Check)
         run: |
           sudo bash -c "
+            set -euo pipefail
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Running pre-deploy syntax compilation and settings validation...'
-            python3 -m compileall app || python -m compileall app
-            python3 -c \"from app.core.config import settings; print('[Deploy] Config valid. OLLAMA_HOST:', settings.OLLAMA_HOST)\" || python -c \"from app.core.config import settings; print('[Deploy] Config valid. OLLAMA_HOST:', settings.OLLAMA_HOST)\"
+
+            VENV_DIR=\"${{ env.APP_DIR }}/venv\"
+            PY=\"\${VENV_DIR}/bin/python\"
+
+            if [ ! -d \"\$VENV_DIR\" ] || [ ! -f \"\$PY\" ]; then
+              echo \"[Deploy] Virtual environment not found at \$VENV_DIR. Creating virtualenv...\"
+              python3 -m venv \"\$VENV_DIR\"
+            fi
+
+            if ! \"\$PY\" -c 'import pydantic, pydantic_settings' 2>/dev/null; then
+              echo '[Deploy] Installing dependencies from requirements.txt...'
+              \"\$PY\" -m pip install -r requirements.txt || \"\$PY\" -m pip install pydantic pydantic-settings
+            else
+              echo '[Deploy] Required dependencies already present in virtualenv.'
+            fi
+
+            echo '[Deploy] Compiling Python syntax across app/...'
+            \"\$PY\" -m compileall -q app
+
+            echo '[Deploy] Validating settings configuration...'
+            \"\$PY\" -c \"
+import sys
+try:
+    from app.core.config import settings
+    print('[Deploy] settings OK')
+except Exception as exc:
+    errs = getattr(exc, 'errors', None)
+    if callable(errs):
+        print('[Deploy] ERROR: Settings validation failed. Missing or invalid required environment variables:')
+        for e in errs():
+            loc = ' -> '.join(str(p) for p in e.get('loc', []))
+            msg = e.get('msg', '')
+            print(f'  - {loc}: {msg}')
+    else:
+        print(f'[Deploy] ERROR: Settings validation failed: {type(exc).__name__}: {exc}')
+    sys.exit(1)
+\"
           "
 
       - name: Check DB and Redis (Skip if running)
