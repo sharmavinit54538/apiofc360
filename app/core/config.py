@@ -167,11 +167,11 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "llama3:latest"
-    OLLAMA_DEFAULT_MODEL: str = "llama3:latest"
+    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_PRIORITY: int = 1
     OLLAMA_TIMEOUT: int = 60
     OLLAMA_TIMEOUT_SECONDS: int = 60
     OLLAMA_KEEP_ALIVE: str = "30m"
@@ -179,6 +179,14 @@ class Settings(BaseSettings):
     OLLAMA_TEMPERATURE: float = 0.3
     OLLAMA_TOP_P: float = 0.9
     OLLAMA_NUM_PREDICT: int = 2048
+    OLLAMA_NUM_PARALLEL: int = 1
+    OLLAMA_MAX_LOADED_MODELS: int = 1
+
+    @property
+    def OLLAMA_HOST(self) -> str:
+        """Alias for OLLAMA_BASE_URL to unify host configuration across environments."""
+        return self.OLLAMA_BASE_URL
+
 
 
     # ── OCR settings ────────────────────────────────────────────────────────
@@ -265,10 +273,6 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "qwen3:30b"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
-    OLLAMA_PRIORITY: int = 1
 
     # LLM Routing & Limits
     LLM_PRIMARY_PROVIDER: str = "ollama"
