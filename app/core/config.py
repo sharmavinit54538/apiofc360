@@ -167,9 +167,10 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
-    OLLAMA_MODEL: str = "llama3.2:3b"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen3:30b"
+    OLLAMA_DEFAULT_MODEL: str = "qwen3:30b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_PRIORITY: int = 1
     OLLAMA_TIMEOUT: int = 60
@@ -266,7 +267,6 @@ class Settings(BaseSettings):
     # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
     # OPENROUTER_PRIORITY: int = 30
 
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
 
     # LLM Routing & Limits
     LLM_PRIMARY_PROVIDER: str = "ollama"
@@ -432,6 +432,13 @@ class Settings(BaseSettings):
                     raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
                 if not public_key.strip().startswith("-----BEGIN"):
                     raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+        return self
+
+    @model_validator(mode="after")
+    def sync_ollama_host(self) -> "Settings":
+        """Set OLLAMA_HOST equal to OLLAMA_BASE_URL if not explicitly provided by env."""
+        if "OLLAMA_HOST" not in self.model_fields_set:
+            self.OLLAMA_HOST = self.OLLAMA_BASE_URL
         return self
 
 
