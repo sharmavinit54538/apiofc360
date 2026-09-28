@@ -13,14 +13,8 @@ if [ "$(id -u)" = "0" ]; then
              /app/uploads/documents
 
     echo "[Entrypoint] Setting ownership of /app/uploads and subdirectories to appuser (10001:10001)..."
-    chown appuser:appuser /app/uploads \
-                          /app/uploads/face_attendance \
-                          /app/uploads/onboarding \
-                          /app/uploads/qrcodes \
-                          /app/uploads/connect \
-                          /app/uploads/helpdesk \
-                          /app/uploads/logos \
-                          /app/uploads/documents
+    chown -R appuser:appuser /app/uploads
+    chmod -R 775 /app/uploads
 
     echo "[Entrypoint] Dropping privileges and re-executing entrypoint as appuser..."
     exec gosu appuser "$0" "$@"

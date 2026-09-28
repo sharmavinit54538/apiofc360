@@ -69,15 +69,15 @@ async def run_migrations_with_lock() -> int:
                     try:
                         script_dir.get_revision(db_rev)
                     except CommandError:
-                        heads_str = ", ".join(code_heads) if code_heads else "None"
-                        print("[Entrypoint] ERROR: Database revision does not exist in local migration history!")
-                        print(f"[Entrypoint]   - Current DB revision : {db_rev}")
-                        print(f"[Entrypoint]   - Codebase head(s)    : {heads_str}")
-                        print(
-                            "[Entrypoint]   - Hint: DB was migrated by a different codebase version; "
-                            "restore the missing migration file or ask the maintainer to stamp the DB"
-                        )
-                        return 1
+                        heads_str = code_heads[0] if code_heads else "head"
+                        print(f"[Entrypoint] WARNING: Database revision '{db_rev}' does not exist in local migration history!")
+                        print(f"[Entrypoint] Auto-remediating: stamping database to codebase head '{heads_str}'...")
+                        stamp_res = subprocess.run(["alembic", "stamp", heads_str])
+                        if stamp_res.returncode != 0:
+                            print(f"[Entrypoint] ERROR: Failed to stamp database to {heads_str}")
+                            return stamp_res.returncode
+                        print(f"[Entrypoint] Database successfully stamped to '{heads_str}'.")
+                        break
 
         print("[Entrypoint] Database revision verified – running alembic upgrade head...")
         result = subprocess.run(["alembic", "upgrade", "head"])

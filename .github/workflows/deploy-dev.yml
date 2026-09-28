@@ -121,8 +121,8 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             SHORT_SHA='${GITHUB_SHA::7}'
-            echo '[Deploy] Pruning unused docker containers, images, and build caches...'
-            docker system prune -af 2>/dev/null || docker image prune -af 2>/dev/null || true
+            echo '[Deploy] Pruning dangling build images...'
+            docker image prune -f 2>/dev/null || true
 
             echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
             docker compose build --no-cache api celery_worker
@@ -137,6 +137,7 @@ jobs:
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Recreating API & Celery Worker containers...'
             mkdir -p uploads
+            chown -R 10001:10001 uploads 2>/dev/null || true
             docker compose up -d --force-recreate api celery_worker
           "
 
@@ -183,6 +184,7 @@ jobs:
               docker tag ofc360_api:\${PREV_SHA} apiofc360-api:latest
               docker tag ofc360_celery_worker:\${PREV_SHA} apiofc360-celery_worker:latest
               mkdir -p uploads
+              chown -R 10001:10001 uploads 2>/dev/null || true
               docker compose up -d --no-build --no-deps api celery_worker
               echo \"[Deploy] Rollback completed. Restored containers to working SHA \${PREV_SHA}.\"
             else
@@ -197,13 +199,4 @@ jobs:
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Deployment successful! Pruning dangling build images...'
             docker image prune -f
-          "
-
-      - name: Clean up temporary .env file (only on failure)
-        if: failure()
-        run: |
-          sudo bash -c "
-            cd ${{ env.APP_DIR }}
-            echo '[Deploy] Cleaning up temporary .env file after failed deployment...'
-            rm -f .env
           "
