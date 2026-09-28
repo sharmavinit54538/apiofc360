@@ -37,6 +37,9 @@ jobs:
           cp .env.example .env
           python -c "from app.core.config import settings; print('settings OK')"
 
+      - name: Guard Alembic migration heads and graph integrity
+        run: python scripts/check_migrations.py
+
   deploy:
     name: Deploy to Dev Server
     needs: validate
@@ -56,9 +59,10 @@ jobs:
               echo '[Deploy] Pulling latest code from origin/dev...'
               git fetch origin dev
               git reset --hard origin/dev
+              git clean -fd
             else
-              echo '[Deploy] Syncing repository files...'
-              rsync -a --exclude='.env' --exclude='.git' ./ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
+              echo '[Deploy] Syncing repository files from checked out workspace...'
+              rsync -a --delete --exclude='.env' --exclude='.git' \"$GITHUB_WORKSPACE\"/ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
             fi
 
             echo '[Deploy] Copying latest .env.example to .env for build and container creation...'
@@ -108,6 +112,8 @@ jobs:
             \"\$PY\" -m compileall -q app alembic
             echo '[Deploy] Fast-fail check: verifying app.core.config settings import...'
             \"\$PY\" -c \"from app.core.config import settings; print('[Deploy] Settings loaded OK. OLLAMA_HOST:', settings.OLLAMA_HOST)\"
+            echo '[Deploy] Fast-fail check: validating Alembic migration heads and graph...'
+            \"\$PY\" scripts/check_migrations.py
           "
 
       - name: Build new Docker image
@@ -155,8 +161,10 @@ jobs:
             if [ \"\$HEALTH_OK\" = \"false\" ]; then
               echo '[Deploy] ❌ ERROR: Health check FAILED! Container status:'
               docker compose ps
-              echo '[Deploy] Printing API & Worker container logs:'
-              docker compose logs --tail=100 api celery_worker
+              echo '[Deploy] Printing API container logs (tail=150):'
+              docker compose logs --tail=150 api
+              echo '[Deploy] Printing Celery Worker container logs (tail=100):'
+              docker compose logs --tail=100 celery_worker
               exit 1
             else
               SHORT_SHA='${GITHUB_SHA::7}'

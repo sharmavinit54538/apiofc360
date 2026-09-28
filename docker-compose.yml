@@ -35,7 +35,7 @@ services:
   api:
     build: .
     container_name: ofc360_api
-    restart: always
+    restart: "on-failure:5"
     init: true
     ports:
       - "8000:8000"

@@ -83,7 +83,37 @@ async def run_migrations_with_lock():
             return 1
 
         active_head = head_lines[0] if head_lines else 'None'
-        print(f'[Entrypoint] Single head verified ({active_head}) – running alembic upgrade head...')
+        print(f'[Entrypoint] Single head verified ({active_head}).')
+
+        # Pre-flight check: verify current DB revision exists in codebase
+        print('[Entrypoint] Pre-flight: checking database revision against local migrations...')
+        table_check = await conn.fetchval(
+            "SELECT to_regclass('public.alembic_version')"
+        )
+        if table_check:
+            db_rows = await conn.fetch("SELECT version_num FROM alembic_version")
+            db_revisions = [r['version_num'] for r in db_rows if r['version_num']]
+            if db_revisions:
+                from alembic.config import Config
+                from alembic.script import ScriptDirectory
+                from alembic.util.exc import CommandError
+
+                alembic_cfg = Config('alembic.ini')
+                script_dir = ScriptDirectory.from_config(alembic_cfg)
+                code_heads = script_dir.get_heads()
+
+                for db_rev in db_revisions:
+                    try:
+                        script_dir.get_revision(db_rev)
+                    except CommandError:
+                        heads_str = ', '.join(code_heads) if code_heads else 'None'
+                        print('[Entrypoint] ERROR: Database revision does not exist in local migration history!')
+                        print(f'[Entrypoint]   - Current DB revision : {db_rev}')
+                        print(f'[Entrypoint]   - Codebase head(s)    : {heads_str}')
+                        print('[Entrypoint]   - Hint: DB was migrated by a different codebase version; restore the missing migration file or ask the maintainer to stamp the DB')
+                        return 1
+
+        print(f'[Entrypoint] Database revision verified – running alembic upgrade head...')
         result = subprocess.run(['alembic', 'upgrade', 'head'], capture_output=False)
         if result.returncode != 0:
             print(f'[Entrypoint] ERROR: alembic upgrade failed with exit code {result.returncode}')
