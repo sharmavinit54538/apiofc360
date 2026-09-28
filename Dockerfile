@@ -68,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libopenblas0 \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy assembled virtual environment from builder stage
@@ -80,18 +81,18 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy application source code (done AFTER dependencies for optimal Docker layer reuse)
 COPY . /app
 
-# Create non-root system user and prepare uploads directory for security
-RUN useradd -m -u 10001 appuser && \
-    mkdir -p /app/uploads && \
-    chown -R appuser:appuser /app
+# Create non-root system user (container starts as root to manage bind mount permissions, entrypoint drops to appuser)
+RUN useradd -m -u 10001 appuser
 
-USER appuser
-
-EXPOSE 8000
-
-# Smoke test imports in the final runtime container
+# Smoke test imports in the final runtime container and compile bytecode
 RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
 RUN python -m compileall app
+
+# Ensure uploads directory exists and application files are owned by appuser
+RUN mkdir -p /app/uploads && \
+    chown -R appuser:appuser /app
+
+EXPOSE 8000
 
 # Container healthcheck probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \

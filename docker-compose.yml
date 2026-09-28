@@ -36,6 +36,7 @@ services:
     build: .
     container_name: ofc360_api
     restart: always
+    init: true
     ports:
       - "8000:8000"
     env_file:
@@ -55,6 +56,7 @@ services:
     build: .
     container_name: ofc360_celery_worker
     restart: always
+    init: true
     command: celery -A app.workers.celery_app worker --loglevel=info
     env_file:
       - .env
@@ -69,6 +71,12 @@ services:
         condition: service_started
     volumes:
       - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   postgres_data:

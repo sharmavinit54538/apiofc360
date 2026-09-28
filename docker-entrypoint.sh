@@ -1,6 +1,24 @@
 #!/bin/sh
 set -e
 
+# If running as root (UID 0), ensure upload directories exist, fix ownership, and drop privileges to appuser
+if [ "$(id -u)" = "0" ]; then
+    echo "[Entrypoint] Running as root: creating /app/uploads and required subdirectories..."
+    mkdir -p /app/uploads/onboarding \
+             /app/uploads/qrcodes \
+             /app/uploads/connect \
+             /app/uploads/helpdesk \
+             /app/uploads/face_attendance \
+             /app/uploads/logos \
+             /app/uploads/documents
+
+    echo "[Entrypoint] Setting ownership of /app/uploads to appuser (10001:10001)..."
+    chown -R 10001:10001 /app/uploads
+
+    echo "[Entrypoint] Dropping privileges and re-executing entrypoint as appuser..."
+    exec gosu appuser "$0" "$@"
+fi
+
 # Run database migrations ONLY for the API container (skips celery worker to avoid DB locks)
 if [ "$RUN_MIGRATIONS" = "true" ] || [ "$1" = "uvicorn" ]; then
     echo "[Entrypoint] Verifying database connectivity before migrations..."
@@ -23,8 +41,6 @@ async def check_db():
 
 sys.exit(asyncio.run(check_db()))
 "
-
-    mkdir -p /app/uploads/face_attendance 2>/dev/null || true
 
     if [ -f "scripts/migrate_face_attendance.py" ]; then
         echo "[Entrypoint] Ensuring face attendance schema columns..."

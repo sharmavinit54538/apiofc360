@@ -130,6 +130,7 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             echo '[Deploy] Recreating API & Celery Worker containers...'
+            mkdir -p uploads
             docker compose up -d --force-recreate api celery_worker
           "
 
@@ -155,7 +156,7 @@ jobs:
               echo '[Deploy] ❌ ERROR: Health check FAILED! Container status:'
               docker compose ps
               echo '[Deploy] Printing API & Worker container logs:'
-              docker compose logs --tail 50 api celery_worker
+              docker compose logs --tail=100 api celery_worker
               exit 1
             else
               SHORT_SHA='${GITHUB_SHA::7}'
@@ -173,6 +174,7 @@ jobs:
             if docker image inspect ofc360_api:\${PREV_SHA} >/dev/null 2>&1; then
               docker tag ofc360_api:\${PREV_SHA} apiofc360-api:latest
               docker tag ofc360_celery_worker:\${PREV_SHA} apiofc360-celery_worker:latest
+              mkdir -p uploads
               docker compose up -d --no-build --no-deps api celery_worker
               echo \"[Deploy] Rollback completed. Restored containers to working SHA \${PREV_SHA}.\"
             else

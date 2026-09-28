@@ -900,7 +900,18 @@ def create_app() -> FastAPI:
     public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
-        os.makedirs(dir_path, exist_ok=True)
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+        except PermissionError as err:
+            current_uid = os.getuid() if hasattr(os, "getuid") else "N/A"
+            logger.critical(
+                "Permission denied while creating uploads directory '%s' (running as UID %s). "
+                "Actionable hint: fix ownership of ./uploads on the host (e.g. sudo chown -R 10001:10001 ./uploads). Error: %s",
+                dir_path,
+                current_uid,
+                err,
+            )
+            raise
         app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
 
     return app
