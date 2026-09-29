@@ -54,6 +54,12 @@ class Company(Base):
         JSON,
         nullable=True,
     )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="PENDING",
+        server_default=text("'PENDING'"),
+    )
     office_latitude: Mapped[float | None] = mapped_column(
         nullable=True,
     )

@@ -15,6 +15,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.company import Company
     from app.models.asset.assignment import AssetAssignmentHistory
     from app.models.asset.maintenance import AssetMaintenanceRecord
 
@@ -26,9 +27,13 @@ class Asset(Base):
     __table_args__ = (
         Index("ix_assets_tag", "tag", unique=True),
         Index("ix_assets_status", "status"),
+        Index("ix_assets_company_id", "company_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     tag: Mapped[str] = mapped_column(String(100), nullable=False)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="laptop")

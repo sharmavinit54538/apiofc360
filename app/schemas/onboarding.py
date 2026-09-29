@@ -129,7 +129,7 @@ class OrganizationInput(BaseModel):
     company_name: str | None = Field(
         default=None,
         min_length=1,
-        max_length=150,
+        max_length=100,
         validation_alias=AliasChoices("company_name", "companyName", "name", "title"),
         description="Company / Organization name",
     )
@@ -166,6 +166,8 @@ class OrganizationInput(BaseModel):
         default=None,
         validation_alias=AliasChoices("company_stamp_url", "companyStampUrl", "company_stamp", "companyStamp", "stamp"),
     )
+    timezone: str | None = Field(default=None, max_length=50, description="Organization primary timezone")
+    currency: str | None = Field(default=None, max_length=10, description="Organization base currency")
 
 
 class OrganizationSummary(BaseModel):

@@ -180,67 +180,8 @@ class AuthService:
             self.session.add(employee)
             await self.session.flush()
 
-            # 4. Create default departments
-            mgmt_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="MGMT",
-                department_name="Management",
-                description="Executive leadership and administrative department",
-                location="Headquarters",
-                status="ACTIVE",
-                manager_id=user.id,
-            )
-            self.session.add(mgmt_dept)
+            # Note: Departments and Leave Policies are configured by the HR Admin during onboarding wizard
 
-            eng_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="ENG",
-                department_name="Engineering",
-                description="Software development and product engineering",
-                location="Tech Hub",
-                status="ACTIVE",
-            )
-            self.session.add(eng_dept)
-
-            hr_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="HR",
-                department_name="Human Resources",
-                description="People management, recruiting and onboarding",
-                location="Headquarters",
-                status="ACTIVE",
-            )
-            self.session.add(hr_dept)
-            await self.session.flush()
-
-            # Link employee to default department
-            employee.department_id = hr_dept.id
-
-            # 5. Create default leave policies
-            sick_leave = EmployeeLeavePolicy(
-                id=uuid.uuid4(),
-                employee_id=employee.id,
-                leave_type="Sick Leave",
-                total_days=Decimal("12.0"),
-                used_days=Decimal("0.0"),
-                carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date(),
-            )
-            self.session.add(sick_leave)
-
-            casual_leave = EmployeeLeavePolicy(
-                id=uuid.uuid4(),
-                employee_id=employee.id,
-                leave_type="Casual Leave",
-                total_days=Decimal("12.0"),
-                used_days=Decimal("0.0"),
-                carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date(),
-            )
-            self.session.add(casual_leave)
 
             # Store verification OTP
             hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose="email_verification")

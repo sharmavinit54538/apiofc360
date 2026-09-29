@@ -292,31 +292,67 @@ class HRAdminOnboardingService:
 
     async def update_organization(self, company_id: uuid.UUID, payload: OrganizationInput) -> OrganizationResponse:
         """Update organization details."""
-        company = await self.get_company(company_id)
-        if payload.company_name and payload.company_name.strip():
-            clean_name = payload.company_name.strip()
-            company.name = clean_name
-        else:
-            clean_name = company.name
+        try:
+            company = await self.get_company(company_id)
+            if payload.company_name and payload.company_name.strip():
+                clean_name = payload.company_name.strip()
+                if len(clean_name) > 100:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="Company name cannot exceed 100 characters.",
+                    )
+                company.name = clean_name
+            else:
+                clean_name = company.name
 
-        prof = company.company_profile or {}
-        update_dict = payload.model_dump(exclude_unset=True)
-        prof.update(update_dict)
-        prof["company_name"] = clean_name
-        prof["name"] = clean_name
-        prof["companyName"] = clean_name
-        company.company_profile = prof
-        flag_modified(company, "company_profile")
+            if payload.timezone:
+                company.timezone = payload.timezone
 
-        progress = await self.get_or_create_progress(company_id)
-        progress.company_completed = True
-        if progress.current_step < 3:
-            progress.current_step = 3
-        progress.status = "in_progress"
-        await self._sync_completed_steps(progress)
+            prof = company.company_profile or {}
+            update_dict = payload.model_dump(exclude_unset=True)
+            prof.update(update_dict)
+            prof["company_name"] = clean_name
+            prof["name"] = clean_name
+            prof["companyName"] = clean_name
+            company.company_profile = prof
+            flag_modified(company, "company_profile")
 
-        await self.session.commit()
-        return await self.get_organization(company_id)
+            progress = await self.get_or_create_progress(company_id)
+            progress.company_completed = True
+            if progress.current_step < 3:
+                progress.current_step = 3
+            progress.status = "in_progress"
+            await self._sync_completed_steps(progress)
+
+            # Sync timezone and currency to CompanySettings if provided
+            if payload.timezone or payload.currency:
+                cs_res = await self.session.execute(select(CompanySettings).where(CompanySettings.company_id == company_id))
+                cs = cs_res.scalar_one_or_none()
+                if cs:
+                    if payload.timezone:
+                        cs.timezone = payload.timezone
+                    if payload.currency:
+                        cs.currency = payload.currency
+                else:
+                    self.session.add(CompanySettings(
+                        id=uuid.uuid4(),
+                        company_id=company_id,
+                        timezone=payload.timezone or "Asia/Kolkata",
+                        currency=payload.currency or "INR",
+                    ))
+
+            await self.session.commit()
+            return await self.get_organization(company_id)
+        except HTTPException:
+            await self.session.rollback()
+            raise
+        except Exception as exc:
+            await self.session.rollback()
+            logger.exception("Failed to update organization %s: %s", company_id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"An unexpected error occurred while updating organization: {str(exc)}",
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Stage 3: Departments CRUD (Strictly Isolated, No Demo Records)
