@@ -217,6 +217,7 @@ async def test_issue_4_no_silent_organization_creation_when_company_id_missing(u
         orphan_user = User(
             id=orphan_user_id,
             email=orphan_email,
+            phone=f"96{secrets.randbelow(90000000) + 10000000}",
             password_hash="dummy_hash",
             name=orphan_name,
             role="hr_admin",
@@ -230,7 +231,9 @@ async def test_issue_4_no_silent_organization_creation_when_company_id_missing(u
 
     # Generate token with NO company_id
     token_without_comp = create_access_token(
-        data={"sub": str(orphan_user_id), "role": "hr_admin", "company_id": None}
+        user_id=orphan_user_id,
+        role="hr_admin",
+        company_id=None,
     )
 
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:

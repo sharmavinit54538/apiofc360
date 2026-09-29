@@ -7,7 +7,7 @@ import httpx
 import secrets
 
 from fastapi import Depends, status
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -563,11 +563,17 @@ class AuthService:
             user = await self.auth_repository.get_user_by_identifier(payload.identifier)
         except AppException:
             raise
-        except Exception as exc:
-            logger.exception("Authentication failed: database lookup exception | identifier=%s", payload.identifier)
+        except (ProgrammingError, DBAPIError, SQLAlchemyError) as exc:
+            logger.exception("Authentication failed: database error during user lookup | identifier=%s", payload.identifier)
             raise AppException(
-                message="Invalid email or password.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                message="Internal database error occurred during login.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as exc:
+            logger.exception("Authentication failed: unexpected error during user lookup | identifier=%s", payload.identifier)
+            raise AppException(
+                message="Internal server error occurred during login.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # Check DB locked_until fallback persistence

@@ -13,6 +13,20 @@ jobs:
   validate:
     name: CI Syntax & Config Check
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -33,12 +47,25 @@ jobs:
         run: python -m compileall -q app alembic
 
       - name: Validate settings with dummy env vars
+        env:
+          ENVIRONMENT: "local"
+          DATABASE_URL: "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
+          SECRET_KEY: "ci-dummy-secret-key-that-is-at-least-32-chars-long"
+          REDIS_URL: "redis://localhost:6379/0"
         run: |
-          cp .env.example .env
           python -c "from app.core.config import settings; print('settings OK')"
 
       - name: Guard Alembic migration heads and graph integrity
         run: python scripts/check_migrations.py
+
+      - name: Verify migrations and schema consistency (alembic check)
+        env:
+          ENVIRONMENT: "local"
+          DATABASE_URL: "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
+          SECRET_KEY: "ci-dummy-secret-key-that-is-at-least-32-chars-long"
+          REDIS_URL: "redis://localhost:6379/0"
+        run: |
+          alembic upgrade head && alembic check
 
   deploy:
     name: Deploy to Dev Server
@@ -65,8 +92,13 @@ jobs:
               rsync -a --delete --exclude='.env' --exclude='.git' \"$GITHUB_WORKSPACE\"/ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
             fi
 
-            echo '[Deploy] Copying latest .env.example to .env for build and container creation...'
-            cp .env.example .env 2>/dev/null || cp \"$GITHUB_WORKSPACE/.env.example\" .env 2>/dev/null || true
+            # IMPORTANT: Do NOT overwrite .env on the server.
+            # The server's .env is managed separately with real secrets (via GitHub Secrets or AWS Secrets Manager).
+            if [ ! -f .env ]; then
+              echo '[Deploy] WARNING: No .env found on server. Please configure server environment variables.'
+            else
+              echo '[Deploy] Existing .env preserved on server.'
+            fi
           "
 
       - name: Pre-deploy validation (Syntax & Settings Check)

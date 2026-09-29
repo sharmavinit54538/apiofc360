@@ -20,20 +20,10 @@ if [ "$(id -u)" = "0" ]; then
     exec gosu appuser "$0" "$@"
 fi
 
-# Run database migrations ONLY for the API container (skips celery worker to avoid DB locks)
-if [ "$RUN_MIGRATIONS" = "true" ] || [ "$1" = "uvicorn" ]; then
-    echo "[Entrypoint] Verifying database connectivity before migrations..."
-    python scripts/wait_for_db.py
-
-    if [ -f "scripts/migrate_face_attendance.py" ]; then
-        echo "[Entrypoint] Ensuring face attendance schema columns..."
-        python scripts/migrate_face_attendance.py || true
-    fi
-
-    if [ -f "alembic.ini" ]; then
-        echo "[Entrypoint] Acquiring advisory lock and running migrations..."
-        python scripts/run_migrations.py
-    fi
+# Run database migrations only for the API container
+if [ "$RUN_MIGRATIONS" = "true" ]; then
+    echo "[Entrypoint] Running database migrations: alembic upgrade head..."
+    alembic upgrade head
 fi
 
 # Execute the container's main command
