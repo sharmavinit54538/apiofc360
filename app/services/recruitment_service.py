@@ -496,6 +496,9 @@ Generate realistic content under each heading. Make the tone professional, encou
         res = await self.session.execute(stmt)
         chan = res.scalar_one_or_none()
         if not chan:
+            fallback_job = await self.repo.get_job_by_slug(ukey)
+            if fallback_job and fallback_job.status == "PUBLISHED":
+                return JobResponse.model_validate(fallback_job)
             raise AppException(message="Job publish channel not found or inactive.", status_code=status.HTTP_404_NOT_FOUND)
             
         job = await self.repo.get_job_by_id(chan.job_id)
@@ -514,6 +517,9 @@ Generate realistic content under each heading. Make the tone professional, encou
         res = await self.session.execute(stmt)
         chan = res.scalar_one_or_none()
         if not chan:
+            fallback_job = await self.repo.get_job_by_slug(ukey)
+            if fallback_job and fallback_job.status == "PUBLISHED":
+                return await self.apply_to_job(ukey, payload, resume_file)
             raise AppException(message="Job publish channel not found or inactive.", status_code=status.HTTP_404_NOT_FOUND)
             
         job = await self.repo.get_job_by_id(chan.job_id)

@@ -74,3 +74,4 @@ def downgrade() -> None:
 
     # 5. Drop user_mfa unique constraint
     op.execute("ALTER TABLE user_mfa DROP CONSTRAINT IF EXISTS uq_user_mfa_user_id")
+

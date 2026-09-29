@@ -12,13 +12,25 @@ Production-ready schemas supporting all 6 onboarding stages:
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any, Generic, TypeVar
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 T = TypeVar("T")
+
+
+class OnboardingRequestModel(BaseModel):
+    """Base request contract for onboarding writes.
+
+    Rejecting unknown fields is deliberate: silently accepting a misspelled
+    field makes a successful-looking onboarding request lose data.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,10 +60,8 @@ class OnboardingAPIResponse(BaseModel, Generic[T]):
 # 1. Admin Profile Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class HRAdminProfileInput(BaseModel):
+class HRAdminProfileInput(OnboardingRequestModel):
     """Payload to create or update HR Admin Profile."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     first_name: str = Field(
         ...,
@@ -121,10 +131,8 @@ AdminProfileStepInput = HRAdminProfileInput
 # 2. Organization / Company Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class OrganizationInput(BaseModel):
+class OrganizationInput(OnboardingRequestModel):
     """Payload to create or update Company / Organization data."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     company_name: str | None = Field(
         default=None,
@@ -132,6 +140,12 @@ class OrganizationInput(BaseModel):
         max_length=100,
         validation_alias=AliasChoices("company_name", "companyName", "name", "title"),
         description="Company / Organization name",
+    )
+    legal_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices("legal_name", "legalName"),
     )
     industry: str | None = Field(default=None, max_length=100)
     company_size: str | None = Field(
@@ -169,6 +183,37 @@ class OrganizationInput(BaseModel):
     timezone: str | None = Field(default=None, max_length=50, description="Organization primary timezone")
     currency: str | None = Field(default=None, max_length=10, description="Organization base currency")
 
+    @field_validator("website")
+    @classmethod
+    def validate_website(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        if not re.fullmatch(r"https?://[^\s/$.?#][^\s]*", value, flags=re.IGNORECASE):
+            raise ValueError("Website must be a valid http(s) URL.")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value.strip())
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("Timezone must be a valid IANA timezone.") from exc
+        return value.strip()
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", value):
+            raise ValueError("Currency must be a three-letter ISO 4217 code.")
+        return value
+
 
 class OrganizationSummary(BaseModel):
     """Lightweight summary of organization for status and progress responses."""
@@ -184,6 +229,7 @@ class OrganizationResponse(BaseModel):
     id: str
     name: str = ""
     company_name: str = ""
+    legal_name: str | None = None
     industry: str | None = None
     company_size: str | None = None
     website: str | None = None
@@ -196,6 +242,8 @@ class OrganizationResponse(BaseModel):
     gst_number: str | None = None
     company_logo_url: str | None = None
     company_stamp_url: str | None = None
+    timezone: str | None = None
+    currency: str | None = None
     status: str = "PENDING"
     onboarding_completed: bool = False
     organization: dict[str, Any] | None = None
@@ -209,10 +257,8 @@ CompanyStepInput = OrganizationInput
 # 3. Department Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DepartmentCreateInput(BaseModel):
+class DepartmentCreateInput(OnboardingRequestModel):
     """Payload to create a single department."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     department_name: str = Field(
         ...,
@@ -229,10 +275,8 @@ class DepartmentCreateInput(BaseModel):
     location: str | None = Field(default="Headquarters", max_length=100)
 
 
-class DepartmentUpdateInput(BaseModel):
+class DepartmentUpdateInput(OnboardingRequestModel):
     """Payload to update an existing department."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     department_name: str | None = Field(
         default=None,
@@ -265,15 +309,13 @@ class DepartmentItemResponse(BaseModel):
 
 
 # Compatibility aliases for existing batch step endpoint
-class DepartmentStepInput(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+class DepartmentStepInput(OnboardingRequestModel):
     department_code: str = Field(default="", validation_alias=AliasChoices("department_code", "departmentCode", "code"))
     department_name: str = Field(default="", validation_alias=AliasChoices("department_name", "departmentName", "name"))
     description: str = Field(default="")
 
 
-class DepartmentStepInputList(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+class DepartmentStepInputList(OnboardingRequestModel):
     departments: list[DepartmentStepInput] = Field(default=[])
 
 
@@ -281,10 +323,8 @@ class DepartmentStepInputList(BaseModel):
 # 4. Designation Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DesignationCreateInput(BaseModel):
+class DesignationCreateInput(OnboardingRequestModel):
     """Payload to create a designation."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     name: str = Field(
         ...,
@@ -295,10 +335,8 @@ class DesignationCreateInput(BaseModel):
     description: str | None = Field(default=None, max_length=255)
 
 
-class DesignationUpdateInput(BaseModel):
+class DesignationUpdateInput(OnboardingRequestModel):
     """Payload to update a designation."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     name: str | None = Field(
         default=None,
@@ -320,8 +358,7 @@ class DesignationItemResponse(BaseModel):
 
 
 # Compatibility aliases for batch step
-class DesignationStepInputList(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+class DesignationStepInputList(OnboardingRequestModel):
     designations: list[str] = Field(default=[])
 
 
@@ -332,10 +369,8 @@ class DesignationStepInputList(BaseModel):
 VALID_DAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 
 
-class WorkScheduleInput(BaseModel):
+class WorkScheduleInput(OnboardingRequestModel):
     """Payload for Work Schedule and HR Settings configuration."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     timezone: str = Field(
         default="Asia/Kolkata",
@@ -368,7 +403,7 @@ class WorkScheduleInput(BaseModel):
         validation_alias=AliasChoices("week_start_day", "weekStartDay"),
     )
     working_days: list[str] = Field(
-        default=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        default_factory=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
         validation_alias=AliasChoices("working_days", "workingDays"),
     )
     office_start_time: str = Field(
@@ -386,6 +421,62 @@ class WorkScheduleInput(BaseModel):
         max_length=50,
         validation_alias=AliasChoices("default_shift", "defaultShift", "shift"),
     )
+    leave_policy_template: str | None = Field(
+        default=None,
+        max_length=100,
+        validation_alias=AliasChoices("leave_policy_template", "leavePolicyTemplate"),
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_schedule_timezone(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("Timezone must be a valid IANA timezone.") from exc
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def validate_schedule_currency(cls, value: str) -> str:
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", value):
+            raise ValueError("Currency must be a three-letter ISO 4217 code.")
+        return value
+
+    @field_validator("date_format")
+    @classmethod
+    def validate_date_format(cls, value: str) -> str:
+        value = value.strip()
+        if value not in {"YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY", "DD-MM-YYYY"}:
+            raise ValueError("Unsupported date format.")
+        return value
+
+    @field_validator("time_format")
+    @classmethod
+    def validate_time_format(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"12h", "24h"}:
+            raise ValueError("Time format must be either '12h' or '24h'.")
+        return value
+
+    @field_validator("week_start_day")
+    @classmethod
+    def validate_week_start_day(cls, value: str) -> str:
+        value = value.strip().capitalize()
+        if value not in VALID_DAYS:
+            raise ValueError("week_start_day must be a valid weekday.")
+        return value
+
+    @field_validator("financial_year")
+    @classmethod
+    def validate_financial_year(cls, value: str) -> str:
+        value = value.strip()
+        match = re.fullmatch(r"(\d{4})-(\d{4})", value)
+        if not match or int(match.group(2)) != int(match.group(1)) + 1:
+            raise ValueError("financial_year must use YYYY-YYYY with consecutive years.")
+        return value
 
     @field_validator("working_days")
     @classmethod
@@ -398,16 +489,36 @@ class WorkScheduleInput(BaseModel):
             if clean not in VALID_DAYS:
                 raise ValueError(f"Invalid weekday: {d}. Must be one of {sorted(VALID_DAYS)}.")
             normalized.append(clean)
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("working_days cannot contain duplicates.")
         return normalized
 
     @field_validator("office_start_time", "office_end_time")
     @classmethod
     def validate_time(cls, v: str) -> str:
         clean = str(v).strip()
-        # Accept HH:MM (24h) or "09:00 AM"
-        if not clean:
-            raise ValueError("Time string cannot be empty.")
-        return clean
+        for fmt in ("%H:%M", "%I:%M %p"):
+            try:
+                datetime.strptime(clean.upper(), fmt)
+                return clean
+            except ValueError:
+                continue
+        raise ValueError("Time must use HH:MM (24-hour) or HH:MM AM/PM format.")
+
+    @model_validator(mode="after")
+    def validate_office_hours(self) -> "WorkScheduleInput":
+        def to_minutes(value: str) -> int:
+            for fmt in ("%H:%M", "%I:%M %p"):
+                try:
+                    parsed = datetime.strptime(value.upper(), fmt)
+                    return parsed.hour * 60 + parsed.minute
+                except ValueError:
+                    continue
+            raise ValueError("Invalid office time.")
+
+        if to_minutes(self.office_start_time) >= to_minutes(self.office_end_time):
+            raise ValueError("office_start_time must be earlier than office_end_time.")
+        return self
 
 
 class WorkScheduleResponse(BaseModel):
@@ -423,6 +534,7 @@ class WorkScheduleResponse(BaseModel):
     office_start_time: str
     office_end_time: str
     default_shift: str
+    leave_policy_template: str | None = None
 
 
 # Compatibility alias
@@ -433,10 +545,8 @@ HRSettingsStepInput = WorkScheduleInput
 # 6. Leave Policy Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class LeavePolicyCreateInput(BaseModel):
+class LeavePolicyCreateInput(OnboardingRequestModel):
     """Payload to create a leave policy."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     name: str = Field(
         ...,
@@ -459,10 +569,8 @@ class LeavePolicyCreateInput(BaseModel):
     status: str = Field(default="ACTIVE", max_length=20)
 
 
-class LeavePolicyUpdateInput(BaseModel):
+class LeavePolicyUpdateInput(OnboardingRequestModel):
     """Payload to update a leave policy."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     name: str | None = Field(
         default=None,
@@ -498,10 +606,8 @@ class LeavePolicyResponse(BaseModel):
 # 7. Individual Employee Invitation Schemas (STRICTLY INDIVIDUAL ONLY)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class IndividualInvitationInput(BaseModel):
+class IndividualInvitationInput(OnboardingRequestModel):
     """Payload for individual employee invitation. Bulk APIs strictly prohibited."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     employee_name: str = Field(
         ...,
@@ -526,8 +632,8 @@ class InvitationResponse(BaseModel):
     employee_email: str
     department: str | None = None
     designation: str | None = None
-    invitation_token: str
     status: str = "PENDING"
+    delivery_status: str = "QUEUED"
     expires_at: str
     created_at: str
 
@@ -540,8 +646,7 @@ class InvitationListResponse(BaseModel):
 
 
 # Compatibility aliases for batch step
-class InviteEmployeeStepInput(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+class InviteEmployeeStepInput(OnboardingRequestModel):
     first_name: str = Field(default="", validation_alias=AliasChoices("first_name", "firstName"))
     last_name: str = Field(default="", validation_alias=AliasChoices("last_name", "lastName"))
     personal_email: str = Field(default="", validation_alias=AliasChoices("personal_email", "personalEmail", "email"))
@@ -550,8 +655,7 @@ class InviteEmployeeStepInput(BaseModel):
     designation: str = Field(default="")
 
 
-class InviteEmployeeStepInputList(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+class InviteEmployeeStepInputList(OnboardingRequestModel):
     employees: list[InviteEmployeeStepInput] = Field(default=[])
     skip: bool = False
 
@@ -560,10 +664,8 @@ class InviteEmployeeStepInputList(BaseModel):
 # 8. Onboarding Progress & Structure Review Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
-class OnboardingProgressUpdateInput(BaseModel):
+class OnboardingProgressUpdateInput(OnboardingRequestModel):
     """Payload to save onboarding progress."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     current_step: int = Field(..., ge=1, le=7)
     completed_steps: list[int | str] | None = None
@@ -624,6 +726,14 @@ class OnboardingReviewResponse(BaseModel):
     onboarding_status: str
     current_step: int
     completion_percentage: float
+    can_activate: bool = False
+
+
+class OrganizationStructureInput(OnboardingRequestModel):
+    """Atomically save the organization stage of the wizard."""
+
+    departments: list[DepartmentCreateInput] = Field(min_length=1)
+    designations: list[DesignationCreateInput] = Field(min_length=1)
 
 
 class FileUploadResponse(BaseModel):

@@ -12,6 +12,8 @@ Provides comprehensive transaction-safe business logic for:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import html
 import logging
 import secrets
 from typing import Any, Dict, List, Optional
@@ -19,6 +21,7 @@ import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -29,6 +32,8 @@ from app.models.employee import Employee
 from app.models.employee_invitation import EmployeeInvitation
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress, Shift
 from app.models.user import User
+from app.core.config import settings
+from app.services.email_service import send_email
 from app.schemas.onboarding import (
     DepartmentCreateInput,
     DepartmentItemResponse,
@@ -46,6 +51,7 @@ from app.schemas.onboarding import (
     OnboardingProgressResponse,
     OnboardingReviewResponse,
     OnboardingStatusResponse,
+    OrganizationStructureInput,
     OrganizationInput,
     OrganizationResponse,
     WorkScheduleInput,
@@ -60,6 +66,81 @@ class HRAdminOnboardingService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    # The current step is *derived* from persisted completion evidence.  It is
+    # never accepted from a browser request.  The flag names are legacy column
+    # names, while this is the canonical product ordering:
+    # 1 Company, 2 Admin profile, 3 HR settings, 4 Org structure,
+    # 5 Invitations/skip, 6 Review, 7 Completed.
+    _REQUIRED_BEFORE = {
+        1: (),
+        2: ("company_completed",),
+        3: ("company_completed", "admin_completed"),
+        4: ("company_completed", "admin_completed", "hr_completed"),
+        5: ("company_completed", "admin_completed", "hr_completed", "departments_completed", "designations_completed"),
+        6: ("company_completed", "admin_completed", "hr_completed", "departments_completed", "designations_completed", "employees_invited"),
+    }
+
+    @staticmethod
+    def _normalized(value: str) -> str:
+        return " ".join(value.split()).casefold()
+
+    async def _require_prior_steps(self, progress: OnboardingProgress, target_step: int) -> None:
+        missing = [flag for flag in self._REQUIRED_BEFORE[target_step] if not getattr(progress, flag)]
+        if missing:
+            await self._refresh_state(progress)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Complete the preceding onboarding step before saving step {target_step}.",
+            )
+
+    async def _refresh_state(self, progress: OnboardingProgress, company: Company | None = None) -> None:
+        """Recompute state from backend facts without ever regressing completed work."""
+        if progress.onboarding_completed:
+            progress.current_step = 7
+            progress.status = "completed"
+        elif not progress.company_completed:
+            progress.current_step = 1
+            progress.status = "not_started"
+        elif not progress.admin_completed:
+            progress.current_step = 2
+            progress.status = "in_progress"
+        elif not progress.hr_completed:
+            progress.current_step = 3
+            progress.status = "in_progress"
+        elif not (progress.departments_completed and progress.designations_completed):
+            progress.current_step = 4
+            progress.status = "in_progress"
+        elif not progress.employees_invited:
+            progress.current_step = 5
+            progress.status = "in_progress"
+        else:
+            progress.current_step = 6
+            progress.status = "in_progress"
+
+        await self._sync_completed_steps(progress)
+        if company is not None:
+            company.onboarding_step = progress.current_step
+            company.onboarding_completed = bool(progress.onboarding_completed)
+
+    @staticmethod
+    def _invitation_token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    async def _refresh_organization_completion(self, progress: OnboardingProgress, company: Company | None = None) -> None:
+        """Step 4 is complete only when both persisted collections are non-empty."""
+        department_count = await self.session.scalar(
+            select(func.count(Department.id)).where(
+                Department.company_id == progress.company_id,
+                Department.is_deleted.is_(False),
+            )
+        )
+        designation_count = await self.session.scalar(
+            select(func.count(Designation.id)).where(Designation.company_id == progress.company_id)
+        )
+        progress.departments_completed = bool(department_count)
+        progress.designations_completed = bool(designation_count)
+        await self._refresh_state(progress, company)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Helper: Ensure Organization Access
@@ -138,13 +219,27 @@ class HRAdminOnboardingService:
         if not user.company_id:
             user.company_id = company_id
 
+        progress = await self.get_or_create_progress(company_id, user_id)
+        # A completed profile may always be revisited, but first completion
+        # cannot bypass the company stage.
+        if not progress.admin_completed:
+            await self._require_prior_steps(progress, 2)
+
+        if payload.work_email and payload.work_email.lower().strip() != (user.email or "").lower().strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="work_email must match the authenticated account email. Change account email through the verified email workflow.",
+            )
+
         clean_first = payload.first_name.strip()
         clean_last = payload.last_name.strip()
         clean_phone = payload.phone_number.strip()
         user.name = f"{clean_first} {clean_last}".strip()
         user.phone = clean_phone
 
-        # Upsert or link Employee profile for HR Admin
+        # A registered HR Admin is already represented by User.  Update an
+        # existing linked Employee profile if one exists, but never manufacture
+        # an employee with placeholder department/designation values here.
         emp_result = await self.session.execute(
             select(Employee).where(
                 (Employee.user_id == user.id) |
@@ -163,29 +258,6 @@ class HRAdminOnboardingService:
                 emp.profile_photo_url = payload.profile_photo_url
             if not emp.company_id:
                 emp.company_id = company_id
-        else:
-            new_emp = Employee(
-                id=uuid.uuid4(),
-                company_id=company_id,
-                user_id=user.id,
-                employee_id=f"EMP-ADM-{secrets.token_hex(3).upper()}",
-                first_name=clean_first,
-                last_name=clean_last,
-                company_email=user.email,
-                personal_email=user.email,
-                phone=clean_phone,
-                designation=payload.job_title or "HR Admin",
-                department="Management",
-                profile_photo_url=payload.profile_photo_url,
-                employment_type="FULL_TIME",
-                employment_status="CONFIRMED",
-                status="ACTIVE",
-                role="hr_admin",
-                is_active=True,
-                created_by=user.id,
-            )
-            self.session.add(new_emp)
-
         # Update snapshot on company
         company = await self.get_company(company_id)
         prof = company.company_profile or {}
@@ -200,13 +272,8 @@ class HRAdminOnboardingService:
         company.company_profile = prof
         flag_modified(company, "company_profile")
 
-        # Mark admin step in progress
-        progress = await self.get_or_create_progress(company_id, user_id)
         progress.admin_completed = True
-        if progress.current_step < 2:
-            progress.current_step = 2
-        progress.status = "in_progress"
-        await self._sync_completed_steps(progress)
+        await self._refresh_state(progress, company)
 
         await self.session.commit()
 
@@ -234,6 +301,7 @@ class HRAdminOnboardingService:
             "id": str(company.id),
             "name": canonical_name,
             "company_name": canonical_name,
+            "legal_name": prof.get("legal_name"),
             "industry": prof.get("industry"),
             "company_size": prof.get("company_size") or prof.get("companySize"),
             "website": prof.get("website"),
@@ -246,6 +314,8 @@ class HRAdminOnboardingService:
             "gst_number": prof.get("gst_number") or prof.get("gstNumber"),
             "company_logo_url": prof.get("company_logo_url") or prof.get("company_logo") or prof.get("logo"),
             "company_stamp_url": prof.get("company_stamp_url") or prof.get("company_stamp") or prof.get("stamp"),
+            "timezone": company.timezone or prof.get("timezone"),
+            "currency": prof.get("currency"),
             "status": getattr(company, "status", "PENDING") or "PENDING",
             "onboarding_completed": bool(company.onboarding_completed),
         }
@@ -258,7 +328,12 @@ class HRAdminOnboardingService:
     async def create_organization(self, user_id: uuid.UUID, payload: OrganizationInput) -> OrganizationResponse:
         """Create a new organization for the HR Admin."""
         user = await self.get_user(user_id)
-        clean_name = payload.company_name.strip() if payload.company_name else "Organization"
+        clean_name = payload.company_name.strip() if payload.company_name else ""
+        if not clean_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="company_name is required when creating an organization.",
+            )
 
         # If user already has a company, update it instead of creating duplicates
         if user.company_id:
@@ -270,7 +345,7 @@ class HRAdminOnboardingService:
             id=uuid.uuid4(),
             name=clean_name,
             onboarding_completed=False,
-            onboarding_step=2,
+            onboarding_step=1,
             company_profile=payload.model_dump(),
         )
         setattr(company, "status", "PENDING")
@@ -282,10 +357,7 @@ class HRAdminOnboardingService:
 
         progress = await self.get_or_create_progress(company.id, user_id)
         progress.company_completed = True
-        if progress.current_step < 3:
-            progress.current_step = 3
-        progress.status = "in_progress"
-        await self._sync_completed_steps(progress)
+        await self._refresh_state(progress, company)
 
         await self.session.commit()
         return await self.get_organization(company.id)
@@ -319,15 +391,14 @@ class HRAdminOnboardingService:
 
             progress = await self.get_or_create_progress(company_id)
             progress.company_completed = True
-            if progress.current_step < 3:
-                progress.current_step = 3
-            progress.status = "in_progress"
-            await self._sync_completed_steps(progress)
+            await self._refresh_state(progress, company)
 
             # Sync timezone and currency to CompanySettings if provided
             if payload.timezone or payload.currency:
-                cs_res = await self.session.execute(select(CompanySettings).where(CompanySettings.company_id == company_id))
-                cs = cs_res.scalar_one_or_none()
+                cs_res = await self.session.execute(
+                    select(CompanySettings).where(CompanySettings.company_id == company_id).order_by(CompanySettings.created_at.desc()).limit(1)
+                )
+                cs = cs_res.scalars().first()
                 if cs:
                     if payload.timezone:
                         cs.timezone = payload.timezone
@@ -346,13 +417,17 @@ class HRAdminOnboardingService:
         except HTTPException:
             await self.session.rollback()
             raise
+        except IntegrityError as exc:
+            await self.session.rollback()
+            logger.warning("Organization save conflict for company_id=%s", company_id, exc_info=exc)
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Organization data conflicts with an existing record.") from exc
         except Exception as exc:
             await self.session.rollback()
-            logger.exception("Failed to update organization %s: %s", company_id, exc)
+            logger.exception("Failed to update organization %s", company_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"An unexpected error occurred while updating organization: {str(exc)}",
-            )
+                detail="Unable to save organization at this time.",
+            ) from exc
 
     # ─────────────────────────────────────────────────────────────────────────
     # Stage 3: Departments CRUD (Strictly Isolated, No Demo Records)
@@ -364,15 +439,24 @@ class HRAdminOnboardingService:
         """Create department for an organization. Prevents duplicates and demo data."""
         clean_name = payload.department_name.strip()
         clean_code = (payload.department_code or "").strip()
-        if not clean_code:
-            clean_code = "".join(filter(str.isalnum, clean_name.upper()))[:6] or "DEPT"
+        if not clean_name or not clean_code:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="department_name and department_code are required.",
+            )
+        normalized_name = self._normalized(clean_name)
+        normalized_code = self._normalized(clean_code)
+
+        progress = await self.get_or_create_progress(company_id, user_id)
+        if not progress.departments_completed:
+            await self._require_prior_steps(progress, 4)
 
         # Duplicate check within company
         dup_check = await self.session.execute(
             select(Department).where(
                 Department.company_id == company_id,
-                (func.lower(Department.department_name) == clean_name.lower()) |
-                (func.lower(Department.department_code) == clean_code.lower())
+                (Department.normalized_name == normalized_name) |
+                (Department.normalized_code == normalized_code)
             )
         )
         if dup_check.scalars().first():
@@ -383,6 +467,8 @@ class HRAdminOnboardingService:
             company_id=company_id,
             department_name=clean_name,
             department_code=clean_code,
+            normalized_name=normalized_name,
+            normalized_code=normalized_code,
             description=payload.description or "",
             location=payload.location or "Headquarters",
             status="ACTIVE",
@@ -390,11 +476,13 @@ class HRAdminOnboardingService:
         )
         self.session.add(dept)
 
-        progress = await self.get_or_create_progress(company_id, user_id)
-        progress.departments_completed = True
-        await self._sync_completed_steps(progress)
-
-        await self.session.commit()
+        try:
+            await self.session.flush()
+            await self._refresh_organization_completion(progress, await self.get_company(company_id))
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(message="A department with this name or code already exists in this organization.") from exc
         return DepartmentItemResponse(
             id=str(dept.id),
             company_id=str(dept.company_id),
@@ -481,9 +569,23 @@ class HRAdminOnboardingService:
             if dup.scalars().first():
                 raise ConflictException(message=f"Department '{clean_name}' already exists in this organization.")
             dept.department_name = clean_name
+            dept.normalized_name = self._normalized(clean_name)
 
         if payload.department_code:
-            dept.department_code = payload.department_code.strip()
+            clean_code = payload.department_code.strip()
+            if not clean_code:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="department_code cannot be empty.")
+            code_dup = await self.session.execute(
+                select(Department).where(
+                    Department.company_id == company_id,
+                    Department.id != department_id,
+                    Department.normalized_code == self._normalized(clean_code),
+                )
+            )
+            if code_dup.scalars().first():
+                raise ConflictException(message=f"Department code '{clean_code}' already exists in this organization.")
+            dept.department_code = clean_code
+            dept.normalized_code = self._normalized(clean_code)
         if payload.description is not None:
             dept.description = payload.description
         if payload.location:
@@ -491,7 +593,11 @@ class HRAdminOnboardingService:
         if payload.status:
             dept.status = payload.status
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(message="A department with this name or code already exists in this organization.") from exc
         return await self.get_department(company_id, department_id)
 
     async def delete_department(self, company_id: uuid.UUID, department_id: uuid.UUID) -> bool:
@@ -503,6 +609,8 @@ class HRAdminOnboardingService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found.")
 
         await self.session.delete(dept)
+        progress = await self.get_or_create_progress(company_id)
+        await self._refresh_organization_completion(progress, await self.get_company(company_id))
         await self.session.commit()
         return True
 
@@ -513,10 +621,16 @@ class HRAdminOnboardingService:
     async def create_designation(self, company_id: uuid.UUID, payload: DesignationCreateInput) -> DesignationItemResponse:
         """Create designation for organization with duplicate prevention."""
         clean_name = payload.name.strip()
+        if not clean_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Designation name cannot be empty.")
+        normalized_name = self._normalized(clean_name)
+        progress = await self.get_or_create_progress(company_id)
+        if not progress.designations_completed:
+            await self._require_prior_steps(progress, 4)
         dup = await self.session.execute(
             select(Designation).where(
                 Designation.company_id == company_id,
-                func.lower(Designation.name) == clean_name.lower()
+                Designation.normalized_name == normalized_name
             )
         )
         if dup.scalars().first():
@@ -526,15 +640,17 @@ class HRAdminOnboardingService:
             id=uuid.uuid4(),
             company_id=company_id,
             name=clean_name,
-            description=payload.description or f"Role designation for {clean_name}",
+            normalized_name=normalized_name,
+            description=payload.description,
         )
         self.session.add(desig)
-
-        progress = await self.get_or_create_progress(company_id)
-        progress.designations_completed = True
-        await self._sync_completed_steps(progress)
-
-        await self.session.commit()
+        try:
+            await self.session.flush()
+            await self._refresh_organization_completion(progress, await self.get_company(company_id))
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(message="A designation with this name already exists in this organization.") from exc
         return DesignationItemResponse(
             id=str(desig.id),
             company_id=str(desig.company_id),
@@ -598,11 +714,16 @@ class HRAdminOnboardingService:
             if dup.scalars().first():
                 raise ConflictException(message=f"Designation '{clean}' already exists in this organization.")
             d.name = clean
+            d.normalized_name = self._normalized(clean)
 
         if payload.description is not None:
             d.description = payload.description
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(message="A designation with this name already exists in this organization.") from exc
         return await self.get_designation(company_id, designation_id)
 
     async def delete_designation(self, company_id: uuid.UUID, designation_id: uuid.UUID) -> bool:
@@ -615,6 +736,8 @@ class HRAdminOnboardingService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Designation not found.")
 
         await self.session.delete(d)
+        progress = await self.get_or_create_progress(company_id)
+        await self._refresh_organization_completion(progress, await self.get_company(company_id))
         await self.session.commit()
         return True
 
