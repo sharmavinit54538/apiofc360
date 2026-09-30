@@ -20,6 +20,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -264,16 +265,23 @@ async def save_company_details(
             onboarding_completed=org.onboarding_completed,
             data=org,
         )
-    except HTTPException:
+    except (HTTPException, AppException):
         await session.rollback()
         raise
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.exception("save_company_details database error for company_id=%s: %s", company_id, exc)
+        raise AppException(
+            message="A database error occurred while saving company details.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        ) from exc
     except Exception as exc:
         await session.rollback()
         logger.exception("save_company_details failed for company_id=%s: %s", company_id, exc)
-        raise HTTPException(
+        raise AppException(
+            message=f"An unexpected error occurred while saving company details: {str(exc)}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred while saving company details: {str(exc)}",
-        )
+        ) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────────

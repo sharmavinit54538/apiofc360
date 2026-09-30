@@ -77,4 +77,10 @@ class Company(Base):
         default="Asia/Kolkata",
         server_default=text("'Asia/Kolkata'"),
     )
+    currency: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        default="INR",
+        server_default=text("'INR'"),
+    )
 

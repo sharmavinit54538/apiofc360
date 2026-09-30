@@ -142,7 +142,7 @@ async def update_admin_profile(
             onboarding_step=1,
             company_profile={},
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user.company_id = new_comp.id
@@ -621,7 +621,7 @@ async def get_onboarding_progress(
             onboarding_step=1,
             company_profile={},
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user.company_id = new_comp.id
@@ -765,7 +765,7 @@ async def save_wizard_data(
             onboarding_step=1,
             company_profile=payload,
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user = await service.get_user(user_id)
@@ -812,7 +812,7 @@ async def save_step_by_index(
             onboarding_step=step_index + 1,
             company_profile=payload,
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user = await service.get_user(user_id)

@@ -23,7 +23,10 @@ fi
 # Run database migrations only for the API container
 if [ "$RUN_MIGRATIONS" = "true" ]; then
     echo "[Entrypoint] Running database migrations: alembic upgrade head..."
-    alembic upgrade head
+    alembic upgrade head || {
+        echo "[Entrypoint] FATAL: Database migration failed. Aborting startup."
+        exit 1
+    }
 fi
 
 # Execute the container's main command

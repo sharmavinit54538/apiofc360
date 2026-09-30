@@ -61,6 +61,7 @@ app/templates.zip
 
 # One-off diagnostic scripts at root (should be in scripts/ or admin_tools/)
 check_*.py
+!scripts/check_schema.py
 inspect_*.py
 read_*.py
 fix_*.py

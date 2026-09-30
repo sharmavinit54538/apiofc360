@@ -11,21 +11,24 @@ Provides comprehensive transaction-safe business logic for:
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import logging
+import os
+import re
 import secrets
 from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.exceptions import ConflictException, NotFoundException, ValidationException
+from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
 from app.models.company import Company
 from app.models.department import Department
 from app.models.employee import Employee
@@ -59,6 +62,71 @@ from app.schemas.onboarding import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _process_data_url_image(data_url: str | None, category: str = "company_logo") -> str | None:
+    """If data_url starts with 'data:', validate and decode image, save to disk, and return relative URL.
+
+    Validates:
+    - MIME type must be image/jpeg, image/png, or image/webp
+    - Base64 encoding must be valid
+    - Decoded size must not exceed 2 MB
+    Raises HTTPException(422) if invalid.
+    """
+    if not data_url or not data_url.startswith("data:"):
+        return data_url
+
+    match = re.match(r"^data:(image\/(jpeg|png|webp|jpg));base64,(.+)$", data_url, flags=re.DOTALL | re.IGNORECASE)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid image format. Only JPEG, PNG, and WebP Data URLs are supported.",
+        )
+
+    mime_type = match.group(1).lower()
+    ext_map = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    ext = ext_map.get(mime_type, ".png")
+    b64_data = match.group(3)
+
+    try:
+        image_bytes = base64.b64decode(b64_data)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid base64 encoding in image payload.",
+        ) from exc
+
+    if len(image_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Image payload is empty.",
+        )
+
+    max_size = 2 * 1024 * 1024  # 2 MB limit
+    if len(image_bytes) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Image size exceeds the 2 MB limit (received {len(image_bytes) / (1024 * 1024):.2f} MB).",
+        )
+
+    # Magic byte verification
+    if ext == ".png" and not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Corrupted PNG image.")
+    elif ext == ".jpg" and not image_bytes.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Corrupted JPEG image.")
+    elif ext == ".webp" and not (image_bytes.startswith(b"RIFF") and b"WEBP" in image_bytes[:16]):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Corrupted WebP image.")
+
+    upload_dir = os.path.join("uploads", "onboarding", category)
+    os.makedirs(upload_dir, exist_ok=True)
+    unique_name = f"{secrets.token_hex(8)}_{category}{ext}"
+    file_path = os.path.join(upload_dir, unique_name)
+
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+
+    return f"/uploads/onboarding/{category}/{unique_name}".replace("\\", "/")
+
 
 
 class HRAdminOnboardingService:
@@ -314,15 +382,14 @@ class HRAdminOnboardingService:
             "gst_number": prof.get("gst_number") or prof.get("gstNumber"),
             "company_logo_url": prof.get("company_logo_url") or prof.get("company_logo") or prof.get("logo"),
             "company_stamp_url": prof.get("company_stamp_url") or prof.get("company_stamp") or prof.get("stamp"),
-            "timezone": company.timezone or prof.get("timezone"),
-            "currency": prof.get("currency"),
-            "status": getattr(company, "status", "PENDING") or "PENDING",
+            "timezone": company.timezone or prof.get("timezone") or "Asia/Kolkata",
+            "currency": company.currency or prof.get("currency") or "INR",
+            "status": company.status or "PENDING",
             "onboarding_completed": bool(company.onboarding_completed),
         }
 
         return OrganizationResponse(
             **org_data,
-            organization=org_data,
         )
 
     async def create_organization(self, user_id: uuid.UUID, payload: OrganizationInput) -> OrganizationResponse:
@@ -346,9 +413,11 @@ class HRAdminOnboardingService:
             name=clean_name,
             onboarding_completed=False,
             onboarding_step=1,
+            status="PENDING",
+            timezone=payload.timezone or "Asia/Kolkata",
+            currency=payload.currency or "INR",
             company_profile=payload.model_dump(),
         )
-        setattr(company, "status", "PENDING")
         self.session.add(company)
         await self.session.flush()
 
@@ -379,6 +448,15 @@ class HRAdminOnboardingService:
 
             if payload.timezone:
                 company.timezone = payload.timezone
+            if payload.currency:
+                company.currency = payload.currency
+
+            # Process base64 data URLs for logo and stamp to avoid storing massive base64 in JSON
+            if payload.company_logo_url and payload.company_logo_url.startswith("data:"):
+                payload.company_logo_url = _process_data_url_image(payload.company_logo_url, "company_logo")
+
+            if payload.company_stamp_url and payload.company_stamp_url.startswith("data:"):
+                payload.company_stamp_url = _process_data_url_image(payload.company_stamp_url, "company_stamp")
 
             prof = company.company_profile or {}
             update_dict = payload.model_dump(exclude_unset=True)
@@ -386,6 +464,19 @@ class HRAdminOnboardingService:
             prof["company_name"] = clean_name
             prof["name"] = clean_name
             prof["companyName"] = clean_name
+            if payload.timezone:
+                prof["timezone"] = payload.timezone
+            if payload.currency:
+                prof["currency"] = payload.currency
+            if payload.company_logo_url:
+                prof["company_logo_url"] = payload.company_logo_url
+                prof["company_logo"] = payload.company_logo_url
+                prof["logo"] = payload.company_logo_url
+            if payload.company_stamp_url:
+                prof["company_stamp_url"] = payload.company_stamp_url
+                prof["company_stamp"] = payload.company_stamp_url
+                prof["stamp"] = payload.company_stamp_url
+
             company.company_profile = prof
             flag_modified(company, "company_profile")
 
@@ -414,19 +505,26 @@ class HRAdminOnboardingService:
 
             await self.session.commit()
             return await self.get_organization(company_id)
-        except HTTPException:
+        except (HTTPException, AppException):
             await self.session.rollback()
             raise
         except IntegrityError as exc:
             await self.session.rollback()
             logger.warning("Organization save conflict for company_id=%s", company_id, exc_info=exc)
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Organization data conflicts with an existing record.") from exc
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.exception("Database error while updating organization %s: %s", company_id, exc)
+            raise AppException(
+                message="A database error occurred while saving organization details.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ) from exc
         except Exception as exc:
             await self.session.rollback()
             logger.exception("Failed to update organization %s", company_id)
-            raise HTTPException(
+            raise AppException(
+                message="Unable to save organization at this time.",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Unable to save organization at this time.",
             ) from exc
 
     # ─────────────────────────────────────────────────────────────────────────
