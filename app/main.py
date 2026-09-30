@@ -903,7 +903,7 @@ def create_app() -> FastAPI:
     from fastapi.staticfiles import StaticFiles
     import os
     # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos"]
+    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
         try:
