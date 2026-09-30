@@ -134,6 +134,7 @@ class AccountService:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
             if not verify_password(payload.current_password, user.password_hash):
                 logger.warning("change_password: wrong current password | user_id=%s | file=account_service.py | func=change_password", user_id)
+                raise AppException(message="Current password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if verify_password(payload.new_password, user.password_hash):
                 raise AppException(message="New password must be different from the current password.", status_code=status.HTTP_400_BAD_REQUEST)
             await self.auth_repository.update_user_password(user_id, hash_password(payload.new_password))

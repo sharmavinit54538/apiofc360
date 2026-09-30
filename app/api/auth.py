@@ -959,7 +959,7 @@ async def get_me(
     )
 
 
-@router.patch(
+@router.post(
     "/change-password",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
@@ -971,6 +971,13 @@ async def get_me(
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
     },
+)
+@router.patch(
+    "/change-password",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[None],
+    summary="Change account password (PATCH compatibility)",
+    include_in_schema=False,
 )
 async def change_password(
     payload: ChangePasswordRequest,
