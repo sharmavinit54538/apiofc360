@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 import uuid
 
-from sqlalchemy import String, DateTime, func, Text, Float, Integer, ForeignKey, JSON
+from sqlalchemy import String, DateTime, func, Text, Float, Integer, ForeignKey, JSON, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,7 +47,7 @@ class PaymentTransaction(Base):
         index=True,
     )
     plan_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    billing_cycle: Mapped[str] = mapped_column(String(50), nullable=False, default="monthly")
+    billing_cycle: Mapped[str] = mapped_column(String(50), nullable=False, default="monthly", server_default=text("'monthly'"))
     
     razorpay_order_id: Mapped[str] = mapped_column(
         String(100),
@@ -65,9 +65,9 @@ class PaymentTransaction(Base):
 
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
-    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="INR")
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="INR", server_default=text("'INR'"))
     
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default=PaymentStatus.CREATED.value, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default=PaymentStatus.CREATED.value, server_default=text("'CREATED'"), index=True)
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     payment_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)

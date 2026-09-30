@@ -69,7 +69,6 @@ class Company(Base):
     geofence_radius_meters: Mapped[float | None] = mapped_column(
         nullable=True,
         default=200.0,
-        server_default=text("200.0"),
     )
     timezone: Mapped[str | None] = mapped_column(
         String(50),

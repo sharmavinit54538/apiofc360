@@ -261,7 +261,7 @@ class ConnectMessageAttachment(Base):
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relations
@@ -285,8 +285,8 @@ class ConnectCallLog(Base):
     caller_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     callee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
-    call_type: Mapped[str] = mapped_column(String(20), nullable=False, default="audio")  # audio, video
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="initiated")  # initiated, ringing, connected, rejected, ended, missed, failed
+    call_type: Mapped[str] = mapped_column(String(20), nullable=False, default="audio", server_default=text("'audio'"))  # audio, video
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="initiated", server_default=text("'initiated'"))  # initiated, ringing, connected, rejected, ended, missed, failed
     room_id: Mapped[str] = mapped_column(String(100), nullable=False)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -319,12 +319,12 @@ class ConnectMeeting(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     meeting_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    meeting_type: Mapped[str] = mapped_column(String(20), nullable=False, default="instant")  # instant, scheduled
+    meeting_type: Mapped[str] = mapped_column(String(20), nullable=False, default="instant", server_default=text("'instant'"))  # instant, scheduled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled", server_default=text("'scheduled'"))  # scheduled, live, ended, cancelled
 
-    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=func.now())
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
 
     allow_screen_share: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     allow_microphone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
@@ -420,8 +420,8 @@ class ConnectSharedFile(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    file_category: Mapped[str] = mapped_column(String(50), nullable=False, default="documents")  # images, videos, documents, spreadsheets, other
-    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    file_category: Mapped[str] = mapped_column(String(50), nullable=False, default="documents", server_default=text("'documents'"))  # images, videos, documents, spreadsheets, other
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

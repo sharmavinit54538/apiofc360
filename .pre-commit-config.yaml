@@ -14,3 +14,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: alembic-check
+        name: Assert Zero Migration Drift (alembic check)
+        entry: alembic check
+        language: system
+        pass_filenames: false
+        always_run: true

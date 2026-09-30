@@ -28,13 +28,9 @@ To maintain database schema consistency across development, staging, and product
      alembic downgrade base && alembic upgrade head
      ```
 
-4. **Single Head Enforcement**:
-   - CI enforces that exactly one head revision exists (`alembic heads | wc -l == 1`).
-   - If multiple heads appear due to parallel branches, merge them:
-     ```bash
-     alembic merge heads -m "merge_divergent_heads"
-     ```
-   - Run tests locally:
-     ```bash
-     pytest tests/test_alembic_single_head.py
-     ```
+### Workflow Summary for Schema Changes
+> **Golden Rule**: Change a model => run `alembic revision --autogenerate -m ...`, review the file, run `alembic upgrade head && alembic check` on a fresh DB before pushing. Never edit DB by hand, never use Base.metadata.create_all, never add ad-hoc scripts like add_missing_columns.py; if two heads appear, `alembic merge`.
+
+5. **Pre-commit / Make Verification**:
+   - Run `make db-check` (or `pytest tests/test_alembic_single_head.py && alembic check`) before committing.
+   - Pre-commit hooks automatically check for single migration heads and zero schema drift.
