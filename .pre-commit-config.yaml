@@ -1,0 +1,16 @@
+# See https://pre-commit.com for more information
+repos:
+  - repo: local
+    hooks:
+      - id: alembic-single-head
+        name: Assert Single Alembic Migration Head
+        entry: python scripts/check_migrations.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: alembic-pytest-guard
+        name: Pytest Alembic Migration Integrity
+        entry: pytest tests/test_alembic_single_head.py
+        language: system
+        pass_filenames: false
+        always_run: true
