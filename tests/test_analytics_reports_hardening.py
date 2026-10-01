@@ -76,7 +76,7 @@ async def test_analytics_authentication_and_role_authorization():
         }
         res = await client.get("/api/v2/reports/analytics/headcount")
         assert res.status_code == 403
-        assert "not authorized" in res.json().get("detail", "").lower()
+        assert "not authorized" in (res.json().get("message") or res.json().get("detail", "")).lower()
 
         # 3. Authenticated as recruiter -> 403 Forbidden
         app.dependency_overrides[get_current_user_claims] = lambda: {
@@ -125,7 +125,7 @@ async def test_payroll_cost_role_restriction():
         }
         res = await client.get("/api/v2/reports/analytics/payroll-cost")
         assert res.status_code == 403
-        assert "not authorized" in res.json().get("detail", "").lower()
+        assert "not authorized" in (res.json().get("message") or res.json().get("detail", "")).lower()
 
         # Export payroll-cost as manager -> 403
         res = await client.get("/api/v2/reports/export?dataset=payroll-cost")
@@ -250,13 +250,34 @@ async def test_tenant_isolation_and_scoping():
     async with AsyncSessionLocal() as session:
         comp_a = Company(id=company_a, name="Company Alpha", hr_settings={})
         comp_b = Company(id=company_b, name="Company Beta", hr_settings={})
+        u_a = User(
+            id=user_a,
+            company_id=company_a,
+            name="Alice Alpha",
+            email=f"alice-{uuid.uuid4().hex[:6]}@alpha.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            password_hash="hash",
+            role=UserRole.HR_ADMIN,
+        )
+        u_b = User(
+            id=user_b,
+            company_id=company_b,
+            name="Bob Beta",
+            email=f"bob-{uuid.uuid4().hex[:6]}@beta.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            password_hash="hash",
+            role=UserRole.HR_ADMIN,
+        )
         e_a = Employee(
             id=emp_a,
+            employee_id=f"EA-{uuid.uuid4().hex[:6]}",
             user_id=user_a,
             company_id=company_a,
             first_name="Alice",
             last_name="Alpha",
-            personal_email="alice@alpha.com",
+            personal_email=f"alice-{uuid.uuid4().hex[:6]}@alpha.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            designation="Software Engineer",
             department="Engineering",
             joining_date=date(2025, 1, 1),
             basic_salary=80000,
@@ -264,17 +285,20 @@ async def test_tenant_isolation_and_scoping():
         )
         e_b = Employee(
             id=emp_b,
+            employee_id=f"EB-{uuid.uuid4().hex[:6]}",
             user_id=user_b,
             company_id=company_b,
             first_name="Bob",
             last_name="Beta",
-            personal_email="bob@beta.com",
+            personal_email=f"bob-{uuid.uuid4().hex[:6]}@beta.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            designation="Marketing Specialist",
             department="Marketing",
             joining_date=date(2025, 2, 1),
             basic_salary=60000,
             status="ACTIVE",
         )
-        session.add_all([comp_a, comp_b, e_a, e_b])
+        session.add_all([comp_a, comp_b, u_a, u_b, e_a, e_b])
         await session.commit()
 
     try:
@@ -329,29 +353,53 @@ async def test_manager_hierarchy_scoping():
             id=mgr_user_id,
             company_id=company_id,
             name="Manager User",
-            email="mgr@test.com",
-            phone="9000000001",
+            email=f"mgr-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
             password_hash="hash",
             role=UserRole.MANAGER,
         )
+        report_user = User(
+            id=report_user_id,
+            company_id=company_id,
+            name="Report User",
+            email=f"rep-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            password_hash="hash",
+            role=UserRole.EMPLOYEE,
+        )
+        other_user = User(
+            id=other_user_id,
+            company_id=company_id,
+            name="Other User",
+            email=f"oth-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            password_hash="hash",
+            role=UserRole.EMPLOYEE,
+        )
         mgr_emp = Employee(
             id=mgr_emp_id,
+            employee_id=f"EM-{uuid.uuid4().hex[:6]}",
             user_id=mgr_user_id,
             company_id=company_id,
             first_name="Manager",
             last_name="Boss",
-            personal_email="mgr@test.com",
+            personal_email=f"mgr-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            designation="Engineering Manager",
             department="Engineering",
             joining_date=date(2024, 1, 1),
             status="ACTIVE",
         )
         report_emp = Employee(
             id=report_emp_id,
+            employee_id=f"ER-{uuid.uuid4().hex[:6]}",
             user_id=report_user_id,
             company_id=company_id,
             first_name="Direct",
             last_name="Report",
-            personal_email="report@test.com",
+            personal_email=f"report-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            designation="Software Engineer",
             department="Engineering",
             joining_date=date(2024, 6, 1),
             reporting_manager_id=mgr_emp_id,  # reports to mgr
@@ -359,17 +407,20 @@ async def test_manager_hierarchy_scoping():
         )
         other_emp = Employee(
             id=other_emp_id,
+            employee_id=f"EO-{uuid.uuid4().hex[:6]}",
             user_id=other_user_id,
             company_id=company_id,
             first_name="Independent",
             last_name="SalesPerson",
-            personal_email="sales@test.com",
+            personal_email=f"sales-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"9{uuid.uuid4().int % 1000000000:09d}",
+            designation="Sales Exec",
             department="Sales",  # Not in manager's tree
             joining_date=date(2024, 8, 1),
             reporting_manager_id=None,
             status="ACTIVE",
         )
-        session.add_all([comp, mgr_user, mgr_emp, report_emp, other_emp])
+        session.add_all([comp, mgr_user, report_user, other_user, mgr_emp, report_emp, other_emp])
         await session.commit()
 
     try:
