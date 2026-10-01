@@ -461,3 +461,92 @@ async def test_settings_notifications_put_and_patch_security_alerts():
     finally:
         app.dependency_overrides.clear()
         await _cleanup_test_data([company_id], [admin_id])
+
+
+@pytest.mark.asyncio
+async def test_notifications_sse_stream():
+    """Verify SSE streaming endpoint: query token rejection, Last-Event-ID catch-up, and unread_count events."""
+    company_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    await _cleanup_test_data([company_id], [user_id])
+
+    async with AsyncSessionLocal() as session:
+        comp = Company(id=company_id, name="SSE Test Co", hr_settings={})
+        user = User(
+            id=user_id,
+            company_id=company_id,
+            name="SSE User",
+            email=f"sse-{uuid.uuid4().hex[:6]}@test.com",
+            phone=f"{uuid.uuid4().int % 10000000000:010d}",
+            password_hash="test_hash",
+            role=UserRole.EMPLOYEE,
+        )
+        session.add_all([comp, user])
+        await session.commit()
+
+        # Seed an initial notification
+        initial_notifs = await notification_service.notify(
+            session,
+            company_id=company_id,
+            recipient_ids=[user_id],
+            type="system.welcome",
+            category="system",
+            module="system",
+            title="Welcome to system",
+            body="First welcome message",
+            link="/dashboard",
+        )
+        await session.commit()
+        last_id = initial_notifs[0].id
+
+    try:
+        app.dependency_overrides[get_current_user_claims] = lambda: {
+            "sub": str(user_id),
+            "company_id": str(company_id),
+            "role": "employee",
+        }
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Verify query parameter token is rejected
+            res = await client.get("/api/v1/notifications/stream?token=forbidden_jwt")
+            assert res.status_code == 400
+            err_json = res.json()
+            msg = err_json.get("message") or err_json.get("detail", "")
+            assert "query string" in str(msg).lower()
+
+            # 2. Add a second notification before streaming
+            async with AsyncSessionLocal() as session:
+                await notification_service.notify(
+                    session,
+                    company_id=company_id,
+                    recipient_ids=[user_id],
+                    type="leave.requested",
+                    category="leave",
+                    module="leave",
+                    title="Leave pending",
+                    body="You have a pending leave request",
+                    link="/dashboard/leaves",
+                )
+                await session.commit()
+
+            # 3. Connect stream passing Last-Event-ID = str(last_id)
+            async with client.stream(
+                "GET",
+                "/api/v1/notifications/stream",
+                headers={"Last-Event-ID": str(last_id)},
+            ) as response:
+                assert response.status_code == 200
+                assert "text/event-stream" in response.headers.get("content-type", "")
+
+                received_events = []
+                async for line in response.aiter_lines():
+                    if line.startswith("event: "):
+                        received_events.append(line.split("event: ")[1].strip())
+                    if "unread_count" in received_events:
+                        break
+
+                assert "notification.created" in received_events
+                assert "unread_count" in received_events
+    finally:
+        app.dependency_overrides.clear()
+        await _cleanup_test_data([company_id], [user_id])

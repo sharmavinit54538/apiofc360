@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+from collections import defaultdict
 from datetime import datetime, timezone
 import json
 import logging
@@ -273,6 +275,14 @@ async def notify(
             created = created_objs
 
         await session.flush()
+        for obj in created:
+            try:
+                broadcast_notification(
+                    obj.recipient_id,
+                    {"id": str(obj.id), "data": serialize_notification(obj)},
+                )
+            except Exception as b_err:
+                logger.debug("Broadcast notification error: %s", b_err)
         return created
     except Exception as e:
         logger.warning("Failed to emit notification type=%s: %s", type, e, exc_info=True)
@@ -517,3 +527,34 @@ async def archive_notification(
         raise HTTPException(status_code=404, detail="Notification not found")
     await session.commit()
     return serialize_notification(item)
+
+
+# ── Live SSE Broadcast Subscription Management ──────────────────────────────
+
+_subscribers: Dict[uuid.UUID, Set[asyncio.Queue]] = defaultdict(set)
+
+
+def subscribe(recipient_id: uuid.UUID) -> asyncio.Queue:
+    """Subscribe a recipient queue to live notification events."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _subscribers[recipient_id].add(q)
+    return q
+
+
+def unsubscribe(recipient_id: uuid.UUID, q: asyncio.Queue) -> None:
+    """Unsubscribe a recipient queue."""
+    if recipient_id in _subscribers:
+        _subscribers[recipient_id].discard(q)
+        if not _subscribers[recipient_id]:
+            del _subscribers[recipient_id]
+
+
+def broadcast_notification(recipient_id: uuid.UUID, item: Dict[str, Any]) -> None:
+    """Broadcast an event payload to all active subscriber queues for a recipient."""
+    queues = _subscribers.get(recipient_id)
+    if queues:
+        for q in list(queues):
+            try:
+                q.put_nowait(item)
+            except asyncio.QueueFull:
+                pass

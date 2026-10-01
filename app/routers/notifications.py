@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import asyncio
+from datetime import datetime, timezone
+import json
+import logging
+from typing import Any, AsyncGenerator, Dict, List, Optional
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import get_db_session
+from app.db.database import AsyncSessionLocal, get_db_session
 from app.middleware.auth import get_current_user_claims
+from app.models.notification import UserNotification
 from app.services import notification_service
+
+logger = logging.getLogger("app.routers.notifications")
 
 router = APIRouter(prefix="/notifications", tags=["Core - Notifications"])
 
@@ -61,6 +70,113 @@ class ReadManyPayload(BaseModel):
 
 
 # ── Static routes (Must be declared before dynamic /{id}/... routes) ────────
+
+
+@router.get("/stream")
+async def stream_notifications(
+    request: Request,
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    claims: dict = Depends(get_current_user_claims),
+) -> StreamingResponse:
+    """Server-Sent Events (SSE) stream for real-time notification events.
+
+    Requires Bearer token authorization header (JWT via query parameter is forbidden).
+    Supported event types:
+    - notification.created: emitted when a new notification is delivered
+    - unread_count: total and category-wise count of unread notifications
+    - ping: heartbeat event emitted every 20 seconds
+    """
+    if (
+        request.query_params.get("token")
+        or request.query_params.get("jwt")
+        or request.query_params.get("access_token")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authentication via query string is not permitted. Use the Authorization header.",
+        )
+
+    company_id = _get_cid(claims)
+    recipient_id = _get_uid(claims)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        queue = notification_service.subscribe(recipient_id)
+        try:
+            # 1. Process Last-Event-ID if provided to catch up on missed notifications
+            if last_event_id:
+                try:
+                    last_uuid = uuid.UUID(last_event_id.strip())
+                    async with AsyncSessionLocal() as session:
+                        ref_stmt = select(UserNotification.created_at).where(
+                            UserNotification.id == last_uuid,
+                            UserNotification.recipient_id == recipient_id,
+                            UserNotification.company_id == company_id,
+                        )
+                        ref_res = await session.execute(ref_stmt)
+                        last_created_at = ref_res.scalar_one_or_none()
+                        if last_created_at:
+                            missed_stmt = (
+                                select(UserNotification)
+                                .where(
+                                    UserNotification.company_id == company_id,
+                                    UserNotification.recipient_id == recipient_id,
+                                    or_(
+                                        UserNotification.created_at > last_created_at,
+                                        and_(
+                                            UserNotification.created_at == last_created_at,
+                                            UserNotification.id != last_uuid,
+                                        ),
+                                    ),
+                                    or_(
+                                        UserNotification.expires_at.is_(None),
+                                        UserNotification.expires_at > func.now(),
+                                    ),
+                                )
+                                .order_by(UserNotification.created_at.asc(), UserNotification.id.asc())
+                            )
+                            missed_res = await session.execute(missed_stmt)
+                            for m in missed_res.scalars().all():
+                                payload = json.dumps(notification_service.serialize_notification(m))
+                                yield f"id: {m.id}\nevent: notification.created\ndata: {payload}\n\n"
+                except Exception as ex:
+                    logger.debug("Failed processing Last-Event-ID %s: %s", last_event_id, ex)
+
+            # 2. Emit initial unread_count
+            async with AsyncSessionLocal() as session:
+                counts = await notification_service.get_unread_count(
+                    session, company_id=company_id, recipient_id=recipient_id
+                )
+                yield f"event: unread_count\ndata: {json.dumps(counts)}\n\n"
+
+            # 3. Main event loop with 20s ping heartbeat
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    yield f"id: {item['id']}\nevent: notification.created\ndata: {json.dumps(item['data'])}\n\n"
+
+                    # Push updated unread_count
+                    async with AsyncSessionLocal() as session:
+                        updated_counts = await notification_service.get_unread_count(
+                            session, company_id=company_id, recipient_id=recipient_id
+                        )
+                        yield f"event: unread_count\ndata: {json.dumps(updated_counts)}\n\n"
+                except asyncio.TimeoutError:
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    yield f"event: ping\ndata: {json.dumps({'time': now_iso})}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            notification_service.unsubscribe(recipient_id, queue)
+
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=headers)
 
 
 @router.get("/unread-count")
