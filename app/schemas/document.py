@@ -206,6 +206,11 @@ class CompanyDocumentUpdate(BaseModel):
 
 
 class CompanyDocumentResponse(BaseModel):
+    """Schema for company document responses.
+
+    Company documents are published directly by Admin/HR and do not undergo
+    verification workflows (requires_verification is always False, status is ACTIVE/PUBLISHED).
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -219,6 +224,7 @@ class CompanyDocumentResponse(BaseModel):
     branch: str | None = None
     visibility: str = "PUBLIC"
     status: str = "PUBLISHED"
+    requires_verification: bool = False
     created_at: datetime
     updated_at: datetime | None = None
 

@@ -12,7 +12,10 @@ from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.services.core_modules.misc_service import TopLevelMiscService
 
-router = APIRouter(prefix="/documents", tags=["Core - Documents"])
+# Renamed prefix from /documents to /core-documents to resolve route collision with canonical
+# app/api/documents.py mounted at /api/v1/documents. This preserves the legacy TopLevelMiscService
+# endpoint under /api/v1/core-documents.
+router = APIRouter(prefix="/core-documents", tags=["Core - Documents"])
 
 
 def _ok(data: Any, message: str = "Operation successful") -> Dict[str, Any]:
