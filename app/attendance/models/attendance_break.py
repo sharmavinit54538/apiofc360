@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,6 +46,20 @@ class AttendanceBreak(Base):
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")  # ACTIVE | COMPLETED
     notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Face verification & anti-spoofing biometrics
+    start_image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    end_image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    start_face_distance: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_face_distance: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    start_liveness_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_liveness_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Geolocation coordinates
+    start_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    start_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    end_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
