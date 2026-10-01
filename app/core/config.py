@@ -284,6 +284,12 @@ class Settings(BaseSettings):
     # ── AI Agent settings ────────────────────────────────────────────────────
     AI_SCREENING_THRESHOLD: float = 0.65     # Auto-shortlist above this score
     AI_REJECTION_THRESHOLD: float = 0.35     # Auto-reject below this score
+    AI_AUTO_REJECT_ENABLED: bool = False     # Compliance: never auto-reject unless explicitly enabled
+    AI_SCREENING_RESUME_MAX_CHARS: int = 12000 # Max characters to retain from resume before truncation
+    AI_SCREENING_JD_MAX_CHARS: int = 6000    # Max characters to retain from job description
+    AI_SCREENING_MAX_CONCURRENCY: int = 5    # Max concurrent LLM screening calls
+    AI_SCREENING_TIMEOUT_SECONDS: int = 45   # Timeout per screening LLM call
+    AI_SCREENING_MAX_RETRIES: int = 2        # Max retries on transient LLM failures
     AI_RANKING_TOP_N: int = 50               # Default top-N for ranking
     AI_CONFIDENCE_MIN: float = 0.0
     AI_CONFIDENCE_MAX: float = 1.0
@@ -299,7 +305,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", "RESET_SUPER_ADMIN_PASSWORD", mode="before")
+    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", "RESET_SUPER_ADMIN_PASSWORD", "AI_AUTO_REJECT_ENABLED", mode="before")
     @classmethod
     def parse_bool(cls, value: Any) -> bool:
         """Parse booleans defensively when global env vars are present."""

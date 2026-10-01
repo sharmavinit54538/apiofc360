@@ -70,6 +70,18 @@ from app.models.recruitment import (
     JobPublishChannel,
 )
 
+# AI Recruitment module models
+from app.models.ai_recruitment import (
+    AIResumeDocument,
+    CandidateMatchScore,
+    AIScreeningResult,
+    AIRecruitmentInterviewSession,
+    CodingAssessmentRecord,
+    HRCopilotQuery,
+    JobTemplate,
+    RecruitmentAuditLog,
+)
+
 # Exit module models
 from app.models.exit import (
     EmployeeExit,
@@ -615,4 +627,12 @@ __all__ = [
     "EmployeeHealthRecord",
     "AIInteraction",
     "UserNotification",
+    "AIResumeDocument",
+    "CandidateMatchScore",
+    "AIScreeningResult",
+    "AIRecruitmentInterviewSession",
+    "CodingAssessmentRecord",
+    "HRCopilotQuery",
+    "JobTemplate",
+    "RecruitmentAuditLog",
 ]
