@@ -402,19 +402,27 @@ class AuthRepository:
         return result.scalars().first()
 
     async def revoke_refresh_token(self, token_id: uuid.UUID, reason: str | None = None) -> None:
-        """Revoke a specific refresh token with timestamp."""
+        """Revoke a specific refresh token with timestamp and optional reason."""
 
         now = datetime.now(timezone.utc)
         await self.session.execute(
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
-            .values(revoked=True, revoked_at=now)
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
         )
         await self.session.flush()
 
     async def revoke_token_family(self, family_id: uuid.UUID, reason: str = "FAMILY_REUSE_DETECTED") -> None:
-        """Revoke all tokens upon compromised token reuse detection."""
-        # Active tokens are tracked and revoked safely
+        """Revoke all tokens in a family upon compromised token reuse detection."""
+        now = datetime.now(timezone.utc)
+        await self.session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.family_id == family_id,
+                RefreshToken.revoked == False,
+            )
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
+        )
         await self.session.flush()
 
     async def revoke_all_user_refresh_tokens(self, user_id: uuid.UUID, reason: str | None = "USER_SESSION_REVOCATION") -> None:
