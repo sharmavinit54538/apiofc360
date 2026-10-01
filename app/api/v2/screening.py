@@ -117,6 +117,22 @@ def _get_thresholds() -> dict[str, float]:
     }
 
 
+def _get_recruitment_service(db: AsyncSession) -> RecruitmentService:
+    """Helper to instantiate RecruitmentService with all required dependencies."""
+    from app.repositories.recruitment_repository import RecruitmentRepository
+    from app.repositories.auth_repository import AuthRepository
+    from app.repositories.employee_repository import EmployeeRepository
+    from app.services.email_service import EmailService
+
+    return RecruitmentService(
+        session=db,
+        repo=RecruitmentRepository(db),
+        auth_repo=AuthRepository(db),
+        employee_repo=EmployeeRepository(db),
+        email_service=EmailService(),
+    )
+
+
 async def _get_or_compute_match_score(
     db: AsyncSession,
     doc: AIResumeDocument,
@@ -535,7 +551,7 @@ async def screen_candidate(
 
     # 7. Auto-apply decision if requested, application exists, and compliance rules satisfied
     if body.auto_apply_decision and doc.application_id and result.status == "COMPLETED":
-        rec_service = RecruitmentService(db)
+        rec_service = _get_recruitment_service(db)
         if result.auto_shortlisted:
             await rec_service.update_application_status(doc.application_id, "SHORTLISTED")
             logger.info("Auto-shortlisted application %s", doc.application_id)
@@ -605,7 +621,7 @@ async def batch_screen_candidates(
         )
 
     agent = ScreeningAgent(llm_client=get_llm_client())
-    rec_service = RecruitmentService(db)
+    rec_service = _get_recruitment_service(db)
     output = []
     shortlisted, rejected, review, failed = 0, 0, 0, 0
 
@@ -1007,7 +1023,7 @@ async def submit_human_decision(
             "KEEP_REVIEW": "UNDER_REVIEW",
         }
         target_stage = status_vocabulary_map[body.action]
-        rec_service = RecruitmentService(db)
+        rec_service = _get_recruitment_service(db)
         await rec_service.update_application_status(screening.application_id, target_stage)
 
     # 3. Store human decision fields
