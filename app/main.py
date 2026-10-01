@@ -787,6 +787,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
+    app.include_router(core_notifications_router.router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

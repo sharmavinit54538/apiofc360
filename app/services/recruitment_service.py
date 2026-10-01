@@ -860,7 +860,30 @@ Generate realistic content under each heading. Make the tone professional, encou
             
             # Map time to string for output schema
             time_str = obj.interview_time.strftime("%H:%M:%S") if isinstance(obj.interview_time, time) else str(obj.interview_time)
-            
+
+            try:
+                from app.services import notification_service
+                app_obj = await self.repo.get_application_by_id(interview.application_id)
+                comp_id = getattr(app_obj, "company_id", None) if app_obj else None
+                recruiter_id = getattr(getattr(app_obj, "job", None), "created_by", None) if app_obj else None
+                if comp_id and recruiter_id:
+                    await notification_service.notify(
+                        self.session,
+                        company_id=comp_id,
+                        recipient_ids=[recruiter_id],
+                        type="recruitment.interview_scheduled",
+                        category="recruitment",
+                        module="recruitment",
+                        title=f"Interview Scheduled: {app_obj.first_name} {app_obj.last_name}",
+                        body=f"Interview round scheduled for {obj.interview_date} at {time_str}.",
+                        link="/dashboard/recruitment",
+                        priority="normal",
+                        entity={"type": "interview_schedule", "id": str(obj.id)},
+                        dedupe_key=f"recruitment:interview:{obj.id}:scheduled",
+                    )
+            except Exception as e:
+                logger.warning("Failed to emit interview scheduled notification: %s", e)
+
             return InterviewScheduleResponse(
                 id=obj.id,
                 interview_id=obj.interview_id,
@@ -1031,6 +1054,29 @@ Generate realistic content under each heading. Make the tone professional, encou
             
             app_status = f"OFFER_{new_status}"
             await self.repo.update_application_status(offer.application_id, app_status)
+
+            try:
+                from app.services import notification_service
+                app_obj = await self.repo.get_application_by_id(offer.application_id)
+                comp_id = getattr(app_obj, "company_id", None) if app_obj else None
+                recruiter_id = offer.created_by or (getattr(getattr(app_obj, "job", None), "created_by", None) if app_obj else None)
+                if comp_id and recruiter_id:
+                    await notification_service.notify(
+                        self.session,
+                        company_id=comp_id,
+                        recipient_ids=[recruiter_id],
+                        type=f"recruitment.offer_{new_status.lower()}",
+                        category="recruitment",
+                        module="recruitment",
+                        title=f"Offer Status Updated: {new_status}",
+                        body=f"Candidate {app_obj.first_name if app_obj else ''} offer status has been updated to {new_status}.",
+                        link="/dashboard/recruitment",
+                        priority="normal",
+                        entity={"type": "offer", "id": str(offer.id)},
+                        dedupe_key=f"recruitment:offer:{offer.id}:{new_status}",
+                    )
+            except Exception as e:
+                logger.warning("Failed to emit offer status notification: %s", e)
 
             await self.session.commit()
             full_offer = await self.repo.get_offer_by_id(offer_uuid)

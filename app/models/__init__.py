@@ -2,6 +2,7 @@
 
 from app.models.otp import OTP
 from app.models.user import User
+from app.models.notification import UserNotification
 from app.models.refresh_token import RefreshToken
 from app.models.password_reset import PasswordResetToken
 from app.models.audit_log import AuditLog
@@ -613,4 +614,5 @@ __all__ = [
     "ComplianceRecord",
     "EmployeeHealthRecord",
     "AIInteraction",
+    "UserNotification",
 ]

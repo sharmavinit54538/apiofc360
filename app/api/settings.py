@@ -93,6 +93,7 @@ class NotificationSettingsPayload(BaseModel):
     inAppAlerts: Optional[bool] = None
     slackAlerts: Optional[bool] = None
     weeklyDigest: Optional[bool] = None
+    securityAlerts: Optional[bool] = None
 
 
 class IntegrationPayload(BaseModel):
@@ -1048,7 +1049,10 @@ async def get_notifications(
             "inAppAlerts": True,
             "slackAlerts": False,
             "weeklyDigest": True,
+            "securityAlerts": True,
         }
+    elif "securityAlerts" not in notifications:
+        notifications["securityAlerts"] = True
         
     return APIResponse[Dict[str, Any]](
         success=True,
@@ -1059,6 +1063,7 @@ async def get_notifications(
 
 
 @router.put("/notifications")
+@router.patch("/notifications")
 async def update_notifications(
     payload: NotificationSettingsPayload,
     claims: Annotated[dict, Depends(get_current_user_claims)],
@@ -1082,7 +1087,10 @@ async def update_notifications(
         "inAppAlerts": True,
         "slackAlerts": False,
         "weeklyDigest": True,
+        "securityAlerts": True,
     }
+    if "securityAlerts" not in notifications:
+        notifications["securityAlerts"] = True
     
     notifications.update(payload.model_dump(exclude_unset=True))
     hr_settings["notifications"] = notifications

@@ -791,7 +791,29 @@ class AuthService:
             )
 
         # Success - log audit details
+        prev_device = getattr(user, "last_login_device", None)
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
+
+        if device and prev_device and device != prev_device and getattr(user, "company_id", None):
+            try:
+                from app.services import notification_service
+                await notification_service.notify(
+                    self.session,
+                    company_id=user.company_id,
+                    recipient_ids=[user.id],
+                    type="security.new_device_login",
+                    category="security",
+                    module="security",
+                    title="New Device Login Detected",
+                    body=f"Your account was accessed from a new device '{device}' (IP: {ip_address or 'Unknown'}).",
+                    link="/dashboard/settings",
+                    priority="high",
+                    entity={"type": "user", "id": str(user.id)},
+                    dedupe_key=f"security:{user.id}:new_device:{device}",
+                    mandatory=True,
+                )
+            except Exception as notif_err:
+                logger.warning("Failed to emit new device login notification: %s", notif_err)
 
         # Enforce that only superadmin@ofc360.com can ever hold the SUPER_ADMIN role
         user_role_str = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()

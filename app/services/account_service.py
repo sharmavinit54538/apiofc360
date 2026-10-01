@@ -143,6 +143,28 @@ class AccountService:
             # Immediately invalidate any outstanding password reset tokens and active OTPs
             await self.auth_repository.invalidate_all_user_password_resets(user_id)
             await self.auth_repository.invalidate_all_user_otps(user_id)
+
+            if getattr(user, "company_id", None):
+                try:
+                    from app.services import notification_service
+                    await notification_service.notify(
+                        self.session,
+                        company_id=user.company_id,
+                        recipient_ids=[user.id],
+                        type="security.password_changed",
+                        category="security",
+                        module="security",
+                        title="Password Changed",
+                        body="Your account password was successfully updated.",
+                        link="/dashboard/settings",
+                        priority="high",
+                        entity={"type": "user", "id": str(user.id)},
+                        dedupe_key=f"security:{user.id}:pwd_change:{int(datetime.now().timestamp())}",
+                        mandatory=True,
+                    )
+                except Exception as notif_err:
+                    logger.warning("Failed to emit password changed notification: %s", notif_err)
+
             await self.session.commit()
             logger.info("change_password: success | user_id=%s | file=account_service.py | func=change_password", user_id)
         except AppException:

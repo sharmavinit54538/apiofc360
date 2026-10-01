@@ -93,6 +93,49 @@ class LeaveService:
             reason=data.reason,
             status="PENDING"
         )
+
+        # Notify approving manager
+        from app.models.employee import Employee
+        from app.models.user import User
+        from sqlalchemy import select
+        from app.services import notification_service
+
+        emp = await self.session.get(Employee, employee_id)
+        if emp and emp.company_id:
+            manager_user_id = None
+            mgr_id = emp.reporting_manager_id or emp.manager_id
+            if mgr_id:
+                mgr = await self.session.get(Employee, mgr_id)
+                if mgr and mgr.user_id:
+                    manager_user_id = mgr.user_id
+
+            recipient_ids = [manager_user_id] if manager_user_id else []
+            if not recipient_ids:
+                admin_res = await self.session.execute(
+                    select(User.id).where(
+                        User.company_id == emp.company_id,
+                        User.role.in_(["hr_admin", "manager", "super_admin", "admin"])
+                    ).limit(5)
+                )
+                recipient_ids = list(admin_res.scalars().all())
+
+            if recipient_ids:
+                await notification_service.notify(
+                    self.session,
+                    company_id=emp.company_id,
+                    recipient_ids=recipient_ids,
+                    type="leave.requested",
+                    category="leave",
+                    module="leave",
+                    title=f"Leave Request: {emp.first_name} {emp.last_name}",
+                    body=f"{emp.first_name} {emp.last_name} requested {data.total_days} day(s) of {data.leave_type}.",
+                    link="/dashboard/leaves",
+                    priority="normal",
+                    entity={"type": "leave_request", "id": str(new_leave.id)},
+                    actor_id=emp.user_id,
+                    dedupe_key=f"leave:{new_leave.id}:requested",
+                )
+
         await self.session.commit()
         await self.session.refresh(new_leave)
         return new_leave
@@ -127,6 +170,36 @@ class LeaveService:
                 raise BadRequestException(message="Rejection reason is required.")
             leave.rejection_reason = rejection_reason
             leave.approved_by_id = None
+
+        # Notify requester
+        from app.models.employee import Employee
+        from app.services import notification_service
+
+        emp = await self.session.get(Employee, leave.employee_id)
+        if emp and emp.user_id and emp.company_id:
+            is_approved = status == "APPROVED"
+            title = f"Leave Request {'Approved' if is_approved else 'Rejected'}: {leave.leave_type}"
+            body = (
+                f"Your {leave.leave_type} leave request for {leave.total_days} day(s) has been approved."
+                if is_approved
+                else f"Your {leave.leave_type} leave request was rejected: {rejection_reason or 'No reason provided'}."
+            )
+            dedupe_action = "approved" if is_approved else "rejected"
+            await notification_service.notify(
+                self.session,
+                company_id=emp.company_id,
+                recipient_ids=[emp.user_id],
+                type=f"leave.{dedupe_action}",
+                category="leave",
+                module="leave",
+                title=title,
+                body=body,
+                link="/dashboard/leaves",
+                priority="high" if is_approved else "normal",
+                entity={"type": "leave_request", "id": str(leave.id)},
+                actor_id=approved_by_id,
+                dedupe_key=f"leave:{leave.id}:{dedupe_action}",
+            )
 
         await self.session.commit()
         await self.session.refresh(leave)

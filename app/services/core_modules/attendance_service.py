@@ -82,9 +82,72 @@ class AttendanceCoreService:
             late_minutes=late_mins,
         )
         self.session.add(record)
+
+        if is_late and company_id:
+            try:
+                from app.models.employee import Employee
+                from app.services import notification_service
+                emp = await self.session.get(Employee, employee_id)
+                recipients = []
+                if emp and emp.user_id:
+                    recipients.append(emp.user_id)
+                if emp and (emp.reporting_manager_id or emp.manager_id):
+                    mgr = await self.session.get(Employee, emp.reporting_manager_id or emp.manager_id)
+                    if mgr and mgr.user_id:
+                        recipients.append(mgr.user_id)
+                if recipients:
+                    await notification_service.notify(
+                        self.session,
+                        company_id=company_id,
+                        recipient_ids=recipients,
+                        type="attendance.late_arrival",
+                        category="attendance",
+                        module="attendance",
+                        title="Late Arrival Recorded",
+                        body=f"{emp.first_name if emp else 'Employee'} checked in {late_mins} min late on {today.isoformat()}.",
+                        link="/dashboard/attendance",
+                        priority="normal",
+                        entity={"type": "attendance", "id": str(record.id)},
+                        dedupe_key=f"attendance:{record.id}:late",
+                    )
+            except Exception as e:
+                logger.warning("Failed to emit late attendance notification: %s", e)
+
         await self.session.commit()
         await self.session.refresh(record)
         return record
+
+    async def notify_missed_checkout(self, attendance_id: uuid.UUID) -> None:
+        """Emit notification for missed check-out."""
+        from app.models.employee import Employee
+        from app.services import notification_service
+        record = await self.session.get(Attendance, attendance_id)
+        if not record or not record.company_id:
+            return
+        emp = await self.session.get(Employee, record.employee_id)
+        recipients = []
+        if emp and emp.user_id:
+            recipients.append(emp.user_id)
+        if emp and (emp.reporting_manager_id or emp.manager_id):
+            mgr = await self.session.get(Employee, emp.reporting_manager_id or emp.manager_id)
+            if mgr and mgr.user_id:
+                recipients.append(mgr.user_id)
+        if recipients:
+            await notification_service.notify(
+                self.session,
+                company_id=record.company_id,
+                recipient_ids=recipients,
+                type="attendance.missed_checkout",
+                category="attendance",
+                module="attendance",
+                title="Missed Check-Out Detected",
+                body=f"Missed check-out recorded for {record.date.isoformat()}.",
+                link="/dashboard/attendance",
+                priority="normal",
+                entity={"type": "attendance", "id": str(record.id)},
+                dedupe_key=f"attendance:{record.id}:missed_checkout",
+            )
+            await self.session.commit()
 
     async def check_out(
         self,
