@@ -50,6 +50,11 @@ class EmployeeInvitation(Base):
         default="PENDING",
         server_default=text("'PENDING'"),
     )  # PENDING, ACCEPTED, CANCELLED, EXPIRED
+    delivery_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="QUEUED", server_default=text("'QUEUED'")
+    )  # QUEUED, SENT, FAILED
+    delivery_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

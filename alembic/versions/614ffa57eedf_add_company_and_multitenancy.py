@@ -135,8 +135,11 @@ def downgrade() -> None:
     op.drop_constraint(op.f('fk_users_company_id_companies'), 'users', type_='foreignkey')
     op.drop_column('users', 'onboarding_step')
     op.drop_column('users', 'onboarding_completed')
-    op.drop_column('users', 'first_login')
-    op.drop_column('users', 'is_super_admin')
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    user_cols = {c['name'] for c in insp.get_columns('users')} if insp.has_table('users') else set()
+    if 'is_super_admin' in user_cols:
+        op.drop_column('users', 'is_super_admin')
     op.drop_column('users', 'company_id')
     op.drop_constraint(op.f('fk_polls_company_id_companies'), 'polls', type_='foreignkey')
     op.drop_column('polls', 'company_id')

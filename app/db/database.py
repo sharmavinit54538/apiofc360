@@ -7,6 +7,7 @@ from typing import Any
 
 import asyncpg
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -165,14 +166,23 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             logger.debug("[DB Lifecycle] Request execution completed. Session active: %s", session.is_active)
-        except Exception as exc:
+        except (SQLAlchemyError, DBAPIError) as db_exc:
             logger.exception(
                 "[DB Lifecycle] DBAPI/Query exception during session execution (id=%s): %s. Executing rollback...",
                 id(session),
-                str(exc),
+                str(db_exc),
             )
             await session.rollback()
             logger.debug("[DB Lifecycle] Rollback completed for session id=%s", id(session))
+            raise
+        except Exception:
+            # Quiet rollback for non-database exceptions (e.g. HTTPException, AppException, validation errors)
+            # without logging database ERROR traces.
+            if session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
             raise
         finally:
             logger.debug("[DB Lifecycle] Closing AsyncSession (id=%s)...", id(session))

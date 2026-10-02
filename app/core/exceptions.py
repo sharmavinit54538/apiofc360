@@ -158,15 +158,36 @@ def error_response_content(
     return response_data
 
 
-async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
-    """Render known application exceptions."""
-
+def _extract_user_and_role(request: Request) -> tuple[str | None, str | None]:
+    """Extract user_id and role from request state or Authorization header for error logging."""
     user_id = None
     role = None
-    if hasattr(request.state, "user_claims"):
+    if hasattr(request.state, "user_claims") and request.state.user_claims:
         claims = request.state.user_claims
         user_id = claims.get("sub")
         role = claims.get("role")
+        if user_id or role:
+            return user_id, role
+
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.strip().lower().startswith("bearer "):
+        token = auth_header.strip().split(" ", 1)[1].strip()
+        try:
+            from jose import jwt
+            # Extract claims without verifying exp/signature to identify user in logs
+            claims = jwt.get_unverified_claims(token)
+            if isinstance(claims, dict):
+                user_id = claims.get("sub")
+                role = claims.get("role")
+        except Exception:
+            pass
+    return user_id, role
+
+
+async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+    """Render known application exceptions."""
+
+    user_id, role = _extract_user_and_role(request)
 
     log_msg = f"AppException on {request.method} {request.url.path} | User: {user_id} | Role: {role} | Status: {exc.status_code} | Msg: {exc.message}"
     if exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
@@ -200,13 +221,8 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
     - Includes all errors in the `errors` list
     """
 
-    # ── Extract user identity from claims if available ──────────────────────
-    user_id: str | None = None
-    role: str | None = None
-    if hasattr(request.state, "user_claims"):
-        claims = request.state.user_claims
-        user_id = claims.get("sub")
-        role = claims.get("role")
+    # ── Extract user identity from claims or Authorization header ───────────
+    user_id, role = _extract_user_and_role(request)
 
     # ── Capture request body for logging (best-effort) ──────────────────────
     body_preview: str = "<unreadable>"
@@ -328,12 +344,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     else:
         message = str(exc.detail) if exc.detail else "Request failed."
 
-    user_id = None
-    role = None
-    if hasattr(request.state, "user_claims"):
-        claims = request.state.user_claims
-        user_id = claims.get("sub")
-        role = claims.get("role")
+    user_id, role = _extract_user_and_role(request)
 
     log_msg = f"HTTPException on {request.method} {request.url.path} | User: {user_id} | Role: {role} | Status: {status_code} | Msg: {message}"
     if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
@@ -364,12 +375,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """Render uncaught database exceptions without leaking internals."""
 
-    user_id = None
-    role = None
-    if hasattr(request.state, "user_claims"):
-        claims = request.state.user_claims
-        user_id = claims.get("sub")
-        role = claims.get("role")
+    user_id, role = _extract_user_and_role(request)
 
     logger.exception(
         "Database error on %s %s | User: %s | Role: %s", 
@@ -389,12 +395,7 @@ async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Render uncaught exceptions without leaking internals."""
 
-    user_id = None
-    role = None
-    if hasattr(request.state, "user_claims"):
-        claims = request.state.user_claims
-        user_id = claims.get("sub")
-        role = claims.get("role")
+    user_id, role = _extract_user_and_role(request)
 
     logger.exception(
         "Unhandled error on %s %s | User: %s | Role: %s", 

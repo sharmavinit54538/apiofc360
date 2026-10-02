@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'e983ae2da073'
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = '202606270001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -426,7 +426,7 @@ def downgrade() -> None:
 
     def safe_drop_index(name, *args, **kwargs):
         table_name = kwargs.get('table_name')
-        if table_name and table_name in tables:
+        if table_name and table_name in tables and table_name not in _shared_tables:
             existing = {idx['name'] for idx in inspector.get_indexes(table_name)}
             if name in existing:
                 orig_drop_index(name, *args, **kwargs)

@@ -204,16 +204,16 @@ Be thorough, fair, and data-driven. Return ONLY valid JSON."""
 
     @staticmethod
     def screening_user(resume_text: str, jd_text: str, match_score: float) -> str:
-        return f"""Pre-screen this candidate for the following position.
+        return f"""Pre-screen this candidate for the following position based purely on relevant skills, experience, and technical/functional capabilities. Do not consider name, gender, age, nationality, or institutional pedigree.
 
 Overall match score: {match_score:.2f}
 
 <job_description>
-{jd_text[:2500]}
+{jd_text}
 </job_description>
 
 <candidate_resume>
-{resume_text[:3500]}
+{resume_text}
 </candidate_resume>
 
 Return this EXACT JSON schema:
@@ -222,8 +222,7 @@ Return this EXACT JSON schema:
   "confidence": 0.87,
   "strengths": [
     "5+ years of relevant Python development experience",
-    "Proven track record at scale with 10M+ user platforms",
-    "Strong educational background from top university"
+    "Proven track record at scale with 10M+ user platforms"
   ],
   "weaknesses": [
     "Limited cloud infrastructure experience",
@@ -235,17 +234,16 @@ Return this EXACT JSON schema:
     "Salary expectations 15% above budgeted range"
   ],
   "hiring_recommendation": "Recommend for technical phone screen. Focus on cloud skills gap.",
-  "hr_notes": "Strong backend candidate. Verify if Kubernetes experience can be upskilled. Notice period is 60 days — plan accordingly.",
+  "hr_notes": "Strong backend candidate. Verify if Kubernetes experience can be upskilled.",
   "questions_to_ask": [
     "Can you walk me through a time you handled a production outage?",
-    "What is your experience with cloud infrastructure management?",
-    "Why did you leave your previous role after 10 months?"
+    "What is your experience with cloud infrastructure management?"
   ],
   "red_flags": ["Short tenure at last role"],
-  "green_flags": ["Open source contributor", "Certified AWS professional"]
+  "green_flags": ["Open source contributor", "Certified professional"]
 }}
 
-Decision must be one of: SHORTLIST, MAYBE, REJECT"""
+Decision must be one of: SHORTLIST, REVIEW, REJECT"""
 
     # =========================================================================
     # AI Job Description Generator

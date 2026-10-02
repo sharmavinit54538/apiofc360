@@ -2,9 +2,9 @@
 
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ from app.schemas.auth import (
     VerifyNewEmailRequest,
     VerifyResetOTPRequest,
     VerifyResetOTPResponse,
+    VerifyResetOTPResponseData,
 )
 from app.services.account_service import AccountService, get_account_service
 from app.services.auth_service import AuthService, get_auth_service
@@ -53,6 +54,90 @@ from app.core.rate_limiter import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def set_auth_cookies(response: Response, refresh_token: str) -> None:
+    """Set HttpOnly, Secure SameSite refresh token cookie for browser session recovery."""
+    from app.core.config import settings
+
+    is_prod = settings.is_production
+    secure = settings.COOKIE_SECURE if settings.COOKIE_SECURE is not None else is_prod
+
+    kwargs: dict[str, Any] = {
+        "key": settings.COOKIE_NAME,
+        "value": refresh_token,
+        "httponly": True,
+        "secure": secure,
+        "samesite": settings.COOKIE_SAMESITE,
+        "max_age": settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        "path": "/api/v1/auth",
+    }
+    if settings.COOKIE_DOMAIN:
+        kwargs["domain"] = settings.COOKIE_DOMAIN
+
+    response.set_cookie(**kwargs)
+
+
+def clear_auth_cookies(response: Response) -> None:
+    """Clear refresh token cookies across supported names."""
+    from app.core.config import settings
+
+    cookie_names = {settings.COOKIE_NAME, "ofc360_refresh_token", "refresh_token"}
+    for name in cookie_names:
+        response.delete_cookie(
+            key=name,
+            path="/api/v1/auth",
+            domain=settings.COOKIE_DOMAIN,
+        )
+        if settings.COOKIE_DOMAIN:
+            response.delete_cookie(key=name, path="/api/v1/auth")
+
+
+def _verify_trusted_origin(request: Request) -> None:
+    """Verify Origin or Referer against allowed CORS origins to protect cookie endpoints from CSRF."""
+    from urllib.parse import urlparse
+    import re
+    from app.core.config import settings
+    from app.core.exceptions import AppException
+
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    header_val = origin or referer
+    if not header_val:
+        return
+
+    parsed = urlparse(header_val)
+    origin_base = f"{parsed.scheme}://{parsed.netloc}".lower()
+
+    allowed = {o.rstrip("/").lower() for o in settings.CORS_ORIGINS}
+    if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+        allowed.update(o.rstrip("/").lower() for o in settings.BACKEND_CORS_ORIGINS)
+    if getattr(settings, "DEV_CORS_ORIGINS", None):
+        allowed.update(o.rstrip("/").lower() for o in settings.DEV_CORS_ORIGINS)
+    if getattr(settings, "ALLOWED_ORIGINS", None):
+        allowed.update(o.rstrip("/").lower() for o in settings.ALLOWED_ORIGINS)
+
+    if not settings.is_production:
+        allowed.add("http://testserver")
+        allowed.add("https://testserver")
+
+    is_allowed = origin_base in allowed
+    if not is_allowed and not settings.is_production:
+        dev_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
+        if re.match(dev_regex, origin_base):
+            is_allowed = True
+
+    if not is_allowed:
+        logger.warning(
+            "Rejected untrusted Origin/Referer on auth endpoint: %s (base=%s)",
+            header_val,
+            origin_base,
+        )
+        raise AppException(
+            message="Cross-origin request forbidden.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
 
 
 @router.post(
@@ -165,6 +250,7 @@ async def resend_otp(
 async def login(
     payload: LoginRequest,
     request: Request,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
     """Verify credentials and issue access and refresh tokens, or trigger OTP verification for unverified emails."""
@@ -281,6 +367,8 @@ async def login(
         company_name=company_name,
     )
 
+    set_auth_cookies(response, refresh_token)
+
     return LoginResponse(
         success=True,
         message="Login successful.",
@@ -311,6 +399,7 @@ async def login(
 async def verify_email_otp(
     payload: VerifyEmailOtpRequest,
     request: Request,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
     """Verify OTP from login email verification and automatically log the user in."""
@@ -360,6 +449,8 @@ async def verify_email_otp(
         company_id=user.company_id,
         company_name=company_name,
     )
+
+    set_auth_cookies(response, refresh_token)
 
     return LoginResponse(
         success=True,
@@ -451,6 +542,7 @@ async def get_google_auth_url(redirect_uri: str | None = None) -> GoogleAuthUrlR
 async def google_auth(
     payload: GoogleAuthRequest,
     request: Request,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
     """Authenticate a user via Google OAuth Single Sign-On."""
@@ -504,6 +596,8 @@ async def google_auth(
         company_id=user.company_id,
         company_name=company_name,
     )
+
+    set_auth_cookies(response, refresh_token)
 
     return LoginResponse(
         success=True,
@@ -560,6 +654,7 @@ async def get_github_auth_url(redirect_uri: str | None = None) -> GitHubAuthUrlR
 async def github_auth(
     payload: GitHubAuthRequest,
     request: Request,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> LoginResponse:
     """Authenticate a user via GitHub OAuth Single Sign-On."""
@@ -613,6 +708,8 @@ async def github_auth(
         company_name=company_name,
     )
 
+    set_auth_cookies(response, refresh_token)
+
     return LoginResponse(
         success=True,
         message="GitHub login successful.",
@@ -630,86 +727,43 @@ async def github_auth(
 
 
 @router.post(
-    "/refresh-token",
-    status_code=status.HTTP_200_OK,
-    response_model=RefreshTokenResponse,
-    responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Invalid or expired token"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
-        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
-    },
-)
-async def refresh_token(
-    request: Request,
-    payload: RefreshTokenRequest | None = None,
-    token_service: Annotated[TokenService, Depends(get_token_service)] = None,
-) -> RefreshTokenResponse:
-    """Rotate an active refresh token for a new access and refresh token pair."""
-
-    ip_address = request.client.host if request.client else None
-    device = request.headers.get("User-Agent")
-
-    raw_token = (
-        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
-        or request.cookies.get("ofc360_refresh_token")
-        or request.cookies.get("refresh_token")
-        or request.cookies.get("eduflow_refresh_token")
-        or request.cookies.get("__Host-ofc_session")
-        or request.cookies.get("ofc_session")
-    )
-    if not raw_token:
-        from app.core.exceptions import AppException
-        raise AppException(
-            message="Invalid or missing refresh token.",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    access_token, new_refresh_token, expires_in = await token_service.rotate_refresh_token(
-        refresh_token=raw_token,
-        ip_address=ip_address,
-        device=device,
-    )
-
-    return RefreshTokenResponse(
-        success=True,
-        message="Token refreshed successfully.",
-        data=RefreshTokenResponseData(
-            access_token=access_token,
-            refresh_token=new_refresh_token,
-            token_type="Bearer",
-            expires_in=expires_in,
-        ),
-        errors=None,
-    )
-
-
-@router.post(
     "/refresh",
     status_code=status.HTTP_200_OK,
     response_model=RefreshTokenResponse,
+    summary="Rotate an active refresh token for a new access and refresh token pair.",
     responses={
         status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Invalid or expired token"},
+        status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Cross-origin request forbidden"},
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
     },
 )
+@router.post(
+    "/refresh-token",
+    status_code=status.HTTP_200_OK,
+    response_model=RefreshTokenResponse,
+    include_in_schema=False,
+)
 async def refresh(
     request: Request,
+    response: Response,
     payload: RefreshTokenRequest | None = None,
     token_service: Annotated[TokenService, Depends(get_token_service)] = None,
 ) -> RefreshTokenResponse:
     """Rotate an active refresh token for a new access and refresh token pair."""
+    _verify_trusted_origin(request)
 
     ip_address = request.client.host if request.client else None
     device = request.headers.get("User-Agent")
 
+    from app.core.config import settings
+
     raw_token = (
         (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or (getattr(payload, "refreshToken", "").strip() if payload and getattr(payload, "refreshToken", None) else None)
+        or request.cookies.get(settings.COOKIE_NAME)
         or request.cookies.get("ofc360_refresh_token")
         or request.cookies.get("refresh_token")
-        or request.cookies.get("eduflow_refresh_token")
-        or request.cookies.get("__Host-ofc_session")
-        or request.cookies.get("ofc_session")
     )
     if not raw_token:
         from app.core.exceptions import AppException
@@ -723,6 +777,8 @@ async def refresh(
         ip_address=ip_address,
         device=device,
     )
+
+    set_auth_cookies(response, new_refresh_token)
 
     return RefreshTokenResponse(
         success=True,
@@ -743,10 +799,13 @@ async def refresh(
     response_model=APIResponse[None],
     responses={
         status.HTTP_200_OK: {"model": APIResponse[None], "description": "Logged out successfully"},
+        status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Cross-origin request forbidden"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
     },
 )
 async def logout(
+    request: Request,
+    response: Response,
     payload: RefreshTokenRequest | None = None,
     auth_service: Annotated[AuthService, Depends(get_auth_service)] = None,
     claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
@@ -754,21 +813,31 @@ async def logout(
 ) -> APIResponse[None]:
     """Revoke user session and blacklist access token without failing if access token has expired.
     
-    Request body is optional - frontend may call without a body.
+    Request body is optional - frontend may call without a body using cookies.
     """
+    _verify_trusted_origin(request)
 
     # Extract raw access token from authorization header
     access_token = ""
     if authorization and authorization.lower().startswith("bearer "):
         access_token = authorization.split(" ", 1)[1]
 
-    # Extract refresh token from body if provided
-    refresh_token = payload.refresh_token if payload else None
+    # Extract refresh token from body or cookies if provided
+    from app.core.config import settings
+    refresh_token = (
+        (payload.refresh_token.strip() if payload and payload.refresh_token else None)
+        or (getattr(payload, "refreshToken", "").strip() if payload and getattr(payload, "refreshToken", None) else None)
+        or request.cookies.get(settings.COOKIE_NAME)
+        or request.cookies.get("ofc360_refresh_token")
+        or request.cookies.get("refresh_token")
+    )
 
     await auth_service.logout(
         access_token=access_token,
         refresh_token=refresh_token,
     )
+
+    clear_auth_cookies(response)
 
     return APIResponse[None](
         success=True,
@@ -959,7 +1028,7 @@ async def get_me(
     )
 
 
-@router.patch(
+@router.post(
     "/change-password",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[None],
@@ -971,6 +1040,13 @@ async def get_me(
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": APIResponse[None], "description": "Invalid input"},
         status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
     },
+)
+@router.patch(
+    "/change-password",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[None],
+    summary="Change account password (PATCH compatibility)",
+    include_in_schema=False,
 )
 async def change_password(
     payload: ChangePasswordRequest,

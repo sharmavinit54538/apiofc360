@@ -52,9 +52,10 @@ class TokenService:
         token_hash = hash_token(refresh_token)
         expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
+        assigned_family_id = family_id or uuid.uuid4()
         await self.auth_repository.create_refresh_token(
             user_id=user_id,
-            family_id=family_id or uuid.uuid4(),
+            family_id=assigned_family_id,
             parent_token_hash=parent_token_hash,
             token_hash=token_hash,
             expires_at=expires_at,
@@ -62,7 +63,7 @@ class TokenService:
             ip_address=ip_address,
         )
         
-        logger.info("New Access Token issued for user: %s (family_id=%s)", user_id, family_id)
+        logger.info("New Access Token issued for user: %s (family_id=%s)", user_id, assigned_family_id)
         return access_token, refresh_token, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
     async def rotate_refresh_token(
@@ -72,7 +73,8 @@ class TokenService:
         ip_address: str | None = None,
         device: str | None = None,
     ) -> tuple[str, str, int]:
-        """Rotate old refresh token for a new set of access/refresh tokens with locking and reuse detection."""
+        """Rotate old refresh token for a new set of access/refresh tokens with locking, grace window, and reuse detection."""
+        from app.core.config import settings
 
         try:
             claims = decode_token(refresh_token)
@@ -114,17 +116,58 @@ class TokenService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
-            # TOKEN FAMILY REUSE DETECTION:
-            # If a refresh token was already revoked/used, someone is attempting to reuse a rotated token!
-            # Revoke only the compromised token family.
+            # TOKEN FAMILY REUSE & GRACE WINDOW DETECTION:
+            # If a refresh token was already revoked/used, check if it falls within the concurrent grace window
+            # (e.g. multiple tabs or network retries presenting the immediately previous rotated token).
             if getattr(token_record, "revoked", False) is True:
+                grace_seconds = getattr(settings, "REFRESH_TOKEN_GRACE_SECONDS", 15)
+                revocation_time = token_record.revoked_at or token_record.updated_at
+                if revocation_time:
+                    if revocation_time.tzinfo is None:
+                        revocation_time = revocation_time.replace(tzinfo=timezone.utc)
+                    time_since_revocation = (now - revocation_time).total_seconds()
+                else:
+                    time_since_revocation = 999999.0
+
+                if time_since_revocation <= grace_seconds and token_record.revoked_reason in (None, "ROTATION", "ROTATED"):
+                    logger.info(
+                        "Refresh token presented was recently rotated within grace window (age=%.1fs <= %ss, family_id=%s). Issuing fresh token pair without revoking family.",
+                        time_since_revocation,
+                        grace_seconds,
+                        getattr(token_record, "family_id", None),
+                    )
+                    user = token_record.user
+                    if not user or user.is_deleted or not user.is_active:
+                        raise AppException(
+                            message="Invalid or expired refresh token.",
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                        )
+                    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+                    new_access_token, new_refresh_token, expires_in = await self.generate_auth_tokens(
+                        user_id=user.id,
+                        role=role_str,
+                        company_id=user.company_id,
+                        email=user.email,
+                        ip_address=ip_address,
+                        device=device,
+                        family_id=token_record.family_id,
+                        parent_token_hash=token_hash,
+                    )
+                    await self.session.commit()
+                    return new_access_token, new_refresh_token, expires_in
+
                 logger.critical(
-                    "SECURITY ALERT: Token family reuse detected! User %s presented revoked token %s (family_id=%s). Revoking compromised token family.",
-                    getattr(token_record, "user_id", "unknown"), token_hash[:12], getattr(token_record, "family_id", None)
+                    "SECURITY ALERT: Token family reuse detected! User %s presented revoked token %s outside grace window (family_id=%s, age=%.1fs). Revoking compromised token family.",
+                    getattr(token_record, "user_id", "unknown"), token_hash[:12], getattr(token_record, "family_id", None), time_since_revocation
                 )
                 if getattr(token_record, "family_id", None):
                     await self.auth_repository.revoke_token_family(token_record.family_id, reason="REUSE_ATTEMPT_DETECTED")
-                # NOTE: We no longer revoke ALL user sessions - only the compromised family
+                if getattr(token_record, "user_id", None):
+                    await self.auth_repository.revoke_all_user_refresh_tokens(token_record.user_id, reason="REUSE_ATTEMPT_DETECTED")
+                    try:
+                        await redis_client.revoke_user_tokens(token_record.user_id, ttl_seconds=300)
+                    except Exception:
+                        pass
                 await self.session.commit()
                 raise AppException(
                     message="Invalid or expired refresh token. Token family revoked due to reuse detection.",
@@ -218,7 +261,7 @@ class TokenService:
             logger.info("Refresh Token valid for user: %s (family_id=%s)", user.id, getattr(token_record, "family_id", None))
 
             # Revoke the old refresh token (rotation policy)
-            await self.auth_repository.revoke_refresh_token(token_record.id)
+            await self.auth_repository.revoke_refresh_token(token_record.id, reason="ROTATION")
 
             # Generate a new pair within the SAME family
             role_str = user.role.value if hasattr(user.role, "value") else str(user.role)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Index, String, Text, func, JSON
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text, func, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,11 +17,15 @@ class Report(Base):
 
     __tablename__ = "reports"
     __table_args__ = (
+        Index("ix_reports_company_id", "company_id"),
         Index("ix_reports_status", "status"),
         Index("ix_reports_type", "type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False)  # employee, payroll, attendance, leave, recruitment, travel, compliance, audit

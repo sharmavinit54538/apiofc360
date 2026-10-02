@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import Any, Optional
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, JSON
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, JSON, text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -37,12 +37,12 @@ class AgentRun(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    trigger: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
+    trigger: Mapped[str] = mapped_column(String(50), nullable=False, default="manual", server_default=text("'manual'"))
     prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="RUNNING")
-    result: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="RUNNING", server_default=text("'RUNNING'"))
+    result: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -75,7 +75,7 @@ class AgentFeedback(Base):
     )
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -112,8 +112,8 @@ class GeneratedDocument(Base):
         nullable=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    variables: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    format: Mapped[str] = mapped_column(String(20), nullable=False, default="pdf")
+    variables: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    format: Mapped[str] = mapped_column(String(20), nullable=False, default="pdf", server_default=text("'pdf'"))
     file_path_or_url: Mapped[str] = mapped_column(String(500), nullable=False)
     generated_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),

@@ -204,20 +204,5 @@ def downgrade() -> None:
                existing_type=sa.NUMERIC(precision=12, scale=2),
                server_default=sa.text('0.00'),
                existing_nullable=False)
-    op.create_table('otp_codes',
-    sa.Column('id', sa.UUID(), autoincrement=False, nullable=False),
-    sa.Column('user_id', sa.UUID(), autoincrement=False, nullable=True),
-    sa.Column('email', sa.VARCHAR(length=320), autoincrement=False, nullable=False),
-    sa.Column('purpose', sa.VARCHAR(length=40), autoincrement=False, nullable=False),
-    sa.Column('code_hash', sa.VARCHAR(length=64), autoincrement=False, nullable=False),
-    sa.Column('attempts', sa.INTEGER(), autoincrement=False, nullable=False),
-    sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False),
-    sa.Column('consumed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True),
-    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('otp_codes_user_id_fkey'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('otp_codes_pkey'))
-    )
-    op.create_index(op.f('ix_otp_codes_purpose'), 'otp_codes', ['purpose'], unique=False)
-    op.create_index(op.f('ix_otp_codes_email_purpose_created_at'), 'otp_codes', ['email', 'purpose', 'created_at'], unique=False)
-    op.create_index(op.f('ix_otp_codes_email'), 'otp_codes', ['email'], unique=False)
+    # Note: otp_codes was an obsolete table never created by migrations; do not recreate on downgrade
     # ### end Alembic commands ###

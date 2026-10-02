@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import uuid
 
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, JSON, Numeric, text, func
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, JSON, Numeric, UniqueConstraint, text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +16,7 @@ class CompanySettings(Base):
     """Company settings database model."""
 
     __tablename__ = "company_settings"
+    __table_args__ = (UniqueConstraint("company_id", name="uq_company_settings_company_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -35,6 +36,10 @@ class CompanySettings(Base):
     week_start_day: Mapped[str | None] = mapped_column(String(20))
     working_days: Mapped[dict | None] = mapped_column(JSON)
     office_timing: Mapped[str | None] = mapped_column(String(50))
+    # Keep individual values authoritative. ``office_timing`` is retained only
+    # for compatibility with older consumers.
+    office_start_time: Mapped[str | None] = mapped_column(String(10))
+    office_end_time: Mapped[str | None] = mapped_column(String(10))
     default_shift: Mapped[str | None] = mapped_column(String(50))
     leave_policy_template: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(
@@ -52,6 +57,7 @@ class Designation(Base):
     """Designation database model."""
 
     __tablename__ = "designations"
+    __table_args__ = (UniqueConstraint("company_id", "normalized_name", name="uq_designations_company_normalized_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -64,6 +70,7 @@ class Designation(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    normalized_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

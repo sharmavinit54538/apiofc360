@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.permissions import _require_admin, _uid
 from app.db.database import get_db_session
-from app.middleware.auth import get_current_user_claims
+from app.middleware.auth import get_current_user, get_current_user_claims
+from app.models.user import User
 from app.schemas.core_modules.users_profile import UserUpdateRequest
+from app.services.avatar_service import AvatarService
 from app.services.core_modules.users_profile_service import UsersProfileService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["Core - Users"])
 
@@ -66,6 +71,23 @@ async def get_current_user_details(
         "account_status": getattr(user, "account_status", "ACTIVE"),
         "company_id": str(user.company_id) if user.company_id else None,
     })
+
+
+@router.post("/me/avatar", summary="Upload user avatar image", status_code=status.HTTP_200_OK)
+async def upload_avatar(
+    file: UploadFile = File(..., description="Avatar image file (JPEG, PNG, or WebP, max 5MB)"),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Upload or replace the authenticated user's avatar.
+
+    Accepts multipart/form-data with a single ``file`` field.
+    The user is identified exclusively from the JWT token — no user ID
+    is accepted from the client.
+    """
+    svc = AvatarService(session)
+    result = await svc.upload_avatar(current_user, file)
+    return _ok(result, message="Avatar uploaded successfully")
 
 
 @router.get("/{id}")

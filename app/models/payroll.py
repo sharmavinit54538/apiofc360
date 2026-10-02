@@ -16,7 +16,7 @@ from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer,
     Numeric, String, UniqueConstraint, JSON, func, text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -51,9 +51,9 @@ class StatutoryComplianceConfig(Base):
     payroll_start_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
     payroll_end_day: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
     salary_payment_date: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
-    working_days_policy: Mapped[str | None] = mapped_column(String(50), nullable=True, default="EXCLUDE_WEEKENDS")
-    salary_calc_method: Mapped[str | None] = mapped_column(String(50), nullable=True, default="MONTHLY_FIXED")
-    attendance_source: Mapped[str | None] = mapped_column(String(50), nullable=True, default="FACE_BIOMETRIC")
+    working_days_policy: Mapped[str | None] = mapped_column(String(50), nullable=True, default="EXCLUDE_WEEKENDS", server_default=text("'EXCLUDE_WEEKENDS'"))
+    salary_calc_method: Mapped[str | None] = mapped_column(String(50), nullable=True, default="MONTHLY_FIXED", server_default=text("'MONTHLY_FIXED'"))
+    attendance_source: Mapped[str | None] = mapped_column(String(50), nullable=True, default="FACE_BIOMETRIC", server_default=text("'FACE_BIOMETRIC'"))
     payslip_footer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company_logo_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     digital_signature_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -88,18 +88,18 @@ class StatutoryComplianceConfig(Base):
 
     # Overtime & Bonuses
     overtime_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
-    overtime_multiplier_holiday: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("2.0"))
-    overtime_multiplier_weekend: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"))
-    overtime_multiplier_night: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.25"))
+    overtime_multiplier_holiday: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("2.0"), server_default=text("2.00"))
+    overtime_multiplier_weekend: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"), server_default=text("1.50"))
+    overtime_multiplier_night: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.25"), server_default=text("1.25"))
 
     # Banking & Automation
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False, default="HDFC Bank", server_default=text("'HDFC Bank'"))
     bank_ifsc: Mapped[str] = mapped_column(String(20), nullable=False, default="HDFC0001234", server_default=text("'HDFC0001234'"))
-    salary_transfer_format: Mapped[str] = mapped_column(String(20), nullable=False, default="NEFT", server_default=text("'NEFT'"))
+    salary_transfer_format: Mapped[str] = mapped_column(String(50), nullable=False, default="NEFT", server_default=text("'NEFT'"))
     auto_email_payslips: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     auto_backup_payroll: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
-    settings_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    settings_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     effective_from: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
@@ -255,6 +255,7 @@ class Payslip(Base):
         Index("ix_payslips_company_id", "company_id"),
         Index("ix_payslips_employee_id", "employee_id"),
         Index("ix_payslips_payroll_run_id", "payroll_run_id"),
+        Index("ix_payslips_run_employee", "payroll_run_id", "employee_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -330,9 +331,9 @@ class EmployeeInvestmentDeclaration(Base):
     section_80d: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     section_80ccd1b_nps: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)  # capped 50,000
     home_loan_interest_24b: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)  # capped 2,00,000
-    section_80g: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-    hra_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-    lta_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    section_80g: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+    hra_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+    lta_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
     other_deductions: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"))  # PENDING|APPROVED|REJECTED
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
