@@ -42,6 +42,7 @@ from app.schemas.auth import (
     VerifyNewEmailRequest,
     VerifyResetOTPRequest,
     VerifyResetOTPResponse,
+    VerifyResetOTPResponseData,
 )
 from app.services.account_service import AccountService, get_account_service
 from app.services.auth_service import AuthService, get_auth_service

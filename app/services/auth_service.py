@@ -543,7 +543,7 @@ class AuthService:
         payload: LoginRequest,
         ip_address: str | None = None,
         device: str | None = None,
-    ) -> tuple[User, str, str, int]:
+    ) -> tuple[User, str, str | None, int | None, bool]:
         """Verify user credentials and return a user model with access + refresh token set."""
 
         # 1. Check Redis lockout for identifier and IP
