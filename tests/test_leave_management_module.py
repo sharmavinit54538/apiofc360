@@ -593,3 +593,76 @@ async def test_get_company_employees_service():
     assert items[0].department == "HR"
     assert items[1].full_name == "Bob White"
     assert items[1].department == "Dev"
+
+
+# ==============================================================================
+# 13. AI Agent (LeaveAgent) Delegation Test
+# ==============================================================================
+
+@pytest.mark.asyncio
+async def test_leave_agent_apply_and_cancel_delegation():
+    """Verify LeaveAgent delegates to LeaveService.apply_leave and cancel_leave without direct deduction."""
+    from app.agents.leave_agent import LeaveAgent
+
+    emp = make_employee()
+    mock_session = AsyncMock()
+    mock_session.get.return_value = emp
+
+    agent = LeaveAgent(mock_session)
+
+    created_leave = make_leave(
+        employee=emp,
+        leave_type="Casual Leave",
+        start_date=date(2026, 11, 1),
+        end_date=date(2026, 11, 2),
+        total_days=Decimal("2.0"),
+        status="PENDING",
+    )
+
+    with patch.object(LeaveService, "apply_leave", new_callable=AsyncMock) as mock_apply, \
+         patch.object(LeaveService, "cancel_leave", new_callable=AsyncMock) as mock_cancel, \
+         patch.object(LeaveRepository, "get_leave_by_id", new_callable=AsyncMock) as mock_get_leave, \
+         patch.object(LeaveRepository, "get_employee_leave_policy_by_type", new_callable=AsyncMock) as mock_policy:
+        
+        mock_apply.return_value = created_leave
+        mock_get_leave.return_value = created_leave
+        policy = EmployeeLeavePolicy(
+            employee_id=emp.id,
+            leave_type="Casual Leave",
+            total_days=Decimal("10.0"),
+            used_days=Decimal("0.0"),
+        )
+        mock_policy.return_value = policy
+
+        # Apply leave via agent
+        res = await agent.apply_leave(
+            employee_id=emp.id,
+            leave_type="casual_leave",
+            start_date=date(2026, 11, 1),
+            end_date=date(2026, 11, 2),
+        )
+
+        assert res["success"] is True
+        assert res["days_applied"] == 2.0
+        assert res["new_used_days"] == 0.0  # NOT directly deducted!
+        mock_apply.assert_awaited_once()
+
+        # Cancel leave via agent
+        cancelled_leave = make_leave(
+            employee=emp,
+            leave_type="Casual Leave",
+            total_days=Decimal("2.0"),
+            status="CANCELLED",
+        )
+        mock_cancel.return_value = cancelled_leave
+
+        cancel_res = await agent.cancel_leave(
+            employee_id=emp.id,
+            leave_type="casual_leave",
+            days=2.0,
+            leave_id=created_leave.id,
+        )
+
+        assert cancel_res["success"] is True
+        mock_cancel.assert_awaited_once()
+
