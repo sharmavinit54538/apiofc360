@@ -8,7 +8,10 @@ import pytest
 
 from app.core.rbac import require_super_admin, ROLE_SUPER_ADMIN, ROLE_HR_ADMIN, ROLE_EMPLOYEE
 from app.models.user import User, UserRole, UserAccountStatus
-from seed_super_admin import seed_super_admin
+try:
+    from scripts.seed_super_admin import seed_super_admin
+except ImportError:
+    from seed_super_admin import seed_super_admin
 
 
 @pytest.mark.asyncio
