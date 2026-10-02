@@ -1,6 +1,6 @@
 """Authentication service layer containing business logic for registration, verification, login, logout, and recovery."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import logging
 import hashlib
 import httpx
@@ -71,6 +71,7 @@ class AuthService:
         from app.models.employee_leave_policy import EmployeeLeavePolicy
         from app.models.user.role import UserRole, UserAccountStatus
         from app.utils.employee import generate_employee_id
+        from app.services.leave_service import DEFAULT_LEAVE_ALLOCATIONS
 
         log_context = _registration_log_context(str(payload.email), payload.phone)
         try:
@@ -180,7 +181,21 @@ class AuthService:
             self.session.add(employee)
             await self.session.flush()
 
-            # Note: Departments and Leave Policies are configured by the HR Admin during onboarding wizard
+            # Seed default leave policies for the HR Admin employee using the single source of truth
+            now_year = datetime.now(timezone.utc).year
+            for alloc in DEFAULT_LEAVE_ALLOCATIONS:
+                policy = EmployeeLeavePolicy(
+                    id=uuid.uuid4(),
+                    employee_id=employee.id,
+                    leave_type=alloc["leave_type"],
+                    total_days=alloc["total_days"],
+                    used_days=Decimal("0.0"),
+                    carry_forward=False,
+                    effective_from=date(now_year, 1, 1),
+                    effective_to=date(now_year, 12, 31),
+                )
+                self.session.add(policy)
+            await self.session.flush()
 
 
             # Store verification OTP

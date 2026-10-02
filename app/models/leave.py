@@ -33,7 +33,7 @@ class LeaveRequest(Base):
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     
-    leave_type: Mapped[str] = mapped_column(String(50), nullable=False)  # SICK, CASUAL, VACATION, BEREAVEMENT
+    leave_type: Mapped[str] = mapped_column(String(50), nullable=False)  # Sick Leave, Casual Leave, Vacation Leave
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     total_days: Mapped[Decimal] = mapped_column(Numeric(4, 1), nullable=False)
@@ -50,3 +50,25 @@ class LeaveRequest(Base):
     # Relationships
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
     approved_by: Mapped[User | None] = relationship("User", lazy="select")
+
+    @property
+    def employee_name(self) -> str:
+        """Resolve full name of the employee."""
+        if self.employee:
+            first = self.employee.first_name or ""
+            last = self.employee.last_name or ""
+            name = f"{first} {last}".strip()
+            return name if name else "Employee"
+        return "Employee"
+
+    @property
+    def department(self) -> str | None:
+        """Resolve department name (not ID) of the employee."""
+        if self.employee:
+            dep_rel = getattr(self.employee, "department_rel", None)
+            if dep_rel:
+                dept_name = getattr(dep_rel, "department_name", None) or getattr(dep_rel, "name", None)
+                if dept_name:
+                    return dept_name
+            return getattr(self.employee, "department", None)
+        return None

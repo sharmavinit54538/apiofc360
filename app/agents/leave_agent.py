@@ -1,10 +1,9 @@
 """Leave Support AI Agent.
 
 Handles:
-- Fetching leave balance per leave type (CL, SL, PL) from employee_leave_policies.
-- Retrieving leave history (by looking at used_days and payroll inputs).
-- Applying leave (updating used_days in the database).
-- Canceling leave (decrementing used_days).
+- Fetching leave balance per leave type (Sick Leave, Casual Leave, Vacation Leave) via LeaveService.
+- Applying leave by creating a PENDING LeaveRequest via LeaveService.
+- Canceling leave requests via LeaveService.
 - Listing upcoming holidays (from holiday_calendar table or default calendar).
 """
 
@@ -12,16 +11,33 @@ from __future__ import annotations
 
 import logging
 import uuid
-from decimal import Decimal
 from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.employee_leave_policy import EmployeeLeavePolicy
+from app.core.exceptions import AppException, BadRequestException, NotFoundException
 from app.models.calendar import HolidayCalendar
+from app.models.employee import Employee
+from app.models.leave import LeaveRequest
+from app.schemas.leave import LeaveRequestCreate
+from app.services.leave_service import LeaveService
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_leave_type(raw_type: str) -> str:
+    cleaned = raw_type.strip()
+    lowered = cleaned.lower()
+    if "sick" in lowered:
+        return "Sick Leave"
+    if "casual" in lowered:
+        return "Casual Leave"
+    if "vacation" in lowered or "privilege" in lowered or "annual" in lowered:
+        return "Vacation Leave"
+    return cleaned
 
 
 class LeaveAgent:
@@ -31,28 +47,17 @@ class LeaveAgent:
         self.db = db
 
     async def get_leave_balances(self, employee_id: uuid.UUID) -> dict[str, Any]:
-        """Fetch leave type balances (allocated, used, remaining)."""
-        stmt = select(EmployeeLeavePolicy).where(EmployeeLeavePolicy.employee_id == employee_id)
-        res = await self.db.execute(stmt)
-        policies = res.scalars().all()
-
-        balances = {}
-        for p in policies:
-            remaining = p.total_days - p.used_days
-            balances[p.leave_type.upper()] = {
-                "allocated": float(p.total_days),
-                "used": float(p.used_days),
-                "remaining": float(remaining),
+        """Fetch leave type balances (allocated, used, remaining) using LeaveService."""
+        service = LeaveService(self.db)
+        bals = await service.get_leave_balances(employee_id)
+        balances: dict[str, Any] = {}
+        for b in bals:
+            key = b.leave_type.upper().replace(" ", "_")
+            balances[key] = {
+                "allocated": float(b.total_days),
+                "used": float(b.used_days),
+                "remaining": float(b.remaining_days),
             }
-
-        # If empty, return standard defaults
-        if not balances:
-            balances = {
-                "CASUAL_LEAVE": {"allocated": 12.0, "used": 0.0, "remaining": 12.0},
-                "SICK_LEAVE": {"allocated": 12.0, "used": 0.0, "remaining": 12.0},
-                "PRIVILEGE_LEAVE": {"allocated": 15.0, "used": 0.0, "remaining": 15.0},
-            }
-
         return balances
 
     async def apply_leave(
@@ -62,81 +67,94 @@ class LeaveAgent:
         start_date: date,
         end_date: date,
     ) -> dict[str, Any]:
-        """Deduct leave balance and return success response."""
-        ltype = leave_type.upper().replace(" ", "_")
-        
-        # Calculate days
+        """Submit leave request via LeaveService (creates a PENDING request, goes through approval)."""
+        ltype = _normalize_leave_type(leave_type)
         days = (end_date - start_date).days + 1
         if days <= 0:
             return {"success": False, "error": "End date must be on or after start date."}
 
-        stmt = select(EmployeeLeavePolicy).where(
-            EmployeeLeavePolicy.employee_id == employee_id,
-            EmployeeLeavePolicy.leave_type == ltype
-        )
-        res = await self.db.execute(stmt)
-        policy = res.scalar_one_or_none()
-
-        if not policy:
-            # Create a policy on the fly to support new employees
-            policy = EmployeeLeavePolicy(
-                employee_id=employee_id,
+        try:
+            service = LeaveService(self.db)
+            data = LeaveRequestCreate(
                 leave_type=ltype,
-                total_days=Decimal("15.0"),
-                used_days=Decimal("0.0"),
+                start_date=start_date,
+                end_date=end_date,
+                reason="Applied via AI Support Agent",
             )
-            self.db.add(policy)
-            await self.db.flush()
+            leave = await service.apply_leave(employee_id, data, role="employee")
 
-        remaining = policy.total_days - policy.used_days
-        if remaining < days:
+            policy = await service.repo.get_employee_leave_policy_by_type(employee_id, ltype)
+            used_days = float(policy.used_days) if policy else 0.0
+
             return {
-                "success": False,
-                "error": f"Insufficient leave balance. Remaining: {remaining} days, requested: {days} days."
+                "success": True,
+                "message": f"Successfully applied {float(leave.total_days)} day(s) of {ltype} from {start_date} to {end_date} (Pending approval).",
+                "days_applied": float(leave.total_days),
+                "new_used_days": used_days,
             }
-
-        # Deduct balance
-        policy.used_days += Decimal(str(days))
-        await self.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Successfully applied {days} day(s) of {ltype} from {start_date} to {end_date}.",
-            "days_applied": days,
-            "new_used_days": float(policy.used_days),
-        }
+        except (BadRequestException, NotFoundException, AppException) as exc:
+            return {"success": False, "error": exc.message}
+        except Exception as exc:
+            logger.exception("AI agent apply_leave failed", exc_info=exc)
+            return {"success": False, "error": str(exc)}
 
     async def cancel_leave(
         self,
         employee_id: uuid.UUID,
         leave_type: str,
-        days: float,
+        days: float = 1.0,
+        leave_id: uuid.UUID | None = None,
     ) -> dict[str, Any]:
-        """Credit back leave balance."""
-        ltype = leave_type.upper().replace(" ", "_")
-        
-        stmt = select(EmployeeLeavePolicy).where(
-            EmployeeLeavePolicy.employee_id == employee_id,
-            EmployeeLeavePolicy.leave_type == ltype
-        )
-        res = await self.db.execute(stmt)
-        policy = res.scalar_one_or_none()
+        """Cancel leave request via LeaveService."""
+        ltype = _normalize_leave_type(leave_type)
+        try:
+            service = LeaveService(self.db)
+            emp = await self.db.get(Employee, employee_id)
+            if not emp:
+                return {"success": False, "error": "Employee not found."}
 
-        if not policy:
-            return {"success": False, "error": f"No active leave policy found for {ltype}."}
+            target_leave: LeaveRequest | None = None
+            if leave_id:
+                target_leave = await service.repo.get_leave_by_id(leave_id)
+            else:
+                stmt = (
+                    select(LeaveRequest)
+                    .where(
+                        LeaveRequest.employee_id == employee_id,
+                        LeaveRequest.leave_type == ltype,
+                        LeaveRequest.status.in_(["PENDING", "APPROVED"]),
+                    )
+                    .order_by(LeaveRequest.created_at.desc())
+                    .limit(1)
+                )
+                res = await self.db.execute(stmt)
+                target_leave = res.scalars().first()
 
-        if float(policy.used_days) < days:
-            days = float(policy.used_days)
+            if not target_leave:
+                return {"success": False, "error": f"No active leave found for {ltype}."}
 
-        policy.used_days -= Decimal(str(days))
-        await self.db.commit()
+            prev_status = target_leave.status
+            cancelled = await service.cancel_leave(
+                leave_id=target_leave.id,
+                caller_user_id=emp.user_id if emp.user_id else uuid.uuid4(),
+                caller_role="employee",
+                caller_company_id=emp.company_id if emp.company_id else uuid.uuid4(),
+            )
 
-        return {
-            "success": True,
-            "message": f"Successfully canceled {days} day(s) of {ltype} leave.",
-            "refunded_days": days,
-            "new_used": float(policy.used_days),
-        }
+            policy = await service.repo.get_employee_leave_policy_by_type(employee_id, ltype)
+            new_used = float(policy.used_days) if policy else 0.0
+
+            return {
+                "success": True,
+                "message": f"Successfully canceled {float(cancelled.total_days)} day(s) of {ltype} leave.",
+                "refunded_days": float(cancelled.total_days) if prev_status == "APPROVED" else 0.0,
+                "new_used": new_used,
+            }
+        except (BadRequestException, NotFoundException, AppException) as exc:
+            return {"success": False, "error": exc.message}
+        except Exception as exc:
+            logger.exception("AI agent cancel_leave failed", exc_info=exc)
+            return {"success": False, "error": str(exc)}
 
     async def get_upcoming_holidays(self) -> list[dict[str, Any]]:
         """Fetch holiday lists from calendar module."""
