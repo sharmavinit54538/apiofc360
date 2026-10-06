@@ -23,12 +23,14 @@ class AIResumeDocument(Base):
 
     __tablename__ = "ai_resume_documents"
     __table_args__ = (
+        Index("ix_ai_resume_documents_company_id", "company_id"),
         Index("ix_ai_resume_doc_application", "application_id"),
         Index("ix_ai_resume_doc_candidate", "candidate_id"),
         Index("ix_ai_resume_doc_status", "parse_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     application_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=True)
     candidate_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
 

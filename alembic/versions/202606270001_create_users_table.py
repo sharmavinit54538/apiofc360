@@ -41,6 +41,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Drop users table."""
 
-    op.drop_index("ix_users_phone", table_name="users")
-    op.drop_index("ix_users_email", table_name="users")
-    op.drop_table("users")
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    if insp.has_table("users"):
+        indexes = {i["name"] for i in insp.get_indexes("users")}
+        if "ix_users_phone" in indexes:
+            op.drop_index("ix_users_phone", table_name="users")
+        if "ix_users_email" in indexes:
+            op.drop_index("ix_users_email", table_name="users")
+        op.execute("DROP TABLE IF EXISTS users CASCADE")

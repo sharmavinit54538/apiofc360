@@ -27,7 +27,10 @@ from app.services.hr_admin_service import HRAdminService
 from app.services.employee_service import EmployeeService
 from app.services.account_service import AccountService
 from app.core.exceptions import AppException, ConflictException
-from seed_super_admin import seed_super_admin
+try:
+    from scripts.seed_super_admin import seed_super_admin
+except ImportError:
+    from seed_super_admin import seed_super_admin
 
 
 # ==============================================================================

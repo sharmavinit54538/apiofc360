@@ -48,8 +48,9 @@ class Settings(BaseSettings):
         description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues - e.g., Supabase direct). Default False for Render/standard PostgreSQL.",
     )
     DB_ECHO: bool = False
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # DB pool defaults kept small for ECS Fargate. Tune based on RDS max_connections.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 300
 
@@ -68,11 +69,24 @@ class Settings(BaseSettings):
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_TOKEN_GRACE_SECONDS: int = 15
+    REFRESH_REUSE_GRACE_SECONDS: int = 15
+
+    # Auth cookie settings
+    COOKIE_NAME: str = "ofc360_refresh_token"
+    COOKIE_DOMAIN: str | None = None
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_MAX_AGE: int = 30 * 24 * 3600
 
     SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
     SUPER_ADMIN_PASSWORD: SecretStr = Field(
-        default=SecretStr("SuperAdmin@2026"),
-        description="Platform Super Admin initial password used during provisioning.",
+        default=SecretStr(""),
+        description="Platform Super Admin initial password. MUST be set via env var in production.",
+    )
+    RESET_SUPER_ADMIN_PASSWORD: bool = Field(
+        default=False,
+        description="Set to true to force-reset the super admin password on next startup.",
     )
 
     BCRYPT_ROUNDS: int = 12
@@ -167,9 +181,10 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
-    OLLAMA_MODEL: str = "llama3.2:3b"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_HOST: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen3:30b"
+    OLLAMA_DEFAULT_MODEL: str = "qwen3:30b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_PRIORITY: int = 1
     OLLAMA_TIMEOUT: int = 60
@@ -181,13 +196,6 @@ class Settings(BaseSettings):
     OLLAMA_NUM_PREDICT: int = 2048
     OLLAMA_NUM_PARALLEL: int = 1
     OLLAMA_MAX_LOADED_MODELS: int = 1
-
-    @property
-    def OLLAMA_HOST(self) -> str:
-        """Alias for OLLAMA_BASE_URL to unify host configuration across environments."""
-        return self.OLLAMA_BASE_URL
-
-
 
     # ── OCR settings ────────────────────────────────────────────────────────
     OCR_ENGINE_PREFERENCE: str = "auto"      # auto | paddle | easyocr | tesseract
@@ -243,9 +251,9 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
     # ── Cloudinary settings ──────────────────────────────────────────────────
-    CLOUDINARY_CLOUD_NAME: str = "sfqkvhk1"
-    CLOUDINARY_API_KEY: str = "256143848656332"
-    CLOUDINARY_API_SECRET: str = "XWUxbxAr-tXLDwewBcF7F6OrU8s"
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
 
     # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
     # Cloud LLM providers are DISABLED. Only Ollama is supported.
@@ -285,6 +293,12 @@ class Settings(BaseSettings):
     # ── AI Agent settings ────────────────────────────────────────────────────
     AI_SCREENING_THRESHOLD: float = 0.65     # Auto-shortlist above this score
     AI_REJECTION_THRESHOLD: float = 0.35     # Auto-reject below this score
+    AI_AUTO_REJECT_ENABLED: bool = False     # Compliance: never auto-reject unless explicitly enabled
+    AI_SCREENING_RESUME_MAX_CHARS: int = 12000 # Max characters to retain from resume before truncation
+    AI_SCREENING_JD_MAX_CHARS: int = 6000    # Max characters to retain from job description
+    AI_SCREENING_MAX_CONCURRENCY: int = 5    # Max concurrent LLM screening calls
+    AI_SCREENING_TIMEOUT_SECONDS: int = 45   # Timeout per screening LLM call
+    AI_SCREENING_MAX_RETRIES: int = 2        # Max retries on transient LLM failures
     AI_RANKING_TOP_N: int = 50               # Default top-N for ranking
     AI_CONFIDENCE_MIN: float = 0.0
     AI_CONFIDENCE_MAX: float = 1.0
@@ -300,7 +314,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", mode="before")
+    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", "RESET_SUPER_ADMIN_PASSWORD", "AI_AUTO_REJECT_ENABLED", mode="before")
     @classmethod
     def parse_bool(cls, value: Any) -> bool:
         """Parse booleans defensively when global env vars are present."""
@@ -438,6 +452,20 @@ class Settings(BaseSettings):
                     raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
                 if not public_key.strip().startswith("-----BEGIN"):
                     raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            # Cloudinary required in production
+            if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
+                raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
+            # Super Admin password required in production
+            sa_pwd = self.SUPER_ADMIN_PASSWORD.get_secret_value()
+            if not sa_pwd or sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12:
+                raise ValueError("SUPER_ADMIN_PASSWORD must be set to a strong password (12+ chars) via env var in production")
+        return self
+
+    @model_validator(mode="after")
+    def sync_ollama_host(self) -> "Settings":
+        """Set OLLAMA_HOST equal to OLLAMA_BASE_URL if not explicitly provided by env."""
+        if "OLLAMA_HOST" not in self.model_fields_set:
+            self.OLLAMA_HOST = self.OLLAMA_BASE_URL
         return self
 
 

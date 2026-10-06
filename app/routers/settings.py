@@ -63,7 +63,6 @@ async def update_settings(
 @router.get("/attendance")
 @router.get("/leave")
 @router.get("/payroll")
-@router.get("/notifications")
 @router.get("/security")
 @router.get("/workflow")
 async def get_settings_section(
@@ -81,7 +80,6 @@ async def get_settings_section(
 @router.put("/attendance")
 @router.put("/leave")
 @router.put("/payroll")
-@router.put("/notifications")
 @router.put("/security")
 @router.put("/workflow")
 async def update_settings_section_endpoint(

@@ -386,6 +386,27 @@ def downgrade():
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())
 
+    if 'payroll_runs' in tables:
+        cols = {c['name'] for c in inspector.get_columns('payroll_runs')}
+        fks = {fk['name'] for fk in inspector.get_foreign_keys('payroll_runs') if fk.get('name')}
+        for fk_name in ['fk_payroll_runs_period_id_payroll_periods', 'payroll_runs_period_id_fkey']:
+            if fk_name in fks:
+                try:
+                    op.drop_constraint(fk_name, 'payroll_runs', type_='foreignkey')
+                except Exception:
+                    pass
+        for col_name in [
+            'period_id', 'run_number', 'total_gross_paise', 'total_deductions_paise', 'total_net_paise',
+            'validation_status', 'validation_errors', 'validation_notes', 'is_locked',
+            'notes', 'comments', 'job_id', 'finalized_by', 'finalized_at', 'rejected_by',
+            'rejected_at', 'rejection_reason', 'sent_back_by', 'sent_back_at', 'sent_back_reason'
+        ]:
+            if col_name in cols:
+                try:
+                    op.drop_column('payroll_runs', col_name)
+                except Exception:
+                    pass
+
     for tbl in [
         'payroll_report_exports',
         'company_bank_accounts',
@@ -402,7 +423,4 @@ def downgrade():
         'payroll_periods',
     ]:
         if tbl in tables:
-            try:
-                op.drop_table(tbl)
-            except Exception:
-                pass
+            op.execute(sa.text(f'DROP TABLE IF EXISTS "{tbl}" CASCADE'))

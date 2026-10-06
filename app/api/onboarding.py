@@ -20,6 +20,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -105,22 +106,10 @@ async def _resolve_admin_context(
             company_id = user.company_id
 
     if not company_id:
-        # Auto-provision company if none exists
-        user_res = await session.execute(select(User).where(User.id == user_id))
-        user = user_res.scalar_one_or_none()
-        new_comp = Company(
-            id=uuid.uuid4(),
-            name=f"{user.name if user and user.name else 'My'} Organization",
-            onboarding_completed=False,
-            onboarding_step=1,
-            company_profile={},
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization associated with this account. Please register or associate with an organization.",
         )
-        setattr(new_comp, "status", "PENDING")
-        session.add(new_comp)
-        await session.flush()
-        if user:
-            user.company_id = new_comp.id
-        company_id = new_comp.id
 
     return user_id, company_id
 
@@ -267,14 +256,32 @@ async def save_company_details(
     """Create or update company profile details."""
     user_id, company_id = context
     service = HRAdminOnboardingService(session)
-    org = await service.update_organization(company_id, payload)
-    return OnboardingAPIResponse(
-        success=True,
-        message="Company information saved successfully.",
-        current_step=3,
-        onboarding_completed=org.onboarding_completed,
-        data=org,
-    )
+    try:
+        org = await service.update_organization(company_id, payload)
+        return OnboardingAPIResponse(
+            success=True,
+            message="Company information saved successfully.",
+            current_step=3,
+            onboarding_completed=org.onboarding_completed,
+            data=org,
+        )
+    except (HTTPException, AppException):
+        await session.rollback()
+        raise
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.exception("save_company_details database error for company_id=%s: %s", company_id, exc)
+        raise AppException(
+            message="A database error occurred while saving company details.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        ) from exc
+    except Exception as exc:
+        await session.rollback()
+        logger.exception("save_company_details failed for company_id=%s: %s", company_id, exc)
+        raise AppException(
+            message=f"An unexpected error occurred while saving company details: {str(exc)}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        ) from exc
 
 
 # ─────────────────────────────────────────────────────────────────────────────

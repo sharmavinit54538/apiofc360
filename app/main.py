@@ -322,6 +322,10 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
 async def ensure_superadmin_provisioned():
     """Guarantee that exactly ONE Super Admin (superadmin@ofc360.com) exists, active and verified.
     
+    Password behavior:
+    - New user: password is set from SUPER_ADMIN_PASSWORD env var.
+    - Existing user: password is NOT changed unless RESET_SUPER_ADMIN_PASSWORD=true.
+    
     Safe Migration: Any other users in the DB previously assigned SUPER_ADMIN are safely
     migrated to HR_ADMIN without deleting any user or organization data.
     """
@@ -336,12 +340,9 @@ async def ensure_superadmin_provisioned():
     logger.info("Verifying Single Fixed Super Admin security lock and provisioning...")
 
     super_admin_email = "superadmin@ofc360.com"
-    raw_password = (
-        settings.SUPER_ADMIN_PASSWORD.get_secret_value()
-        if hasattr(settings, "SUPER_ADMIN_PASSWORD") and settings.SUPER_ADMIN_PASSWORD
-        else "SuperAdmin@2026"
-    )
-    pwd_hash = hash_password(raw_password)
+    raw_password = settings.SUPER_ADMIN_PASSWORD.get_secret_value() if settings.SUPER_ADMIN_PASSWORD else ""
+    if not raw_password:
+        logger.warning("SUPER_ADMIN_PASSWORD not set. Super admin provisioning will skip password setting for existing users.")
 
     try:
         async with AsyncSessionLocal() as session:
@@ -369,27 +370,32 @@ async def ensure_superadmin_provisioned():
             sa_user = sa_res.scalars().first()
 
             if sa_user:
-                sa_user.password_hash = pwd_hash
+                # Only reset password if explicitly requested via env var
+                if settings.RESET_SUPER_ADMIN_PASSWORD and raw_password:
+                    sa_user.password_hash = hash_password(raw_password)
+                    logger.info("Super Admin password force-reset via RESET_SUPER_ADMIN_PASSWORD=true.")
                 sa_user.role = UserRole.SUPER_ADMIN
                 sa_user.is_active = True
                 sa_user.is_verified = True
                 sa_user.account_status = UserAccountStatus.ACTIVE.value
-                sa_user.must_change_password = False
                 sa_user.is_deleted = False
                 session.add(sa_user)
                 logger.info("Verified official Super Admin account: %s", super_admin_email)
             else:
+                if not raw_password:
+                    logger.error("Cannot create Super Admin: SUPER_ADMIN_PASSWORD env var is not set.")
+                    return
                 new_sa = User(
                     id=uuid.uuid4(),
                     name="Platform Super Admin",
                     email=super_admin_email,
                     phone="9999900000",
-                    password_hash=pwd_hash,
+                    password_hash=hash_password(raw_password),
                     role=UserRole.SUPER_ADMIN,
                     account_status=UserAccountStatus.ACTIVE.value,
                     is_active=True,
                     is_verified=True,
-                    must_change_password=False,
+                    must_change_password=True,
                     company_id=None,
                 )
                 session.add(new_sa)
@@ -603,6 +609,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+        max_age=86400,
     )
 
     install_exception_handlers(app)
@@ -781,6 +788,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
+    app.include_router(core_notifications_router.router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])
@@ -897,10 +905,21 @@ def create_app() -> FastAPI:
     from fastapi.staticfiles import StaticFiles
     import os
     # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos"]
+    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
-        os.makedirs(dir_path, exist_ok=True)
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+        except PermissionError as err:
+            current_uid = os.getuid() if hasattr(os, "getuid") else "N/A"
+            logger.warning(
+                "Permission notice while ensuring uploads directory '%s' (UID %s): %s",
+                dir_path,
+                current_uid,
+                err,
+            )
+            if not os.path.isdir(dir_path):
+                raise
         app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
 
     return app

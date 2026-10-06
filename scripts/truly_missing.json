@@ -1,0 +1,590 @@
+[
+  {
+    "method": "GET",
+    "path": "/departments/summary",
+    "count": 1,
+    "sample_original": "/departments/summary",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/departments/bulk-delete",
+    "count": 1,
+    "sample_original": "/departments/bulk-delete",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/departments/bulk-status",
+    "count": 1,
+    "sample_original": "/departments/bulk-status",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/departments/bulk-assign-manager",
+    "count": 1,
+    "sample_original": "/departments/bulk-assign-manager",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/departments/import",
+    "count": 1,
+    "sample_original": "/departments/import",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/departments/{param}/employees",
+    "count": 1,
+    "sample_original": "/departments/${deptId}/employees",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "DELETE",
+    "path": "/departments/{param}/employees/{param}",
+    "count": 1,
+    "sample_original": "/departments/${deptId}/employees/${employeeId}",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/departments/transfer-employees",
+    "count": 1,
+    "sample_original": "/departments/transfer-employees",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/employees/{param}/promote",
+    "count": 1,
+    "sample_original": "/employees/${employeeId}/promote",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/managers/bulk-delete",
+    "count": 1,
+    "sample_original": "/managers/bulk-delete",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/managers/bulk-status",
+    "count": 1,
+    "sample_original": "/managers/bulk-status",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/managers/import",
+    "count": 1,
+    "sample_original": "/managers/import",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v2/performance/reviews/bulk-status",
+    "count": 1,
+    "sample_original": "/api/v2/performance/reviews/bulk-status",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/interviews/rounds/{param}/{param}",
+    "count": 1,
+    "sample_original": "/interviews/rounds/${selectedIv!.id}/${decision}",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "GET",
+    "path": "/documents/activity",
+    "count": 1,
+    "sample_original": "/documents/activity",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/documents/generate",
+    "count": 2,
+    "sample_original": "/documents/generate",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "GET",
+    "path": "/employees/me",
+    "count": 1,
+    "sample_original": "/employees/me",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/salary-structures",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/salary-structures",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/salary-structures",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/salary-structures",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/designations",
+    "count": 1,
+    "sample_original": "/designations",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/employees",
+    "count": 1,
+    "sample_original": "/settings/employees",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/employees",
+    "count": 1,
+    "sample_original": "/settings/employees",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/attendance/settings",
+    "count": 1,
+    "sample_original": "/attendance/settings",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PUT",
+    "path": "/attendance/settings",
+    "count": 1,
+    "sample_original": "/attendance/settings",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/leaves",
+    "count": 1,
+    "sample_original": "/settings/leaves",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/leaves",
+    "count": 1,
+    "sample_original": "/settings/leaves",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/documents",
+    "count": 1,
+    "sample_original": "/settings/documents",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/documents",
+    "count": 1,
+    "sample_original": "/settings/documents",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/assets",
+    "count": 1,
+    "sample_original": "/settings/assets",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PUT",
+    "path": "/settings/assets",
+    "count": 1,
+    "sample_original": "/settings/assets",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/policy-assistant/search",
+    "count": 1,
+    "sample_original": "/policy-assistant/search",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{param}/pdf",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/payslips/${payslip.id}/pdf",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/ai/chat/conversation",
+    "count": 1,
+    "sample_original": "/ai/chat/conversation",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics",
+    "count": 1,
+    "sample_original": "/analytics",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/summary",
+    "count": 1,
+    "sample_original": "/analytics/summary",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/reports",
+    "count": 1,
+    "sample_original": "/analytics/reports",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/reports/{param}",
+    "count": 1,
+    "sample_original": "/analytics/reports/${encodeURIComponent(reportId)}",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/reports",
+    "count": 1,
+    "sample_original": "/analytics/reports",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "PATCH",
+    "path": "/analytics/reports/{param}",
+    "count": 1,
+    "sample_original": "/analytics/reports/${encodeURIComponent(reportId)}",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "DELETE",
+    "path": "/analytics/reports/{param}",
+    "count": 1,
+    "sample_original": "/analytics/reports/${encodeURIComponent(reportId)}",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/reports/generate",
+    "count": 1,
+    "sample_original": "/analytics/reports/generate",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/reports/{param}/export",
+    "count": 1,
+    "sample_original": "/analytics/reports/${encodeURIComponent(reportId)}/export",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/payroll-costs",
+    "count": 1,
+    "sample_original": "/analytics/payroll-costs",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/turnover-rates",
+    "count": 1,
+    "sample_original": "/analytics/turnover-rates",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/compliance-metrics",
+    "count": 1,
+    "sample_original": "/analytics/compliance-metrics",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/predictive-insights",
+    "count": 1,
+    "sample_original": "/analytics/predictive-insights",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/predictive-insights/analyze",
+    "count": 1,
+    "sample_original": "/analytics/predictive-insights/analyze",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/attrition/predict",
+    "count": 1,
+    "sample_original": "/analytics/attrition/predict",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/sentiment",
+    "count": 1,
+    "sample_original": "/analytics/sentiment",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/sentiment/analyze",
+    "count": 1,
+    "sample_original": "/analytics/sentiment/analyze",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/burnout-risk",
+    "count": 1,
+    "sample_original": "/analytics/burnout-risk",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/burnout-risk/analyze",
+    "count": 1,
+    "sample_original": "/analytics/burnout-risk/analyze",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/analytics/salary-benchmarks",
+    "count": 1,
+    "sample_original": "/analytics/salary-benchmarks",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/analytics/salary-benchmarks/analyze",
+    "count": 1,
+    "sample_original": "/analytics/salary-benchmarks/analyze",
+    "notes": "AI Hub / Analytics route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/calendar/holidays/import",
+    "count": 1,
+    "sample_original": "/calendar/holidays/import",
+    "notes": "Attendance module route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/attendance/holidays/import",
+    "count": 1,
+    "sample_original": "/attendance/holidays/import",
+    "notes": "Attendance module route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/admin/employee-onboarding{param}",
+    "count": 1,
+    "sample_original": "/admin/employee-onboarding${buildListQuery(params)}",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/cycles",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/cycles/{param}/lock",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/cycles/${id}/lock",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v2/payroll/runs/{param}/lock",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/runs/${runId}/lock",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/payslips/{param}",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/payslips/${payslipId}",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/employees/{param}/payslips{param}",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/employees/${employeeId}/payslips${q}",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/payroll/employees/{param}/payslips{param}",
+    "count": 1,
+    "sample_original": "/payroll/employees/${employeeId}/payslips${q}",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/payroll/my-payslips{param}",
+    "count": 1,
+    "sample_original": "/api/v2/payroll/my-payslips${q}",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/payroll/my-payslips{param}",
+    "count": 1,
+    "sample_original": "/payroll/my-payslips${q}",
+    "notes": "Payroll v1 vs v2 route reconciliation"
+  },
+  {
+    "method": "DELETE",
+    "path": "/users/me/avatar",
+    "count": 1,
+    "sample_original": "/users/me/avatar",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/users/me/sessions",
+    "count": 1,
+    "sample_original": "/users/me/sessions",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "DELETE",
+    "path": "/users/me/sessions/{param}",
+    "count": 1,
+    "sample_original": "/users/me/sessions/${sessionId}",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "DELETE",
+    "path": "/users/me/sessions",
+    "count": 1,
+    "sample_original": "/users/me/sessions",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/users/me/preferences",
+    "count": 1,
+    "sample_original": "/users/me/preferences",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "PATCH",
+    "path": "/users/me/preferences",
+    "count": 1,
+    "sample_original": "/users/me/preferences",
+    "notes": "Profile / user me route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v2/reports/analytics/export",
+    "count": 1,
+    "sample_original": "/api/v2/reports/analytics/export",
+    "notes": "No matching backend route currently registered"
+  },
+  {
+    "method": "PATCH",
+    "path": "/settings/security",
+    "count": 1,
+    "sample_original": "/settings/security",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/branding",
+    "count": 1,
+    "sample_original": "/settings/branding",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PATCH",
+    "path": "/settings/branding",
+    "count": 1,
+    "sample_original": "/settings/branding",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PATCH",
+    "path": "/settings/integrations",
+    "count": 1,
+    "sample_original": "/settings/integrations",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "PATCH",
+    "path": "/settings/billing",
+    "count": 1,
+    "sample_original": "/settings/billing",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/subscription/plans",
+    "count": 1,
+    "sample_original": "/settings/subscription/plans",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/subscription/upgrade",
+    "count": 1,
+    "sample_original": "/settings/subscription/upgrade",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/subscription/cancel",
+    "count": 1,
+    "sample_original": "/settings/subscription/cancel",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/audit-logs${query",
+    "count": 1,
+    "sample_original": "/settings/audit-logs${query",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "GET",
+    "path": "/settings/audit-logs/export${query",
+    "count": 1,
+    "sample_original": "/settings/audit-logs/export${query",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/email/test",
+    "count": 1,
+    "sample_original": "/settings/email/test",
+    "notes": "Settings / config API route reconciliation"
+  },
+  {
+    "method": "POST",
+    "path": "/settings/sms/test",
+    "count": 1,
+    "sample_original": "/settings/sms/test",
+    "notes": "Settings / config API route reconciliation"
+  }
+]

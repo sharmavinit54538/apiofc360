@@ -67,7 +67,20 @@ class GeofenceVerifyResponse(BaseModel):
 
 class BreakStartRequest(BaseModel):
     """Request payload to start a break session."""
+    image_base64: Optional[str] = Field(None, description="Captured live face image base64")
+    location: Optional[dict[str, Any]] = Field(None, description="GPS location details e.g. latitude, longitude, accuracy")
     notes: Optional[str] = Field(None, description="Optional reason or notes for the break")
+    device_info: Optional[str] = Field(None, description="Device and browser info")
+    ip_address: Optional[str] = Field(None, description="Client IP address")
+
+
+class BreakEndRequest(BaseModel):
+    """Request payload to end a break session."""
+    image_base64: Optional[str] = Field(None, description="Captured live face image base64")
+    location: Optional[dict[str, Any]] = Field(None, description="GPS location details e.g. latitude, longitude, accuracy")
+    notes: Optional[str] = Field(None, description="Optional notes for ending the break")
+    device_info: Optional[str] = Field(None, description="Device and browser info")
+    ip_address: Optional[str] = Field(None, description="Client IP address")
 
 
 class BreakSessionResponse(BaseModel):
@@ -81,3 +94,17 @@ class BreakSessionResponse(BaseModel):
     duration_minutes: Optional[float] = None
     status: str
     notes: Optional[str] = None
+    start_image_url: Optional[str] = None
+    end_image_url: Optional[str] = None
+    start_face_distance: Optional[float] = None
+    end_face_distance: Optional[float] = None
+    start_liveness_score: Optional[float] = None
+    end_liveness_score: Optional[float] = None
+    start_latitude: Optional[float] = None
+    start_longitude: Optional[float] = None
+    end_latitude: Optional[float] = None
+    end_longitude: Optional[float] = None
+    face_distance: Optional[float] = None
+    liveness_score: Optional[float] = None
+    image_url: Optional[str] = None
+

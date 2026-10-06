@@ -36,4 +36,31 @@ migrate_*.py
 api_inventory.json
 api_inventory_summary.md
 openapi.json
+all_live_fastapi_routes.json
+ai_payroll_endpoints.json
+attendance_routes.json
+benchmark_results.json
+categorized_connect_endpoints.json
+categorized_hr_endpoints.json
+connect_endpoints_detailed.json
+connect_full_specs.json
+connect_routes.json
+full_hr_admin_dashboard_report.json
+hr_dashboard_extracted.json
+parsed_endpoints.json
+payroll_all_routes.json
+payroll_submodules_parsed.json
+ui_5_sections_endpoints.json
+app/templates.zip
+
+# One-off report generators at root
+categorize_connect.py
+dump_all_live_routes.py
+extract_connect_specs.py
+filter_hr_dashboard.py
+generate_categorized_list.py
+generate_full_report.py
+inspect_all_payroll_routes.py
+parse_*.py
+print_*.py
 

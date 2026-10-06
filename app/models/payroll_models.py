@@ -201,7 +201,7 @@ class PayComponent(Base):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     calculation_method: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="flat"
+        String(30), nullable=False, default="flat", server_default=text("'flat'")
     )  # flat | percentage_of_basic | percentage_of_ctc | formula
     default_percentage: Mapped[Decimal | None] = mapped_column(
         Numeric(7, 4), nullable=True
@@ -439,7 +439,7 @@ class PaymentBatch(Base):
     batch_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     source_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
     payment_mode: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="NEFT"
+        String(30), nullable=False, default="NEFT", server_default=text("'NEFT'")
     )  # NEFT | RTGS | IMPS | UPI
 
     status: Mapped[str] = mapped_column(
@@ -806,7 +806,7 @@ class PayrollReportExport(Base):
         nullable=True,
     )
     report_key: Mapped[str] = mapped_column(String(100), nullable=False)
-    file_format: Mapped[str] = mapped_column(String(10), nullable=False, default="csv")
+    file_format: Mapped[str] = mapped_column(String(10), nullable=False, default="csv", server_default=text("'csv'"))
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_content: Mapped[str | None] = mapped_column(Text, nullable=True)

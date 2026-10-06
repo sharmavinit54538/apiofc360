@@ -867,6 +867,32 @@ class RecruitmentRepository:
         obj = RecruitmentNotification(**kwargs)
         self.session.add(obj)
         await self.session.flush()
+
+        try:
+            from app.models.user import User
+            from app.services import notification_service
+            user_id = kwargs.get("user_id")
+            if user_id:
+                user = await self.session.get(User, user_id)
+                company_id = getattr(user, "company_id", None)
+                if company_id:
+                    await notification_service.notify(
+                        self.session,
+                        company_id=company_id,
+                        recipient_ids=[user_id],
+                        type=str(kwargs.get("type") or "recruitment.alert"),
+                        category="recruitment",
+                        module="recruitment",
+                        title=str(kwargs.get("title") or "Recruitment Notification")[:200],
+                        body=str(kwargs.get("message") or kwargs.get("body") or "Recruitment update")[:1000],
+                        link=str(kwargs.get("link") or "/dashboard/recruitment"),
+                        priority=str(kwargs.get("priority") or "normal"),
+                        entity={"type": "recruitment", "id": str(kwargs.get("entity_id") or obj.id)},
+                        dedupe_key=kwargs.get("dedupe_key") or f"recruitment:{obj.id}",
+                    )
+        except Exception as e:
+            logger.warning("Failed to emit unified notification from create_recruitment_notification: %s", e)
+
         return obj
 
     async def list_recruitment_notifications(self, user_uuid: uuid.UUID, limit: int = 50) -> list[RecruitmentNotification]:

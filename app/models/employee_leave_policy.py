@@ -1,10 +1,10 @@
-﻿"""EmployeeLeavePolicy model."""
+"""EmployeeLeavePolicy model."""
 from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 import uuid
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, func, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
@@ -14,7 +14,10 @@ if TYPE_CHECKING:
 class EmployeeLeavePolicy(Base):
     """Leave allocation per employee per leave type."""
     __tablename__ = "employee_leave_policies"
-    __table_args__ = (Index("ix_employee_leave_policies_employee_id", "employee_id"),)
+    __table_args__ = (
+        Index("ix_employee_leave_policies_employee_id", "employee_id"),
+        UniqueConstraint("employee_id", "leave_type", name="uq_employee_leave_policies_employee_leave_type"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)

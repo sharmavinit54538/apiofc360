@@ -2,6 +2,7 @@
 
 from app.models.otp import OTP
 from app.models.user import User
+from app.models.notification import UserNotification
 from app.models.refresh_token import RefreshToken
 from app.models.password_reset import PasswordResetToken
 from app.models.audit_log import AuditLog
@@ -67,6 +68,18 @@ from app.models.recruitment import (
     CandidateCrmNote,
     RecruitmentNotification,
     JobPublishChannel,
+)
+
+# AI Recruitment module models
+from app.models.ai_recruitment import (
+    AIResumeDocument,
+    CandidateMatchScore,
+    AIScreeningResult,
+    AIRecruitmentInterviewSession,
+    CodingAssessmentRecord,
+    HRCopilotQuery,
+    JobTemplate,
+    RecruitmentAuditLog,
 )
 
 # Exit module models
@@ -613,4 +626,13 @@ __all__ = [
     "ComplianceRecord",
     "EmployeeHealthRecord",
     "AIInteraction",
+    "UserNotification",
+    "AIResumeDocument",
+    "CandidateMatchScore",
+    "AIScreeningResult",
+    "AIRecruitmentInterviewSession",
+    "CodingAssessmentRecord",
+    "HRCopilotQuery",
+    "JobTemplate",
+    "RecruitmentAuditLog",
 ]

@@ -65,6 +65,8 @@ async def get_face_status(
         return {
             "success": True,
             "message": "Face enrollment status retrieved.",
+            "is_enrolled": is_enrolled,
+            "enrolled_at": enrolled_at.isoformat() if enrolled_at else None,
             "data": {
                 "is_enrolled": is_enrolled,
                 "enrolled_at": enrolled_at.isoformat() if enrolled_at else None,
@@ -78,6 +80,8 @@ async def get_face_status(
     return {
         "success": True,
         "message": "Face enrollment status retrieved.",
+        "is_enrolled": is_enrolled,
+        "enrolled_at": enrolled_at.isoformat() if enrolled_at else None,
         "data": {
             "is_enrolled": is_enrolled,
             "enrolled_at": enrolled_at.isoformat() if enrolled_at else None,

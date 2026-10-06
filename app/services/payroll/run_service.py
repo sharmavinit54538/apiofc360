@@ -653,6 +653,36 @@ class PayrollRunService:
         run.status = "PROCESSED"
         run.validation_status = "VALID"
 
+        if run.company_id:
+            try:
+                from app.models.user import User
+                from app.services import notification_service
+                admins_res = await session.execute(
+                    select(User.id).where(
+                        User.company_id == run.company_id,
+                        User.role.in_(["hr_admin", "super_admin", "admin", "cfo", "ceo"]),
+                    ).limit(10)
+                )
+                admin_ids = list(admins_res.scalars().all())
+                if admin_ids:
+                    await notification_service.notify(
+                        session,
+                        company_id=run.company_id,
+                        recipient_ids=admin_ids,
+                        type="payroll.run_needs_approval",
+                        category="payroll",
+                        module="payroll",
+                        title="Payroll Run Requires Approval",
+                        body=f"Payroll run #{run.run_number} for {run.total_employees} employees requires review and approval.",
+                        link=f"/dashboard/payroll/runs/{run.id}/review",
+                        priority="high",
+                        entity={"type": "payroll_run", "id": str(run.id)},
+                        dedupe_key=f"payroll:run:{run.id}:approval",
+                        mandatory=True,
+                    )
+            except Exception as e:
+                logger.warning("Failed to emit payroll approval notification: %s", e)
+
         await session.commit()
         await session.refresh(run)
         return run

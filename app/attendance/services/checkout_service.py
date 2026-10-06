@@ -133,6 +133,11 @@ class AttendanceCheckOutService:
             active_break.break_end = now_dt
             active_break.duration_minutes = round(max(0.0, delta_break.total_seconds() / 60.0), 2)
             active_break.status = "COMPLETED"
+            active_break.notes = (
+                f"{active_break.notes} | Auto-ended at checkout"
+                if active_break.notes
+                else "Auto-ended at checkout"
+            )
 
             all_breaks = await self.break_service.get_all_breaks_for_attendance(record.id)
             total_break_mins = sum(b.duration_minutes or 0.0 for b in all_breaks if b.id != active_break.id) + active_break.duration_minutes

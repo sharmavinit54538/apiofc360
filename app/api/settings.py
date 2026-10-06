@@ -4,13 +4,15 @@ from typing import Annotated, Any, Dict, List, Optional
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+from fastapi import APIRouter, Depends, Query, status, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
+from app.services.company_logo_service import CompanyLogoService
 from app.models.company import Company
 from app.models.employee import Employee
 from app.models.user import User
@@ -91,6 +93,7 @@ class NotificationSettingsPayload(BaseModel):
     inAppAlerts: Optional[bool] = None
     slackAlerts: Optional[bool] = None
     weeklyDigest: Optional[bool] = None
+    securityAlerts: Optional[bool] = None
 
 
 class IntegrationPayload(BaseModel):
@@ -392,6 +395,102 @@ async def update_company_settings(
         success=True,
         message="Company settings updated successfully.",
         data=response_data,
+        errors=None,
+    )
+
+
+@router.post(
+    "/company/logo",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[Dict[str, Any]],
+    summary="Upload company logo",
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid file or unsupported format"},
+        status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Authentication required"},
+        status.HTTP_403_FORBIDDEN: {"model": APIResponse[None], "description": "Insufficient permissions"},
+        status.HTTP_404_NOT_FOUND: {"model": APIResponse[None], "description": "Company not found"},
+        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {"model": APIResponse[None], "description": "File exceeds size limit"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": APIResponse[None], "description": "Internal server error"},
+    },
+)
+async def upload_company_logo(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    logo: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
+) -> APIResponse[Dict[str, Any]]:
+    """Upload and update corporate logo for the authenticated user's company."""
+    # 1. Check permissions - only admin/authorized roles can update company logo
+    role = str(claims.get("role") or "").lower().strip()
+    from app.models.user.role import RoleEnum
+    normalized_role = RoleEnum.from_str(role).value
+    
+    ALLOWED_COMPANY_SETTINGS_ROLES = {
+        "super_admin",
+        "hr_admin",
+        "admin",
+        "company_admin",
+        "it_admin",
+        "executive",
+        "ceo",
+        "cto",
+        "cfo",
+        "coo",
+        "hr_manager",
+    }
+    if role not in ALLOWED_COMPANY_SETTINGS_ROLES and normalized_role not in ALLOWED_COMPANY_SETTINGS_ROLES:
+        raise AppException(
+            message="Access denied: You do not have permission to update company settings.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    # 2. Resolve company_id from claims
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise AppException(
+            message="No company association found for the current user.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        company_id = uuid.UUID(str(co_id_str))
+    except (ValueError, TypeError):
+        raise AppException(
+            message="Invalid company identifier format.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise AppException(
+            message="Company not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    # 3. Check upload file (support either field 'logo' or 'file')
+    upload_file = logo or file
+    if not upload_file:
+        raise AppException(
+            message="No image file provided. Please provide an image using field 'logo' or 'file'.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 4. Upload and persist via CompanyLogoService
+    logo_service = CompanyLogoService(session)
+    result = await logo_service.upload_company_logo(company, upload_file)
+
+    # 5. Audit log
+    await create_audit_log(
+        session, claims, "UPDATE_COMPANY_LOGO",
+        f"Uploaded new company logo for {company.name}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Company logo uploaded successfully.",
+        data=result,
         errors=None,
     )
 
@@ -950,7 +1049,10 @@ async def get_notifications(
             "inAppAlerts": True,
             "slackAlerts": False,
             "weeklyDigest": True,
+            "securityAlerts": True,
         }
+    elif "securityAlerts" not in notifications:
+        notifications["securityAlerts"] = True
         
     return APIResponse[Dict[str, Any]](
         success=True,
@@ -961,6 +1063,7 @@ async def get_notifications(
 
 
 @router.put("/notifications")
+@router.patch("/notifications")
 async def update_notifications(
     payload: NotificationSettingsPayload,
     claims: Annotated[dict, Depends(get_current_user_claims)],
@@ -984,7 +1087,10 @@ async def update_notifications(
         "inAppAlerts": True,
         "slackAlerts": False,
         "weeklyDigest": True,
+        "securityAlerts": True,
     }
+    if "securityAlerts" not in notifications:
+        notifications["securityAlerts"] = True
     
     notifications.update(payload.model_dump(exclude_unset=True))
     hr_settings["notifications"] = notifications

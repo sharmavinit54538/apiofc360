@@ -134,6 +134,7 @@ class AccountService:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
             if not verify_password(payload.current_password, user.password_hash):
                 logger.warning("change_password: wrong current password | user_id=%s | file=account_service.py | func=change_password", user_id)
+                raise AppException(message="Current password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if verify_password(payload.new_password, user.password_hash):
                 raise AppException(message="New password must be different from the current password.", status_code=status.HTTP_400_BAD_REQUEST)
             await self.auth_repository.update_user_password(user_id, hash_password(payload.new_password))
@@ -142,6 +143,28 @@ class AccountService:
             # Immediately invalidate any outstanding password reset tokens and active OTPs
             await self.auth_repository.invalidate_all_user_password_resets(user_id)
             await self.auth_repository.invalidate_all_user_otps(user_id)
+
+            if getattr(user, "company_id", None):
+                try:
+                    from app.services import notification_service
+                    await notification_service.notify(
+                        self.session,
+                        company_id=user.company_id,
+                        recipient_ids=[user.id],
+                        type="security.password_changed",
+                        category="security",
+                        module="security",
+                        title="Password Changed",
+                        body="Your account password was successfully updated.",
+                        link="/dashboard/settings",
+                        priority="high",
+                        entity={"type": "user", "id": str(user.id)},
+                        dedupe_key=f"security:{user.id}:pwd_change:{int(datetime.now().timestamp())}",
+                        mandatory=True,
+                    )
+                except Exception as notif_err:
+                    logger.warning("Failed to emit password changed notification: %s", notif_err)
+
             await self.session.commit()
             logger.info("change_password: success | user_id=%s | file=account_service.py | func=change_password", user_id)
         except AppException:
