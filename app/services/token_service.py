@@ -45,6 +45,9 @@ class TokenService:
         """Issue access + refresh token package and save the refresh token hash with family tracking."""
         from app.core.config import settings
 
+        assigned_family_id = family_id or uuid.uuid4()
+        family_id = assigned_family_id
+
         access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email)
         refresh_token = create_refresh_token(user_id=user_id)
         
@@ -52,7 +55,6 @@ class TokenService:
         token_hash = hash_token(refresh_token)
         expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
-        assigned_family_id = family_id or uuid.uuid4()
         await self.auth_repository.create_refresh_token(
             user_id=user_id,
             family_id=assigned_family_id,
@@ -120,8 +122,8 @@ class TokenService:
             # If a refresh token was already revoked/used, check if it falls within the concurrent grace window
             # (e.g. multiple tabs or network retries presenting the immediately previous rotated token).
             if getattr(token_record, "revoked", False) is True:
-                grace_seconds = getattr(settings, "REFRESH_TOKEN_GRACE_SECONDS", 15)
-                revocation_time = token_record.revoked_at or token_record.updated_at
+                grace_seconds = getattr(settings, "REFRESH_REUSE_GRACE_SECONDS", None) or getattr(settings, "REFRESH_TOKEN_GRACE_SECONDS", 15)
+                revocation_time = getattr(token_record, "rotated_at", None) or token_record.revoked_at or token_record.updated_at
                 if revocation_time:
                     if revocation_time.tzinfo is None:
                         revocation_time = revocation_time.replace(tzinfo=timezone.utc)
@@ -260,9 +262,6 @@ class TokenService:
 
             logger.info("Refresh Token valid for user: %s (family_id=%s)", user.id, getattr(token_record, "family_id", None))
 
-            # Revoke the old refresh token (rotation policy)
-            await self.auth_repository.revoke_refresh_token(token_record.id, reason="ROTATION")
-
             # Generate a new pair within the SAME family
             role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
             family_id = getattr(token_record, "family_id", None) or uuid.uuid4()
@@ -275,6 +274,15 @@ class TokenService:
                 device=device,
                 family_id=family_id,
                 parent_token_hash=token_hash,
+            )
+
+            # Revoke the old refresh token (rotation policy) and record rotated_at + replaced_by
+            new_token_hash = hash_token(new_refresh_token)
+            await self.auth_repository.revoke_refresh_token(
+                token_record.id,
+                reason="ROTATION",
+                rotated_at=now,
+                replaced_by=new_token_hash,
             )
             await self.session.commit()
             return new_access_token, new_refresh_token, expires_in

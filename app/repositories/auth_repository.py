@@ -401,14 +401,25 @@ class AuthRepository:
         )
         return result.scalars().first()
 
-    async def revoke_refresh_token(self, token_id: uuid.UUID, reason: str | None = None) -> None:
+    async def revoke_refresh_token(
+        self,
+        token_id: uuid.UUID,
+        reason: str | None = None,
+        rotated_at: datetime | None = None,
+        replaced_by: str | None = None,
+    ) -> None:
         """Revoke a specific refresh token with timestamp and optional reason."""
 
         now = datetime.now(timezone.utc)
+        values: dict[str, Any] = {"revoked": True, "revoked_at": now, "revoked_reason": reason}
+        if rotated_at is not None:
+            values["rotated_at"] = rotated_at
+        if replaced_by is not None:
+            values["replaced_by"] = replaced_by
         await self.session.execute(
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
-            .values(revoked=True, revoked_at=now, revoked_reason=reason)
+            .values(**values)
         )
         await self.session.flush()
 

@@ -70,12 +70,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     REFRESH_TOKEN_GRACE_SECONDS: int = 15
+    REFRESH_REUSE_GRACE_SECONDS: int = 15
 
     # Auth cookie settings
     COOKIE_NAME: str = "ofc360_refresh_token"
     COOKIE_DOMAIN: str | None = None
     COOKIE_SECURE: bool | None = None
     COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_MAX_AGE: int = 30 * 24 * 3600
 
     SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
     SUPER_ADMIN_PASSWORD: SecretStr = Field(
