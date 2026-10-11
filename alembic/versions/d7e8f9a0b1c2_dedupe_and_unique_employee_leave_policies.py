@@ -50,20 +50,21 @@ def upgrade() -> None:
                 MAX(total_days) AS max_total,
                 SUM(used_days) AS sum_used
             FROM employee_leave_policies
-            GROUP BY employee_id, leave_type;
-
+            GROUP BY employee_id, leave_type
+        """)
+        op.execute("""
             UPDATE employee_leave_policies elp
             SET 
                 total_days = t.max_total,
                 used_days = t.sum_used
             FROM temp_policy_dedupe t
-            WHERE elp.id = t.keeper_id;
-
-            DELETE FROM employee_leave_policies
-            WHERE id NOT IN (SELECT keeper_id FROM temp_policy_dedupe);
-
-            DROP TABLE temp_policy_dedupe;
+            WHERE elp.id = t.keeper_id
         """)
+        op.execute("""
+            DELETE FROM employee_leave_policies
+            WHERE id NOT IN (SELECT keeper_id FROM temp_policy_dedupe)
+        """)
+        op.execute("DROP TABLE temp_policy_dedupe")
 
         # 3. Add UNIQUE constraint
         op.create_unique_constraint(
