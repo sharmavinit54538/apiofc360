@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,11 +25,72 @@ from app.schemas.leave import (
 
 logger = logging.getLogger(__name__)
 
+# Configurable constant for backdated leave allowance (calendar days)
+LEAVE_BACKDATE_DAYS = 30
+
+# Canonical leave types mapping
+CANONICAL_LEAVE_TYPES = {
+    "SICK": "Sick Leave",
+    "CASUAL": "Casual Leave",
+    "VACATION": "Vacation Leave",
+    "BEREAVEMENT": "Bereavement Leave",
+}
+
+# Legacy/alternative spellings that map to canonical types
+LEAVE_TYPE_ALIASES = {
+    "sick": "Sick Leave",
+    "sick_leave": "Sick Leave",
+    "casual": "Casual Leave",
+    "casual_leave": "Casual Leave",
+    "vacation": "Vacation Leave",
+    "vacation_leave": "Vacation Leave",
+    "privilege": "Vacation Leave",
+    "privilege_leave": "Vacation Leave",
+    "pl": "Vacation Leave",
+    "bereavement": "Bereavement Leave",
+    "bereavement_leave": "Bereavement Leave",
+}
+
 DEFAULT_LEAVE_ALLOCATIONS = [
     {"leave_type": "Sick Leave", "total_days": Decimal("12.0")},
     {"leave_type": "Casual Leave", "total_days": Decimal("10.0")},
     {"leave_type": "Vacation Leave", "total_days": Decimal("15.0")},
+    {"leave_type": "Bereavement Leave", "total_days": Decimal("5.0")},
 ]
+
+
+def normalize_leave_type(leave_type: str) -> str:
+    """Normalize leave type to canonical form.
+    
+    Handles case-insensitive matching, ignores spaces, underscores, and trailing 'leave' suffix.
+    """
+    if not leave_type:
+        return leave_type
+    
+    # Strip and normalize
+    normalized = leave_type.strip().lower()
+    # Remove spaces and underscores
+    normalized = normalized.replace(" ", "").replace("_", "")
+    # Remove trailing 'leave' if present
+    if normalized.endswith("leave"):
+        normalized = normalized[:-5]
+    
+    # Check aliases first
+    if normalized in LEAVE_TYPE_ALIASES:
+        return LEAVE_TYPE_ALIASES[normalized]
+    
+    # Check canonical keys
+    upper_key = normalized.upper()
+    if upper_key in CANONICAL_LEAVE_TYPES:
+        return CANONICAL_LEAVE_TYPES[upper_key]
+    
+    # If already a canonical display name, return as-is (case-insensitive match)
+    for canonical in CANONICAL_LEAVE_TYPES.values():
+        if canonical.lower() == leave_type.strip().lower():
+            return canonical
+    
+    # Return original if no mapping found (will be validated later)
+    return leave_type.strip()
 
 
 def calculate_leave_days(start_date: date, end_date: date) -> Decimal:
@@ -46,7 +107,7 @@ class LeaveService:
         self.repo = LeaveRepository(session)
 
     async def get_leave_balances(self, employee_id: uuid.UUID) -> list[LeaveBalanceResponse]:
-        """Ensure all 3 leave types exist and return balances in fixed order: Sick, Casual, Vacation."""
+        """Ensure all leave types exist and return balances in fixed order."""
         current_year = date.today().year
         effective_from = date(current_year, 1, 1)
         effective_to = date(current_year, 12, 31)
@@ -64,13 +125,14 @@ class LeaveService:
         policies = await self.repo.get_employee_leave_policies(employee_id)
         policy_map = {p.leave_type: p for p in policies}
 
-        order = ["Sick Leave", "Casual Leave", "Vacation Leave"]
+        order = ["Sick Leave", "Casual Leave", "Vacation Leave", "Bereavement Leave"]
         balances: list[LeaveBalanceResponse] = []
         for ltype in order:
             p = policy_map.get(ltype)
             if p:
                 total = float(p.total_days)
                 used = float(p.used_days)
+                # remaining = total - used - pending (pending handled in apply_leave)
                 balances.append(
                     LeaveBalanceResponse(
                         leave_type=p.leave_type,
@@ -97,9 +159,13 @@ class LeaveService:
         employee_id: uuid.UUID,
         data: LeaveRequestCreate,
         role: str = "employee",
-        backdate_grace_days: int = 0,
     ) -> LeaveRequest:
         """Apply for leave with server-side day calculation, backdating check, and pending reservation."""
+        # Normalize leave type
+        normalized_leave_type = normalize_leave_type(data.leave_type)
+        if normalized_leave_type != data.leave_type:
+            data.leave_type = normalized_leave_type
+
         if data.start_date > data.end_date:
             raise BadRequestException(message="Start date must be before or equal to End date.")
 
@@ -108,13 +174,28 @@ class LeaveService:
         if calculated_days <= Decimal("0.0"):
             raise BadRequestException(message="Invalid leave date range.")
 
-        # Reject start_date in the past beyond configurable grace (default 0 days), except for HR/Super admins
+        # Validate total_days is a multiple of 0.5
+        if (calculated_days * 2) % 1 != 0:
+            raise BadRequestException(message="Total days must be in increments of 0.5.")
+
+        # Validate minimum 0.5 days
+        if calculated_days < Decimal("0.5"):
+            raise BadRequestException(message="Leave must be at least 0.5 days.")
+
+        # Strip reason whitespace and validate minimum length
+        stripped_reason = data.reason.strip()
+        if len(stripped_reason) < 5:
+            raise BadRequestException(message="Reason must be at least 5 characters.")
+        data.reason = stripped_reason
+
+        # Backdating rules
         if role.lower() not in ("hr_admin", "super_admin"):
             today = date.today()
-            from datetime import timedelta
-            allowed_past_date = today - timedelta(days=backdate_grace_days)
+            allowed_past_date = today - timedelta(days=LEAVE_BACKDATE_DAYS)
             if data.start_date < allowed_past_date:
-                raise BadRequestException(message="Leave cannot be applied for past dates.")
+                raise BadRequestException(
+                    message=f"Leave cannot be applied for dates more than {LEAVE_BACKDATE_DAYS} days in the past."
+                )
 
         # Check for active or pending overlapping leaves
         has_overlap = await self.repo.check_leave_overlap(employee_id, data.start_date, data.end_date)
@@ -122,7 +203,7 @@ class LeaveService:
             raise BadRequestException(message="You have an overlapping leave request that is active or pending.")
 
         # Check policy coverage for the start_date
-        policy = await self.repo.get_employee_leave_policy_by_type(
+        policy = await self.repo.get_employee_leave_policy_by_type_for_date(
             employee_id, data.leave_type, target_date=data.start_date
         )
         if not policy:
@@ -203,22 +284,45 @@ class LeaveService:
         await self.session.refresh(new_leave)
         return new_leave
 
-    async def get_employee_leaves(self, employee_id: uuid.UUID) -> list[LeaveRequest]:
-        return await self.repo.get_leaves_for_employee(employee_id)
+    async def get_employee_leaves(
+        self, employee_id: uuid.UUID, limit: int = 100, offset: int = 0
+    ) -> list[LeaveRequest]:
+        return await self.repo.get_leaves_for_employee(employee_id, limit=limit, offset=offset)
+
+    async def count_employee_leaves(self, employee_id: uuid.UUID) -> int:
+        return await self.repo.count_leaves_for_employee(employee_id)
 
     async def get_pending_leaves(
         self,
         company_id: uuid.UUID,
         caller_user_id: uuid.UUID | None = None,
         caller_role: str = "hr_admin",
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[LeaveRequest]:
-        """Fetch pending leaves. Managers only see their direct reports; HR Admin sees entire company."""
+        """Fetch pending leaves. Managers only see their direct reports; HR Admin sees entire company.
+        Includes past-dated pending requests."""
         manager_employee_id = None
         if caller_role.lower() == "manager" and caller_user_id:
             mgr_emp = await self.repo.get_employee_by_user_id(caller_user_id)
             manager_employee_id = mgr_emp.id if mgr_emp else uuid.uuid4()
 
-        return await self.repo.get_pending_leaves(company_id, manager_employee_id=manager_employee_id)
+        return await self.repo.get_pending_leaves(
+            company_id, manager_employee_id=manager_employee_id, limit=limit, offset=offset
+        )
+
+    async def count_pending_leaves(
+        self,
+        company_id: uuid.UUID,
+        caller_user_id: uuid.UUID | None = None,
+        caller_role: str = "hr_admin",
+    ) -> int:
+        manager_employee_id = None
+        if caller_role.lower() == "manager" and caller_user_id:
+            mgr_emp = await self.repo.get_employee_by_user_id(caller_user_id)
+            manager_employee_id = mgr_emp.id if mgr_emp else uuid.uuid4()
+
+        return await self.repo.count_pending_leaves(company_id, manager_employee_id=manager_employee_id)
 
     async def review_leave(
         self,
@@ -261,15 +365,21 @@ class LeaveService:
         if status == "APPROVED":
             leave.approved_by_id = reviewer_user_id
             leave.rejection_reason = None
+            leave.reviewed_by_id = reviewer_user_id
+            leave.reviewed_at = datetime.utcnow()
 
             # Concurrency & Balance Integrity: lock policy row and re-verify remaining balance
-            policy = await self.repo.get_employee_leave_policy_by_type(
+            policy = await self.repo.get_employee_leave_policy_by_type_for_date(
                 leave.employee_id, leave.leave_type, target_date=leave.start_date, for_update=True
             )
             if not policy:
                 raise BadRequestException(message=f"No active leave policy found for {leave.leave_type}.")
 
-            remaining = policy.total_days - policy.used_days
+            # Exclude current request from pending reservations during approval
+            pending_days = await self.repo.get_pending_leave_days_by_type(
+                leave.employee_id, leave.leave_type, exclude_leave_id=leave.id
+            )
+            remaining = policy.total_days - policy.used_days - pending_days
             if remaining < leave.total_days:
                 raise BadRequestException(
                     message=f"Insufficient leave balance to approve this request. Remaining: {float(remaining)} days, required: {float(leave.total_days)} days."
@@ -282,8 +392,13 @@ class LeaveService:
         elif status == "REJECTED":
             if not rejection_reason or not rejection_reason.strip():
                 raise BadRequestException(message="Rejection reason is required.")
-            leave.rejection_reason = rejection_reason.strip()
+            stripped_reason = rejection_reason.strip()
+            if len(stripped_reason) < 3:
+                raise BadRequestException(message="Rejection reason must be at least 3 characters.")
+            leave.rejection_reason = stripped_reason
             leave.approved_by_id = None
+            leave.reviewed_by_id = reviewer_user_id
+            leave.reviewed_at = datetime.utcnow()
             leave.status = "REJECTED"
         else:
             raise BadRequestException(message=f"Invalid review status: {status}")
@@ -297,7 +412,7 @@ class LeaveService:
             body = (
                 f"Your {leave.leave_type} leave request for {leave.total_days} day(s) has been approved."
                 if is_approved
-                else f"Your {leave.leave_type} leave request was rejected: {rejection_reason or 'No reason provided'}."
+                else f"Your {leave.leave_type} leave request was rejected: {leave.rejection_reason or 'No reason provided'}."
             )
             dedupe_action = "approved" if is_approved else "rejected"
             try:
@@ -330,7 +445,11 @@ class LeaveService:
         caller_role: str,
         caller_company_id: uuid.UUID,
     ) -> LeaveRequest:
-        """Cancel a leave request. PENDING -> CANCELLED (no balance change); APPROVED & future start_date -> CANCELLED + refund."""
+        """Cancel a leave request. 
+        PENDING -> CANCELLED (no balance change, regardless of dates).
+        APPROVED & future start_date -> CANCELLED + refund used_days.
+        REJECTED/CANCELLED -> error.
+        """
         leave = await self.repo.get_leave_by_id(leave_id, for_update=True)
         if not leave:
             raise NotFoundException(message="Leave request not found.")
@@ -356,7 +475,7 @@ class LeaveService:
 
             leave.status = "CANCELLED"
             # Refund used_days
-            policy = await self.repo.get_employee_leave_policy_by_type(
+            policy = await self.repo.get_employee_leave_policy_by_type_for_date(
                 leave.employee_id, leave.leave_type, target_date=leave.start_date, for_update=True
             )
             if policy:
@@ -404,3 +523,39 @@ class LeaveService:
                 )
             )
         return items
+
+    async def get_all_leave_requests(
+        self,
+        company_id: uuid.UUID,
+        status: str | None = None,
+        department: str | None = None,
+        employee_id: uuid.UUID | None = None,
+        search: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[LeaveRequest], int]:
+        """Get all leave requests for a company with filters (HR Admin view)."""
+        offset = (page - 1) * limit
+        items = await self.repo.get_all_leave_requests(
+            company_id=company_id,
+            status=status,
+            department=department,
+            employee_id=employee_id,
+            search=search,
+            from_date=from_date,
+            to_date=to_date,
+            limit=limit,
+            offset=offset,
+        )
+        total = await self.repo.count_all_leave_requests(
+            company_id=company_id,
+            status=status,
+            department=department,
+            employee_id=employee_id,
+            search=search,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        return items, total

@@ -42,6 +42,14 @@ class LeaveRequestResponse(LeaveRequestBase):
     updated_at: Optional[datetime] = None
 
 
+class LeaveRequestDetailResponse(LeaveRequestResponse):
+    """Enhanced leave request response with reviewer details."""
+    employee_code: Optional[str] = None
+    reviewed_by_id: Optional[uuid.UUID] = None
+    reviewed_by_name: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+
+
 class LeaveBalanceResponse(BaseModel):
     leave_type: str
     total_days: float

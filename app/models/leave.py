@@ -44,12 +44,17 @@ class LeaveRequest(Base):
     approved_by_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Review fields (new)
+    reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
-    approved_by: Mapped[User | None] = relationship("User", lazy="select")
+    approved_by: Mapped[User | None] = relationship("User", foreign_keys=[approved_by_id], lazy="select")
+    reviewed_by: Mapped[User | None] = relationship("User", foreign_keys=[reviewed_by_id], lazy="select")
 
     @property
     def employee_name(self) -> str:
@@ -62,6 +67,13 @@ class LeaveRequest(Base):
         return "Employee"
 
     @property
+    def employee_code(self) -> str | None:
+        """Resolve employee code of the employee."""
+        if self.employee:
+            return getattr(self.employee, "employee_id", None)
+        return None
+
+    @property
     def department(self) -> str | None:
         """Resolve department name (not ID) of the employee."""
         if self.employee:
@@ -71,4 +83,14 @@ class LeaveRequest(Base):
                 if dept_name:
                     return dept_name
             return getattr(self.employee, "department", None)
+        return None
+
+    @property
+    def reviewed_by_name(self) -> str | None:
+        """Resolve full name of the reviewer."""
+        if self.reviewed_by:
+            first = self.reviewed_by.first_name or ""
+            last = self.reviewed_by.last_name or ""
+            name = f"{first} {last}".strip()
+            return name if name else None
         return None

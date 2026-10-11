@@ -16,7 +16,7 @@ class EmployeeLeavePolicy(Base):
     __tablename__ = "employee_leave_policies"
     __table_args__ = (
         Index("ix_employee_leave_policies_employee_id", "employee_id"),
-        UniqueConstraint("employee_id", "leave_type", name="uq_employee_leave_policies_employee_leave_type"),
+        UniqueConstraint("employee_id", "leave_type", "effective_from", name="uq_employee_leave_policies_emp_type_eff"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

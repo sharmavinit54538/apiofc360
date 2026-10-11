@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -30,7 +30,8 @@ class LeaveRepository:
             select(LeaveRequest)
             .where(LeaveRequest.id == leave_id)
             .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel)
+                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
+                selectinload(LeaveRequest.reviewed_by),
             )
         )
         if for_update:
@@ -38,21 +39,30 @@ class LeaveRepository:
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def get_leaves_for_employee(self, employee_id: uuid.UUID, limit: int = 100) -> list[LeaveRequest]:
+    async def get_leaves_for_employee(
+        self, employee_id: uuid.UUID, limit: int = 100, offset: int = 0
+    ) -> list[LeaveRequest]:
         stmt = (
             select(LeaveRequest)
             .where(LeaveRequest.employee_id == employee_id)
             .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel)
+                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
+                selectinload(LeaveRequest.reviewed_by),
             )
             .order_by(LeaveRequest.start_date.desc(), LeaveRequest.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
+    async def count_leaves_for_employee(self, employee_id: uuid.UUID) -> int:
+        stmt = select(func.count(LeaveRequest.id)).where(LeaveRequest.employee_id == employee_id)
+        res = await self.session.execute(stmt)
+        return res.scalar() or 0
+
     async def get_pending_leaves(
-        self, company_id: uuid.UUID, manager_employee_id: uuid.UUID | None = None, limit: int = 100
+        self, company_id: uuid.UUID, manager_employee_id: uuid.UUID | None = None, limit: int = 100, offset: int = 0
     ) -> list[LeaveRequest]:
         conditions = [
             LeaveRequest.status == "PENDING",
@@ -71,14 +81,38 @@ class LeaveRepository:
             select(LeaveRequest)
             .join(Employee, LeaveRequest.employee_id == Employee.id)
             .where(and_(*conditions))
-            .order_by(LeaveRequest.start_date.asc())
+            .order_by(LeaveRequest.start_date.asc(), LeaveRequest.created_at.asc())
             .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel)
+                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
+                selectinload(LeaveRequest.reviewed_by),
             )
             .limit(limit)
+            .offset(offset)
         )
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    async def count_pending_leaves(self, company_id: uuid.UUID, manager_employee_id: uuid.UUID | None = None) -> int:
+        conditions = [
+            LeaveRequest.status == "PENDING",
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
+        ]
+        if manager_employee_id:
+            conditions.append(
+                or_(
+                    Employee.reporting_manager_id == manager_employee_id,
+                    Employee.manager_id == manager_employee_id,
+                )
+            )
+
+        stmt = (
+            select(func.count(LeaveRequest.id))
+            .join(Employee, LeaveRequest.employee_id == Employee.id)
+            .where(and_(*conditions))
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar() or 0
 
     async def check_leave_overlap(
         self, employee_id: uuid.UUID, start_date: date, end_date: date, exclude_leave_id: uuid.UUID | None = None
@@ -125,7 +159,38 @@ class LeaveRepository:
         stmt = select(EmployeeLeavePolicy).where(and_(*conditions))
         if for_update:
             stmt = stmt.with_for_update()
-        stmt = stmt.order_by(EmployeeLeavePolicy.created_at.desc()).limit(1)
+        # Prefer the policy active on target_date (effective_from <= target_date <= effective_to)
+        # If multiple, prefer the one with latest effective_from
+        stmt = stmt.order_by(
+            EmployeeLeavePolicy.effective_from.desc().nullslast(),
+            EmployeeLeavePolicy.created_at.desc()
+        ).limit(1)
+
+        res = await self.session.execute(stmt)
+        return res.scalars().first()
+
+    async def get_employee_leave_policy_by_type_for_date(
+        self,
+        employee_id: uuid.UUID,
+        leave_type: str,
+        target_date: date,
+        for_update: bool = False,
+    ) -> EmployeeLeavePolicy | None:
+        """Get policy that is active on target_date (effective_from <= target_date <= effective_to)."""
+        conditions = [
+            EmployeeLeavePolicy.employee_id == employee_id,
+            EmployeeLeavePolicy.leave_type == leave_type,
+            or_(EmployeeLeavePolicy.effective_from == None, EmployeeLeavePolicy.effective_from <= target_date),
+            or_(EmployeeLeavePolicy.effective_to == None, EmployeeLeavePolicy.effective_to >= target_date),
+        ]
+
+        stmt = select(EmployeeLeavePolicy).where(and_(*conditions))
+        if for_update:
+            stmt = stmt.with_for_update()
+        stmt = stmt.order_by(
+            EmployeeLeavePolicy.effective_from.desc().nullslast(),
+            EmployeeLeavePolicy.created_at.desc()
+        ).limit(1)
 
         res = await self.session.execute(stmt)
         return res.scalars().first()
@@ -155,13 +220,13 @@ class LeaveRepository:
                     effective_from=effective_from,
                     effective_to=effective_to,
                 )
-                .on_conflict_do_nothing(index_elements=["employee_id", "leave_type"])
+                .on_conflict_do_nothing(index_elements=["employee_id", "leave_type", "effective_from"])
             )
             await self.session.execute(stmt)
             await self.session.flush()
         else:
             # SQLite or mock engine fallback
-            existing = await self.get_employee_leave_policy_by_type(employee_id, leave_type)
+            existing = await self.get_employee_leave_policy_by_type(employee_id, leave_type, target_date=effective_from)
             if not existing:
                 try:
                     stmt = (
@@ -176,7 +241,7 @@ class LeaveRepository:
                             effective_from=effective_from,
                             effective_to=effective_to,
                         )
-                        .on_conflict_do_nothing(index_elements=["employee_id", "leave_type"])
+                        .on_conflict_do_nothing(index_elements=["employee_id", "leave_type", "effective_from"])
                     )
                     await self.session.execute(stmt)
                     await self.session.flush()
@@ -259,6 +324,101 @@ class LeaveRepository:
         stmt = stmt.order_by(Employee.first_name.asc(), Employee.last_name.asc()).limit(limit).offset(offset)
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    async def get_all_leave_requests(
+        self,
+        company_id: uuid.UUID,
+        status: str | None = None,
+        department: str | None = None,
+        employee_id: uuid.UUID | None = None,
+        search: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[LeaveRequest]:
+        """Get all leave requests for a company with filters (HR Admin view)."""
+        conditions = [
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
+        ]
+        if status:
+            conditions.append(LeaveRequest.status == status.upper())
+        if department:
+            conditions.append(Employee.department.ilike(f"%{department}%"))
+        if employee_id:
+            conditions.append(LeaveRequest.employee_id == employee_id)
+        if from_date:
+            conditions.append(LeaveRequest.end_date >= from_date)
+        if to_date:
+            conditions.append(LeaveRequest.start_date <= to_date)
+        if search and search.strip():
+            pat = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Employee.first_name.ilike(pat),
+                    Employee.last_name.ilike(pat),
+                    Employee.employee_id.ilike(pat),
+                )
+            )
+
+        stmt = (
+            select(LeaveRequest)
+            .join(Employee, LeaveRequest.employee_id == Employee.id)
+            .where(and_(*conditions))
+            .order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+            .options(
+                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
+                selectinload(LeaveRequest.reviewed_by),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def count_all_leave_requests(
+        self,
+        company_id: uuid.UUID,
+        status: str | None = None,
+        department: str | None = None,
+        employee_id: uuid.UUID | None = None,
+        search: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> int:
+        """Count all leave requests for a company with filters."""
+        conditions = [
+            Employee.company_id == company_id,
+            Employee.is_deleted == False,
+        ]
+        if status:
+            conditions.append(LeaveRequest.status == status.upper())
+        if department:
+            conditions.append(Employee.department.ilike(f"%{department}%"))
+        if employee_id:
+            conditions.append(LeaveRequest.employee_id == employee_id)
+        if from_date:
+            conditions.append(LeaveRequest.end_date >= from_date)
+        if to_date:
+            conditions.append(LeaveRequest.start_date <= to_date)
+        if search and search.strip():
+            pat = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Employee.first_name.ilike(pat),
+                    Employee.last_name.ilike(pat),
+                    Employee.employee_id.ilike(pat),
+                )
+            )
+
+        stmt = (
+            select(func.count(LeaveRequest.id))
+            .join(Employee, LeaveRequest.employee_id == Employee.id)
+            .where(and_(*conditions))
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar() or 0
 
     async def create_leave_request(self, **kwargs) -> LeaveRequest:
         leave = LeaveRequest(**kwargs)
