@@ -43,6 +43,7 @@ class Employee(Base):
         Index("ix_employees_company_id", "company_id"),
         Index("ix_employees_company_status", "company_id", "status", "is_deleted"),
         Index("ix_employees_company_department", "company_id", "department", "is_deleted"),
+        Index("ix_employees_company_joining", "company_id", "joining_date"),
         Index("ix_employees_user_id", "user_id"),
         Index("ix_employees_status", "status"),
         Index("ix_employees_department", "department"),

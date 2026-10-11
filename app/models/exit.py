@@ -29,6 +29,7 @@ class EmployeeExit(Base):
         Index("ix_employee_exits_employee_id", "employee_id"),
         Index("ix_employee_exits_status", "status"),
         Index("ix_employee_exits_is_deleted", "is_deleted"),
+        Index("ix_employee_exits_company_date", "company_id", "last_working_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
