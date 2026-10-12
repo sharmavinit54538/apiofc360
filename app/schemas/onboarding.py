@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.attendance.utils.time_parse import InvalidTimeFormatError, parse_time_str
+
 
 T = TypeVar("T")
 
@@ -496,25 +498,19 @@ class WorkScheduleInput(OnboardingRequestModel):
     @field_validator("office_start_time", "office_end_time")
     @classmethod
     def validate_time(cls, v: str) -> str:
+        """Validate and normalize time to HH:MM format using centralized parser."""
         clean = str(v).strip()
-        for fmt in ("%H:%M", "%I:%M %p"):
-            try:
-                datetime.strptime(clean.upper(), fmt)
-                return clean
-            except ValueError:
-                continue
-        raise ValueError("Time must use HH:MM (24-hour) or HH:MM AM/PM format.")
+        try:
+            parsed = parse_time_str(clean)
+            return parsed.strftime("%H:%M")
+        except InvalidTimeFormatError as exc:
+            raise ValueError(str(exc))
 
     @model_validator(mode="after")
     def validate_office_hours(self) -> "WorkScheduleInput":
         def to_minutes(value: str) -> int:
-            for fmt in ("%H:%M", "%I:%M %p"):
-                try:
-                    parsed = datetime.strptime(value.upper(), fmt)
-                    return parsed.hour * 60 + parsed.minute
-                except ValueError:
-                    continue
-            raise ValueError("Invalid office time.")
+            parsed = parse_time_str(value)
+            return parsed.hour * 60 + parsed.minute
 
         if to_minutes(self.office_start_time) >= to_minutes(self.office_end_time):
             raise ValueError("office_start_time must be earlier than office_end_time.")

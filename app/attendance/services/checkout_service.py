@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, UploadFile, status
@@ -16,9 +16,10 @@ from app.attendance.repositories.attendance_repository import AttendanceReposito
 from app.attendance.services.break_service import BreakService
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.attendance.services.geofence_service import GeofenceService
-from app.attendance.services.shift_service import ShiftService
+from app.attendance.services.shift_service import CheckoutEval, ShiftService
 from app.attendance.services.validation_service import AttendanceValidationService
-from app.attendance.utils.helpers import save_base64_image, save_face_image, write_audit_log
+from app.attendance.utils.helpers import save_base64_image, write_audit_log
+from app.attendance.utils.timezone import get_company_tz, now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -45,36 +46,26 @@ class AttendanceCheckOutService:
         ip_address: Optional[str] = None,
     ) -> Attendance:
         """Execute AI face verification check-out.
-        
+
         Steps:
         1. Resolve employee and validate company/active status.
-        2. Verify employee has an active check-in session today without a check-out.
+        2. Verify employee has an active check-in session without a check-out.
         3. Decode image, run quality checks & passive anti-spoofing liveness verification.
         4. Extract 128-d face embedding (ensuring exactly 1 face).
-        5. Biometric comparison against enrolled baseline embedding (must match threshold <= 0.50).
+        5. Biometric comparison against enrolled baseline embedding.
         6. Geofence verification against database-configured office location if coordinates provided.
         7. Auto-complete open break session if employee forgot to end break before checkout.
         8. Calculate net working hours = (check_out_time - check_in_time) - break_duration.
-        9. Evaluate shift overtime or early departure.
-        10. Update Attendance record and write audit log.
+        9. Evaluate shift overtime or early departure using shift snapshot from check-in.
+        10. Update Attendance record with early/overtime fields and write audit log.
         """
         # 1. Resolve employee
         employee = await self.repo.get_employee_by_user_id(user_id)
         employee = self.validator.validate_employee(employee, company_id)
 
-        # 2. Check for active session
+        # 2. Check for active session (order by check_in_time DESC to handle legacy duplicates)
         record = await self.repo.get_active_session(employee.id)
         if not record:
-            # Check if already checked out today
-            today_record = await self.repo.get_record_by_date(employee.id, date.today())
-            if today_record and today_record.check_out_time is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "code": "ALREADY_CHECKED_OUT",
-                        "message": "You have already checked out for today.",
-                    },
-                )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -122,11 +113,10 @@ class AttendanceCheckOutService:
                 longitude=lng_val,
                 accuracy=accuracy_val,
             )
-            # Log geofence result for audit
             logger.info("Checkout Geofence: %s", geofence_res)
 
         # 7. Auto-complete open break session if active
-        now_dt = datetime.now(timezone.utc)
+        now_dt = now_utc()
         active_break = await self.break_service.get_active_break_for_attendance(record.id)
         if active_break:
             delta_break = now_dt - active_break.break_start
@@ -143,19 +133,51 @@ class AttendanceCheckOutService:
             total_break_mins = sum(b.duration_minutes or 0.0 for b in all_breaks if b.id != active_break.id) + active_break.duration_minutes
             record.break_duration = round(total_break_mins / 60.0, 2)
 
-        # 8. Calculate final working duration on backend
-        gross_delta = now_dt - record.check_in_time
-        gross_hours = max(0.0, gross_delta.total_seconds() / 3600.0)
-        break_hours = record.break_duration or 0.0
-        net_working_hours = round(max(0.0, gross_hours - break_hours), 2)
+        # 8. Shift engine checkout evaluation using stored shift snapshot
+        logged_break_hours = record.break_duration or 0.0
+        tz = await get_company_tz(self.db, str(company_id))
+
+        # Build resolved shift from stored snapshot for accurate evaluation
+        if record.scheduled_start and record.scheduled_end:
+            from app.attendance.services.shift_service import ResolvedShift
+            resolved = ResolvedShift(
+                shift_id=record.shift_id,
+                shift_name=record.shift_name or "Unknown",
+                source=record.shift_source or "unknown",
+                business_date=record.date,
+                start_dt=record.scheduled_start,
+                end_dt=record.scheduled_end,
+                is_overnight=record.scheduled_end.date() > record.scheduled_start.date(),
+                grace_period_mins=15,  # not used in checkout
+                break_duration_mins=int((record.break_duration or 0) * 60),
+                scheduled_gross_hours=round((record.scheduled_end - record.scheduled_start).total_seconds() / 3600.0, 2),
+                scheduled_net_hours=round(max(0, ((record.scheduled_end - record.scheduled_start).total_seconds() / 3600.0) - (record.break_duration or 0)), 2),
+                is_off=record.is_off_day_work,
+                off_reason=None,
+                is_holiday=record.is_holiday_work,
+                holiday_name=None,
+                night_shift=False,  # not used in checkout
+                night_premium_percent=0.0,
+                working_days=[],
+            )
+        else:
+            # Legacy record without snapshot - re-resolve
+            resolved, _ = await self.shift_service.resolve_for_timestamp(employee, record.check_in_time, tz)
+
+        eval_result: CheckoutEval = self.shift_service.evaluate_checkout(
+            resolved, record.check_in_time, now_dt, logged_break_hours
+        )
 
         # 9. Save image proof locally
         checkout_image_url = await save_base64_image(image_base64, prefix="checkout")
 
-        # 10. Update record columns
+        # 10. Update record columns with early/overtime data
         record.check_out_time = now_dt
         record.checkout_image_url = checkout_image_url
-        record.working_hours = net_working_hours
+        record.working_hours = eval_result.working_hours
+        record.is_early_checkout = eval_result.is_early_checkout
+        record.early_minutes = eval_result.early_minutes
+        record.overtime_hours = eval_result.overtime_hours
         if lat_val is not None:
             record.latitude = lat_val
         if lng_val is not None:
@@ -165,17 +187,13 @@ class AttendanceCheckOutService:
         if notes:
             record.notes = f"{record.notes} | Checkout: {notes}" if record.notes else notes
 
-        # 11. Evaluate shift engine checkout metrics
-        shift_info = await self.shift_service.resolve_employee_shift(employee, record.date)
-        eval_result = self.shift_service.evaluate_checkout(
-            shift_info, now_dt, record.date, net_working_hours
-        )
-
-        # 12. Security Audit Log
+        # 11. Security Audit Log
         details = (
             f"Face Check-Out Verified: Date={record.date} | Dist={distance:.3f} | "
-            f"Liveness={liveness_score:.2f} | NetHours={net_working_hours} (Gross={gross_hours:.2f}h, Break={break_hours:.2f}h) | "
-            f"Overtime={eval_result.get('overtime_hours')}h | GPS={lat_val},{lng_val}"
+            f"Liveness={liveness_score:.2f} | NetHours={eval_result.working_hours} "
+            f"(Gross={round((now_dt - record.check_in_time).total_seconds() / 3600.0, 2)}h, Break={logged_break_hours:.2f}h) | "
+            f"Overtime={eval_result.overtime_hours}h | Early={eval_result.is_early_checkout} ({eval_result.early_minutes}m) | "
+            f"GPS={lat_val},{lng_val}"
         )
         await write_audit_log(self.db, user_id, "FACE_CHECK_OUT", ip_address, details, company_id=company_id)
 

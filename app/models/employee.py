@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from app.models.employee_onboarding import EmployeeOnboarding
     from app.models.department import Department
     from app.models.company import Company
+from app.models.shift import Shift
 
 
 class Employee(Base):
@@ -122,6 +123,9 @@ class Employee(Base):
     joining_date: Mapped[date] = mapped_column(Date, nullable=False)
     probation_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     shift: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True,
+    )
     employee_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True, default=100, server_default=text("100"))
     cost_center_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -205,6 +209,9 @@ class Employee(Base):
     )
     department_rel: Mapped[Department | None] = relationship(
         "Department", back_populates="employees", foreign_keys=[department_id], lazy="select"
+    )
+    shift_rel: Mapped[Shift | None] = relationship(
+        "Shift", foreign_keys=[shift_id], lazy="select"
     )
 
     @property

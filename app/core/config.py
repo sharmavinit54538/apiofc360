@@ -250,6 +250,16 @@ class Settings(BaseSettings):
     DOCUMENT_EXPIRY_WARNING_DAYS: int = 30
     MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
+    # ── Attendance/Shift Engine settings ──────────────────────────────────────
+    ATTENDANCE_DEFAULT_TIMEZONE: str = "Asia/Kolkata"
+    ATTENDANCE_EARLY_CHECKIN_WINDOW_MINS: int = 120
+    ATTENDANCE_POST_SHIFT_WINDOW_MINS: int = 240
+    ATTENDANCE_AUTO_CLOSE_GRACE_HOURS: int = 4
+    ATTENDANCE_AUTO_CLOSE_INTERVAL_MINS: int = 15
+    ATTENDANCE_AUTO_BREAK_MIN_GROSS_HOURS: float = 6.0
+    SHIFT_PLAN_MAX_DAYS: int = 92
+    SHIFT_PLAN_MAX_EMPLOYEES: int = 200
+
     # ── Cloudinary settings ──────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""

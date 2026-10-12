@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import asyncpg
+from fastapi import HTTPException
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -175,8 +176,17 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logger.debug("[DB Lifecycle] Rollback completed for session id=%s", id(session))
             raise
+        except HTTPException:
+            # HTTPException is an expected business logic response (e.g., 409 ALREADY_CHECKED_IN).
+            # Roll back the transaction quietly without logging as a database error.
+            if session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+            raise
         except Exception:
-            # Quiet rollback for non-database exceptions (e.g. HTTPException, AppException, validation errors)
+            # Quiet rollback for other non-database exceptions (e.g., AppException, validation errors)
             # without logging database ERROR traces.
             if session.is_active:
                 try:

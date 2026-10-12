@@ -11,6 +11,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
+# Re-export Shift from the new location for backward compatibility
+from app.models.shift import Shift  # noqa: F401
+
 
 class CompanySettings(Base):
     """Company settings database model."""
@@ -98,30 +101,6 @@ class LeavePolicy(Base):
     description: Mapped[str | None] = mapped_column(String(255))
     leave_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="ANNUAL")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE", server_default=text("'ACTIVE'"))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-    )
-
-
-class Shift(Base):
-    """Shift database model."""
-
-    __tablename__ = "shifts"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    company_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("companies.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    start_time: Mapped[str] = mapped_column(String(20), nullable=False)
-    end_time: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

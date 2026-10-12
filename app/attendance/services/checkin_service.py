@@ -5,10 +5,11 @@ from __future__ import annotations
 import base64
 import logging
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +17,10 @@ from app.attendance.models.attendance import Attendance
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.attendance.services.geofence_service import GeofenceService
-from app.attendance.services.shift_service import ShiftService
+from app.attendance.services.shift_service import CheckinEval, ShiftService
 from app.attendance.services.validation_service import AttendanceValidationService
-from app.attendance.utils.helpers import save_base64_image, save_face_image, write_audit_log
+from app.attendance.utils.helpers import save_base64_image, write_audit_log
+from app.attendance.utils.timezone import get_company_tz, now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +44,20 @@ class AttendanceCheckInService:
         notes: Optional[str] = None,
         device_info: Optional[str] = None,
         ip_address: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Attendance:
         """Execute AI face verification check-in.
-        
+
         Steps:
         1. Resolve employee and validate company/active status.
         2. Validate face is enrolled.
-        3. Enforce 1 attendance per day rule (assert no active session & no duplicate today).
+        3. Check for existing attendance today (one per day rule).
         4. Decode image, run quality checks & passive anti-spoofing liveness verification.
         5. Extract 128-d face embedding (exactly 1 face).
         6. Biometric comparison against enrolled baseline embedding.
         7. Geofence verification against database-configured office location.
         8. Shift engine evaluation (shift timing, grace period, late arrival calculation).
-        9. Transactionally persist Attendance record (handles race conditions with DB constraints).
+        9. Transactionally persist Attendance record (DB partial unique index prevents duplicate active sessions).
         10. Write security audit log.
         """
         # 1. Resolve employee
@@ -64,10 +67,12 @@ class AttendanceCheckInService:
         # 2. Mandatory enrollment check
         self.validator.validate_face_enrolled(employee)
 
-        # 3. Session constraints (1 attendance per day rule)
-        today = date.today()
-        await self.validator.assert_no_active_session(employee.id)
-        await self.validator.assert_no_duplicate_checkin(employee.id, today)
+        # 3. One attendance per day rule (date-based unique constraint)
+        tz = await get_company_tz(self.db, str(company_id))
+        now_dt = now_utc()
+        # Use company timezone to determine business date for the "one per day" check
+        business_date = now_dt.astimezone(tz).date() if hasattr(tz, 'tzname') else now_dt.date()
+        await self.validator.assert_no_duplicate_checkin(employee.id, business_date)
 
         # 4 & 5. Decode image, quality checks, anti-spoofing liveness, and embedding extraction
         rgb_array = FaceRecognitionService.decode_base64_image(image_base64)
@@ -127,20 +132,19 @@ class AttendanceCheckInService:
                 },
             )
 
-        # 8. Shift engine evaluation
-        shift_info = await self.shift_service.resolve_employee_shift(employee, today)
-        now_dt = datetime.now(timezone.utc)
-        is_late, late_mins = self.shift_service.evaluate_checkin(shift_info, now_dt, today)
+        # 8. Shift engine evaluation (timezone-aware)
+        resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
+        eval_result: CheckinEval = self.shift_service.evaluate_checkin(resolved, now_dt)
 
         # 9. Save image proof locally
         image_url = await save_base64_image(image_base64, prefix="checkin")
 
-        # 10. Persist Attendance record with race-condition guard
+        # 10. Persist Attendance record with race-condition guard via DB partial unique index
         record = Attendance(
             id=uuid.uuid4(),
             employee_id=employee.id,
             company_id=company_id,
-            date=today,
+            date=business_date,
             check_in_time=now_dt,
             check_out_time=None,
             face_image_url=image_url,
@@ -155,10 +159,15 @@ class AttendanceCheckInService:
             location_accuracy=accuracy_val,
             liveness_score=liveness_score,
             face_distance=distance,
-            is_late=is_late,
-            late_minutes=late_mins,
-            shift_id=shift_info.get("shift_id"),
-            shift_name=shift_info.get("shift_name"),
+            is_late=eval_result.is_late,
+            late_minutes=eval_result.late_minutes,
+            shift_id=resolved.shift_id,
+            shift_name=resolved.shift_name,
+            shift_source=resolved.source,
+            scheduled_start=resolved.start_dt,
+            scheduled_end=resolved.end_dt,
+            is_off_day_work=eval_result.is_off_day_work,
+            is_holiday_work=eval_result.is_holiday_work,
             break_duration=0.0,
             device_info=device_info,
             ip_address=ip_address,
@@ -168,20 +177,45 @@ class AttendanceCheckInService:
         try:
             await self.db.commit()
             await self.db.refresh(record)
-        except IntegrityError:
+        except IntegrityError as exc:
             await self.db.rollback()
+            # Distinguish between partial unique index (active session) and date unique constraint (already checked in today)
+            error_msg = str(exc.orig) if hasattr(exc, 'orig') and exc.orig else str(exc)
+            if "uq_attendance_open_session" in error_msg:
+                # Active session exists - employee hasn't checked out
+                active_session = await self.repo.get_active_session(employee.id)
+                if active_session:
+                    check_in_str = active_session.check_in_time.isoformat() if active_session.check_in_time else "unknown"
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "code": "ALREADY_CHECKED_IN",
+                            "message": f"Active check-in session already exists since {check_in_str}. Please check out of your previous session first.",
+                        },
+                    )
+            # Fall back to date-based duplicate check
+            if "uq_employee_date_attendance" in error_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "ALREADY_CHECKED_IN",
+                        "message": f"Attendance already recorded for {business_date.isoformat()}. Only one attendance per day is allowed.",
+                    },
+                )
+            # Re-raise unexpected integrity errors
+            logger.exception("Unexpected integrity error during check-in: %s", error_msg)
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={
-                    "code": "ALREADY_CHECKED_IN",
-                    "message": f"Attendance already recorded for {today.isoformat()}.",
+                    "code": "DATABASE_ERROR",
+                    "message": "Failed to record attendance due to a database constraint violation.",
                 },
             )
 
         # 11. Write security audit log
         details = (
-            f"Face Check-In Verified: Date={today} | Dist={distance:.3f} | "
-            f"Liveness={liveness_score:.2f} | Late={is_late} ({late_mins}m) | "
+            f"Face Check-In Verified: Date={business_date} | Dist={distance:.3f} | "
+            f"Liveness={liveness_score:.2f} | Late={eval_result.is_late} ({eval_result.late_minutes}m) | "
             f"GPS={lat_val},{lng_val} ({geofence_res.get('status')})"
         )
         await write_audit_log(self.db, user_id, "FACE_CHECK_IN", ip_address, details, company_id=company_id)

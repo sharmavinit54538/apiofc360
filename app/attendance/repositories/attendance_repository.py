@@ -20,12 +20,15 @@ class AttendanceRepository:
         self.db = db
 
     async def get_active_session(self, employee_id: uuid.UUID) -> Optional[Attendance]:
-        """Finds any check-in record without a checkout timestamp."""
+        """Finds the most recent check-in record without a checkout timestamp.
+        
+        Orders by check_in_time DESC to handle legacy duplicates gracefully.
+        """
         stmt = select(Attendance).where(
-            and_(Attendance.employee_id == employee_id, Attendance.check_out_time == None)
-        )
+            and_(Attendance.employee_id == employee_id, Attendance.check_out_time.is_(None))
+        ).order_by(Attendance.check_in_time.desc())
         res = await self.db.execute(stmt)
-        return res.scalar_one_or_none()
+        return res.scalars().first()
 
     async def get_record_by_date(self, employee_id: uuid.UUID, dt: date) -> Optional[Attendance]:
         """Finds attendance record for a specific employee on a specific date."""
@@ -33,7 +36,7 @@ class AttendanceRepository:
             and_(Attendance.employee_id == employee_id, Attendance.date == dt)
         )
         res = await self.db.execute(stmt)
-        return res.scalar_one_or_none()
+        return res.scalars().first()
 
     async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Optional[Employee]:
         """Finds employee profile linked to user account ID."""
@@ -41,7 +44,7 @@ class AttendanceRepository:
             and_(Employee.user_id == user_id, Employee.is_deleted == False)
         )
         res = await self.db.execute(stmt)
-        return res.scalar_one_or_none()
+        return res.scalars().first()
 
     async def get_team_reporting_employees(self, manager_id: uuid.UUID, company_id: uuid.UUID) -> list[Employee]:
         """Gets active employees reporting directly to manager."""

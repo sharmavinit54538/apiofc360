@@ -13,37 +13,80 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attendance.utils.time_parse import InvalidTimeFormatError, parse_time_str
+from app.attendance.utils.timezone import (
+    checkin_window_start,
+    checkout_window_end,
+    combine_local,
+    company_today,
+    get_company_tz,
+    is_time_in_window,
+    now_utc,
+    shift_end_datetime,
+    shift_start_datetime,
+    to_company_local,
+)
 from app.models.calendar.holiday import HolidayCalendar
 from app.models.employee import Employee
-from app.models.onboarding import Shift
-from app.models.shift_plan import ShiftPlanEntry
+from app.models.shift import EmployeeShiftAssignment, Shift
+from app.models.shift_plan import EntryApprovalStatus, ShiftPlanEntry, ShiftType
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SHIFT_START = time(9, 0)
-DEFAULT_SHIFT_END = time(18, 0)
 DEFAULT_GRACE_PERIOD_MINS = 15
-DEFAULT_SCHEDULED_HOURS = 8.0
+DEFAULT_BREAK_MINUTES = 60
+FALLBACK_SHIFT_START = time(9, 0)
+FALLBACK_SHIFT_END = time(18, 0)
+
+# Shift source types
+ShiftSource = Literal["roster", "assignment", "company_default", "fallback"]
+OffReason = Literal["roster_off", "weekly_off", "holiday", "leave"]
 
 
-def _parse_time_str(val: Any) -> Optional[time]:
-    """Safely parse time from string ('09:00', '09:00:00') or time object."""
-    if isinstance(val, time):
-        return val
-    if not val or not isinstance(val, str):
-        return None
-    val = val.strip()
-    try:
-        parts = [int(p) for p in val.split(":")[:2]]
-        return time(parts[0], parts[1])
-    except Exception:
-        return None
+@dataclass(frozen=True)
+class ResolvedShift:
+    """Fully resolved shift for a specific business date."""
+    shift_id: uuid.UUID | None
+    shift_name: str
+    source: ShiftSource
+    business_date: date
+    start_dt: datetime        # tz-aware, company timezone
+    end_dt: datetime          # tz-aware; next day when overnight
+    is_overnight: bool
+    grace_period_mins: int
+    break_duration_mins: int
+    scheduled_gross_hours: float
+    scheduled_net_hours: float          # gross - configured break
+    is_off: bool
+    off_reason: OffReason | None
+    is_holiday: bool
+    holiday_name: str | None
+    night_shift: bool
+    night_premium_percent: float
+    working_days: List[str]
+
+
+@dataclass(frozen=True)
+class CheckinEval:
+    is_late: bool
+    late_minutes: int
+    is_off_day_work: bool
+    is_holiday_work: bool
+
+
+@dataclass(frozen=True)
+class CheckoutEval:
+    working_hours: float
+    is_early_checkout: bool
+    early_minutes: int
+    overtime_hours: float
 
 
 class ShiftService:
@@ -52,177 +95,539 @@ class ShiftService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def resolve_employee_shift(
-        self, employee: Employee, target_date: date
-    ) -> Dict[str, Any]:
-        """Resolves the authoritative shift schedule for an employee on a given date.
-        
-        Priority 1: ShiftPlanEntry (individual roster override for target_date)
-        Priority 2: Employee's assigned shift name matching `shifts` table
-        Priority 3: Standard default shift (09:00 to 18:00, 15m grace)
-        """
-        company_id = employee.company_id
-        shift_info: Dict[str, Any] = {
-            "shift_id": None,
-            "shift_name": "General Shift",
-            "start_time": DEFAULT_SHIFT_START,
-            "end_time": DEFAULT_SHIFT_END,
-            "grace_period_mins": DEFAULT_GRACE_PERIOD_MINS,
-            "is_overnight": False,
-            "is_off": False,
-            "is_holiday": False,
-            "holiday_name": None,
-            "scheduled_hours": DEFAULT_SCHEDULED_HOURS,
-            "source": "default",
-        }
-
-        # 1. Check for Holiday on target_date
-        holiday_stmt = select(HolidayCalendar).where(HolidayCalendar.holiday_date == target_date)
-        if employee.branch:
-            holiday_stmt = holiday_stmt.where(
-                (HolidayCalendar.branch.is_(None)) | (HolidayCalendar.branch == employee.branch)
-            )
-        holiday_res = await self.db.execute(holiday_stmt)
-        holiday = holiday_res.scalars().first()
-        if holiday:
-            shift_info["is_holiday"] = True
-            shift_info["holiday_name"] = holiday.holiday_name
-
-        # 2. Priority 1: Check ShiftPlanEntry (roster override)
-        roster_stmt = (
-            select(ShiftPlanEntry)
-            .where(
-                and_(
-                    ShiftPlanEntry.employee_id == employee.id,
-                    ShiftPlanEntry.shift_date == target_date,
-                )
-            )
-        )
-        roster_res = await self.db.execute(roster_stmt)
-        roster_entry = roster_res.scalars().first()
-
-        if roster_entry:
-            shift_info["source"] = "roster_entry"
-            shift_info["shift_name"] = f"Roster: {roster_entry.shift_type}"
-            if roster_entry.shift_type.upper() in {"OFF", "WEEKLY_OFF", "HOLIDAY"}:
-                shift_info["is_off"] = True
-
-            if roster_entry.start_time and roster_entry.end_time:
-                shift_info["start_time"] = roster_entry.start_time
-                shift_info["end_time"] = roster_entry.end_time
-            return self._finalize_shift_metrics(shift_info, target_date)
-
-        # 3. Priority 2: Check employee's assigned shift in DB
-        assigned_shift_name = getattr(employee, "shift", None)
-        if assigned_shift_name and company_id:
-            shift_stmt = select(Shift).where(
-                and_(
-                    Shift.company_id == company_id,
-                    Shift.name.ilike(assigned_shift_name.strip()),
-                )
-            )
-            shift_res = await self.db.execute(shift_stmt)
-            db_shift = shift_res.scalars().first()
-
-            if db_shift:
-                parsed_start = _parse_time_str(db_shift.start_time)
-                parsed_end = _parse_time_str(db_shift.end_time)
-                if parsed_start and parsed_end:
-                    shift_info["shift_id"] = db_shift.id
-                    shift_info["shift_name"] = db_shift.name
-                    shift_info["start_time"] = parsed_start
-                    shift_info["end_time"] = parsed_end
-                    shift_info["source"] = "company_shifts"
-                    return self._finalize_shift_metrics(shift_info, target_date)
-
-        # 4. Priority 3: Fallback to weekly off check (e.g. Sunday = 6)
-        if target_date.weekday() == 6:  # Sunday
-            shift_info["is_off"] = True
-
-        return self._finalize_shift_metrics(shift_info, target_date)
-
-    def _finalize_shift_metrics(self, info: Dict[str, Any], target_date: date) -> Dict[str, Any]:
-        """Calculates overnight flag and scheduled hours."""
-        start_t = info["start_time"]
-        end_t = info["end_time"]
-
-        # Overnight shift check (e.g., 20:00 to 05:00)
-        is_overnight = end_t < start_t
-        info["is_overnight"] = is_overnight
-
-        # Scheduled duration in hours
-        start_dt = datetime.combine(target_date, start_t)
-        if is_overnight:
-            end_dt = datetime.combine(target_date + timedelta(days=1), end_t)
-        else:
-            end_dt = datetime.combine(target_date, end_t)
-
-        scheduled_hrs = round((end_dt - start_dt).total_seconds() / 3600.0, 2)
-        # Deduct standard 1-hr meal break if shift is >= 8 hours
-        net_scheduled = max(1.0, scheduled_hrs - 1.0) if scheduled_hrs >= 8.0 else scheduled_hrs
-        info["scheduled_hours"] = net_scheduled
-        return info
-
-    def evaluate_checkin(
+    async def resolve_for_date(
         self,
-        shift_info: Dict[str, Any],
-        check_in_time: datetime,
-        target_date: date,
-    ) -> Tuple[bool, int]:
-        """Evaluates whether check-in is late based on shift start and grace period.
-        
-        Returns:
-            (is_late: bool, late_minutes: int)
-        """
-        start_t = shift_info["start_time"]
-        grace_mins = shift_info["grace_period_mins"]
+        employee: Employee,
+        business_date: date,
+        tz,
+    ) -> ResolvedShift:
+        """Resolve the authoritative shift for an employee on a given business date."""
+        company_id = employee.company_id
 
-        # Convert to same timezone context (strip tz for naive comparison with shift_start)
-        if check_in_time.tzinfo is not None:
-            # Shift timings are local to employee/company, compare with local wall time
-            local_checkin_time = check_in_time.time()
-        else:
-            local_checkin_time = check_in_time.time()
+        # 1. Check roster (published shift plan entries with APPROVED status)
+        roster_entry = await self._get_roster_entry(employee.id, business_date, company_id)
+        if roster_entry:
+            return await self._resolve_from_roster(roster_entry, employee, business_date, tz, company_id)
 
-        shift_start_dt = datetime.combine(target_date, start_t)
-        grace_threshold_dt = shift_start_dt + timedelta(minutes=grace_mins)
+        # 2. Check effective-dated assignment
+        assignment = await self._get_effective_assignment(employee.id, business_date, company_id)
+        if assignment:
+            return await self._resolve_from_assignment(assignment, employee, business_date, tz, company_id)
 
-        check_in_dt = datetime.combine(target_date, local_checkin_time)
+        # 3. Check legacy employee.shift_id or employee.shift name
+        legacy_shift = await self._get_legacy_shift(employee, company_id)
+        if legacy_shift:
+            return await self._build_resolved_shift(
+                legacy_shift, "company_shifts", employee, business_date, tz, company_id,
+                is_off=False, off_reason=None, is_holiday=False, holiday_name=None
+            )
 
-        if check_in_dt > grace_threshold_dt:
-            late_delta = check_in_dt - shift_start_dt
+        # 4. Check company default shift
+        default_shift = await self._get_default_shift(company_id)
+        if default_shift:
+            return await self._build_resolved_shift(
+                default_shift, "company_default", employee, business_date, tz, company_id,
+                is_off=False, off_reason=None, is_holiday=False, holiday_name=None
+            )
+
+        # 5. Fallback
+        logger.warning(
+            "No shift found for employee %s on %s, using fallback 09:00-18:00",
+            employee.id, business_date
+        )
+        return self._build_fallback_shift(employee, business_date, tz, company_id)
+
+    async def resolve_range(
+        self,
+        employee: Employee,
+        start_date: date,
+        end_date: date,
+        tz,
+    ) -> List[ResolvedShift]:
+        """Bulk resolve shifts for a date range (optimized for /me/schedule)."""
+        company_id = employee.company_id
+        results = []
+
+        # Fetch all relevant data in bulk
+        roster_entries = await self._get_roster_entries_range(employee.id, start_date, end_date, company_id)
+        assignments = await self._get_assignments_range(employee.id, start_date, end_date, company_id)
+        holidays = await self._get_holidays_range(start_date, end_date, employee.branch, company_id)
+        leaves = await self._get_approved_leaves_range(employee.id, start_date, end_date, company_id)
+
+        # Build lookup maps
+        roster_map = {(e.shift_date): e for e in roster_entries}
+        assignment_map = {}
+        for a in assignments:
+            for d in self._date_range(a.effective_from, a.effective_to or end_date):
+                if start_date <= d <= end_date:
+                    assignment_map[d] = a
+
+        legacy_shift = await self._get_legacy_shift(employee, company_id)
+        default_shift = await self._get_default_shift(company_id)
+
+        for d in self._date_range(start_date, end_date):
+            if d in roster_map:
+                resolved = await self._resolve_from_roster(roster_map[d], employee, d, tz, company_id)
+            elif d in assignment_map:
+                resolved = await self._resolve_from_assignment(assignment_map[d], employee, d, tz, company_id)
+            elif legacy_shift:
+                is_off, off_reason = self._check_off_day(legacy_shift, d, holidays, leaves, employee.branch)
+                resolved = await self._build_resolved_shift(
+                    legacy_shift, "company_shifts", employee, d, tz, company_id,
+                    is_off, off_reason, d in holidays, holidays.get(d)
+                )
+            elif default_shift:
+                is_off, off_reason = self._check_off_day(default_shift, d, holidays, leaves, employee.branch)
+                resolved = await self._build_resolved_shift(
+                    default_shift, "company_default", employee, d, tz, company_id,
+                    is_off, off_reason, d in holidays, holidays.get(d)
+                )
+            else:
+                resolved = self._build_fallback_shift(employee, d, tz, company_id)
+            results.append(resolved)
+
+        return results
+
+    async def resolve_for_timestamp(
+        self,
+        employee: Employee,
+        check_time_utc: datetime,
+        tz,
+    ) -> Tuple[ResolvedShift, date]:
+        """Resolve shift for a specific timestamp (handles overnight shifts)."""
+        company_id = employee.company_id
+        check_time_local = to_company_local(check_time_utc, tz)
+
+        # Check yesterday, today, and tomorrow's shift windows
+        for offset in (-1, 0, 1):
+            business_date = check_time_local.date() + timedelta(days=offset)
+            resolved = await self.resolve_for_date(employee, business_date, tz)
+
+            window_start = checkin_window_start(resolved.start_dt, 120)  # EARLY_CHECKIN_WINDOW_MINS
+            window_end = checkout_window_end(resolved.end_dt, 240)  # POST_SHIFT_WINDOW_MINS
+
+            if is_time_in_window(check_time_utc, window_start, window_end):
+                return resolved, business_date
+
+        # Fallback to today's shift
+        today = company_today(tz)
+        resolved = await self.resolve_for_date(employee, today, tz)
+        return resolved, today
+
+    def evaluate_checkin(self, resolved: ResolvedShift, check_in_utc: datetime) -> CheckinEval:
+        """Evaluate check-in against shift rules."""
+        if resolved.is_off or resolved.is_holiday:
+            return CheckinEval(
+                is_late=False,
+                late_minutes=0,
+                is_off_day_work=resolved.is_off and not resolved.is_holiday,
+                is_holiday_work=resolved.is_holiday,
+            )
+
+        # Compare timezone-aware datetimes
+        grace_threshold = resolved.start_dt + timedelta(minutes=resolved.grace_period_mins)
+
+        if check_in_utc > grace_threshold:
+            late_delta = check_in_utc - resolved.start_dt
             late_minutes = max(0, int(late_delta.total_seconds() / 60))
-            return True, late_minutes
+            return CheckinEval(
+                is_late=True,
+                late_minutes=late_minutes,
+                is_off_day_work=False,
+                is_holiday_work=False,
+            )
 
-        return False, 0
+        return CheckinEval(
+            is_late=False,
+            late_minutes=0,
+            is_off_day_work=False,
+            is_holiday_work=False,
+        )
 
     def evaluate_checkout(
         self,
-        shift_info: Dict[str, Any],
-        check_out_time: datetime,
-        target_date: date,
-        net_working_hours: float,
-    ) -> Dict[str, Any]:
-        """Evaluates early checkout and overtime hours against shift."""
-        end_t = shift_info["end_time"]
-        is_overnight = shift_info.get("is_overnight", False)
+        resolved: ResolvedShift,
+        check_in_utc: datetime,
+        check_out_utc: datetime,
+        logged_break_hours: float,
+    ) -> CheckoutEval:
+        """Evaluate check-out: early departure, overtime."""
+        if resolved.is_off or resolved.is_holiday:
+            gross_hours = (check_out_utc - check_in_utc).total_seconds() / 3600.0
+            return CheckoutEval(
+                working_hours=max(0, gross_hours),
+                is_early_checkout=False,
+                early_minutes=0,
+                overtime_hours=0.0,
+            )
 
-        checkout_local_time = check_out_time.time()
-        if is_overnight:
-            expected_end_dt = datetime.combine(target_date + timedelta(days=1), end_t)
+        # Gross worked hours
+        gross_hours = (check_out_utc - check_in_utc).total_seconds() / 3600.0
+        gross_hours = max(0, gross_hours)
+
+        # Effective break: use logged breaks if any, else configured shift break
+        # Only auto-deduct configured break if gross >= threshold
+        from app.core.config import settings
+        if logged_break_hours > 0:
+            effective_break = logged_break_hours
+        elif gross_hours >= settings.ATTENDANCE_AUTO_BREAK_MIN_GROSS_HOURS:
+            effective_break = resolved.break_duration_mins / 60.0
         else:
-            expected_end_dt = datetime.combine(target_date, end_t)
+            effective_break = 0.0
 
-        actual_checkout_dt = datetime.combine(target_date, checkout_local_time)
+        working_hours = max(0, gross_hours - effective_break)
 
-        is_early = actual_checkout_dt < expected_end_dt
-        early_minutes = max(0, int((expected_end_dt - actual_checkout_dt).total_seconds() / 60)) if is_early else 0
+        # Overtime
+        overtime_hours = max(0, round(working_hours - resolved.scheduled_net_hours, 2))
 
-        scheduled_hrs = shift_info.get("scheduled_hours", DEFAULT_SCHEDULED_HOURS)
-        overtime_hours = max(0.0, round(net_working_hours - scheduled_hrs, 2))
+        # Early checkout
+        expected_end = resolved.end_dt
+        is_early = check_out_utc < expected_end
+        early_minutes = max(0, int((expected_end - check_out_utc).total_seconds() / 60)) if is_early else 0
 
-        return {
-            "is_early_checkout": is_early,
-            "early_minutes": early_minutes,
-            "overtime_hours": overtime_hours,
+        return CheckoutEval(
+            working_hours=round(working_hours, 2),
+            is_early_checkout=is_early,
+            early_minutes=early_minutes,
+            overtime_hours=round(overtime_hours, 2),
+        )
+
+    # --- Private helper methods ---
+
+    async def _get_roster_entry(
+        self, employee_id: uuid.UUID, business_date: date, company_id: uuid.UUID
+    ) -> ShiftPlanEntry | None:
+        stmt = select(ShiftPlanEntry).where(
+            and_(
+                ShiftPlanEntry.employee_id == employee_id,
+                ShiftPlanEntry.shift_date == business_date,
+                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                ShiftPlanEntry.company_id == company_id,
+            )
+        ).join(ShiftPlanEntry.plan).where(
+            ShiftPlanEntry.plan.has(status="PUBLISHED")
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def _get_roster_entries_range(
+        self, employee_id: uuid.UUID, start: date, end: date, company_id: uuid.UUID
+    ) -> List[ShiftPlanEntry]:
+        stmt = select(ShiftPlanEntry).where(
+            and_(
+                ShiftPlanEntry.employee_id == employee_id,
+                ShiftPlanEntry.shift_date >= start,
+                ShiftPlanEntry.shift_date <= end,
+                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                ShiftPlanEntry.company_id == company_id,
+            )
+        ).join(ShiftPlanEntry.plan).where(
+            ShiftPlanEntry.plan.has(status="PUBLISHED")
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def _get_effective_assignment(
+        self, employee_id: uuid.UUID, business_date: date, company_id: uuid.UUID
+    ) -> EmployeeShiftAssignment | None:
+        stmt = select(EmployeeShiftAssignment).where(
+            and_(
+                EmployeeShiftAssignment.employee_id == employee_id,
+                EmployeeShiftAssignment.company_id == company_id,
+                EmployeeShiftAssignment.effective_from <= business_date,
+                or_(
+                    EmployeeShiftAssignment.effective_to.is_(None),
+                    EmployeeShiftAssignment.effective_to >= business_date,
+                ),
+            )
+        ).order_by(EmployeeShiftAssignment.effective_from.desc())
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def _get_assignments_range(
+        self, employee_id: uuid.UUID, start: date, end: date, company_id: uuid.UUID
+    ) -> List[EmployeeShiftAssignment]:
+        stmt = select(EmployeeShiftAssignment).where(
+            and_(
+                EmployeeShiftAssignment.employee_id == employee_id,
+                EmployeeShiftAssignment.company_id == company_id,
+                EmployeeShiftAssignment.effective_from <= end,
+                or_(
+                    EmployeeShiftAssignment.effective_to.is_(None),
+                    EmployeeShiftAssignment.effective_to >= start,
+                ),
+            )
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def _get_legacy_shift(
+        self, employee: Employee, company_id: uuid.UUID
+    ) -> Shift | None:
+        # Try shift_id first
+        if employee.shift_id:
+            stmt = select(Shift).where(
+                and_(
+                    Shift.id == employee.shift_id,
+                    Shift.company_id == company_id,
+                    Shift.deleted_at.is_(None),
+                )
+            )
+            result = await self.db.execute(stmt)
+            shift = result.scalars().first()
+            if shift:
+                return shift
+
+        # Fallback to shift name (case-insensitive exact match)
+        if employee.shift:
+            stmt = select(Shift).where(
+                and_(
+                    Shift.company_id == company_id,
+                    Shift.deleted_at.is_(None),
+                    func.lower(Shift.name) == employee.shift.strip().lower(),
+                )
+            )
+            result = await self.db.execute(stmt)
+            return result.scalars().first()
+
+        return None
+
+    async def _get_default_shift(self, company_id: uuid.UUID) -> Shift | None:
+        stmt = select(Shift).where(
+            and_(
+                Shift.company_id == company_id,
+                Shift.is_default.is_(True),
+                Shift.deleted_at.is_(None),
+            )
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def _get_holidays_range(
+        self, start: date, end: date, branch: str | None, company_id: uuid.UUID
+    ) -> Dict[date, str]:
+        stmt = select(HolidayCalendar).where(
+            and_(
+                HolidayCalendar.company_id == company_id,
+                HolidayCalendar.holiday_date >= start,
+                HolidayCalendar.holiday_date <= end,
+            )
+        )
+        if branch:
+            stmt = stmt.where(
+                or_(HolidayCalendar.branch.is_(None), HolidayCalendar.branch == branch)
+            )
+        result = await self.db.execute(stmt)
+        holidays = result.scalars().all()
+        return {h.holiday_date: h.holiday_name for h in holidays}
+
+    async def _get_approved_leaves_range(
+        self, employee_id: uuid.UUID, start: date, end: date, company_id: uuid.UUID
+    ) -> List[date]:
+        # Try to find leave request model - skip if not available
+        try:
+            from app.models.leave import LeaveRequest, LeaveStatus
+            stmt = select(LeaveRequest).where(
+                and_(
+                    LeaveRequest.employee_id == employee_id,
+                    LeaveRequest.status == LeaveStatus.APPROVED,
+                    LeaveRequest.start_date <= end,
+                    LeaveRequest.end_date >= start,
+                )
+            )
+            result = await self.db.execute(stmt)
+            leaves = result.scalars().all()
+            leave_dates = []
+            for leave in leaves:
+                current = max(leave.start_date, start)
+                while current <= min(leave.end_date, end):
+                    leave_dates.append(current)
+                    current += timedelta(days=1)
+            return leave_dates
+        except ImportError:
+            return []
+
+    def _date_range(self, start: date, end: date):
+        current = start
+        while current <= end:
+            yield current
+            current += timedelta(days=1)
+
+    def _check_off_day(
+        self,
+        shift: Shift,
+        business_date: date,
+        holidays: Dict[date, str],
+        leave_dates: List[date],
+        branch: str | None,
+    ) -> Tuple[bool, OffReason | None]:
+        # Holiday takes precedence
+        if business_date in holidays:
+            return True, "holiday"
+        # Approved leave
+        if business_date in leave_dates:
+            return True, "leave"
+        # Weekly off (day not in shift's working_days)
+        weekday_abbr = business_date.strftime("%a")
+        if weekday_abbr not in shift.working_days:
+            return True, "weekly_off"
+        return False, None
+
+    async def _resolve_from_roster(
+        self,
+        entry: ShiftPlanEntry,
+        employee: Employee,
+        business_date: date,
+        tz,
+        company_id: uuid.UUID,
+    ) -> ResolvedShift:
+        # OFF/WEEKLY_OFF/HOLIDAY/LEAVE types mean no work
+        is_off = entry.shift_type in {
+            ShiftType.OFF, ShiftType.WEEKLY_OFF, ShiftType.HOLIDAY, ShiftType.LEAVE
         }
+
+        if entry.shift_id:
+            stmt = select(Shift).where(
+                and_(Shift.id == entry.shift_id, Shift.deleted_at.is_(None))
+            )
+            result = await self.db.execute(stmt)
+            shift = result.scalars().first()
+            if shift:
+                return await self._build_resolved_shift(
+                    shift, "roster", employee, business_date, tz, company_id,
+                    is_off, "roster_off" if is_off else None,
+                    entry.shift_type == ShiftType.HOLIDAY, None
+                )
+
+        # Fallback to shift_type for times
+        if entry.start_time and entry.end_time:
+            # Build a virtual shift from entry times
+            return ResolvedShift(
+                shift_id=None,
+                shift_name=f"Roster: {entry.shift_type.value}",
+                source="roster",
+                business_date=business_date,
+                start_dt=combine_local(business_date, entry.start_time, tz),
+                end_dt=shift_end_datetime(business_date, entry.start_time, entry.end_time, entry.end_time < entry.start_time, tz),
+                is_overnight=entry.end_time < entry.start_time,
+                grace_period_mins=DEFAULT_GRACE_PERIOD_MINS,
+                break_duration_mins=DEFAULT_BREAK_MINUTES,
+                scheduled_gross_hours=round((shift_end_datetime(business_date, entry.start_time, entry.end_time, entry.end_time < entry.start_time, tz) - combine_local(business_date, entry.start_time, tz)).total_seconds() / 3600.0, 2),
+                scheduled_net_hours=round(max(0, ((shift_end_datetime(business_date, entry.start_time, entry.end_time, entry.end_time < entry.start_time, tz) - combine_local(business_date, entry.start_time, tz)).total_seconds() / 3600.0) - (DEFAULT_BREAK_MINUTES / 60.0)), 2),
+                is_off=is_off,
+                off_reason="roster_off" if is_off else None,
+                is_holiday=entry.shift_type == ShiftType.HOLIDAY,
+                holiday_name=None,
+                night_shift=entry.shift_type == ShiftType.NIGHT,
+                night_premium_percent=0.0,
+                working_days=[],
+            )
+
+        # Ultimate fallback
+        return self._build_fallback_shift(employee, business_date, tz, company_id)
+
+    async def _resolve_from_assignment(
+        self,
+        assignment: EmployeeShiftAssignment,
+        employee: Employee,
+        business_date: date,
+        tz,
+        company_id: uuid.UUID,
+    ) -> ResolvedShift:
+        stmt = select(Shift).where(
+            and_(Shift.id == assignment.shift_id, Shift.deleted_at.is_(None))
+        )
+        result = await self.db.execute(stmt)
+        shift = result.scalars().first()
+        if not shift:
+            return self._build_fallback_shift(employee, business_date, tz, company_id)
+
+        # Check off days
+        holidays = await self._get_holidays_range(business_date, business_date, employee.branch, company_id)
+        leaves = await self._get_approved_leaves_range(employee.id, business_date, business_date, company_id)
+        is_off, off_reason = self._check_off_day(shift, business_date, holidays, leaves, employee.branch)
+
+        return await self._build_resolved_shift(
+            shift, "assignment", employee, business_date, tz, company_id,
+            is_off, off_reason, business_date in holidays, holidays.get(business_date)
+        )
+
+    async def _build_resolved_shift(
+        self,
+        shift: Shift,
+        source: ShiftSource,
+        employee: Employee,
+        business_date: date,
+        tz,
+        company_id: uuid.UUID,
+        is_off: bool,
+        off_reason: OffReason | None,
+        is_holiday: bool,
+        holiday_name: str | None,
+    ) -> ResolvedShift:
+        start_dt = shift_start_datetime(business_date, shift.start_time, tz)
+        end_dt = shift_end_datetime(business_date, shift.start_time, shift.end_time, shift.is_overnight, tz)
+        gross_hours = round((end_dt - start_dt).total_seconds() / 3600.0, 2)
+        net_hours = round(max(0, gross_hours - (shift.break_duration_minutes / 60.0)), 2)
+
+        return ResolvedShift(
+            shift_id=shift.id,
+            shift_name=shift.name,
+            source=source,
+            business_date=business_date,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            is_overnight=shift.is_overnight,
+            grace_period_mins=shift.grace_period_minutes,
+            break_duration_mins=shift.break_duration_minutes,
+            scheduled_gross_hours=gross_hours,
+            scheduled_net_hours=net_hours,
+            is_off=is_off,
+            off_reason=off_reason,
+            is_holiday=is_holiday,
+            holiday_name=holiday_name,
+            night_shift=shift.is_night_shift,
+            night_premium_percent=float(shift.night_premium_percent),
+            working_days=shift.working_days,
+        )
+
+    def _build_fallback_shift(
+        self,
+        employee: Employee,
+        business_date: date,
+        tz,
+        company_id: uuid.UUID,
+    ) -> ResolvedShift:
+        start_dt = combine_local(business_date, FALLBACK_SHIFT_START, tz)
+        end_dt = combine_local(business_date, FALLBACK_SHIFT_END, tz)
+        gross_hours = round((end_dt - start_dt).total_seconds() / 3600.0, 2)
+        net_hours = round(max(0, gross_hours - (DEFAULT_BREAK_MINUTES / 60.0)), 2)
+
+        # Check if fallback day is off
+        weekday_abbr = business_date.strftime("%a")
+        is_off = weekday_abbr not in ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        off_reason: OffReason = "weekly_off" if is_off else None
+
+        return ResolvedShift(
+            shift_id=None,
+            shift_name="General Shift (Fallback)",
+            source="fallback",
+            business_date=business_date,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            is_overnight=False,
+            grace_period_mins=DEFAULT_GRACE_PERIOD_MINS,
+            break_duration_mins=DEFAULT_BREAK_MINUTES,
+            scheduled_gross_hours=gross_hours,
+            scheduled_net_hours=net_hours,
+            is_off=is_off,
+            off_reason=off_reason,
+            is_holiday=False,
+            holiday_name=None,
+            night_shift=False,
+            night_premium_percent=0.0,
+            working_days=["Mon", "Tue", "Wed", "Thu", "Fri"],
+        )
+
+# Need to import func
+from sqlalchemy import func
