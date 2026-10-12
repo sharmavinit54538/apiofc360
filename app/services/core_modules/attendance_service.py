@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import and_, desc, func, or_, select
+from fastapi import Query
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance.models.attendance import Attendance
@@ -17,7 +18,6 @@ from app.schemas.core_modules.attendance import (
     AttendanceCheckInRequest,
     AttendanceCheckOutRequest,
     AttendanceManualUpdateRequest,
-    AttendanceRegularizationActionRequest,
     AttendanceRegularizationCreateRequest,
     FaceCheckInRequest,
     FaceEnrollRequest,
@@ -32,12 +32,12 @@ class AttendanceCoreService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Optional[Employee]:
+    async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Employee | None:
         stmt = select(Employee).where(Employee.user_id == user_id, Employee.is_deleted == False)
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def get_today_record(self, employee_id: uuid.UUID, target_date: Optional[date] = None) -> Optional[Attendance]:
+    async def get_today_record(self, employee_id: uuid.UUID, target_date: date | None = None) -> Attendance | None:
         t_date = target_date or date.today()
         stmt = select(Attendance).where(
             Attendance.employee_id == employee_id,
@@ -49,12 +49,12 @@ class AttendanceCoreService:
     async def check_in(
         self,
         employee_id: uuid.UUID,
-        company_id: Optional[uuid.UUID],
+        company_id: uuid.UUID | None,
         payload: AttendanceCheckInRequest,
         source: str = "app",
     ) -> Attendance:
         today = date.today()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         record = await self.get_today_record(employee_id, today)
 
         if record:
@@ -152,11 +152,11 @@ class AttendanceCoreService:
     async def check_out(
         self,
         employee_id: uuid.UUID,
-        company_id: Optional[uuid.UUID],
+        company_id: uuid.UUID | None,
         payload: AttendanceCheckOutRequest,
     ) -> Attendance:
         today = date.today()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         record = await self.get_today_record(employee_id, today)
 
         if not record:
@@ -195,7 +195,7 @@ class AttendanceCoreService:
     async def face_check_in(
         self,
         employee_id: uuid.UUID,
-        company_id: Optional[uuid.UUID],
+        company_id: uuid.UUID | None,
         payload: FaceCheckInRequest,
     ) -> Attendance:
         checkin_req = AttendanceCheckInRequest(
@@ -213,7 +213,7 @@ class AttendanceCoreService:
     async def face_check_out(
         self,
         employee_id: uuid.UUID,
-        company_id: Optional[uuid.UUID],
+        company_id: uuid.UUID | None,
         payload: FaceCheckInRequest,
     ) -> Attendance:
         checkout_req = AttendanceCheckOutRequest(
@@ -227,7 +227,7 @@ class AttendanceCoreService:
             await self.session.commit()
         return record
 
-    async def face_enroll(self, company_id: Optional[uuid.UUID], payload: FaceEnrollRequest) -> Dict[str, Any]:
+    async def face_enroll(self, company_id: uuid.UUID | None, payload: FaceEnrollRequest) -> dict[str, Any]:
         stmt = select(Employee).where(Employee.id == payload.employee_id)
         res = await self.session.execute(stmt)
         emp = res.scalar_one_or_none()
@@ -235,7 +235,7 @@ class AttendanceCoreService:
             raise ValueError("Employee not found for face enrollment")
 
         emp.is_face_enrolled = True
-        emp.face_enrolled_at = datetime.now(timezone.utc)
+        emp.face_enrolled_at = datetime.now(UTC)
         await self.session.commit()
         return {
             "success": True,
@@ -248,7 +248,7 @@ class AttendanceCoreService:
         self,
         attendance_id: uuid.UUID,
         payload: AttendanceManualUpdateRequest,
-        editor_id: Optional[uuid.UUID] = None,
+        editor_id: uuid.UUID | None = None,
     ) -> Attendance:
         stmt = select(Attendance).where(Attendance.id == attendance_id)
         res = await self.session.execute(stmt)
@@ -284,14 +284,14 @@ class AttendanceCoreService:
 
     async def list_records(
         self,
-        company_id: Optional[uuid.UUID] = None,
-        employee_id: Optional[uuid.UUID] = None,
-        from_date: Optional[date] = None,
-        to_date: Optional[date] = None,
-        status: Optional[str] = None,
+        company_id: uuid.UUID | None = None,
+        employee_id: uuid.UUID | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        status: str | None = None,
         page: int = 1,
         limit: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         stmt = select(Attendance)
         if company_id:
             stmt = stmt.where(Attendance.company_id == company_id)
@@ -331,7 +331,7 @@ class AttendanceCoreService:
             ],
         }
 
-    async def get_analytics(self, company_id: Optional[uuid.UUID], target_date: Optional[date] = None) -> Dict[str, Any]:
+    async def get_analytics(self, company_id: uuid.UUID | None, target_date: date | None = None) -> dict[str, Any]:
         t_date = target_date or date.today()
         stmt = select(Attendance).where(Attendance.date == t_date)
         if company_id:
@@ -355,7 +355,7 @@ class AttendanceCoreService:
     async def create_regularization(
         self,
         employee_id: uuid.UUID,
-        company_id: Optional[uuid.UUID],
+        company_id: uuid.UUID | None,
         payload: AttendanceRegularizationCreateRequest,
     ) -> AttendanceRegularizationRequest:
         req = AttendanceRegularizationRequest(
@@ -376,12 +376,12 @@ class AttendanceCoreService:
 
     async def list_regularizations(
         self,
-        company_id: Optional[uuid.UUID] = None,
-        employee_id: Optional[uuid.UUID] = None,
-        status: Optional[str] = None,
+        company_id: uuid.UUID | None = None,
+        employee_id: uuid.UUID | None = None,
+        status: str | None = None,
         page: int = 1,
         limit: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         stmt = select(AttendanceRegularizationRequest)
         if company_id:
             stmt = stmt.where(AttendanceRegularizationRequest.company_id == company_id)
@@ -413,4 +413,128 @@ class AttendanceCoreService:
                 }
                 for i in items
             ],
+        }
+
+    async def get_analytics_trends(
+        self,
+        company_id: uuid.UUID | None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, Any]:
+        """Get attendance trends over a date range (daily attendance rates)."""
+        to_d = to_date or date.today()
+        from_d = from_date or (to_d - timedelta(days=29))
+        stmt = select(Attendance).where(Attendance.date >= from_d, Attendance.date <= to_d)
+        if company_id:
+            stmt = stmt.where(Attendance.company_id == company_id)
+        records = (await self.session.execute(stmt)).scalars().all()
+
+        # Group by date
+        from collections import defaultdict
+        daily_data = defaultdict(lambda: {"total": 0, "present": 0, "late": 0, "hours": 0.0})
+        for r in records:
+            d = r.date.isoformat()
+            daily_data[d]["total"] += 1
+            if (r.status or "").lower() in ("present", "late"):
+                daily_data[d]["present"] += 1
+            if r.is_late or (r.status or "").lower() == "late":
+                daily_data[d]["late"] += 1
+            daily_data[d]["hours"] += float(r.working_hours or 0)
+
+        trends = []
+        for d in sorted(daily_data.keys()):
+            data = daily_data[d]
+            rate = round((data["present"] / data["total"]) * 100, 2) if data["total"] > 0 else 0.0
+            trends.append({
+                "date": d,
+                "total_marked": data["total"],
+                "present": data["present"],
+                "late": data["late"],
+                "attendance_rate": rate,
+                "average_working_hours": round(data["hours"] / data["total"], 2) if data["total"] > 0 else 0.0,
+            })
+
+        return {
+            "from_date": from_d.isoformat(),
+            "to_date": to_d.isoformat(),
+            "trends": trends,
+        }
+
+    async def get_analytics_rate(
+        self,
+        company_id: uuid.UUID | None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, Any]:
+        """Get overall attendance rate for a date range."""
+        to_d = to_date or date.today()
+        from_d = from_date or (to_d - timedelta(days=29))
+        stmt = select(Attendance).where(Attendance.date >= from_d, Attendance.date <= to_d)
+        if company_id:
+            stmt = stmt.where(Attendance.company_id == company_id)
+        records = (await self.session.execute(stmt)).scalars().all()
+
+        total = len(records)
+        present = sum(1 for r in records if (r.status or "").lower() in ("present", "late"))
+        late = sum(1 for r in records if r.is_late or (r.status or "").lower() == "late")
+        avg_hours = sum(float(r.working_hours or 0) for r in records) / total if total > 0 else 0.0
+
+        return {
+            "from_date": from_d.isoformat(),
+            "to_date": to_d.isoformat(),
+            "total_records": total,
+            "present": present,
+            "late": late,
+            "absent": total - present,
+            "attendance_rate": round((present / total) * 100, 2) if total > 0 else 0.0,
+            "average_working_hours": round(avg_hours, 2),
+        }
+
+    async def get_analytics_weekly(
+        self,
+        company_id: uuid.UUID | None,
+        weeks: int = Query(4, ge=1, le=12),
+    ) -> dict[str, Any]:
+        """Get weekly aggregated attendance data."""
+        to_d = date.today()
+        from_d = to_d - timedelta(weeks=weeks)
+        stmt = select(Attendance).where(Attendance.date >= from_d, Attendance.date <= to_d)
+        if company_id:
+            stmt = stmt.where(Attendance.company_id == company_id)
+        records = (await self.session.execute(stmt)).scalars().all()
+
+        # Group by ISO week
+        from collections import defaultdict
+        weekly_data = defaultdict(lambda: {"total": 0, "present": 0, "late": 0, "hours": 0.0, "days": set()})
+        for r in records:
+            iso_week = r.date.isocalendar()
+            week_key = f"{iso_week.year}-W{iso_week.week:02d}"
+            weekly_data[week_key]["total"] += 1
+            weekly_data[week_key]["days"].add(r.date)
+            if (r.status or "").lower() in ("present", "late"):
+                weekly_data[week_key]["present"] += 1
+            if r.is_late or (r.status or "").lower() == "late":
+                weekly_data[week_key]["late"] += 1
+            weekly_data[week_key]["hours"] += float(r.working_hours or 0)
+
+        weekly = []
+        for wk in sorted(weekly_data.keys()):
+            data = weekly_data[wk]
+            working_days = len(data["days"])
+            rate = round((data["present"] / data["total"]) * 100, 2) if data["total"] > 0 else 0.0
+            weekly.append({
+                "week": wk,
+                "working_days": working_days,
+                "total_records": data["total"],
+                "present": data["present"],
+                "late": data["late"],
+                "attendance_rate": rate,
+                "average_working_hours": round(data["hours"] / data["total"], 2) if data["total"] > 0 else 0.0,
+            })
+
+        return {
+            "weeks": weeks,
+            "from_date": from_d.isoformat(),
+            "to_date": to_d.isoformat(),
+            "weekly": weekly,
         }

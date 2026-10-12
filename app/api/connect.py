@@ -1460,15 +1460,35 @@ async def mail_dispatch(
 @router.websocket("/ws")
 async def connect_websocket(
     websocket: WebSocket,
-    token: str | None = Query(None),
+    token: str | None = Query(None, description="Deprecated: Use Authorization header or Sec-WebSocket-Protocol instead"),
 ):
-    """WebSocket endpoint for Connect real-time events, typing indicators, presence, and WebRTC signaling."""
-    # Authenticate token from query parameter or authorization header
-    auth_token = token
+    """WebSocket endpoint for Connect real-time events, typing indicators, presence, and WebRTC signaling.
+    
+    Authentication priority:
+    1. Authorization: Bearer <token> header (recommended)
+    2. Sec-WebSocket-Protocol: Bearer <token> header (for browser WebSocket API compatibility)
+    3. Query parameter ?token=... (deprecated, not recommended for production)
+    """
+    # Authenticate token - prefer headers over query parameter for security
+    auth_token = None
+    
+    # 1. Check Authorization header (standard approach)
+    auth_header = websocket.headers.get("authorization") or websocket.headers.get("Authorization")
+    if auth_header and auth_header.strip().lower().startswith("bearer "):
+        auth_token = auth_header.strip().split(" ", 1)[1].strip()
+    
+    # 2. Check Sec-WebSocket-Protocol header (browser WebSocket API)
     if not auth_token:
-        auth_header = websocket.headers.get("authorization") or websocket.headers.get("sec-websocket-protocol")
-        if auth_header and "bearer " in auth_header.lower():
-            auth_token = auth_header.split(" ", 1)[1].strip()
+        protocol_header = websocket.headers.get("sec-websocket-protocol") or websocket.headers.get("Sec-WebSocket-Protocol")
+        if protocol_header and "bearer " in protocol_header.lower():
+            auth_token = protocol_header.strip().split(" ", 1)[1].strip()
+    
+    # 3. Fallback to query parameter (deprecated, log warning in production)
+    if not auth_token and token:
+        from app.core.config import settings
+        if settings.ENVIRONMENT.lower() in {"production", "prod", "staging"}:
+            logger.warning("WebSocket authentication via query parameter is deprecated and insecure. Use Authorization header.")
+        auth_token = token
 
     if not auth_token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication token required.")
@@ -1479,7 +1499,8 @@ async def connect_websocket(
         user_id = uuid.UUID(str(claims.get("sub")))
         company_id = uuid.UUID(str(claims.get("company_id")))
     except Exception as e:
-        logger.warning("WebSocket token verification failed: %s", e)
+        # Don't log the token, only the error type
+        logger.warning("WebSocket token verification failed: %s", type(e).__name__)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token.")
         return
 

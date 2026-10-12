@@ -9,7 +9,7 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.attendance.utils.time_parse import InvalidTimeFormatError, parse_time_str
-from app.schemas.common import APIResponse
+from app.schemas.auth import APIResponse
 
 
 # ─────────────────────────────────────────────────────────────────────────────

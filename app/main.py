@@ -443,6 +443,13 @@ async def lifespan(app: FastAPI):
         except Exception as sched_err:
             logger.warning("Expiry scheduler notice: %s", str(sched_err))
 
+        # Connect to Redis
+        try:
+            from app.core.redis_client import redis_client
+            await redis_client.connect()
+        except Exception as redis_err:
+            logger.warning("Redis connection notice: %s", str(redis_err))
+
         logger.info("Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
             logger.info(" Swagger API Docs: http://127.0.0.1:8000/docs")
@@ -462,6 +469,13 @@ async def lifespan(app: FastAPI):
         logger.info("Database engine shut down cleanly.")
     except Exception as e:
         logger.error("Error shutting down database engine: %s", str(e))
+
+    # Graceful shutdown of Redis connection
+    try:
+        from app.core.redis_client import redis_client
+        await redis_client.disconnect()
+    except Exception as e:
+        logger.error("Error shutting down Redis connection: %s", str(e))
 
 
 def configure_logging() -> None:

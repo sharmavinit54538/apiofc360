@@ -59,7 +59,6 @@ class RateLimiter:
         if not self.enabled:
             return True, 0, self.rate_per_minute
 
-        await self.redis.connect()
         client_key = self._get_client_key(request)
         now = time.time()
 
@@ -102,7 +101,6 @@ class RateLimiter:
         if not self.enabled:
             return True, 0, limit
 
-        await self.redis.connect()
         client_key = self._get_client_key(request)
         now = time.time()
         rate_key = f"ratelimit:{scope}:{client_key}"

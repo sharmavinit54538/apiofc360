@@ -44,7 +44,10 @@ class RedisClient:
         self._is_production = settings.ENVIRONMENT.lower() in {"production", "prod", "staging"}
 
     async def connect(self) -> bool:
-        """Attempt to connect to Redis server. Required in production."""
+        """Attempt to connect to Redis server. Required in production.
+        Idempotent - safe to call multiple times."""
+        if self._connected and self._redis:
+            return True
         try:
             import redis.asyncio as aioredis  # type: ignore
             self._redis = aioredis.from_url(
@@ -56,15 +59,27 @@ class RedisClient:
             )
             await self._redis.ping()
             self._connected = True
-            logger.info("Connected to Redis at %s", self._url)
+            logger.info("Connected to Redis")
             return True
         except Exception as exc:
             self._connected = False
             if self._is_production:
                 logger.critical("Redis connection REQUIRED in production but unavailable: %s", exc)
                 raise RuntimeError(f"Redis connection required in production: {exc}") from exc
-            logger.warning("Redis connection unavailable (%s). Falling back to in-memory cache (local only).", exc)
+            logger.warning("Redis connection unavailable. Falling back to in-memory cache (local only).")
             return False
+
+    async def disconnect(self) -> None:
+        """Close Redis connection pool."""
+        if self._redis:
+            try:
+                await self._redis.close()
+                logger.info("Redis connection closed")
+            except Exception as exc:
+                logger.warning("Error closing Redis connection: %s", exc)
+            finally:
+                self._redis = None
+                self._connected = False
 
     async def get(self, key: str) -> str | None:
         """Get value by key. Requires Redis in production."""
