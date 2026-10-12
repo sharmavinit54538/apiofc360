@@ -168,6 +168,11 @@ class TokenService:
                     await self.auth_repository.revoke_all_user_refresh_tokens(token_record.user_id, reason="REUSE_ATTEMPT_DETECTED")
                     try:
                         await redis_client.revoke_user_tokens(token_record.user_id, ttl_seconds=300)
+                        # Invalidate auth active cache
+                        user = token_record.user
+                        if user and user.company_id:
+                            from app.middleware.auth import invalidate_auth_active_cache
+                            await invalidate_auth_active_cache(token_record.user_id, user.company_id)
                     except Exception:
                         pass
                 await self.session.commit()

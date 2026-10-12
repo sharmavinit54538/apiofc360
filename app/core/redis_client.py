@@ -209,6 +209,56 @@ class RedisClient:
                 return None
         return None
 
+    async def check_token_state(self, token: str, user_id: str | uuid.UUID) -> tuple[bool, int | None]:
+        """
+        Combined check for token blacklist and user revocation in a single Redis round trip.
+        Returns: (is_blacklisted, revoked_before_timestamp_or_none)
+        """
+        if not token or not user_id:
+            return False, None
+        
+        token_hash = _hash_token_string(token)
+        blacklist_key = f"blacklist:token:{token_hash}"
+        revoked_key = f"revoked_before:user:{str(user_id)}"
+        
+        if self._connected and self._redis:
+            try:
+                pipe = self._redis.pipeline()
+                pipe.get(blacklist_key)
+                pipe.get(revoked_key)
+                results = await pipe.execute()
+                
+                is_blacklisted = results[0] is not None
+                revoked_before = None
+                if results[1] is not None:
+                    try:
+                        revoked_before = int(results[1])
+                    except ValueError:
+                        pass
+                
+                return is_blacklisted, revoked_before
+            except Exception as exc:
+                self._connected = False
+                if self._is_production:
+                    logger.error("Redis pipeline check_token_state failed in production: %s", exc)
+                    raise
+        
+        if self._is_production:
+            raise RuntimeError("Redis required in production but not connected")
+        
+        # In-memory fallback (local development only)
+        is_blacklisted = blacklist_key in _in_memory_store
+        revoked_before = None
+        if revoked_key in _in_memory_store:
+            val, expires = _in_memory_store[revoked_key]
+            if expires is None or time.time() < expires:
+                try:
+                    revoked_before = int(val)
+                except ValueError:
+                    pass
+        
+        return is_blacklisted, revoked_before
+
     # ---------------------------------------------------------------------------
     # Distributed Locking Mechanism
     # ---------------------------------------------------------------------------

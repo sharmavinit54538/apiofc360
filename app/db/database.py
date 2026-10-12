@@ -78,6 +78,9 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
             "user": db_url.username,
             "password": db_url.password,
             "database": db_url.database,
+            "server_settings": {
+                "statement_timeout": "15000",  # 15 second statement timeout
+            },
         }
         if ssl_setting is not None:
             kwargs["ssl"] = ssl_setting
@@ -115,6 +118,9 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
         "user": db_url.username,
         "password": db_url.password,
         "database": db_url.database,
+        "server_settings": {
+            "statement_timeout": "15000",  # 15 second statement timeout
+        },
     }
 
     if ssl_setting is not None and ssl_setting is not False:
@@ -143,7 +149,8 @@ engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
     async_creator=get_asyncpg_connection,
     echo=settings.DB_ECHO,
-    pool_pre_ping=True,
+    pool_pre_ping=False,  # Disabled for remote DBs - adds RTT on every checkout; use pool_recycle instead
+    pool_use_lifo=True,   # Better connection reuse pattern
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,

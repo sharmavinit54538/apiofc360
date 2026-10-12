@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException
-from app.core.security import hash_password
+from app.core.security import hash_password, hash_password_async
 from app.db.database import get_db_session
 from app.models.audit_log import AuditLog
 from app.models.employee import Employee
@@ -85,7 +85,7 @@ class HRAdminService:
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.ACTIVATION_TOKEN_EXPIRE_HOURS)
         temp_password = generate_temp_password()
-        password_hash = hash_password(temp_password)
+        password_hash = await hash_password_async(temp_password)
 
         full_name = f"{payload.first_name} {payload.last_name}".strip()
         user_role_enum = UserRole.from_str(role_str)
@@ -465,6 +465,10 @@ class HRAdminService:
                 )
             )
             await redis_client.revoke_user_tokens(user.id)
+            # Invalidate auth active cache
+            if user.company_id:
+                from app.middleware.auth import invalidate_auth_active_cache
+                await invalidate_auth_active_cache(user.id, user.company_id)
 
         # Log audit
         audit = AuditLog(

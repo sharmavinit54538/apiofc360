@@ -16,6 +16,15 @@ except ImportError:
 
 from sqlalchemy import text
 
+# Performance instrumentation
+from app.core.perf_instrumentation import (
+    install_db_instrumentation,
+    wrap_redis_client,
+    start_lag_detector,
+    stop_lag_detector,
+    PerfHeadersMiddleware,
+)
+
 # Routers Import
 from app.api.auth import router as auth_router
 from app.api.hr_admin import router as hr_admin_router
@@ -415,6 +424,12 @@ async def lifespan(app: FastAPI):
     
     db_connected = await init_db_with_retry(max_retries=5, initial_delay=1.0, backoff_factor=2.0)
     if db_connected:
+        # Install DB query instrumentation
+        try:
+            install_db_instrumentation(engine.sync_engine)
+        except Exception as e:
+            logger.warning("DB instrumentation install failed: %s", e)
+
         try:
             from app.db.database import _get_tenant_classes
             _get_tenant_classes()
@@ -443,12 +458,17 @@ async def lifespan(app: FastAPI):
         except Exception as sched_err:
             logger.warning("Expiry scheduler notice: %s", str(sched_err))
 
-        # Connect to Redis
+        # Connect to Redis and wrap with instrumentation
         try:
             from app.core.redis_client import redis_client
             await redis_client.connect()
+            # Wrap Redis client with instrumentation for dev/staging
+            app.state.redis_client = wrap_redis_client(redis_client)
         except Exception as redis_err:
             logger.warning("Redis connection notice: %s", str(redis_err))
+
+        # Start event-loop lag detector
+        start_lag_detector()
 
         logger.info("Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
@@ -462,6 +482,9 @@ async def lifespan(app: FastAPI):
         
     yield
     
+    # Graceful shutdown
+    stop_lag_detector()
+
     # Graceful shutdown of database pool
     try:
         logger.info("Shutting down database engine connection pool...")
@@ -501,8 +524,13 @@ def configure_logging() -> None:
     logging.getLogger("sqlalchemy.pool").addFilter(db_filter)
 
 
-from fastapi.responses import JSONResponse
-DefaultResponse = JSONResponse
+# Try to use ORJSONResponse for faster JSON serialization
+try:
+    from fastapi.responses import ORJSONResponse
+    DefaultResponse = ORJSONResponse
+except ImportError:
+    from fastapi.responses import JSONResponse
+    DefaultResponse = JSONResponse
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -596,6 +624,9 @@ def create_app() -> FastAPI:
             https_only=secure_cookie,
             max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # Match refresh token expiry
         )
+
+    # Performance headers middleware (for dev/staging only) - add early to capture all middleware
+    app.add_middleware(PerfHeadersMiddleware)
 
     # Global rate limiting middleware
     from app.core.rate_limiter import RateLimitMiddleware
@@ -836,19 +867,38 @@ def create_app() -> FastAPI:
         }
 
     @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health Checks"])
-    async def health_check():
-        """Liveness & health probe verifying backend and database status."""
+    async def health_check(deep: bool = False):
+        """Liveness & health probe verifying backend and database status.
+        
+        Args:
+            deep: If True, also checks Redis connectivity and runs a quick query.
+                  Use sparingly as it adds latency.
+        """
         db_status = "disconnected"
+        redis_status = "not_checked"
+        
         try:
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             db_status = "connected"
         except Exception as e:
             logger.error("Health check DB connection error: %s", e)
+        
+        if deep:
+            try:
+                from app.core.redis_client import redis_client
+                if redis_client.is_connected:
+                    redis_status = "connected"
+                else:
+                    redis_status = "disconnected"
+            except Exception as e:
+                logger.error("Health check Redis error: %s", e)
+                redis_status = "error"
 
         return {
             "status": "healthy" if db_status == "connected" else "degraded",
             "database": db_status,
+            "redis": redis_status if deep else "not_checked",
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,

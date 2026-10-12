@@ -11,7 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CMAKE_BUILD_PARALLEL_LEVEL=4 \
     DLIB_NO_GUI_SUPPORT=1 \
-    DLIB_USE_CUDA=0
+    DLIB_USE_CUDA=0 \
+    UVLOOP=1
 
 WORKDIR /build
 
@@ -57,7 +58,8 @@ FROM python:3.11-slim-bookworm AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    UVLOOP=1
 
 WORKDIR /app
 
@@ -92,10 +94,10 @@ RUN useradd -m -u 10001 appuser && \
 
 EXPOSE 8000
 
-# Container healthcheck probe
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+# Container healthcheck probe - light check, no DB/Redis
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
-# Default entrypoint and command
+# Default entrypoint and command - worker count from env (default to CPU count)
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--workers", "4"]

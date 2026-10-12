@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import logging
 import time as time_module
-from datetime import date, datetime, time, timedelta
-from functools import lru_cache
+from datetime import date, datetime, time, timedelta, timezone, UTC
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -98,7 +97,7 @@ def invalidate_company_tz(company_id: str) -> None:
 
 def now_utc() -> datetime:
     """Get current UTC time with timezone info."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def to_company_local(dt_utc: datetime, tz: ZoneInfo) -> datetime:

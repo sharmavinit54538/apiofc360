@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
-from app.core.security import hash_password
+from app.core.security import hash_password, hash_password_async
 from app.db.database import get_db_session
 from app.models.recruitment import InterviewSchedule
 from app.repositories.auth_repository import AuthRepository
@@ -1144,7 +1144,7 @@ Generate realistic content under each heading. Make the tone professional, encou
 
             # Create User record
             temp_password = generate_temp_password()
-            password_hash = hash_password(temp_password)
+            password_hash = await hash_password_async(temp_password)
             full_name = app.first_name.strip() + " " + app.last_name.strip()
             
             from app.models.user import UserRole

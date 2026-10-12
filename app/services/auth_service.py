@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password, verify_password, hash_password_async, verify_password_async
 from app.db.database import get_db_session
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
@@ -137,7 +137,7 @@ class AuthService:
             otp_code = generate_otp()
 
             # 2. Create the HR Admin user (FORCED to HR_ADMIN)
-            password_hash = hash_password(payload.password)
+            password_hash = await hash_password_async(payload.password)
             user = User(
                 id=uuid.uuid4(),
                 company_id=company.id,
@@ -607,7 +607,7 @@ class AuthService:
         # Security: constant-time password verification to mitigate timing attacks if user does not exist
         timing_mitigation_hash = "$2b$12$eImiTXuWVxfM37uY4JANjO7f.6.O1Nn6W71.u8M0bN71dJkZ5p6d6"
         if not user:
-            verify_password(payload.password, timing_mitigation_hash)
+            await verify_password_async(payload.password, timing_mitigation_hash)
             logger.warning("Authentication failed: user not found | identifier=%s", payload.identifier)
             attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
             if now_locked:
@@ -622,7 +622,7 @@ class AuthService:
             )
 
         # Validate password
-        is_password_valid = verify_password(payload.password, user.password_hash)
+        is_password_valid = await verify_password_async(payload.password, user.password_hash)
         if not is_password_valid:
             logger.warning("Authentication failed: password mismatch | user_id=%s | email=%s", user.id, user.email)
             attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
@@ -1241,10 +1241,14 @@ class AuthService:
             raise AppException(message="Either reset_token or OTP is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         # Update credentials
-        new_password_hash = hash_password(payload.new_password)
+        new_password_hash = await hash_password_async(payload.new_password)
         await self.auth_repository.update_user_password(user.id, new_password_hash)
         await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
         await redis_client.revoke_user_tokens(user.id)
+        # Invalidate auth active cache
+        if user.company_id:
+            from app.middleware.auth import invalidate_auth_active_cache
+            await invalidate_auth_active_cache(user.id, user.company_id)
         
         # Invalidate all other pending password reset tokens and OTPs for the user
         await self.auth_repository.invalidate_all_user_password_resets(user.id)
