@@ -89,6 +89,45 @@ class OllamaProvider(LLMProviderBase):
             self._healthy = False
             return False
 
+    async def health_check_detailed(self) -> dict[str, Any]:
+        """Return detailed health info including model availability."""
+        try:
+            res = await self._client.get("/api/tags", timeout=5.0)
+            if res.status_code != 200:
+                self._healthy = False
+                return {"healthy": False, "model_available": False, "error": f"HTTP {res.status_code}"}
+            self._healthy = True
+            data = res.json()
+            models_list = data.get("models", [])
+            installed_models = []
+            for m in models_list:
+                name = m.get("name") or m.get("model")
+                if name:
+                    installed_models.append(name)
+            
+            # Check if configured model is available
+            configured_model = self.config.default_model or "qwen3:30b"
+            clean_req = configured_model.strip().lower()
+            req_base = clean_req.split(":")[0]
+            
+            model_available = False
+            for m in installed_models:
+                m_lower = m.lower()
+                m_base = m_lower.split(":")[0]
+                if m_lower == clean_req or m_base == req_base:
+                    model_available = True
+                    break
+            
+            return {
+                "healthy": True,
+                "model_available": model_available,
+                "installed_models": installed_models,
+                "configured_model": configured_model,
+            }
+        except Exception as exc:
+            self._healthy = False
+            return {"healthy": False, "model_available": False, "error": str(exc)}
+
     async def _verify_health_or_raise(self) -> list[str]:
         """Perform health check before generation.
 

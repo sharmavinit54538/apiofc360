@@ -293,7 +293,7 @@ def upgrade() -> None:
     sa.Column('module', sa.String(length=50), nullable=False),
     sa.Column('prompt', sa.Text(), nullable=False),
     sa.Column('response', sa.Text(), nullable=False),
-    sa.Column('model_name', sa.String(length=50), server_default=sa.text("'gemini-1.5-pro'"), nullable=False),
+    sa.Column('model_name', sa.String(length=50), server_default=sa.text("'qwen3:30b'"), nullable=False),
     sa.Column('tokens_used', sa.Integer(), server_default=sa.text('0'), nullable=False),
     sa.Column('metadata_json', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),

@@ -95,6 +95,7 @@ class ChatAssistantResponse(BaseModel):
     role: str = Field("ai", description="Message sender role")
     messageId: Optional[str] = Field(None, description="Message UUID")
     message_id: Optional[str] = Field(None, description="Message UUID")
+    ai_available: bool = Field(True, description="Whether AI/LLM service was available for this response")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

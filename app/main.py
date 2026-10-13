@@ -68,7 +68,7 @@ from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
 from app.api.v1.intelligence import router as intelligence_router
-from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
+from app.api.ai_insights import router as ai_insights_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
 from app.api.payments import router as payments_router
@@ -699,7 +699,6 @@ def create_app() -> FastAPI:
     app.include_router(analytics_center_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_brain_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_insights_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
     app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
     app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
     app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
@@ -906,7 +905,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health/ready", tags=["Health Checks"])
     async def health_ready():
-        """Readiness probe checking DB and LLM connectivity."""
+        """Readiness probe checking DB and Ollama connectivity."""
         db_healthy = False
         try:
             async with engine.connect() as conn:
@@ -918,6 +917,20 @@ def create_app() -> FastAPI:
         from app.llm.client import get_llm_client
         llm_health = await get_llm_client().check_health()
 
+        # Get detailed provider status for monitoring
+        from app.llm.router import get_llm_router
+        router = get_llm_router()
+        provider_health = await router.health_check()
+
+        # Check Ollama model availability
+        ollama_model_available = False
+        ollama_details = provider_health.get("providers", {}).get("ollama", {})
+        if isinstance(ollama_details, dict):
+            ollama_model_available = ollama_details.get("model_available", False)
+        elif provider_health.get("providers", {}).get("ollama") is True:
+            # Simple boolean health check passed - try to verify model
+            ollama_model_available = True
+
         ready = db_healthy and llm_health.get("healthy", False)
         status_code = 200 if ready else 503
 
@@ -926,7 +939,15 @@ def create_app() -> FastAPI:
             content={
                 "ready": ready,
                 "database": "connected" if db_healthy else "disconnected",
-                "llm": llm_health,
+                "llm": {
+                    "healthy": llm_health.get("healthy", False),
+                    "provider": "ollama",
+                    "model_available": ollama_model_available,
+                    "configured_model": settings.OLLAMA_MODEL,
+                    "base_url": settings.OLLAMA_BASE_URL,
+                    "healthy_count": provider_health.get("healthy_count", 0),
+                    "total_count": provider_health.get("total_count", 0),
+                },
             }
         )
 

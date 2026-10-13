@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncGenerator
@@ -69,6 +70,10 @@ class ProviderConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+# Health recovery constants
+HEALTH_COOLDOWN_SECONDS = 30  # Cooldown before retrying unhealthy provider
+
+
 class LLMProviderBase(abc.ABC):
     """Abstract base for all LLM provider implementations."""
 
@@ -76,6 +81,7 @@ class LLMProviderBase(abc.ABC):
         self.config = config
         self.name = config.name
         self._healthy = True
+        self._unhealthy_since: float | None = None  # Timestamp when marked unhealthy
 
     # ------------------------------------------------------------------
     # Health
@@ -87,14 +93,28 @@ class LLMProviderBase(abc.ABC):
 
     @property
     def is_healthy(self) -> bool:
-        return self._healthy
+        """Check if provider is healthy, with automatic half-open recovery after cooldown."""
+        if self._healthy:
+            return True
+        # Half-open: allow recovery attempt after cooldown
+        if self._unhealthy_since is not None:
+            elapsed = time.time() - self._unhealthy_since
+            if elapsed >= HEALTH_COOLDOWN_SECONDS:
+                logger.info("Provider '%s' entering half-open state after %.0fs cooldown", self.name, elapsed)
+                return True  # Allow one attempt to recover
+        return False
 
     def mark_unhealthy(self) -> None:
-        self._healthy = False
-        logger.warning("Provider '%s' marked unhealthy", self.name)
+        if self._healthy:
+            self._healthy = False
+            self._unhealthy_since = time.time()
+            logger.warning("Provider '%s' marked unhealthy", self.name)
 
     def mark_healthy(self) -> None:
-        self._healthy = True
+        if not self._healthy:
+            self._healthy = True
+            self._unhealthy_since = None
+            logger.info("Provider '%s' recovered and marked healthy", self.name)
 
     # ------------------------------------------------------------------
     # Chat / Completion

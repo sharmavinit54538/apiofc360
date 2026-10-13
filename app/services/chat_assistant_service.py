@@ -124,6 +124,7 @@ class ChatAssistantService:
                 messages.append(msg)
 
         # 5. Call LLM for response
+        llm_error: Exception | None = None
         try:
             answer_markdown = await asyncio.wait_for(
                 self.llm.complete(
@@ -137,6 +138,7 @@ class ChatAssistantService:
             answer_markdown = answer_markdown.strip()
         except asyncio.TimeoutError:
             logger.error("LLM chat completion timed out for query: %s", raw_text[:100])
+            llm_error = asyncio.TimeoutError("LLM request timed out after 30s")
             answer_markdown = (
                 "I'm experiencing a delay in generating a detailed response. "
                 f"Based on current data, there are **{metrics.get('total_employees', 0)} active employees** "
@@ -146,12 +148,13 @@ class ChatAssistantService:
             )
         except Exception as exc:
             logger.error("LLM chat completion error: %s", exc)
+            llm_error = exc
             answer_markdown = (
                 f"Based on the live workforce data:\n\n"
                 f"- **Total Active Employees**: {metrics.get('total_employees', 0)}\n"
                 f"- **Attrition Rate**: {metrics.get('attrition_rate', 0)}%\n"
                 f"- **Open Positions**: {metrics.get('open_positions', 0)}\n\n"
-                "For a more detailed analysis, please try your query again."
+                "AI service is temporarily unavailable. For a more detailed analysis, please try your query again."
             )
 
         if not answer_markdown:
@@ -171,8 +174,12 @@ class ChatAssistantService:
         # 7. Generate tables from REAL database data
         tables = self._build_tables_from_metrics(metrics)
 
-        # 8. Generate contextual follow-up questions via LLM
-        follow_ups = await self._generate_follow_ups(raw_text, metrics)
+        # 8. Generate contextual follow-up questions via LLM (skip if main LLM call failed)
+        follow_ups = []
+        if not llm_error:
+            follow_ups = await self._generate_follow_ups(raw_text, metrics)
+        else:
+            logger.debug("Skipping follow-up generation due to LLM error: %s", llm_error)
 
         # Calculate confidence based on data availability
         data_fields_present = sum(1 for v in [
@@ -182,6 +189,9 @@ class ChatAssistantService:
             dept_headcount,
         ] if v)
         confidence = min(0.95, 0.5 + (data_fields_present * 0.1) + (0.1 if answer_markdown else 0))
+        # Reduce confidence if LLM was unavailable
+        if llm_error:
+            confidence = max(0.1, confidence - 0.3)
 
         return ChatAssistantResponse(
             answer=answer_markdown,
@@ -193,6 +203,7 @@ class ChatAssistantService:
             follow_up_questions=follow_ups,
             conversationId=conv_id,
             conversation_id=conv_id,
+            ai_available=llm_error is None,
         )
 
     def _build_charts_from_metrics(self, metrics: dict, query_lower: str) -> list[ChartData]:

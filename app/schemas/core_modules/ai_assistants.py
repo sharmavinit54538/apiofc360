@@ -25,7 +25,7 @@ class AIResponse(BaseModel):
     # inferred field — confirm with product/spec owner
     tokens_used: int = 0
     # inferred field — confirm with product/spec owner
-    model: str = "gemini-1.5-pro"
+    model: str = "qwen3:30b"
     # inferred field — confirm with product/spec owner
     created_at: str
 

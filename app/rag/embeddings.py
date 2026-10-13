@@ -1,11 +1,10 @@
-"""Embedding service — generates and caches text embeddings via multi-provider LLM layer.
+"""Embedding service — generates and caches text embeddings via Ollama LLM layer.
 
 Provides:
 - Single text embedding
 - Batch embedding generation
 - Embedding caching (in-memory with TTL)
 - Async-safe batch processing with concurrency limits
-- Multi-provider support (OpenAI, Ollama, Google)
 """
 
 from __future__ import annotations
@@ -78,7 +77,7 @@ class EmbeddingService:
         use_cache: bool = True,
     ) -> None:
         self._llm = llm_client or get_llm_client()
-        self._model = model or getattr(settings, "OPENAI_EMBEDDING_MODEL", "") or getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        self._model = model or getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         self._provider = provider
         self._use_cache = use_cache
 

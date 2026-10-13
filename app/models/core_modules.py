@@ -242,7 +242,7 @@ class AIInteraction(Base):
     module: Mapped[str] = mapped_column(String(50), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[str] = mapped_column(Text, nullable=False)
-    model_name: Mapped[str] = mapped_column(String(50), nullable=False, default="gemini-1.5-pro", server_default=text("'gemini-1.5-pro'"))
+    model_name: Mapped[str] = mapped_column(String(50), nullable=False, default="qwen3:30b", server_default=text("'qwen3:30b'"))
     tokens_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
