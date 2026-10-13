@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import date
 from typing import Any, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import desc, select
@@ -43,6 +44,73 @@ class PayrollCycleService:
             stmt = stmt.where(PayCycle.status == status_filter.upper())
         stmt = stmt.order_by(desc(PayCycle.period_year), desc(PayCycle.period_month))
         return list((await session.execute(stmt)).scalars().all())
+
+    @classmethod
+    async def create_cycle(
+        cls,
+        session: AsyncSession,
+        company_id: uuid.UUID,
+        name: str,
+        frequency: str,
+        period_month: int,
+        period_year: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        processing_date: Optional[date] = None,
+        payment_date: Optional[date] = None,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+    ) -> PayCycle:
+        # Check for duplicate cycle for same period
+        existing = await session.execute(
+            select(PayCycle).where(
+                PayCycle.company_id == company_id,
+                PayCycle.period_month == period_month,
+                PayCycle.period_year == period_year,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Payroll cycle for {period_month}/{period_year} already exists.",
+            )
+
+        cycle = PayCycle(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            name=name,
+            frequency=frequency,
+            period_month=period_month,
+            period_year=period_year,
+            start_date=start_date,
+            end_date=end_date,
+            processing_date=processing_date,
+            payment_date=payment_date,
+            status="DRAFT",
+            is_active=True,
+            is_locked=False,
+            total_employees=0,
+            total_gross=0,
+            total_deductions=0,
+            total_net=0,
+        )
+        session.add(cycle)
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PayCycle",
+            entity_id=cycle.id,
+            action="CREATE",
+            company_id=company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=None,
+            after_status="DRAFT",
+            reason="Payroll cycle created",
+        )
+        await session.commit()
+        await session.refresh(cycle)
+        return cycle
 
     @classmethod
     async def reopen_cycle(

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
 from app.db.database import get_db_session
-from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest
+from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest, PayrollCycleCreateRequest
 from app.services.payroll.cycle_service import PayrollCycleService
 
 router = APIRouter(tags=["Payroll v2 - Cycles"])
@@ -47,6 +47,8 @@ def _cycle_dict(c) -> dict[str, Any]:
 @router.get("/cycles", summary="List payroll cycles")
 async def list_payroll_cycles(
     status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -54,7 +56,37 @@ async def list_payroll_cycles(
     company_id_str = claims.get("company_id") if claims else None
     c_uuid = uuid.UUID(company_id_str) if company_id_str else None
     cycles = await PayrollCycleService.list_cycles(db, company_id=c_uuid, status_filter=status)
-    return _ok([_cycle_dict(c) for c in cycles], "Payroll cycles retrieved successfully")
+    items = [_cycle_dict(c) for c in cycles]
+    return _ok({"items": items, "total": len(items), "page": page, "page_size": page_size}, "Payroll cycles retrieved successfully")
+
+
+# POST /api/v2/payroll/cycles
+@router.post("/cycles", status_code=status.HTTP_201_CREATED, summary="Create new payroll cycle")
+async def create_payroll_cycle(
+    payload: PayrollCycleCreateRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    user_id = _uid(claims)
+    user_role = _role(claims)
+    cycle = await PayrollCycleService.create_cycle(
+        session=db,
+        company_id=c_uuid,
+        name=payload.name,
+        frequency=payload.frequency,
+        period_month=payload.period_month,
+        period_year=payload.period_year,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        processing_date=payload.processing_date,
+        payment_date=payload.payment_date,
+        user_id=user_id,
+        user_role=user_role,
+    )
+    return _ok(_cycle_dict(cycle), "Payroll cycle created successfully")
 
 
 # GET /api/v2/payroll/cycles/{cycleId}

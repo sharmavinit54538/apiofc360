@@ -199,7 +199,7 @@ async def test_face_attendance_full_lifecycle():
         assert enroll_fail_resp.status_code == 400
 
         # Step 4: Enroll face using valid face embedding
-        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=registered_embedding):
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(registered_embedding, 0.95)):
             enroll_success_resp = await client.post(
                 "/api/v1/attendance/face-enroll",
                 headers=headers,
@@ -218,7 +218,7 @@ async def test_face_attendance_full_lifecycle():
         assert status_after_data["enrolled_at"] is not None
 
         # Step 6: Check-in with mismatched face embedding -> Expect 400 FACE_MISMATCH
-        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=different_embedding):
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(different_embedding, 0.95)):
             mismatch_resp = await client.post(
                 "/api/v1/attendance/checkin",
                 headers=headers,
@@ -234,7 +234,7 @@ async def test_face_attendance_full_lifecycle():
         matching_embedding /= np.linalg.norm(matching_embedding)
         matching_embedding = matching_embedding.tolist()
 
-        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=matching_embedding):
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             match_resp = await client.post(
                 "/api/v1/attendance/checkin",
                 headers=headers,
