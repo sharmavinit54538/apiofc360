@@ -11,6 +11,16 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import (
+    safe_drop_index, safe_drop_column, safe_drop_constraint, safe_drop_table,
+    safe_create_index, safe_create_unique_constraint, safe_create_foreign_key,
+    safe_add_column, safe_create_table
+)
+
 # revision identifiers, used by Alembic.
 revision: str = '383b3a18b96d'
 down_revision: Union[str, None] = 'f3a4b5c6d7e8'

@@ -10,6 +10,12 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import safe_drop_column
+
 
 # revision identifiers, used by Alembic.
 revision: str = 'fb1c2d3e4f5a'
@@ -62,7 +68,7 @@ def upgrade() -> None:
                 ELSE 'employee'
             END;
         """)
-        op.drop_column('users', 'is_super_admin')
+        safe_drop_column('users', 'is_super_admin')
     else:
         op.execute("""
             UPDATE users

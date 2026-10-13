@@ -10,6 +10,12 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import safe_drop_constraint, safe_create_unique_constraint, safe_create_foreign_key, safe_drop_column
+
 
 # revision identifiers, used by Alembic.
 revision: str = 'f2g3h4i5j6k7'
@@ -50,7 +56,7 @@ def upgrade() -> None:
             AND conname = 'uq_employee_leave_policies_employee_leave_type'
         """))
         if result.fetchone():
-            op.drop_constraint(
+            safe_drop_constraint(
                 'uq_employee_leave_policies_employee_leave_type',
                 'employee_leave_policies',
                 type_='unique'
@@ -94,7 +100,7 @@ def upgrade() -> None:
                         bind.execute(sa.text("DELETE FROM employee_leave_policies WHERE id = :id"), {"id": extra[0]})
 
         # Add new unique constraint
-        op.create_unique_constraint(
+        safe_create_unique_constraint(
             'uq_employee_leave_policies_emp_type_eff',
             'employee_leave_policies',
             ['employee_id', 'leave_type', 'effective_from']
@@ -143,28 +149,41 @@ def downgrade() -> None:
 
     # Drop the new unique constraint
     if dialect == "postgresql":
-        op.drop_constraint('uq_employee_leave_policies_emp_type_eff', 'employee_leave_policies', type_='unique')
+        safe_drop_constraint('uq_employee_leave_policies_emp_type_eff', 'employee_leave_policies', type_='unique')
         
         # Recreate the old unique constraint
-        op.create_unique_constraint(
+        safe_create_unique_constraint(
             'uq_employee_leave_policies_employee_leave_type',
             'employee_leave_policies',
             ['employee_id', 'leave_type']
         )
         
         # Drop foreign key and columns
-        op.drop_constraint('fk_leave_requests_reviewed_by_id_users', 'leave_requests', type_='foreignkey')
+        safe_drop_constraint('fk_leave_requests_reviewed_by_id_users', 'leave_requests', type_='foreignkey')
         with op.batch_alter_table('leave_requests') as batch_op:
             batch_op.drop_column('reviewed_at')
             batch_op.drop_column('reviewed_by_id')
     else:
+        # SQLite fallback - use try/except for idempotency
         with op.batch_alter_table('employee_leave_policies') as batch_op:
-            batch_op.drop_constraint('uq_employee_leave_policies_emp_type_eff', type_='unique')
-            batch_op.create_unique_constraint(
-                'uq_employee_leave_policies_employee_leave_type',
-                ['employee_id', 'leave_type']
-            )
+            try:
+                batch_op.drop_constraint('uq_employee_leave_policies_emp_type_eff', type_='unique')
+            except Exception:
+                pass
+            try:
+                batch_op.create_unique_constraint(
+                    'uq_employee_leave_policies_employee_leave_type',
+                    ['employee_id', 'leave_type']
+                )
+            except Exception:
+                pass
         
         with op.batch_alter_table('leave_requests') as batch_op:
-            batch_op.drop_column('reviewed_at')
-            batch_op.drop_column('reviewed_by_id')
+            try:
+                batch_op.drop_column('reviewed_at')
+            except Exception:
+                pass
+            try:
+                batch_op.drop_column('reviewed_by_id')
+            except Exception:
+                pass

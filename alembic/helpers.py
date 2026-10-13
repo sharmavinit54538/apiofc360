@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Idempotent migration helpers for Alembic.
 
 Provides safe DDL operations that work on both fresh and already-migrated databases.
@@ -6,7 +8,7 @@ Provides safe DDL operations that work on both fresh and already-migrated databa
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.types import TypeEngine
 
 
 def get_bind():
@@ -19,6 +21,18 @@ def get_inspector(bind=None):
     if bind is None:
         bind = get_bind()
     return inspect(bind)
+
+
+def _qualified_name(name: str, schema: str | None = None) -> str:
+    """Return schema-qualified name for PostgreSQL."""
+    if schema:
+        return f"{_quote_identifier(schema)}.{_quote_identifier(name)}"
+    return _quote_identifier(name)
+
+
+def _quote_identifier(name: str) -> str:
+    """Quote a PostgreSQL identifier, escaping embedded double quotes."""
+    return f'"{name.replace('"', '""')}"'
 
 
 def table_exists(table_name: str, schema: str | None = None, bind=None) -> bool:
@@ -69,42 +83,46 @@ def constraint_exists(table_name: str, constraint_name: str, schema: str | None 
 
 
 def safe_drop_index(index_name: str, table_name: str, schema: str | None = None) -> None:
-    """Drop an index if it exists (idempotent)."""
+    """Drop an index if it exists (idempotent). On PostgreSQL, uses DROP INDEX IF EXISTS directly."""
     bind = get_bind()
-    if index_exists(table_name, index_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            op.execute(sa.text(f'DROP INDEX IF EXISTS {_quote_identifier(index_name)}'))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified = _qualified_name(index_name, schema)
+        op.execute(sa.text(f"DROP INDEX IF EXISTS {qualified}"))
+    else:
+        if index_exists(table_name, index_name, schema, bind):
             op.drop_index(index_name, table_name=table_name, schema=schema)
 
 
 def safe_drop_constraint(constraint_name: str, table_name: str, type_: str, schema: str | None = None) -> None:
-    """Drop a constraint if it exists (idempotent)."""
+    """Drop a constraint if it exists (idempotent). On PostgreSQL, uses ALTER TABLE ... DROP CONSTRAINT IF EXISTS."""
     bind = get_bind()
-    if constraint_exists(table_name, constraint_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            op.execute(sa.text(f'ALTER TABLE {_quote_identifier(table_name)} DROP CONSTRAINT IF EXISTS {_quote_identifier(constraint_name)}'))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified_table = _qualified_name(table_name, schema)
+        op.execute(sa.text(f"ALTER TABLE {qualified_table} DROP CONSTRAINT IF EXISTS {_quote_identifier(constraint_name)}"))
+    else:
+        if constraint_exists(table_name, constraint_name, schema, bind):
             op.drop_constraint(constraint_name, table_name, type_=type_, schema=schema)
 
 
 def safe_drop_column(table_name: str, column_name: str, schema: str | None = None) -> None:
-    """Drop a column if it exists (idempotent)."""
+    """Drop a column if it exists (idempotent). On PostgreSQL, uses ALTER TABLE ... DROP COLUMN IF EXISTS."""
     bind = get_bind()
-    if column_exists(table_name, column_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            op.execute(sa.text(f'ALTER TABLE {_quote_identifier(table_name)} DROP COLUMN IF EXISTS {_quote_identifier(column_name)}'))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified_table = _qualified_name(table_name, schema)
+        op.execute(sa.text(f"ALTER TABLE {qualified_table} DROP COLUMN IF EXISTS {_quote_identifier(column_name)}"))
+    else:
+        if column_exists(table_name, column_name, schema, bind):
             op.drop_column(table_name, column_name, schema=schema)
 
 
 def safe_drop_table(table_name: str, schema: str | None = None) -> None:
-    """Drop a table if it exists (idempotent)."""
+    """Drop a table if it exists (idempotent). On PostgreSQL, uses DROP TABLE IF EXISTS CASCADE."""
     bind = get_bind()
-    if table_exists(table_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            op.execute(sa.text(f'DROP TABLE IF EXISTS {_quote_identifier(table_name)} CASCADE'))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified = _qualified_name(table_name, schema)
+        op.execute(sa.text(f"DROP TABLE IF EXISTS {qualified} CASCADE"))
+    else:
+        if table_exists(table_name, schema, bind):
             op.drop_table(table_name, schema=schema)
 
 
@@ -115,53 +133,81 @@ def safe_add_column(table_name: str, column: sa.Column, schema: str | None = Non
         op.add_column(table_name, column, schema=schema)
 
 
-def safe_create_index(index_name: str, table_name: str, columns: list[str], unique: bool = False, schema: str | None = None, postgresql_where: str | None = None, postgresql_include: list[str] | None = None) -> None:
-    """Create an index if it doesn't exist (idempotent)."""
+def safe_create_index(
+    index_name: str,
+    table_name: str,
+    columns: list[str],
+    unique: bool = False,
+    schema: str | None = None,
+    postgresql_where: str | None = None,
+    postgresql_include: list[str] | None = None,
+) -> None:
+    """Create an index if it doesn't exist (idempotent). On PostgreSQL, uses CREATE INDEX IF NOT EXISTS."""
     bind = get_bind()
-    if not index_exists(table_name, index_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            where_clause = f" WHERE {postgresql_where}" if postgresql_where else ""
-            include_clause = f" INCLUDE ({', '.join(_quote_identifier(c) for c in postgresql_include)})" if postgresql_include else ""
-            unique_clause = "UNIQUE " if unique else ""
-            op.execute(sa.text(
-                f'CREATE {unique_clause}INDEX IF NOT EXISTS {_quote_identifier(index_name)} '
-                f'ON {_quote_identifier(table_name)} ({", ".join(_quote_identifier(c) for c in columns)})'
-                f'{include_clause}{where_clause}'
-            ))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified_table = _qualified_name(table_name, schema)
+        where_clause = f" WHERE {postgresql_where}" if postgresql_where else ""
+        include_clause = f" INCLUDE ({', '.join(_quote_identifier(c) for c in postgresql_include)})" if postgresql_include else ""
+        unique_clause = "UNIQUE " if unique else ""
+        op.execute(sa.text(
+            f"CREATE {unique_clause}INDEX IF NOT EXISTS {_quote_identifier(index_name)} "
+            f"ON {qualified_table} ({', '.join(_quote_identifier(c) for c in columns)})"
+            f"{include_clause}{where_clause}"
+        ))
+    else:
+        if not index_exists(table_name, index_name, schema, bind):
             op.create_index(index_name, table_name, columns, unique=unique, schema=schema)
 
 
-def safe_create_unique_constraint(constraint_name: str, table_name: str, columns: list[str], schema: str | None = None, postgresql_nulls_not_distinct: bool = False) -> None:
-    """Create a unique constraint if it doesn't exist (idempotent)."""
+def safe_create_unique_constraint(
+    constraint_name: str,
+    table_name: str,
+    columns: list[str],
+    schema: str | None = None,
+    postgresql_nulls_not_distinct: bool = False,
+) -> None:
+    """Create a unique constraint if it doesn't exist (idempotent). On PostgreSQL, uses ALTER TABLE ... ADD CONSTRAINT ... UNIQUE."""
     bind = get_bind()
-    if not constraint_exists(table_name, constraint_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            nulls_clause = " NULLS NOT DISTINCT" if postgresql_nulls_not_distinct else ""
-            op.execute(sa.text(
-                f'ALTER TABLE {_quote_identifier(table_name)} '
-                f'ADD CONSTRAINT {_quote_identifier(constraint_name)} '
-                f'UNIQUE ({", ".join(_quote_identifier(c) for c in columns)}){nulls_clause}'
-            ))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified_table = _qualified_name(table_name, schema)
+        nulls_clause = " NULLS NOT DISTINCT" if postgresql_nulls_not_distinct else ""
+        op.execute(sa.text(
+            f"ALTER TABLE {qualified_table} "
+            f"ADD CONSTRAINT {_quote_identifier(constraint_name)} "
+            f"UNIQUE ({', '.join(_quote_identifier(c) for c in columns)}){nulls_clause}"
+        ))
+    else:
+        if not constraint_exists(table_name, constraint_name, schema, bind):
             op.create_unique_constraint(constraint_name, table_name, columns, schema=schema)
 
 
-def safe_create_foreign_key(constraint_name: str, source_table: str, referent_table: str, local_cols: list[str], remote_cols: list[str], schema: str | None = None, referent_schema: str | None = None, ondelete: str | None = None, onupdate: str | None = None) -> None:
-    """Create a foreign key if it doesn't exist (idempotent)."""
+def safe_create_foreign_key(
+    constraint_name: str,
+    source_table: str,
+    referent_table: str,
+    local_cols: list[str],
+    remote_cols: list[str],
+    schema: str | None = None,
+    referent_schema: str | None = None,
+    ondelete: str | None = None,
+    onupdate: str | None = None,
+) -> None:
+    """Create a foreign key if it doesn't exist (idempotent). On PostgreSQL, uses ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY."""
     bind = get_bind()
-    if not constraint_exists(source_table, constraint_name, schema, bind):
-        if bind.dialect.name == "postgresql":
-            ondelete_clause = f" ON DELETE {ondelete}" if ondelete else ""
-            onupdate_clause = f" ON UPDATE {onupdate}" if onupdate else ""
-            op.execute(sa.text(
-                f'ALTER TABLE {_quote_identifier(source_table)} '
-                f'ADD CONSTRAINT {_quote_identifier(constraint_name)} '
-                f'FOREIGN KEY ({", ".join(_quote_identifier(c) for c in local_cols)}) '
-                f'REFERENCES {_quote_identifier(referent_table)} ({", ".join(_quote_identifier(c) for c in remote_cols)})'
-                f'{ondelete_clause}{onupdate_clause}'
-            ))
-        else:
+    if bind.dialect.name == "postgresql":
+        qualified_source = _qualified_name(source_table, schema)
+        qualified_referent = _qualified_name(referent_table, referent_schema)
+        ondelete_clause = f" ON DELETE {ondelete}" if ondelete else ""
+        onupdate_clause = f" ON UPDATE {onupdate}" if onupdate else ""
+        op.execute(sa.text(
+            f"ALTER TABLE {qualified_source} "
+            f"ADD CONSTRAINT {_quote_identifier(constraint_name)} "
+            f"FOREIGN KEY ({', '.join(_quote_identifier(c) for c in local_cols)}) "
+            f"REFERENCES {qualified_referent} ({', '.join(_quote_identifier(c) for c in remote_cols)})"
+            f"{ondelete_clause}{onupdate_clause}"
+        ))
+    else:
+        if not constraint_exists(source_table, constraint_name, schema, bind):
             op.create_foreign_key(constraint_name, source_table, referent_table, local_cols, remote_cols,
                                   schema=schema, referent_schema=referent_schema, ondelete=ondelete, onupdate=onupdate)
 
@@ -171,11 +217,6 @@ def safe_create_table(table_name: str, columns: list[sa.Column], schema: str | N
     bind = get_bind()
     if not table_exists(table_name, schema, bind):
         op.create_table(table_name, *columns, schema=schema, **kwargs)
-
-
-def _quote_identifier(name: str) -> str:
-    """Quote a PostgreSQL identifier."""
-    return f'"{name}"'
 
 
 def enum_type_exists(enum_name: str, bind=None) -> bool:
@@ -211,10 +252,17 @@ def safe_drop_enum(enum_name: str, bind=None) -> None:
         op.execute(sa.text(f"DROP TYPE IF EXISTS {_quote_identifier(enum_name)}"))
 
 
-def safe_alter_column_type(table_name: str, column_name: str, new_type: sa.TypeEngine, schema: str | None = None,
-                           existing_type: sa.TypeEngine | None = None, existing_nullable: bool | None = None,
-                           existing_server_default: sa.TextClause | str | None = None,
-                           server_default: sa.TextClause | str | None = None, nullable: bool | None = None) -> None:
+def safe_alter_column_type(
+    table_name: str,
+    column_name: str,
+    new_type: TypeEngine,
+    schema: str | None = None,
+    existing_type: TypeEngine | None = None,
+    existing_nullable: bool | None = None,
+    existing_server_default: sa.TextClause | str | None = None,
+    server_default: sa.TextClause | str | None = None,
+    nullable: bool | None = None,
+) -> None:
     """Alter column type if the column exists (idempotent)."""
     bind = get_bind()
     if column_exists(table_name, column_name, schema, bind):
