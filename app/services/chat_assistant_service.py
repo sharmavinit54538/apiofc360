@@ -136,6 +136,9 @@ class ChatAssistantService:
                 timeout=30.0,
             )
             answer_markdown = answer_markdown.strip()
+            # Check if LLM returned empty response (all providers failed)
+            if not answer_markdown:
+                llm_error = RuntimeError("All LLM providers returned empty response")
         except asyncio.TimeoutError:
             logger.error("LLM chat completion timed out for query: %s", raw_text[:100])
             llm_error = asyncio.TimeoutError("LLM request timed out after 30s")
