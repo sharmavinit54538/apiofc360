@@ -32,7 +32,8 @@ def _qualified_name(name: str, schema: str | None = None) -> str:
 
 def _quote_identifier(name: str) -> str:
     """Quote a PostgreSQL identifier, escaping embedded double quotes."""
-    return f'"{name.replace('"', '""')}"'
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def table_exists(table_name: str, schema: str | None = None, bind=None) -> bool:
