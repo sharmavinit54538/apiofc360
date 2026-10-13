@@ -11,6 +11,12 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import safe_drop_index, safe_drop_table
+
 # revision identifiers, used by Alembic.
 revision: str = '34420f95fa30'
 down_revision: Union[str, None] = '76ad19398350'
@@ -78,8 +84,8 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_asset_maintenance_records'))
     )
     
-    op.drop_index(op.f('ix_employee_assets_employee_id'), table_name='employee_assets')
-    op.drop_table('employee_assets')
+    safe_drop_index(op.f('ix_employee_assets_employee_id'), 'employee_assets')
+    safe_drop_table('employee_assets')
     # ### end Alembic commands ###
 
 

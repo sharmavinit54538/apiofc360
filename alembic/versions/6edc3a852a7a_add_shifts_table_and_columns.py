@@ -11,6 +11,12 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import safe_drop_column
+
 
 revision: str = '6edc3a852a7a'
 down_revision: Union[str, None] = 'f2g3h4i5j6k7'
@@ -167,8 +173,8 @@ def upgrade() -> None:
     op.alter_column('shifts', 'start_time_new', nullable=False)
     op.alter_column('shifts', 'end_time_new', nullable=False)
 
-    op.drop_column('shifts', 'start_time')
-    op.drop_column('shifts', 'end_time')
+    safe_drop_column('shifts', 'start_time')
+    safe_drop_column('shifts', 'end_time')
     op.alter_column('shifts', 'start_time_new', new_column_name='start_time')
     op.alter_column('shifts', 'end_time_new', new_column_name='end_time')
 

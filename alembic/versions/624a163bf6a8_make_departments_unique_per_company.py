@@ -10,6 +10,11 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+# Import idempotent helpers
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from helpers import safe_drop_index, safe_create_index
 
 # revision identifiers, used by Alembic.
 revision: str = '624a163bf6a8'
@@ -19,20 +24,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Drop existing global unique indices
-    op.drop_index('ix_departments_department_code', table_name='departments')
-    op.drop_index('ix_departments_department_name', table_name='departments')
+    # Drop existing global unique indices (idempotent)
+    safe_drop_index('ix_departments_department_code', 'departments')
+    safe_drop_index('ix_departments_department_name', 'departments')
 
     # Create composite unique indices (unique per company)
-    op.create_index('ix_departments_department_code', 'departments', ['department_code', 'company_id'], unique=True)
-    op.create_index('ix_departments_department_name', 'departments', ['department_name', 'company_id'], unique=True)
+    safe_create_index('ix_departments_department_code', 'departments', ['department_code', 'company_id'], unique=True)
+    safe_create_index('ix_departments_department_name', 'departments', ['department_name', 'company_id'], unique=True)
 
 
 def downgrade() -> None:
-    # Drop composite unique indices
-    op.drop_index('ix_departments_department_code', table_name='departments')
-    op.drop_index('ix_departments_department_name', table_name='departments')
+    # Drop composite unique indices (idempotent)
+    safe_drop_index('ix_departments_department_code', 'departments')
+    safe_drop_index('ix_departments_department_name', 'departments')
 
-    # Recreate global unique indices
-    op.create_index('ix_departments_department_code', 'departments', ['department_code'], unique=True)
-    op.create_index('ix_departments_department_name', 'departments', ['department_name'], unique=True)
+    # Recreate global unique indices (idempotent)
+    safe_create_index('ix_departments_department_code', 'departments', ['department_code'], unique=True)
+    safe_create_index('ix_departments_department_name', 'departments', ['department_name'], unique=True)

@@ -13,6 +13,20 @@ jobs:
   validate:
     name: CI Syntax & Config Check
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d test_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -28,7 +42,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run Alembic single head test
+      - name: Verify Alembic single head
         env:
           ENVIRONMENT: "local"
           DATABASE_URL: "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
@@ -37,18 +51,14 @@ jobs:
         run: |
           python -m pytest tests/test_alembic_single_head.py -q
 
-      - name: Start PostgreSQL service
+      - name: Verify migration graph (no missing parents, single head)
+        env:
+          ENVIRONMENT: "local"
+          DATABASE_URL: "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
+          SECRET_KEY: "ci-dummy-secret-key-that-is-at-least-32-chars-long"
+          REDIS_URL: "redis://localhost:6379/0"
         run: |
-          docker run -d \
-            --name postgres \
-            -p 5432:5432 \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_PASSWORD=password \
-            -e POSTGRES_DB=test_db \
-            postgres:16-alpine
-          until docker exec postgres pg_isready -U postgres -d test_db; do
-            sleep 1
-          done
+          python scripts/check_migrations.py
 
       - name: Verify migrations on fresh empty database and schema consistency
         env:
@@ -58,6 +68,15 @@ jobs:
           REDIS_URL: "redis://localhost:6379/0"
         run: |
           alembic upgrade head && alembic check
+
+      - name: Test downgrade/upgrade cycle on fresh DB
+        env:
+          ENVIRONMENT: "local"
+          DATABASE_URL: "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
+          SECRET_KEY: "ci-dummy-secret-key-that-is-at-least-32-chars-long"
+          REDIS_URL: "redis://localhost:6379/0"
+        run: |
+          alembic downgrade base && alembic upgrade head
 
       - name: Run rest of tests
         env:
