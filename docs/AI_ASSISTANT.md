@@ -73,7 +73,7 @@ Central orchestration service with:
 
 ### 3. LLM Client (`app/llm/client/__init__.py`)
 
-- `complete()` raises `LLMUnavailableError` on empty/failed generation
+- `complete()` raises `LLMUnavailableError` on empty response
 - Distinct error codes for: unreachable, model missing, timeout, invalid SQL, DB error, no data
 
 ### 4. API Endpoints (`app/api/v1/ai.py`)
@@ -115,6 +115,7 @@ AI_ANSWER_MODEL=qwen3:30b       # Answer formatting
 AI_CHAT_TIMEOUT_SECONDS=120     # Full chat turn timeout
 AI_SQL_TIMEOUT_SECONDS=30       # SQL execution timeout
 AI_AUTO_PULL_MODELS=false       # Set true to enable auto-pull
+AI_DB_READONLY_URL=""           # Optional: dedicated read-only DB connection
 ```
 
 ### Model Recommendations
@@ -138,7 +139,7 @@ AI_AUTO_PULL_MODELS=false       # Set true to enable auto-pull
 ollama serve
 
 # 2. Pull model (once)
-ollama pull qwen3:30b
+ollama pull qwen3:4b
 
 # 3. Set env (or use .env defaults)
 export OLLAMA_BASE_URL=http://127.0.0.1:11434
@@ -213,6 +214,55 @@ Response:
 
 ---
 
+## Self-Check Script
+
+Run anytime to verify configuration:
+
+```bash
+python scripts/ai_selfcheck.py
+```
+
+Output example:
+```
+======================================================================
+OFC HR AI Assistant - Self-Check Results
+======================================================================
+
+✅ OLLAMA_BASE_URL configured: PASS
+   Resolved to: http://127.0.0.1:11434 (host: 127.0.0.1)
+
+✅ Ollama reachable: PASS
+   Ollama server responded to health check
+
+✅ Configured models installed: PASS
+   SQL model: qwen3:4b, Answer model: qwen3:4b
+
+✅ Database reachable: PASS
+   Database connection successful
+
+✅ Schema tables loaded: PASS
+   Loaded tables: ['employees', 'departments', 'jobs', ...]
+
+✅ SSE endpoint mounted: PASS
+   Found SSE route at /api/v1/ai/chat
+
+✅ Greeting intent: PASS
+   Classifier correctly identifies 'hi' as Greeting
+
+✅ Employee count SQL: PASS
+   Direct DB count: 42 employees
+
+✅ Tenant isolation rewrite: PASS
+   SQL rewrite correctly adds company_id and is_deleted filters
+
+======================================================================
+🎉 ALL CHECKS PASSED
+```
+
+Exit code: `0` on success, `1` on any failure.
+
+---
+
 ## Security Model
 
 ### Tenant Isolation (Code, Not Prompt)
@@ -278,35 +328,6 @@ To add a new table to the assistant's knowledge:
 
 ---
 
-## Testing
-
-### Unit Tests (No Ollama Required)
-
-```bash
-pytest tests/test_ai_assistant_core.py -v
-# Tests: validator, tenant rewrite, classifier, error handling
-```
-
-### Production Tests (With Local Ollama)
-
-```bash
-# Requires running Ollama with configured models
-pytest tests/test_production_assistant.py -v -s
-```
-
-### Key Test Coverage
-
-- ✅ Validator accepts/rejects (EXTRACT, lower, ::text, UNION, OFFSET)
-- ✅ Validator rejects (DROP, UPDATE, multi-stmt, pg_sleep, unknown table/col)
-- ✅ Validator handles keywords in string literals
-- ✅ Tenant rewrite adds company_id for joins/subqueries
-- ✅ LIMIT 100 enforced
-- ✅ Classifier: word-boundary, Hinglish, "repay"/"translate" false positives
-- ✅ Error messages: distinct codes, no internals exposed
-- ✅ Assistant name = "OFC HR AI" everywhere
-
----
-
 ## Common Issues & Fixes
 
 ### "Ollama not reachable" on Startup
@@ -355,8 +376,9 @@ Or switch to smaller model: `AI_ANSWER_MODEL=qwen3:4b`
 | `app/llm/client/__init__.py` | LLMClient with LLMUnavailableError |
 | `app/core/config.py` | All AI_* settings |
 | `app/core/exceptions.py` | LLMUnavailableError definition |
+| `scripts/ai_selfcheck.py` | Self-check script |
 | `tests/test_ai_assistant_core.py` | Unit tests (validator, rewrite, classifier) |
-| `tests/test_production_assistant.py` | E2E tests (requires Ollama) |
+| `tests/test_production_assistant.py` | Integration tests (requires Ollama) |
 
 ---
 

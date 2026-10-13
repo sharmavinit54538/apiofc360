@@ -203,6 +203,7 @@ class Settings(BaseSettings):
     AI_CHAT_TIMEOUT_SECONDS: int = 120
     AI_SQL_TIMEOUT_SECONDS: int = 30
     AI_AUTO_PULL_MODELS: bool = False
+    AI_DB_READONLY_URL: str = ""
 
     # ── OCR settings ────────────────────────────────────────────────────────
     OCR_ENGINE_PREFERENCE: str = "auto"      # auto | paddle | easyocr | tesseract

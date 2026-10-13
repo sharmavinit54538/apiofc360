@@ -702,7 +702,7 @@ async def _execute_sql_loop(
                             return str(obj)
                         return super().default(obj)
                 
-                cleaned_rows = [clean_row_data(dict(row)) for row in rows]
+                cleaned_rows = [clean_row_data(dict(row), claims.get("role")) for row in rows]
                 if cleaned_rows:
                     results_json = json.dumps(cleaned_rows, cls=CustomEncoder, indent=2)
                 else:
@@ -906,14 +906,33 @@ def classify_intent_fast(message: str) -> str:
     return "Unknown"
 
 
-def clean_row_data(row_dict: dict) -> dict:
-    """Strips sensitive columns, UUIDs, tokens, and system metadata from db results."""
+def clean_row_data(row_dict: dict, role: str | None = None) -> dict:
+    """Strips sensitive columns, UUIDs, tokens, and system metadata from db results.
+    
+    Role-based filtering:
+    - Salary/CTC columns (ctc, basic_salary, hra, bonus, pf, esi, professional_tax, 
+      pan_number, uan_number, pf_number, esi_number) are only shown to HR/admin roles
+    - PII columns (aadhaar_number, pan_number, etc.) are always stripped
+    """
+    # Always excluded keys (system metadata, PII, tokens)
     excluded_keys = {
         "id", "company_id", "created_by", "deleted_at", "updated_at",
         "activation_token", "activation_token_expires_at", "invited_by", "invited_at",
         "is_deleted", "password_hash", "password", "token", "token_expires_at",
-        "department_id", "user_id", "reporting_manager_id"
+        "department_id", "user_id", "reporting_manager_id",
+        # PII - always blocked
+        "aadhaar_number", "pan_number", "uan_number", "pf_number", "esi_number",
+        "bank_account", "passport_number", "driving_license", "voter_id",
     }
+    
+    # Role-based exclusions: salary/CTC only for HR/admin/super_admin
+    is_hr_admin = role and role.lower() in {"hr_admin", "hr_manager", "admin", "super_admin", "super_admin"}
+    if not is_hr_admin:
+        excluded_keys.update({
+            "ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax",
+            "pf_number", "esi_number",  # duplicate but explicit
+        })
+    
     return {k: v for k, v in row_dict.items() if k not in excluded_keys}
 
 
