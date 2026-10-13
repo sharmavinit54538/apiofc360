@@ -51,6 +51,7 @@ from app.api.events import router as events_router
 from app.api.polls import router as polls_router
 from app.api.internal_dashboard import router as internal_dashboard_router
 from app.api.ai_copilot import router as ai_copilot_router
+from app.api.v1.ai import router as ai_router
 from app.api.v1.ai_recruiter import router as ai_recruiter_router
 from app.api.v1.ai_attendance import router as ai_attendance_router
 from app.api.v1.ai_performance import router as ai_performance_router
@@ -470,6 +471,44 @@ async def lifespan(app: FastAPI):
         # Start event-loop lag detector
         start_lag_detector()
 
+        # AI Preflight Check (non-blocking, logs actionable guidance)
+        try:
+            from app.llm.client import get_llm_client
+            llm_client = get_llm_client()
+            health = await llm_client.check_health()
+            base_url = settings.OLLAMA_BASE_URL
+            host_only = base_url.replace("http://", "").replace("https://", "").split(":")[0] if base_url else "unknown"
+            
+            if health.get("healthy"):
+                logger.info("AI Preflight: Ollama reachable at %s", base_url)
+                installed = health.get("models", [])
+                logger.info("AI Preflight: Installed models: %s", installed if installed else "none")
+                configured_sql = getattr(settings, "AI_SQL_MODEL", settings.OLLAMA_MODEL)
+                configured_answer = getattr(settings, "AI_ANSWER_MODEL", settings.OLLAMA_MODEL)
+                logger.info("AI Preflight: Configured models - SQL: %s, Answer: %s", configured_sql, configured_answer)
+                
+                missing = []
+                for model in (configured_sql, configured_answer):
+                    if model and model not in installed:
+                        # Check base name match
+                        model_base = model.split(":")[0]
+                        if not any(m.split(":")[0] == model_base for m in installed):
+                            missing.append(model)
+                
+                if missing:
+                    logger.warning("AI Preflight: Models missing: %s. Run: ollama pull <model>", missing)
+                else:
+                    logger.info("AI Preflight: All configured models available")
+            else:
+                logger.warning(
+                    "AI Preflight: Ollama not reachable at %s. "
+                    "Local run? set OLLAMA_BASE_URL=http://127.0.0.1:11434 and run `ollama serve`. "
+                    "Docker? ensure ollama service is healthy and OLLAMA_BASE_URL=http://ollama:11434",
+                    base_url
+                )
+        except Exception as preflight_err:
+            logger.warning("AI Preflight check failed (non-blocking): %s", preflight_err)
+
         logger.info("Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
             logger.info(" Swagger API Docs: http://127.0.0.1:8000/docs")
@@ -683,6 +722,7 @@ def create_app() -> FastAPI:
     app.include_router(internal_dashboard_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_copilot_router, prefix=settings.API_V1_PREFIX)
     app.include_router(chat_assistant_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(ai_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_recruiter_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_attendance_router, prefix=settings.API_V1_PREFIX)
     app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)

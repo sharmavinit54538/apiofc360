@@ -1,4 +1,4 @@
-"""FastAPI router for AI Chat Assistant (Aurix AI Copilot) endpoints (/api/v1/ai/chat/*)."""
+"""FastAPI router for AI Chat Assistant (OFC HR AI) endpoints (/api/v1/ai/chat/*)."""
 
 from __future__ import annotations
 
@@ -58,29 +58,16 @@ def get_company_id_from_claims(claims: dict) -> Optional[uuid.UUID]:
 
 
 @router.post(
-    "",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[ChatAssistantResponse],
-    summary="Process Natural Language AI Chat Query",
-)
-@router.post(
-    "/",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[ChatAssistantResponse],
-    summary="Process Natural Language AI Chat Query (Slash)",
-    include_in_schema=False,
-)
-@router.post(
     "/message",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[ChatAssistantResponse],
-    summary="Send Message to AI Assistant (Alias)",
+    summary="Send Message to AI Assistant",
 )
 @router.post(
     "/query",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[ChatAssistantResponse],
-    summary="Process Natural Language Chat Query (Alias)",
+    summary="Process Natural Language Chat Query",
 )
 async def chat_with_assistant(
     request: ChatAssistantRequest,
@@ -136,14 +123,14 @@ async def create_chat_conversation(
         session = service.memory.get_or_create(
             session_id=conv_id,
             user_id=str(user_id) if user_id else None,
-            system_prompt="You are Aurix AI Copilot, an enterprise HRMS & Workforce Intelligence AI assistant.",
+            system_prompt="You are OFC HR AI, an enterprise HRMS & Workforce Intelligence AI assistant.",
         )
         if company_id:
             session.metadata["company_id"] = str(company_id)
         session.metadata["title"] = title
 
         greeting = (
-            f"Hello! I am Aurix AI Copilot, your enterprise HRMS assistant for {title}. "
+            f"Hello! I am OFC HR AI, your enterprise HRMS assistant for {title}. "
             "How can I assist you with workforce analytics, policies, or HR operations today?"
         )
         session.add_message("assistant", greeting)

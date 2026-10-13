@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncGenerator
 
+from app.core.exceptions import LLMUnavailableError
 from app.llm.router import LLMRouter, get_llm_router
 from app.llm.providers.base import LLMResponse, EmbeddingResponse
 from app.llm.cost_tracker import get_cost_tracker
@@ -60,6 +61,13 @@ class LLMClient:
                 completion_tokens=response.completion_tokens,
                 latency_ms=response.latency_ms,
                 endpoint="chat",
+            )
+
+        if not response.content:
+            raise LLMUnavailableError(
+                reason="empty_response",
+                provider=response.provider,
+                model=response.model,
             )
 
         return response.content

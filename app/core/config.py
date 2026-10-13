@@ -197,6 +197,13 @@ class Settings(BaseSettings):
     OLLAMA_NUM_PARALLEL: int = 1
     OLLAMA_MAX_LOADED_MODELS: int = 1
 
+    # ── AI Assistant specific settings ───────────────────────────────────────
+    AI_SQL_MODEL: str = "qwen3:30b"
+    AI_ANSWER_MODEL: str = "qwen3:30b"
+    AI_CHAT_TIMEOUT_SECONDS: int = 120
+    AI_SQL_TIMEOUT_SECONDS: int = 30
+    AI_AUTO_PULL_MODELS: bool = False
+
     # ── OCR settings ────────────────────────────────────────────────────────
     OCR_ENGINE_PREFERENCE: str = "auto"      # auto | paddle | easyocr | tesseract
     OCR_FALLBACK_CHAIN: list[str] = ["paddle", "easyocr", "tesseract"]

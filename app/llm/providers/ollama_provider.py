@@ -173,7 +173,10 @@ class OllamaProvider(LLMProviderBase):
             )
 
     async def validate_or_pull_model(self, requested_model: str) -> str:
-        """Ensure requested model exists. If not, auto-pull via POST /api/pull or match available installed model."""
+        """Ensure requested model exists. If not, auto-pull only if AI_AUTO_PULL_MODELS is true.
+        
+        Raises HTTPException 404 if model not found and auto-pull is disabled.
+        """
         installed = await self._verify_health_or_raise()
         if not installed:
             return requested_model
@@ -192,33 +195,37 @@ class OllamaProvider(LLMProviderBase):
             if m_base == req_base:
                 return m
 
-        # 3. Fuzzy / Prefix match (e.g. "llama3.1" matches "llama3:latest")
-        for m in installed:
-            m_base = m.lower().split(":")[0]
-            if req_base.startswith(m_base) or m_base.startswith(req_base):
-                return m
+        # 3. Fuzzy / Prefix match REMOVED - was causing silent model swaps
+        # If we reach here, model is not installed
 
-        # 4. Attempt auto-pull
-        logger.info("Model '%s' not found in local Ollama tags. Attempting auto-pull...", requested_model)
-        try:
-            pull_res = await self._client.post(
-                "/api/pull",
-                json={"name": requested_model, "stream": False},
-                timeout=httpx.Timeout(180.0, connect=10.0, read=180.0),
-            )
-            if pull_res.status_code == 200:
-                logger.info("Successfully pulled model '%s'", requested_model)
-                return requested_model
-        except Exception as pull_exc:
-            logger.warning("Auto-pull for model '%s' failed: %s", requested_model, pull_exc)
+        # 4. Attempt auto-pull ONLY if AI_AUTO_PULL_MODELS is true
+        auto_pull = getattr(settings, "AI_AUTO_PULL_MODELS", False)
+        if auto_pull:
+            logger.info("Model '%s' not found in local Ollama tags. Attempting auto-pull...", requested_model)
+            try:
+                pull_res = await self._client.post(
+                    "/api/pull",
+                    json={"name": requested_model, "stream": False},
+                    timeout=httpx.Timeout(180.0, connect=10.0, read=180.0),
+                )
+                if pull_res.status_code == 200:
+                    logger.info("Successfully pulled model '%s'", requested_model)
+                    return requested_model
+            except Exception as pull_exc:
+                logger.warning("Auto-pull for model '%s' failed: %s", requested_model, pull_exc)
 
-        # 5. Fallback to first non-embedding installed model if pull unavailable
-        for m in installed:
-            if "embed" not in m.lower():
-                logger.info("Using installed fallback model '%s' for request '%s'", m, requested_model)
-                return m
-
-        return installed[0]
+        # 5. Model missing - raise clear error with pull command
+        installed_non_embed = [m for m in installed if "embed" not in m.lower()]
+        available = ", ".join(installed_non_embed) if installed_non_embed else "none"
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Model '{requested_model}' not installed in Ollama. "
+                f"Available models: {available}. "
+                f"Run `ollama pull {requested_model}` to install it, "
+                f"or set AI_AUTO_PULL_MODELS=true to enable automatic pulls."
+            ),
+        )
 
 
     # ------------------------------------------------------------------

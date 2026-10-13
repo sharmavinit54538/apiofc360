@@ -89,6 +89,35 @@ class UnauthorizedException(AppException):
         super().__init__(message=message, status_code=status.HTTP_401_UNAUTHORIZED, code=code, errors=errors)
 
 
+class LLMUnavailableError(AppException):
+    """LLM provider unavailable or returned empty response."""
+
+    def __init__(
+        self,
+        message: str = "AI service is temporarily unavailable.",
+        code: str = "LLM_UNAVAILABLE",
+        *,
+        reason: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        details = []
+        if reason:
+            details.append(f"reason: {reason}")
+        if provider:
+            details.append(f"provider: {provider}")
+        if model:
+            details.append(f"model: {model}")
+        detail_str = " | ".join(details) if details else "unknown"
+        full_message = f"{message} (detail: {detail_str})"
+        super().__init__(
+            message=full_message,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code=code,
+            errors=[{"field": "llm", "message": message}],
+        )
+
+
 def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
     """Inject CORS headers manually for exception responses."""
     import re

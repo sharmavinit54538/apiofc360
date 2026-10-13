@@ -1,4 +1,4 @@
-"""Business logic and AI LLM service layer for AI Chat Assistant (Aurix AI Copilot).
+"""Business logic and AI LLM service layer for AI Chat Assistant (OFC HR AI).
 
 ALL responses are generated from real database queries + LLM inference.
 NO hardcoded fallback responses, charts, tables, or static data.
@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import AppException, NotFoundException
 from app.llm.client import get_llm_client
 from app.llm.memory import get_conversation_memory
@@ -36,8 +37,10 @@ from app.schemas.chat_assistant import (
 
 logger = logging.getLogger(__name__)
 
+ASSISTANT_NAME = "OFC HR AI"
+
 _SYSTEM_PROMPT = (
-    "You are Aurix AI Copilot, an enterprise HRMS & Workforce Intelligence AI assistant. "
+    f"You are {ASSISTANT_NAME}, an enterprise HRMS & Workforce Intelligence AI assistant. "
     "You have access to real company workforce data provided as context. "
     "Provide helpful, concise, analytical markdown answers based on the provided data. "
     "If data is insufficient to fully answer the query, say so honestly and provide "
@@ -126,6 +129,7 @@ class ChatAssistantService:
         # 5. Call LLM for response
         llm_error: Exception | None = None
         try:
+            chat_timeout = getattr(settings, "AI_CHAT_TIMEOUT_SECONDS", 120)
             answer_markdown = await asyncio.wait_for(
                 self.llm.complete(
                     prompt=raw_text,
@@ -133,7 +137,7 @@ class ChatAssistantService:
                     temperature=0.3,
                     num_predict=2048,
                 ),
-                timeout=30.0,
+                timeout=chat_timeout,
             )
             answer_markdown = answer_markdown.strip()
             # Check if LLM returned empty response (all providers failed)
@@ -141,7 +145,7 @@ class ChatAssistantService:
                 llm_error = RuntimeError("All LLM providers returned empty response")
         except asyncio.TimeoutError:
             logger.error("LLM chat completion timed out for query: %s", raw_text[:100])
-            llm_error = asyncio.TimeoutError("LLM request timed out after 30s")
+            llm_error = asyncio.TimeoutError(f"LLM request timed out after {chat_timeout}s")
             answer_markdown = (
                 "I'm experiencing a delay in generating a detailed response. "
                 f"Based on current data, there are **{metrics.get('total_employees', 0)} active employees** "

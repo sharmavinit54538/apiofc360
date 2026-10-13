@@ -60,6 +60,7 @@ services:
       - "8000:8000"
     environment:
       - RUN_MIGRATIONS=true
+      - OLLAMA_BASE_URL=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
@@ -83,6 +84,7 @@ services:
     command: celery -A app.workers.celery_app worker --loglevel=info
     environment:
       - RUN_MIGRATIONS=false
+      - OLLAMA_BASE_URL=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
