@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import not_found, permission_denied
+from app.core.exceptions import NotFoundException as not_found, ForbiddenException as permission_denied
 from app.db.dependencies import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.models.misc import CCTVCamera

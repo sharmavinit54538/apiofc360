@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import not_found, validation_error
+from app.core.exceptions import NotFoundException as not_found, ValidationException as validation_error
 from app.db.dependencies import CurrentUser, get_current_user, require_permission
 from app.db.session import get_db
 from app.models.misc import Document
@@ -75,7 +75,7 @@ async def delete_document(document_id: str, request: Request, current: CurrentUs
     if not doc or doc.tenant_id != current.tenant_id:
         raise not_found("Document")
     if current.role != "admin" and doc.uploaded_by != current.id:
-        from app.core.exceptions import permission_denied
+        from app.core.exceptions import ForbiddenException as permission_denied
         raise permission_denied()
     try:
         if os.path.exists(doc.storage_key):

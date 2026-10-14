@@ -74,17 +74,26 @@ class Retriever:
         top_k = top_k or self._default_top_k
 
         # Generate query embedding
-        query_embedding = await self._embedder.embed(query)
+        try:
+            query_embedding = await self._embedder.embed(query)
+        except Exception as exc:
+            logger.warning("Failed to generate query embedding: %s", exc)
+            return []
+
         if not query_embedding:
-            logger.warning("Failed to generate query embedding")
+            logger.warning("Empty query embedding returned")
             return []
 
         # Vector search
-        raw_results = self._store.search(
-            query_embedding=query_embedding,
-            top_k=top_k,
-            filter_metadata=filter_metadata,
-        )
+        try:
+            raw_results = self._store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                filter_metadata=filter_metadata,
+            )
+        except Exception as exc:
+            logger.error("Vector search failed: %s", exc)
+            return []
 
         # Build result objects, apply score threshold
         results: list[RetrievedDocument] = []

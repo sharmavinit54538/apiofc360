@@ -33,13 +33,13 @@ from app.api.v2.router import v2_router
 # Legacy public/unprefixed routers (keep separate for backward compatibility)
 from app.api.careers import router as careers_router
 from app.api.generate_api import router as generate_router
-from app.api.intelligence import router as intelligence_router
+from app.api.v1.intelligence import router as intelligence_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
 from app.api.payments import router as payments_router
 from app.api.onboarding import router as onboarding_router
 from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
-from app.api.v1.notifications import router as core_notifications_router  # from app.routers
+from app.routers.notifications import router as core_notifications_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -588,7 +588,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
-    app.include_router(core_notifications_router.router)
+    app.include_router(core_notifications_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

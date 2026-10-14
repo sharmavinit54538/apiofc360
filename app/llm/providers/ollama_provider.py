@@ -66,10 +66,13 @@ class OllamaProvider(LLMProviderBase):
         )
         self.timeout_sec = float(timeout_sec)
 
+        # Enforce 120s timeout to prevent cold-start ReadTimeout crashes
+        self.timeout_sec = max(self.timeout_sec, 120.0)
+
         # Persistent connection pool (httpx.AsyncClient singleton)
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(self.timeout_sec, connect=10.0, read=self.timeout_sec),
+            timeout=httpx.Timeout(self.timeout_sec, connect=15.0, read=self.timeout_sec, write=30.0),
             limits=httpx.Limits(
                 max_keepalive_connections=20,
                 max_connections=config.extra.get("max_connections", 50),
@@ -91,7 +94,8 @@ class OllamaProvider(LLMProviderBase):
             healthy = res.status_code == 200
             self._healthy = healthy
             return healthy
-        except Exception:
+        except Exception as exc:
+            logger.warning("Ollama health check failed: %s", exc)
             self._healthy = False
             return False
 
@@ -112,7 +116,7 @@ class OllamaProvider(LLMProviderBase):
                     installed_models.append(name)
             
             # Check if configured model is available
-            configured_model = self.config.default_model or "qwen3:30b"
+            configured_model = self.config.default_model or "llama3:latest"
             clean_req = configured_model.strip().lower()
             req_base = clean_req.split(":")[0]
             
@@ -131,6 +135,7 @@ class OllamaProvider(LLMProviderBase):
                 "configured_model": configured_model,
             }
         except Exception as exc:
+            logger.warning("Ollama detailed health check failed: %s", exc)
             self._healthy = False
             return {"healthy": False, "model_available": False, "error": str(exc)}
 
@@ -367,6 +372,7 @@ class OllamaProvider(LLMProviderBase):
             "Please try again in a moment, or contact support if the issue persists."
         )
         logger.error("All retries exhausted for chat, returning fallback response: %s", last_exc)
+        # Return a valid 200 OK response with fallback content instead of raising
         return LLMResponse(
             content=fallback_msg,
             model=verified_model,
@@ -494,6 +500,7 @@ class OllamaProvider(LLMProviderBase):
             "Please try again in a moment, or contact support if the issue persists."
         )
         logger.error("All retries exhausted for completion, returning fallback response: %s", last_exc)
+        # Return a valid 200 OK response with fallback content instead of raising
         return LLMResponse(
             content=fallback_msg,
             model=verified_model,
@@ -644,7 +651,8 @@ class OllamaProvider(LLMProviderBase):
                 if attempt < self.config.max_retries:
                     await asyncio.sleep(2 ** (attempt - 1))
             else:
-                embeddings.append([])
+                # Return zero vector as fallback instead of empty
+                embeddings.append([0.0] * 768)
 
         dims = len(embeddings[0]) if embeddings and embeddings[0] else 0
         return EmbeddingResponse(

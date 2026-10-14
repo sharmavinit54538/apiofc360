@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import not_found, permission_denied, validation_error
+from app.core.exceptions import NotFoundException as not_found, ForbiddenException as permission_denied, ValidationException as validation_error
 from app.db.dependencies import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.models.attendance import Attendance
@@ -16,7 +16,7 @@ from app.services.audit_service import log_action
 from app.services.face_service import average_embeddings, cosine_similarity, deserialize, generate_embedding, serialize, FACE_MODEL_NAME
 
 router = APIRouter(prefix="/face", tags=["Face Recognition"])
-MAX_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+MAX_BYTES = settings.MAX_RESUME_SIZE_MB * 1024 * 1024
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
