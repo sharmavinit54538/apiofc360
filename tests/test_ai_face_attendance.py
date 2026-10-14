@@ -1,5 +1,3 @@
-"""Comprehensive test suite for AI Face Recognition Attendance and Mandatory Enrollment."""
-
 import base64
 import io
 import logging
@@ -16,9 +14,9 @@ from app.db.database import AsyncSessionLocal
 from app.models.company import Company
 from app.models.user import User, UserRole
 from app.models.employee import Employee
-from app.attendance.models.attendance import Attendance
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.utils.jwt import create_access_token
+from sqlalchemy import insert
 
 
 def make_dummy_base64_image(color=(255, 0, 0), size=(100, 100)) -> str:
@@ -322,25 +320,29 @@ async def test_checkin_auto_closes_stale_previous_day_session():
         )
         session.add(employee)
 
-        # Create a STALE active session from yesterday (check_out_time = None)
+        # Create a STALE active session from yesterday (check_out_time = NULL)
         yesterday = date.today() - timedelta(days=1)
         yesterday_utc = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=timezone.utc)
-        stale_session = Attendance(
-            id=uuid.uuid4(),
-            employee_id=emp_id,
-            company_id=comp_id,
-            date=yesterday,
-            check_in_time=yesterday_utc,
-            check_out_time=None,  # Active session
-            face_image_url="test.jpg",
-            captured_face_url="test.jpg",
-            status="Present",
-            punch_type="IN",
-            verified=True,
-            punch_verified_by="FACE",
-            auto_closed=False,
+        stale_session_id = uuid.uuid4()
+        await session.execute(
+            insert(Attendance).values(
+                id=stale_session_id,
+                employee_id=emp_id,
+                company_id=comp_id,
+                date=yesterday,
+                check_in_time=yesterday_utc,
+                check_out_time=None,  # Active session
+                face_image_url="test.jpg",
+                captured_face_url="test.jpg",
+                status="Present",
+                punch_type="IN",
+                verified=True,
+                punch_verified_by="FACE",
+                auto_closed=False,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
         )
-        session.add(stale_session)
         await session.commit()
 
     token = create_access_token(
@@ -393,8 +395,9 @@ async def test_checkin_auto_closes_stale_previous_day_session():
         # Verify the stale session was auto-closed
         async with AsyncSessionLocal() as verify_session:
             from sqlalchemy import select
+            from app.attendance.models.attendance import Attendance as FaceAttendance
             stale_check = await verify_session.execute(
-                select(Attendance).where(Attendance.id == stale_session.id)
+                select(FaceAttendance).where(FaceAttendance.id == stale_session_id)
             )
             stale_record = stale_check.scalars().first()
             assert stale_record is not None
@@ -403,7 +406,7 @@ async def test_checkin_auto_closes_stale_previous_day_session():
             assert "Auto-closed" in (stale_record.notes or ""), "Stale session notes should mention auto-close"
 
 
-@pytest.mark.asyncio
+@ pytest.mark.asyncio
 async def test_checkin_same_day_active_session_returns_session_details():
     """
     Test that checking in when an active session from TODAY exists
@@ -461,28 +464,32 @@ async def test_checkin_same_day_active_session_returns_session_details():
         )
         session.add(employee)
 
-        # Create an ACTIVE session from TODAY (check_out_time = None)
+        # Create an ACTIVE session from TODAY (check_out_time = NULL)
         today_utc = datetime.now(timezone.utc).replace(microsecond=0)
-        active_session = Attendance(
-            id=uuid.uuid4(),
-            employee_id=emp_id,
-            company_id=comp_id,
-            date=date.today(),
-            check_in_time=today_utc,
-            check_out_time=None,  # Still active
-            face_image_url="test.jpg",
-            captured_face_url="test.jpg",
-            status="Present",
-            punch_type="IN",
-            verified=True,
-            punch_verified_by="FACE",
-            shift_name="Morning Shift",
-            is_late=False,
+        active_session_id = uuid.uuid4()
+        await session.execute(
+            insert(Attendance).values(
+                id=active_session_id,
+                employee_id=emp_id,
+                company_id=comp_id,
+                date=date.today(),
+                check_in_time=today_utc,
+                check_out_time=None,  # Still active
+                face_image_url="test.jpg",
+                captured_face_url="test.jpg",
+                status="Present",
+                punch_type="IN",
+                verified=True,
+                punch_verified_by="FACE",
+                shift_name="Morning Shift",
+                is_late=False,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
         )
-        session.add(active_session)
         await session.commit()
-        active_session_id = str(active_session.id)
-        active_checkin_time = active_session.check_in_time.isoformat()
+        active_session_id_str = str(active_session_id)
+        active_checkin_time = today_utc.isoformat()
 
     token = create_access_token(
         user_id=user_id,
@@ -529,7 +536,7 @@ async def test_checkin_same_day_active_session_returns_session_details():
             assert "active_session" in detail, "Response should include active_session for frontend sync"
             
             session_info = detail["active_session"]
-            assert session_info["session_id"] == active_session_id
+            assert session_info["session_id"] == active_session_id_str
             assert session_info["check_in_time"] == active_checkin_time
             assert session_info["status"] == "Present"
             assert session_info["date"] == date.today().isoformat()
@@ -594,22 +601,26 @@ async def test_checkin_expired_shift_session_auto_closes():
 
         # Create an active session from 18 hours ago (exceeds 16h max shift)
         eighteen_hours_ago = datetime.now(timezone.utc) - timedelta(hours=18)
-        expired_session = Attendance(
-            id=uuid.uuid4(),
-            employee_id=emp_id,
-            company_id=comp_id,
-            date=date.today(),  # Same day but session is very old
-            check_in_time=eighteen_hours_ago,
-            check_out_time=None,
-            face_image_url="test.jpg",
-            captured_face_url="test.jpg",
-            status="Present",
-            punch_type="IN",
-            verified=True,
-            punch_verified_by="FACE",
-            auto_closed=False,
+        expired_session_id = uuid.uuid4()
+        await session.execute(
+            insert(Attendance).values(
+                id=expired_session_id,
+                employee_id=emp_id,
+                company_id=comp_id,
+                date=date.today(),  # Same day but session is very old
+                check_in_time=eighteen_hours_ago,
+                check_out_time=None,
+                face_image_url="test.jpg",
+                captured_face_url="test.jpg",
+                status="Present",
+                punch_type="IN",
+                verified=True,
+                punch_verified_by="FACE",
+                auto_closed=False,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
         )
-        session.add(expired_session)
         await session.commit()
 
     token = create_access_token(
@@ -642,8 +653,9 @@ async def test_checkin_expired_shift_session_auto_closes():
         # Verify the expired session was auto-closed
         async with AsyncSessionLocal() as verify_session:
             from sqlalchemy import select
+            from app.attendance.models.attendance import Attendance as FaceAttendance
             expired_check = await verify_session.execute(
-                select(Attendance).where(Attendance.id == expired_session.id)
+                select(FaceAttendance).where(FaceAttendance.id == expired_session_id)
             )
             expired_record = expired_check.scalars().first()
             assert expired_record is not None
@@ -709,21 +721,25 @@ async def test_http_exception_not_logged_as_dbapi_error(caplog):
 
         # Active session from today
         today_utc = datetime.now(timezone.utc).replace(microsecond=0)
-        active_session = Attendance(
-            id=uuid.uuid4(),
-            employee_id=emp_id,
-            company_id=comp_id,
-            date=date.today(),
-            check_in_time=today_utc,
-            check_out_time=None,
-            face_image_url="test.jpg",
-            captured_face_url="test.jpg",
-            status="Present",
-            punch_type="IN",
-            verified=True,
-            punch_verified_by="FACE",
+        active_session_id = uuid.uuid4()
+        await session.execute(
+            insert(Attendance).values(
+                id=active_session_id,
+                employee_id=emp_id,
+                company_id=comp_id,
+                date=date.today(),
+                check_in_time=today_utc,
+                check_out_time=None,
+                face_image_url="test.jpg",
+                captured_face_url="test.jpg",
+                status="Present",
+                punch_type="IN",
+                verified=True,
+                punch_verified_by="FACE",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
         )
-        session.add(active_session)
         await session.commit()
 
     token = create_access_token(
