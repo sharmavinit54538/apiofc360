@@ -115,24 +115,33 @@ class HRCopilotRAG:
         if job_id:
             filter_meta = {"job_id": job_id}
 
-        if intent == "SKILL_SEARCH":
-            # Skill search: retrieve candidate profiles
-            documents = await self._retriever.retrieve_candidates(
-                query=search_query,
-                top_k=top_k,
-                score_threshold=0.2,
-            )
-        else:
-            documents = await self._retriever.retrieve(
-                query=search_query,
-                top_k=top_k,
-                filter_metadata=filter_meta,
-                score_threshold=0.15,
-            )
+        documents = []
+        try:
+            if intent == "SKILL_SEARCH":
+                # Skill search: retrieve candidate profiles
+                documents = await self._retriever.retrieve_candidates(
+                    query=search_query,
+                    top_k=top_k,
+                    score_threshold=0.2,
+                )
+            else:
+                documents = await self._retriever.retrieve(
+                    query=search_query,
+                    top_k=top_k,
+                    filter_metadata=filter_meta,
+                    score_threshold=0.15,
+                )
+        except Exception as exc:
+            logger.error("Vector retrieval failed: %s", exc)
+            documents = []
 
         # Step 4: Build context for LLM
         if documents:
-            context = self._retriever.build_context(documents, max_chars=4000)
+            try:
+                context = self._retriever.build_context(documents, max_chars=4000)
+            except Exception as exc:
+                logger.error("Context building failed: %s", exc)
+                context = "No candidate profiles found in the database matching this query."
         else:
             context = "No candidate profiles found in the database matching this query."
 

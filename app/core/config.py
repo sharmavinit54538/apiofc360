@@ -181,14 +181,15 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
-    OLLAMA_HOST: str = "http://127.0.0.1:11434"
-    OLLAMA_MODEL: str = "qwen3:30b"
-    OLLAMA_DEFAULT_MODEL: str = "qwen3:30b"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3:latest"
+    OLLAMA_DEFAULT_MODEL: str = "llama3:latest"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text:latest"
+    OLLAMA_FALLBACK_MODEL: str = "gemma:2b"
     OLLAMA_PRIORITY: int = 1
-    OLLAMA_TIMEOUT: int = 60
-    OLLAMA_TIMEOUT_SECONDS: int = 60
+    OLLAMA_TIMEOUT: int = 120
+    OLLAMA_TIMEOUT_SECONDS: int = 120
     OLLAMA_KEEP_ALIVE: str = "30m"
     OLLAMA_MAX_CONNECTIONS: int = 50
     OLLAMA_TEMPERATURE: float = 0.3
@@ -198,11 +199,11 @@ class Settings(BaseSettings):
     OLLAMA_MAX_LOADED_MODELS: int = 1
 
     # ── AI Assistant specific settings ───────────────────────────────────────
-    AI_SQL_MODEL: str = "qwen3:30b"
-    AI_ANSWER_MODEL: str = "qwen3:30b"
+    AI_SQL_MODEL: str = "llama3:latest"
+    AI_ANSWER_MODEL: str = "llama3:latest"
     AI_CHAT_TIMEOUT_SECONDS: int = 120
     AI_SQL_TIMEOUT_SECONDS: int = 30
-    AI_AUTO_PULL_MODELS: bool = False
+    AI_AUTO_PULL_MODELS: bool = True
     AI_DB_READONLY_URL: str = ""
 
     # ── OCR settings ────────────────────────────────────────────────────────

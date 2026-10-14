@@ -23,6 +23,7 @@ from app.schemas.chat_assistant import (
     ReportGeneratePayload,
 )
 from app.services.chat_assistant_service import ChatAssistantService
+from app.core.rbac import require_employee_or_above
 
 router = APIRouter(prefix="/ai/chat", tags=["AI Chat Assistant"])
 
@@ -34,16 +35,26 @@ async def get_chat_service(
 
 
 def get_company_id_from_claims(claims: dict) -> Optional[uuid.UUID]:
-    """Extract and validate company_id from JWT claims enforcing tenant isolation."""
+    """Extract and validate company_id from JWT claims enforcing tenant isolation.
+    
+    Returns None for SUPER_ADMIN, CTO, CEO and other executive roles that don't require
+    company_id association, allowing them to access AI chat without a company_id.
+    """
     if not isinstance(claims, dict):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication claims.",
         )
+    
+    role = (claims.get("role") or "").lower().strip()
     raw = claims.get("company_id")
+    
+    # Allow super admin and executive roles to access without company_id
+    executive_roles = {"super_admin", "ceo", "cto", "cfo", "coo", "cmo", "clo", "cisco", "cio", "chro", "cpo", "executive"}
+    if role in executive_roles or claims.get("is_super_admin"):
+        return None
+    
     if not raw:
-        if claims.get("role") in {"super_admin", "SUPER_ADMIN"} or claims.get("is_super_admin"):
-            return None
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is not associated with a company (missing company_id in token).",
@@ -71,7 +82,7 @@ def get_company_id_from_claims(claims: dict) -> Optional[uuid.UUID]:
 )
 async def chat_with_assistant(
     request: ChatAssistantRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Process enterprise HRMS natural language user queries with RAG knowledge search, SQL analytics, markdown answers, citations, charts, tables, and follow-up prompts."""
@@ -92,7 +103,7 @@ async def chat_with_assistant(
     summary="Create New Chat Conversation",
 )
 async def create_chat_conversation(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
     payload: Optional[CreateConversationRequest] = Body(None),
 ) -> APIResponse[ChatAssistantResponse]:
@@ -171,7 +182,7 @@ async def create_chat_conversation(
 )
 async def generate_hr_report(
     payload: ReportGeneratePayload,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Generate specialized export-ready HR reports (Attendance, Payroll, Leave, Performance, Recruitment, Compliance)."""
@@ -193,7 +204,7 @@ async def generate_hr_report(
 )
 async def run_workforce_analytics(
     payload: AnalyticsQueryPayload,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Analyze headcount, attrition, hiring, productivity, utilization, and overtime metrics."""
@@ -215,7 +226,7 @@ async def run_workforce_analytics(
 )
 async def generate_ai_recommendations(
     payload: RecommendationsPayload,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Generate promotion, retention, hiring, training, and cost optimization recommendations."""
@@ -242,7 +253,7 @@ async def generate_ai_recommendations(
     summary="List Chat Conversations (Alias)",
 )
 async def get_chat_history(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatHistoryResponse]:
     """Retrieve list of user's past chat conversations."""
@@ -270,7 +281,7 @@ async def get_chat_history(
 )
 async def get_chat_history_detail(
     conversation_id: str,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Retrieve details and messages of a single chat conversation."""
@@ -298,7 +309,7 @@ async def get_chat_history_detail(
 )
 async def delete_chat_history(
     conversation_id: str,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[dict]:
     """Delete a chat conversation history record."""
@@ -319,7 +330,7 @@ async def delete_chat_history(
     summary="Get Suggested Copilot Prompts",
 )
 async def get_chat_suggestions(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatSuggestionsResponse]:
     """Retrieve suggested starter prompts, popular queries, and role-based questions."""
@@ -341,7 +352,7 @@ async def get_chat_suggestions(
 )
 async def submit_chat_feedback(
     payload: ChatFeedbackRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[dict]:
     """Submit rating and feedback for AI chat answer."""

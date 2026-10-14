@@ -62,19 +62,23 @@ class ChatAssistantService:
     async def process_chat(
         self, request: ChatAssistantRequest, company_id: Optional[uuid.UUID] = None
     ) -> ChatAssistantResponse:
-        """Process natural language user chat query with real data + LLM."""
-        eff_co_id = company_id or uuid.uuid4()
-        conv_id = request.conversation_id or getattr(request, "conversationId", None) or str(uuid.uuid4())
-        raw_text = (request.query or request.message or getattr(request, "content", None) or "").strip()
+        """Process natural language user chat query with real data + LLM.
+        
+        Handles company_id=None for SUPER_ADMIN/CTO/executive accounts gracefully.
+        """
+        conv_id = request.get_conversation_id() or str(uuid.uuid4())
+        raw_text = request.get_message_text()
 
         if not raw_text:
             raw_text = "Give me a workforce overview"
 
-        # 1. Fetch real DB metrics
-        metrics = await self.repo.get_workforce_metrics(company_id=eff_co_id)
+        # 1. Fetch real DB metrics (if company_id available, else use defaults)
+        metrics = await self.repo.get_workforce_metrics(company_id=company_id)
 
-        # 2. Fetch RAG citations if available
-        citations_raw = await self.repo.get_policy_citations(query=raw_text, company_id=eff_co_id)
+        # 2. Fetch RAG citations if available (only if company_id provided)
+        citations_raw = []
+        if company_id:
+            citations_raw = await self.repo.get_policy_citations(query=raw_text, company_id=company_id)
         citations = [SourceCitation(**c) for c in citations_raw]
 
         # 3. Build context from real data
@@ -104,7 +108,7 @@ class ChatAssistantService:
             system_prompt=_SYSTEM_PROMPT,
         )
 
-        # Enforce multi-tenant isolation
+        # Enforce multi-tenant isolation (only if company_id is provided)
         if session.metadata.get("company_id") and company_id:
             if session.metadata["company_id"] != str(company_id):
                 raise NotFoundException(message=f"Conversation '{conv_id}' not found.")
@@ -440,4 +444,10 @@ class ChatAssistantService:
     ) -> Dict[str, Any]:
         """Save feedback for chat response."""
         logger.info("Chat feedback received: conversation=%s rating=%s", payload.conversation_id, payload.rating)
+        try:
+            # If there's a DB table for feedback, save it here
+            # For now, just log and return success
+            pass
+        except Exception as exc:
+            logger.warning("Failed to save feedback to DB: %s", exc)
         return {"success": True, "conversation_id": payload.conversation_id, "rating": payload.rating}

@@ -253,3 +253,74 @@ def _before_flush(session, flush_context, instances):
             if hasattr(obj, "company_id") and getattr(obj, "company_id") is None:
                 obj.company_id = tenant_id
 
+
+# ---------------------------------------------------------------------------
+# Schema Healing Utility
+# ---------------------------------------------------------------------------
+
+async def heal_database_schema(engine: AsyncEngine) -> None:
+    """Idempotent startup schema-healing utility.
+    
+    Runs Base.metadata.create_all() and uses ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+    for any missing columns in AI chat tables and related tables.
+    """
+    from sqlalchemy import text, inspect
+    from app.db.base import Base
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # First, create all tables that don't exist
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database schema create_all completed successfully.")
+        
+        # Then check for missing columns in specific tables and add them
+        async with engine.connect() as conn:
+            inspector = inspect(engine.sync_engine)
+            
+            # Define expected columns for AI chat tables
+            ai_chat_tables = {
+                "ai_chat_sessions": [
+                    ("id", "UUID"),
+                    ("company_id", "UUID"),
+                    ("user_id", "UUID"),
+                    ("title", "VARCHAR(255)"),
+                    ("metadata", "JSONB"),
+                    ("created_at", "TIMESTAMP WITH TIME ZONE"),
+                    ("updated_at", "TIMESTAMP WITH TIME ZONE"),
+                ],
+                "ai_chat_messages": [
+                    ("id", "UUID"),
+                    ("session_id", "UUID"),
+                    ("role", "VARCHAR(50)"),
+                    ("content", "TEXT"),
+                    ("metadata", "JSONB"),
+                    ("created_at", "TIMESTAMP WITH TIME ZONE"),
+                ],
+            }
+            
+            for table_name, expected_columns in ai_chat_tables.items():
+                if not await conn.run_sync(lambda sync_conn: inspector.has_table(table_name)):
+                    continue
+                    
+                existing_columns = await conn.run_sync(
+                    lambda sync_conn: [col["name"] for col in inspector.get_columns(table_name)]
+                )
+                
+                for col_name, col_type in expected_columns:
+                    if col_name not in existing_columns:
+                        try:
+                            await conn.execute(text(
+                                f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                            ))
+                            await conn.commit()
+                            logger.info("Added missing column %s.%s (%s)", table_name, col_name, col_type)
+                        except Exception as exc:
+                            logger.warning("Could not add column %s.%s: %s", table_name, col_name, exc)
+                            
+    except Exception as exc:
+        logger.error("Schema healing failed: %s", exc)
+        # Don't raise - this is a best-effort utility
+

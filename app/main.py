@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 try:
     from starlette.middleware.sessions import SessionMiddleware
@@ -437,6 +438,13 @@ async def lifespan(app: FastAPI):
             logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
+
+        # Schema healing - auto-heal database schema drift
+        try:
+            from app.db.database import heal_database_schema
+            await heal_database_schema(engine)
+        except Exception as heal_err:
+            logger.warning("Schema healing notice: %s", str(heal_err))
 
         # Automatically provision/verify Super Admin accounts
         await ensure_superadmin_provisioned()
@@ -1046,6 +1054,112 @@ def create_app() -> FastAPI:
             if not os.path.isdir(dir_path):
                 raise
         app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
+
+    # ---------------------------------------------------------------------------
+    # Global Exception Handlers with Explicit CORS Headers
+    # ---------------------------------------------------------------------------
+    
+    def _get_cors_headers(request: Request) -> dict:
+        """Generate CORS headers for exception responses."""
+        origin = request.headers.get("origin")
+        if not origin:
+            return {}
+        
+        cleaned_origin = str(origin).strip().strip("'\"").rstrip("/")
+        
+        # Check if origin is allowed
+        allowed_origins = set()
+        if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.CORS_ORIGINS if o)
+        if getattr(settings, "ALLOWED_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.ALLOWED_ORIGINS if o)
+        if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.BACKEND_CORS_ORIGINS if o)
+        if getattr(settings, "DEV_CORS_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.DEV_CORS_ORIGINS if o)
+        
+        # Default allowed origins
+        default_origins = {
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "https://ofc360.com",
+            "https://www.ofc360.com",
+            "https://api.ofc360.com",
+            "https://app.ofc360.com",
+            "https://ofc360.vercel.app",
+        }
+        allowed_origins.update(default_origins)
+        
+        # Also allow local network origins in development
+        import re
+        allowed_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
+        
+        is_allowed = cleaned_origin in allowed_origins or bool(re.match(allowed_regex, cleaned_origin))
+        
+        if is_allowed:
+            return {
+                "Access-Control-Allow-Origin": cleaned_origin,
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Expose-Headers": "Authorization, Content-Type, Content-Disposition, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining",
+                "Vary": "Origin",
+            }
+        return {}
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Global exception handler that logs traceback and returns JSON with CORS headers."""
+        import traceback
+        logger.error(
+            "Unhandled exception on %s %s: %s\n%s",
+            request.method,
+            request.url.path,
+            str(exc),
+            traceback.format_exc()
+        )
+        cors_headers = _get_cors_headers(request)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Internal server error.",
+                "data": None,
+                "errors": [{"field": None, "message": "Internal server error."}],
+                "code": "INTERNAL_SERVER_ERROR",
+            },
+            headers=cors_headers,
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """Starlette HTTP exception handler with CORS headers."""
+        logger.warning(
+            "HTTP exception on %s %s: %d - %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+        cors_headers = _get_cors_headers(request)
+        
+        message = str(exc.detail) if exc.detail else "Request failed."
+        code = None
+        if isinstance(exc.detail, dict):
+            message = exc.detail.get("message", message)
+            code = exc.detail.get("code")
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "errors": [{"field": None, "message": message}],
+                "code": code or f"HTTP_{exc.status_code}",
+            },
+            headers=cors_headers,
+        )
 
     return app
 

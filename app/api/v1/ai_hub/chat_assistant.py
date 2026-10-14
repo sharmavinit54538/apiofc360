@@ -26,6 +26,7 @@ from app.schemas.chat_assistant import (
 )
 from app.api.v1.chat_assistant import get_company_id_from_claims, get_chat_service
 from app.services.chat_assistant_service import ChatAssistantService
+from app.core.rbac import require_employee_or_above
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ router = APIRouter(prefix="/ai-hub/chat-assistant", tags=["AI Hub - Chat Assista
     summary="List Conversations (Compatibility)",
 )
 async def list_conversations(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatHistoryResponse]:
     """Retrieve chat conversations for the current company and user."""
@@ -60,7 +61,7 @@ async def list_conversations(
     summary="Create New Conversation (Compatibility)",
 )
 async def create_conversation(
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
     payload: Optional[CreateConversationRequest] = Body(None),
 ) -> APIResponse[ChatAssistantResponse]:
@@ -91,14 +92,14 @@ async def create_conversation(
         session = service.memory.get_or_create(
             session_id=conv_id,
             user_id=str(user_id) if user_id else None,
-            system_prompt="You are Aurix AI Copilot, an enterprise HRMS & Workforce Intelligence AI assistant.",
+            system_prompt="You are OFC HR AI, an enterprise HRMS & Workforce Intelligence AI assistant.",
         )
         if company_id:
             session.metadata["company_id"] = str(company_id)
         session.metadata["title"] = title
 
         greeting = (
-            f"Hello! I am Aurix AI Copilot, your enterprise HRMS assistant for {title}. "
+            f"Hello! I am OFC HR AI, your enterprise HRMS assistant for {title}. "
             "How can I assist you with workforce analytics, policies, or HR operations today?"
         )
         session.add_message("assistant", greeting)
@@ -139,7 +140,7 @@ async def create_conversation(
 )
 async def get_conversation(
     conversationId: str,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Retrieve details and messages for a conversation."""
@@ -161,7 +162,7 @@ async def get_conversation(
 )
 async def delete_conversation(
     conversationId: str,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[dict]:
     """Delete a conversation and all its messages."""
@@ -183,7 +184,7 @@ async def delete_conversation(
 )
 async def send_message(
     payload: ChatAssistantRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_employee_or_above)],
     service: Annotated[ChatAssistantService, Depends(get_chat_service)],
 ) -> APIResponse[ChatAssistantResponse]:
     """Post user message to conversation, generate AI assistant response with LLM + RAG."""

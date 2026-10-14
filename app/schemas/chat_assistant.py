@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SourceCitation(BaseModel):
@@ -53,8 +53,10 @@ class ChatAssistantRequest(BaseModel):
     query: Optional[str] = Field(None, description="User prompt or question")
     message: Optional[str] = Field(None, description="User message text")
     content: Optional[str] = Field(None, description="User message text alias")
+    prompt: Optional[str] = Field(None, description="User prompt alias")
     conversation_id: Optional[str] = Field(None, description="Existing conversation UUID")
     conversationId: Optional[str] = Field(None, alias="conversationId", description="CamelCase conversation UUID alias")
+    session_id: Optional[str] = Field(None, description="Session UUID alias")
     department_id: Optional[uuid.UUID] = Field(None, description="Filter by department")
     date_range: Optional[str] = Field(None, description="Date filter e.g. 2026-07-01 to 2026-07-24")
     role: Optional[str] = Field(None, description="User role context")
@@ -62,6 +64,29 @@ class ChatAssistantRequest(BaseModel):
     agent_id: Optional[str] = Field(None, alias="agentId", description="Optional agent id")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any) -> Any:
+        """Normalize flexible payload fields so frontend variations never trigger 422."""
+        if isinstance(data, dict):
+            # Normalize message-like fields to 'message'
+            msg = data.get("message") or data.get("content") or data.get("prompt") or data.get("query")
+            if msg is not None:
+                data["message"] = msg
+            # Normalize conversation_id fields
+            conv_id = data.get("conversationId") or data.get("session_id")
+            if conv_id is not None and data.get("conversation_id") is None:
+                data["conversation_id"] = conv_id
+        return data
+
+    def get_message_text(self) -> str:
+        """Get the normalized message text."""
+        return (self.message or self.content or self.prompt or self.query or "").strip()
+
+    def get_conversation_id(self) -> Optional[str]:
+        """Get the normalized conversation ID."""
+        return self.conversation_id or self.conversationId or self.session_id
 
 
 class CreateConversationRequest(BaseModel):
@@ -73,9 +98,20 @@ class CreateConversationRequest(BaseModel):
     message: Optional[str] = Field(None, description="Optional message text")
     query: Optional[str] = Field(None, description="Optional prompt query")
     content: Optional[str] = Field(None, description="Optional content text")
+    prompt: Optional[str] = Field(None, description="Optional prompt text")
     department_id: Optional[uuid.UUID] = Field(None, description="Filter by department")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any) -> Any:
+        """Normalize flexible payload fields."""
+        if isinstance(data, dict):
+            msg = data.get("initial_message") or data.get("message") or data.get("content") or data.get("prompt") or data.get("query")
+            if msg is not None:
+                data["initial_message"] = msg
+        return data
 
 
 class ChatAssistantResponse(BaseModel):
@@ -83,6 +119,8 @@ class ChatAssistantResponse(BaseModel):
 
     answer: str = Field(..., description="AI generated answer in markdown format")
     content: Optional[str] = Field(None, description="Alias matching frontend content field")
+    reply: Optional[str] = Field(None, description="Alias for frontend reply field")
+    message: Optional[str] = Field(None, description="Alias for frontend message field")
     confidence: float = Field(0.97, description="Confidence score 0-1")
     sources: list[SourceCitation] = Field(default_factory=list, description="Source document citations")
     charts: list[ChartData] = Field(default_factory=list, description="Chart visual objects")
@@ -92,6 +130,7 @@ class ChatAssistantResponse(BaseModel):
     suggestions: list[str] = Field(default_factory=list, description="Suggested next actions")
     conversationId: str = Field(..., description="CamelCase conversation UUID")
     conversation_id: str = Field(..., description="Snake_case conversation UUID")
+    session_id: Optional[str] = Field(None, description="Session ID alias")
     role: str = Field("ai", description="Message sender role")
     messageId: Optional[str] = Field(None, description="Message UUID")
     message_id: Optional[str] = Field(None, description="Message UUID")
@@ -102,6 +141,10 @@ class ChatAssistantResponse(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         if self.content is None:
             self.content = self.answer
+        if self.reply is None:
+            self.reply = self.answer
+        if self.message is None:
+            self.message = self.answer
         if not self.suggestions and self.follow_up_questions:
             self.suggestions = list(self.follow_up_questions)
         if self.messageId is None:
@@ -110,6 +153,8 @@ class ChatAssistantResponse(BaseModel):
             self.message_id = mid
         elif self.message_id is None:
             self.message_id = self.messageId
+        if self.session_id is None:
+            self.session_id = self.conversation_id
 
 
 class ReportGeneratePayload(BaseModel):

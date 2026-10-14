@@ -10,6 +10,7 @@ import logging
 from typing import AsyncGenerator
 
 from app.llm.client import LLMClient, get_llm_client
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class OllamaClient:
 
     def __init__(self) -> None:
         self._llm: LLMClient | None = None
+        self._chat_timeout = getattr(settings, "AI_CHAT_TIMEOUT_SECONDS", 120)
 
     @property
     def _client(self) -> LLMClient:
@@ -40,7 +42,11 @@ class OllamaClient:
 
     async def get_embedding(self, text: str, model: str | None = None) -> list[float]:
         """Fetch vector embeddings using local Ollama."""
-        return await self._client.embed(text, model=model)
+        try:
+            return await self._client.embed(text, model=model)
+        except Exception as exc:
+            logger.warning("Embedding generation failed: %s", exc)
+            return []
 
     async def generate_completion(
         self,
@@ -50,21 +56,28 @@ class OllamaClient:
         json_format: bool = False,
         options: dict | None = None,
     ) -> str:
-        """Call Ollama completion API."""
+        """Call Ollama completion API with graceful fallback."""
         temperature = 0.3
         num_predict = 2048
         if options:
             temperature = options.get("temperature", temperature)
             num_predict = options.get("num_predict", num_predict)
 
-        return await self._client.complete(
-            prompt=prompt,
-            system=system_prompt,
-            model=model,
-            temperature=temperature,
-            num_predict=num_predict,
-            json_mode=json_format,
-        )
+        try:
+            return await self._client.complete(
+                prompt=prompt,
+                system=system_prompt,
+                model=model,
+                temperature=temperature,
+                num_predict=num_predict,
+                json_mode=json_format,
+            )
+        except Exception as exc:
+            logger.error("Completion generation failed: %s", exc)
+            return (
+                "I'm currently unable to generate a response. "
+                "Please try again in a moment, or contact support if the issue persists."
+            )
 
     async def generate_stream(
         self,
@@ -84,12 +97,16 @@ class OllamaClient:
         if options:
             temperature = options.get("temperature", temperature)
 
-        async for token in self._client.stream_chat(
-            messages, model=model, temperature=temperature
-        ):
-            yield {"response": token, "done": False}
+        try:
+            async for token in self._client.stream_chat(
+                messages, model=model, temperature=temperature
+            ):
+                yield {"response": token, "done": False}
 
-        yield {"response": "", "done": True}
+            yield {"response": "", "done": True}
+        except Exception as exc:
+            logger.error("Stream generation failed: %s", exc)
+            yield {"response": "I'm currently unable to stream a response. Please try again.", "done": True}
 
 
 # Global singleton client

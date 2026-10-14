@@ -121,55 +121,70 @@ class FAISSVectorStore(VectorStoreBase):
         top_k: int = 10,
         filter_metadata: dict | None = None,
     ) -> list[dict[str, Any]]:
-        self._init_index()
-        if self._index.ntotal == 0:
+        try:
+            self._init_index()
+            if self._index.ntotal == 0:
+                return []
+
+            q = np.array([query_embedding], dtype=np.float32)
+            distances, indices = self._index.search(q, min(top_k * 3, self._index.ntotal))
+
+            results: list[dict[str, Any]] = []
+            for dist, idx in zip(distances[0], indices[0]):
+                if idx < 0:
+                    continue
+                doc_id = self._pos_to_id.get(int(idx))
+                if doc_id is None or doc_id in self._deleted:
+                    continue
+                meta = self._metadata.get(doc_id, {})
+
+                # Apply metadata filter if provided
+                if filter_metadata:
+                    if not all(meta.get(k) == v for k, v in filter_metadata.items()):
+                        continue
+
+                # Convert L2 distance to similarity score (0.0-1.0)
+                score = float(1.0 / (1.0 + dist))
+                results.append({"id": doc_id, "score": score, "metadata": meta})
+
+                if len(results) >= top_k:
+                    break
+
+            results.sort(key=lambda r: r["score"], reverse=True)
+            return results
+        except Exception as exc:
+            logger.error("FAISS search failed: %s", exc)
             return []
 
-        q = np.array([query_embedding], dtype=np.float32)
-        distances, indices = self._index.search(q, min(top_k * 3, self._index.ntotal))
-
-        results: list[dict[str, Any]] = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx < 0:
-                continue
-            doc_id = self._pos_to_id.get(int(idx))
-            if doc_id is None or doc_id in self._deleted:
-                continue
-            meta = self._metadata.get(doc_id, {})
-
-            # Apply metadata filter if provided
-            if filter_metadata:
-                if not all(meta.get(k) == v for k, v in filter_metadata.items()):
-                    continue
-
-            # Convert L2 distance to similarity score (0.0-1.0)
-            score = float(1.0 / (1.0 + dist))
-            results.append({"id": doc_id, "score": score, "metadata": meta})
-
-            if len(results) >= top_k:
-                break
-
-        results.sort(key=lambda r: r["score"], reverse=True)
-        return results
-
     def delete(self, doc_id: str) -> bool:
-        if doc_id not in self._id_to_pos:
+        try:
+            if doc_id not in self._id_to_pos:
+                return False
+            self._deleted.add(doc_id)
+            del self._metadata[doc_id]
+            self._persist()
+            return True
+        except Exception as exc:
+            logger.error("FAISS delete failed: %s", exc)
             return False
-        self._deleted.add(doc_id)
-        del self._metadata[doc_id]
-        self._persist()
-        return True
 
     def count(self) -> int:
-        return len(self._metadata)
+        try:
+            return len(self._metadata)
+        except Exception as exc:
+            logger.error("FAISS count failed: %s", exc)
+            return 0
 
     def clear(self) -> None:
-        self._init_index(force=True)
-        self._id_to_pos.clear()
-        self._pos_to_id.clear()
-        self._metadata.clear()
-        self._deleted.clear()
-        self._persist()
+        try:
+            self._init_index(force=True)
+            self._id_to_pos.clear()
+            self._pos_to_id.clear()
+            self._metadata.clear()
+            self._deleted.clear()
+            self._persist()
+        except Exception as exc:
+            logger.error("FAISS clear failed: %s", exc)
 
     # ------------------------------------------------------------------
 
