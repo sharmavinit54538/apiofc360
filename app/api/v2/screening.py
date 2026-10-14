@@ -8,9 +8,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select, update
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.screening_agent import ScreeningAgent
@@ -115,6 +115,35 @@ def _get_thresholds() -> dict[str, float]:
         "shortlist": float(settings.AI_SCREENING_THRESHOLD),
         "reject": float(settings.AI_REJECTION_THRESHOLD),
     }
+
+
+async def _resolve_application_id(
+    db: AsyncSession,
+    doc: AIResumeDocument,
+    job_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Resolve application_id for a resume document and job.
+    
+    Priority:
+    1. doc.application_id if present
+    2. Latest Application where candidate_id == doc.candidate_id and job_id == job_id
+    Returns None if no application can be resolved.
+    """
+    if doc.application_id:
+        return doc.application_id
+    if not doc.candidate_id:
+        return None
+    app_res = await db.execute(
+        select(Application)
+        .where(
+            Application.candidate_id == doc.candidate_id,
+            Application.job_id == job_id,
+        )
+        .order_by(Application.created_at.desc())
+        .limit(1)
+    )
+    app = app_res.scalar_one_or_none()
+    return app.id if app else None
 
 
 def _get_recruitment_service(db: AsyncSession) -> RecruitmentService:
@@ -521,59 +550,79 @@ async def screen_candidate(
         candidate_name=doc.candidate_name,
     )
 
-    # 6. Store screening result — never use a fake UUID for application_id
-    screening_rec = AIScreeningResult(
-        company_id=company_id,
-        application_id=doc.application_id,  # Nullable in DB; no fake uuid
-        resume_document_id=body.resume_document_id,
-        job_id=body.job_id,
-        status=result.status,
-        decision=result.decision,
-        confidence=result.confidence,
-        match_score=match_score,
-        auto_action_taken=result.auto_shortlisted or result.auto_rejected,
-        model_used=result.model_used,
-        prompt_version=result.prompt_version,
-        thresholds_used=result.thresholds_used,
-        input_hash=result.input_hash,
-        error_message=result.error_message,
-        strengths=result.strengths,
-        weaknesses=result.weaknesses,
-        missing_skills=result.missing_skills,
-        risk_analysis=result.risk_analysis,
-        red_flags=result.red_flags,
-        green_flags=result.green_flags,
-        hiring_recommendation=result.hiring_recommendation,
-        hr_notes=result.hr_notes,
-        questions_to_ask=result.questions_to_ask,
-    )
-    db.add(screening_rec)
+    # 6. Resolve application_id and persist screening result
+    application_id = await _resolve_application_id(db, doc, body.job_id)
+    persisted = application_id is not None
 
-    # 7. Auto-apply decision if requested, application exists, and compliance rules satisfied
-    if body.auto_apply_decision and doc.application_id and result.status == "COMPLETED":
-        rec_service = _get_recruitment_service(db)
-        if result.auto_shortlisted:
-            await rec_service.update_application_status(doc.application_id, "SHORTLISTED")
-            logger.info("Auto-shortlisted application %s", doc.application_id)
-        elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
-            await rec_service.update_application_status(doc.application_id, "REJECTED")
-            logger.info("Auto-rejected application %s", doc.application_id)
+    if persisted:
+        screening_rec = AIScreeningResult(
+            company_id=company_id,
+            application_id=application_id,
+            resume_document_id=body.resume_document_id,
+            job_id=body.job_id,
+            status=result.status,
+            decision=result.decision,
+            confidence=result.confidence,
+            match_score=match_score,
+            auto_action_taken=result.auto_shortlisted or result.auto_rejected,
+            model_used=result.model_used,
+            prompt_version=result.prompt_version,
+            thresholds_used=result.thresholds_used,
+            input_hash=result.input_hash,
+            error_message=result.error_message,
+            strengths=result.strengths,
+            weaknesses=result.weaknesses,
+            missing_skills=result.missing_skills,
+            risk_analysis=result.risk_analysis,
+            red_flags=result.red_flags,
+            green_flags=result.green_flags,
+            hiring_recommendation=result.hiring_recommendation,
+            hr_notes=result.hr_notes,
+            questions_to_ask=result.questions_to_ask,
+        )
+        db.add(screening_rec)
 
-    await db.commit()
+        # 7. Auto-apply decision if requested, application exists, and compliance rules satisfied
+        if body.auto_apply_decision and result.status == "COMPLETED":
+            rec_service = _get_recruitment_service(db)
+            if result.auto_shortlisted:
+                await rec_service.update_application_status(application_id, "SHORTLISTED")
+                logger.info("Auto-shortlisted application %s", application_id)
+            elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
+                await rec_service.update_application_status(application_id, "REJECTED")
+                logger.info("Auto-rejected application %s", application_id)
 
-    return APIResponse[dict](
-        success=(result.status == "COMPLETED"),
-        message=f"Screening complete. Decision: {result.decision or 'FAILED'}",
-        data={
-            "screening_id": str(screening_rec.id),
-            "resume_document_id": str(body.resume_document_id),
-            "job_id": str(body.job_id),
-            "match_score_used": match_score,
-            "thresholds": _get_thresholds(),
-            **result.to_dict(),
-        },
-        errors=[result.error_message] if result.error_message else None,
-    )
+        await db.commit()
+
+        return APIResponse[dict](
+            success=(result.status == "COMPLETED"),
+            message=f"Screening complete. Decision: {result.decision or 'FAILED'}",
+            data={
+                "screening_id": str(screening_rec.id),
+                "resume_document_id": str(body.resume_document_id),
+                "job_id": str(body.job_id),
+                "match_score_used": match_score,
+                "thresholds": _get_thresholds(),
+                "persisted": True,
+                **result.to_dict(),
+            },
+            errors=[result.error_message] if result.error_message else None,
+        )
+    else:
+        # No application found - return result but don't persist
+        return APIResponse[dict](
+            success=(result.status == "COMPLETED"),
+            message=f"Screening complete (not persisted - no application found). Decision: {result.decision or 'FAILED'}",
+            data={
+                "resume_document_id": str(body.resume_document_id),
+                "job_id": str(body.job_id),
+                "match_score_used": match_score,
+                "thresholds": _get_thresholds(),
+                "persisted": False,
+                **result.to_dict(),
+            },
+            errors=[result.error_message] if result.error_message else None,
+        )
 
 
 @router.post(
@@ -623,6 +672,7 @@ async def batch_screen_candidates(
     agent = ScreeningAgent(llm_client=get_llm_client())
     rec_service = _get_recruitment_service(db)
     output = []
+    screening_records = []
     shortlisted, rejected, review, failed = 0, 0, 0, 0
 
     for doc in docs:
@@ -640,21 +690,6 @@ async def batch_screen_candidates(
                 logger.warning("Match score failed for resume %s: %s", doc.id, match_exc)
                 match_score = 0.0
                 failed += 1
-                failed_rec = AIScreeningResult(
-                    company_id=company_id,
-                    application_id=doc.application_id,
-                    resume_document_id=doc.id,
-                    job_id=body.job_id,
-                    status="FAILED",
-                    decision=None,
-                    confidence=0.0,
-                    match_score=0.0,
-                    error_message=f"Match score calculation failed: {str(match_exc)}",
-                    model_used=body.model,
-                    prompt_version="v2.0-compliance",
-                    thresholds_used=_get_thresholds(),
-                )
-                db.add(failed_rec)
                 output.append({
                     "resume_document_id": str(doc.id),
                     "candidate_name": doc.candidate_name,
@@ -662,6 +697,7 @@ async def batch_screen_candidates(
                     "decision": None,
                     "confidence": 0.0,
                     "error": str(match_exc),
+                    "persisted": False,
                 })
                 continue
 
@@ -682,40 +718,57 @@ async def batch_screen_candidates(
                 candidate_name=doc.candidate_name,
             )
 
-            # Persist AIScreeningResult row
-            screening_rec = AIScreeningResult(
-                company_id=company_id,
-                application_id=doc.application_id,
-                resume_document_id=doc.id,
-                job_id=body.job_id,
-                status=result.status,
-                decision=result.decision,
-                confidence=result.confidence,
-                match_score=match_score,
-                auto_action_taken=result.auto_shortlisted or result.auto_rejected,
-                model_used=result.model_used,
-                prompt_version=result.prompt_version,
-                thresholds_used=result.thresholds_used,
-                input_hash=result.input_hash,
-                error_message=result.error_message,
-                strengths=result.strengths,
-                weaknesses=result.weaknesses,
-                missing_skills=result.missing_skills,
-                risk_analysis=result.risk_analysis,
-                red_flags=result.red_flags,
-                green_flags=result.green_flags,
-                hiring_recommendation=result.hiring_recommendation,
-                hr_notes=result.hr_notes,
-                questions_to_ask=result.questions_to_ask,
-            )
-            db.add(screening_rec)
+            # Resolve application_id
+            application_id = await _resolve_application_id(db, doc, body.job_id)
+            persisted = application_id is not None
 
-            # Honor auto_apply_decisions
-            if body.auto_apply_decisions and doc.application_id and result.status == "COMPLETED":
-                if result.auto_shortlisted:
-                    await rec_service.update_application_status(doc.application_id, "SHORTLISTED")
-                elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
-                    await rec_service.update_application_status(doc.application_id, "REJECTED")
+            item_data = {
+                "resume_document_id": str(doc.id),
+                "candidate_name": doc.candidate_name,
+                "status": result.status,
+                "decision": result.decision,
+                "confidence": round(result.confidence, 4),
+                "auto_shortlisted": result.auto_shortlisted,
+                "auto_rejected": result.auto_rejected,
+                "hr_notes": result.hr_notes,
+                "persisted": persisted,
+            }
+            output.append(item_data)
+
+            if persisted:
+                screening_rec = AIScreeningResult(
+                    company_id=company_id,
+                    application_id=application_id,
+                    resume_document_id=doc.id,
+                    job_id=body.job_id,
+                    status=result.status,
+                    decision=result.decision,
+                    confidence=result.confidence,
+                    match_score=match_score,
+                    auto_action_taken=result.auto_shortlisted or result.auto_rejected,
+                    model_used=body.model,
+                    prompt_version=result.prompt_version,
+                    thresholds_used=result.thresholds_used,
+                    input_hash=result.input_hash,
+                    error_message=result.error_message,
+                    strengths=result.strengths,
+                    weaknesses=result.weaknesses,
+                    missing_skills=result.missing_skills,
+                    risk_analysis=result.risk_analysis,
+                    red_flags=result.red_flags,
+                    green_flags=result.green_flags,
+                    hiring_recommendation=result.hiring_recommendation,
+                    hr_notes=result.hr_notes,
+                    questions_to_ask=result.questions_to_ask,
+                )
+                screening_records.append(screening_rec)
+
+                # Honor auto_apply_decisions
+                if body.auto_apply_decisions and result.status == "COMPLETED":
+                    if result.auto_shortlisted:
+                        await rec_service.update_application_status(application_id, "SHORTLISTED")
+                    elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
+                        await rec_service.update_application_status(application_id, "REJECTED")
 
             if result.status == "FAILED":
                 failed += 1
@@ -726,16 +779,6 @@ async def batch_screen_candidates(
             else:
                 review += 1
 
-            output.append({
-                "resume_document_id": str(doc.id),
-                "candidate_name": doc.candidate_name,
-                "status": result.status,
-                "decision": result.decision,
-                "confidence": round(result.confidence, 4),
-                "auto_shortlisted": result.auto_shortlisted,
-                "auto_rejected": result.auto_rejected,
-                "hr_notes": result.hr_notes,
-            })
         except Exception as item_exc:
             logger.exception("Item error during batch screening for doc %s: %s", doc.id, item_exc)
             failed += 1
@@ -746,9 +789,20 @@ async def batch_screen_candidates(
                 "decision": None,
                 "confidence": 0.0,
                 "error": str(item_exc),
+                "persisted": False,
             })
 
-    await db.commit()
+    # Bulk insert all screening records in one transaction
+    if screening_records:
+        try:
+            db.add_all(screening_records)
+            await db.commit()
+        except Exception as commit_exc:
+            logger.exception("Failed to commit batch screening records: %s", commit_exc)
+            await db.rollback()
+            # Mark all as not persisted
+            for item in output:
+                item["persisted"] = False
 
     return APIResponse[dict](
         success=True,
@@ -835,16 +889,32 @@ async def run_job_screening(
 @router.get(
     "/jobs/{job_id}/results",
     response_model=APIResponse[dict],
-    summary="Get latest AI screening results per application for a job",
+    summary="Get paginated AI screening results for a job with optional decision filter",
 )
 async def get_job_screening_results(
     job_id: uuid.UUID,
+    decision: Annotated[str | None, Query(description="Filter by decision: SHORTLIST, REVIEW, or REJECT (case-insensitive)")] = None,
+    page: Annotated[int, Query(ge=1, description="Page number (1-indexed)")] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description="Items per page")] = 20,
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
-    """Return the latest screening results per application for a job according to frontend contract."""
+    """Return paginated screening results for a job with summary counts."""
     company_id = _get_company_id(claims)
 
+    # Validate decision filter if provided
+    valid_decisions = {"SHORTLIST", "REVIEW", "REJECT"}
+    if decision is not None:
+        decision_upper = decision.upper()
+        if decision_upper not in valid_decisions:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid decision filter '{decision}'. Must be one of: SHORTLIST, REVIEW, REJECT",
+            )
+    else:
+        decision_upper = None
+
+    # Verify job exists and belongs to tenant
     job_res = await db.execute(
         select(Job).where(
             Job.id == job_id,
@@ -859,108 +929,97 @@ async def get_job_screening_results(
             detail="Job not found",
         )
 
-    # Fetch all applications for this job
-    apps_res = await db.execute(
-        select(Application)
-        .where(
-            Application.job_id == job_id,
-            Application.company_id == company_id,
-        )
-        .order_by(Application.created_at.desc())
-    )
-    applications = apps_res.scalars().all()
+    # Build base query for screening results
+    base_where = [
+        AIScreeningResult.job_id == job_id,
+        AIScreeningResult.company_id == company_id,
+    ]
+    if decision_upper:
+        base_where.append(AIScreeningResult.decision == decision_upper)
 
-    # Fetch all screening results for this job and company
+    # Total count (with decision filter for pagination total)
+    total_res = await db.execute(
+        select(func.count(AIScreeningResult.id)).where(*base_where)
+    )
+    total = total_res.scalar_one() or 0
+
+    # Paginated results ordered by created_at desc
+    offset = (page - 1) * limit
     results_res = await db.execute(
         select(AIScreeningResult)
+        .where(*base_where)
+        .order_by(AIScreeningResult.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    results = results_res.scalars().all()
+
+    # Fetch candidate names from AIResumeDocument in ONE query (no N+1)
+    resume_doc_ids = [r.resume_document_id for r in results if r.resume_document_id]
+    candidate_names: dict[uuid.UUID, str] = {}
+    if resume_doc_ids:
+        docs_res = await db.execute(
+            select(AIResumeDocument.id, AIResumeDocument.candidate_name).where(
+                AIResumeDocument.id.in_(resume_doc_ids),
+                AIResumeDocument.company_id == company_id,
+            )
+        )
+        candidate_names = {row.id: row.candidate_name for row in docs_res}
+
+    # Summary counts for the whole job (ignoring pagination and decision filter)
+    summary_res = await db.execute(
+        select(
+            AIScreeningResult.decision,
+            func.count(AIScreeningResult.id),
+        )
         .where(
             AIScreeningResult.job_id == job_id,
             AIScreeningResult.company_id == company_id,
         )
-        .order_by(AIScreeningResult.created_at.desc())
+        .group_by(AIScreeningResult.decision)
     )
-    all_results = results_res.scalars().all()
+    summary = {"shortlisted": 0, "review": 0, "rejected": 0}
+    for decision_val, count in summary_res.all():
+        if decision_val == "SHORTLIST":
+            summary["shortlisted"] = count
+        elif decision_val == "REVIEW":
+            summary["review"] = count
+        elif decision_val == "REJECT":
+            summary["rejected"] = count
 
-    latest_by_app: dict[uuid.UUID, AIScreeningResult] = {}
-    latest_run_id = None
-    for r in all_results:
-        if r.run_id and not latest_run_id:
-            latest_run_id = r.run_id
-        if r.application_id and r.application_id not in latest_by_app:
-            latest_by_app[r.application_id] = r
-
-    # Build results list matching the frontend contract
+    # Build response results
     results_list = []
-    completed_count = 0
-
-    for app in applications:
-        r = latest_by_app.get(app.id)
-        cand_name = f"{app.first_name} {app.last_name}".strip()
-        if r:
-            if r.status == "COMPLETED":
-                completed_count += 1
-            results_list.append({
-                "application_id": str(app.id),
-                "candidate_id": str(app.candidate_id) if app.candidate_id else None,
-                "candidate_name": cand_name,
-                "resume_document_id": str(r.resume_document_id) if r.resume_document_id else None,
-                "status": r.status,
-                "decision": r.decision,
-                "confidence": r.confidence,
-                "match_score": r.match_score if r.match_score is not None else 0.0,
-                "strengths": r.strengths or [],
-                "weaknesses": r.weaknesses or [],
-                "missing_skills": r.missing_skills or [],
-                "red_flags": r.red_flags or [],
-                "green_flags": r.green_flags or [],
-                "hiring_recommendation": r.hiring_recommendation,
-                "hr_notes": r.hr_notes,
-                "questions_to_ask": r.questions_to_ask or [],
-                "model_used": r.model_used,
-                "screened_at": r.created_at.isoformat() if r.created_at else None,
-                "human_decision": r.human_decision,
-                "human_decision_by": str(r.human_decision_by) if r.human_decision_by else None,
-                "human_decision_reason": r.human_decision_reason,
-            })
-        else:
-            results_list.append({
-                "application_id": str(app.id),
-                "candidate_id": str(app.candidate_id) if app.candidate_id else None,
-                "candidate_name": cand_name,
-                "resume_document_id": None,
-                "status": "PENDING",
-                "decision": None,
-                "confidence": 0.0,
-                "match_score": 0.0,
-                "strengths": [],
-                "weaknesses": [],
-                "missing_skills": [],
-                "red_flags": [],
-                "green_flags": [],
-                "hiring_recommendation": None,
-                "hr_notes": None,
-                "questions_to_ask": [],
-                "model_used": None,
-                "screened_at": None,
-                "human_decision": None,
-                "human_decision_by": None,
-                "human_decision_reason": None,
-            })
-
-    total = len(applications)
-    run_status = "COMPLETED" if (total > 0 and completed_count == total) else ("RUNNING" if completed_count > 0 else "PENDING")
+    for r in results:
+        candidate_name = candidate_names.get(r.resume_document_id) if r.resume_document_id else None
+        results_list.append({
+            "id": str(r.id),
+            "resume_document_id": str(r.resume_document_id) if r.resume_document_id else None,
+            "application_id": str(r.application_id) if r.application_id else None,
+            "candidate_name": candidate_name,
+            "decision": r.decision,
+            "confidence": r.confidence,
+            "auto_action_taken": r.auto_action_taken,
+            "strengths": r.strengths or [],
+            "weaknesses": r.weaknesses or [],
+            "missing_skills": r.missing_skills or [],
+            "red_flags": r.red_flags or [],
+            "green_flags": r.green_flags or [],
+            "hiring_recommendation": r.hiring_recommendation,
+            "hr_notes": r.hr_notes,
+            "questions_to_ask": r.questions_to_ask or [],
+            "model_used": r.model_used,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
 
     return APIResponse[dict](
         success=True,
-        message=f"Retrieved screening results for {len(results_list)} application(s).",
+        message=f"Retrieved {len(results_list)} screening result(s) for job.",
         data={
-            "thresholds": _get_thresholds(),
-            "run": {
-                "run_id": str(latest_run_id) if latest_run_id else None,
-                "status": run_status,
-                "completed": completed_count,
-                "total": total,
-            },
+            "job_id": str(job_id),
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "summary": summary,
             "results": results_list,
         },
         errors=None,
