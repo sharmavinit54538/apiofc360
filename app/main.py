@@ -26,153 +26,20 @@ from app.core.perf_instrumentation import (
     PerfHeadersMiddleware,
 )
 
-# Routers Import
-from app.api.auth import router as auth_router
-from app.api.hr_admin import router as hr_admin_router
-from app.api.employees import router as employees_router
-from app.api.managers import router as managers_router
-from app.api.exports import router as exports_router
-from app.api.departments import router as departments_router
-from app.api.jobs import router as jobs_router
-from app.api.assets import router as assets_router
-from app.api.timesheets import router as timesheets_router
-from app.attendance.routers import router as attendance_router
-from app.api.leaves import router as leaves_router
+# Unified Routers - Single import for all v1 and v2 endpoints
+from app.api.v1.router import v1_router
+from app.api.v2.router import v2_router
+
+# Legacy public/unprefixed routers (keep separate for backward compatibility)
 from app.api.careers import router as careers_router
-from app.api.applications import router as applications_router
-from app.api.interviews import router as interviews_router
-from app.api.offers import router as offers_router
-from app.api.exits import router as exits_router
-from app.api.calendar import router as calendar_router
-from app.api.documents import router as documents_router
-from app.api.templates import router as templates_router
-from app.api.announcements import router as announcements_router
-from app.api.news import router as news_router
-from app.api.events import router as events_router
-from app.api.polls import router as polls_router
-from app.api.internal_dashboard import router as internal_dashboard_router
-from app.api.ai_copilot import router as ai_copilot_router
-from app.api.v1.ai import router as ai_router
-from app.api.v1.ai_recruiter import router as ai_recruiter_router
-from app.api.v1.ai_attendance import router as ai_attendance_router
-from app.api.v1.ai_performance import router as ai_performance_router
-from app.api.v1.ai_leave import router as ai_leave_router
-from app.api.v1.ai_payroll import router as ai_payroll_router
-from app.api.v1.payroll.router import router as v1_payroll_router
-from app.api.payroll.router import router as full_payroll_router
-from app.api.v1.ai_workforce import router as ai_workforce_router, ai_workforce_direct_router
-from app.api.v1.employee_health import router as employee_health_router
-from app.api.v1.policy_ai import router as policy_ai_router
-from app.api.v1.meeting_ai import router as meeting_ai_router
-from app.api.v1.compliance_monitor import router as compliance_monitor_router
-from app.api.v1.reports import router as reports_v1_router
-from app.api.v1.chat_assistant import router as chat_assistant_router
-from app.api.v1.analytics_center import router as analytics_center_router
-from app.api.v1.ai_brain import router as ai_brain_router
-from app.api.v1.intelligence import router as intelligence_router
-from app.api.ai_insights import router as ai_insights_router
+from app.api.generate_api import router as generate_router
+from app.api.intelligence import router as intelligence_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
 from app.api.payments import router as payments_router
-from app.api.sidebar import router as sidebar_router
-from app.api.cto.dashboard import router as cto_dashboard_router
-from app.api.super_admin import router as super_admin_router
 from app.api.onboarding import router as onboarding_router
-from app.api.employee_onboarding_api import router as employee_onboarding_api_router
-from app.api.employee_onboarding_admin_api import router as employee_onboarding_admin_api_router
 from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
-from app.api.hierarchy import router as hierarchy_router
-from app.api.talent_pool import router as talent_pool_router
-from app.api.requisitions import router as requisitions_router
-from app.api.vendors import router as vendors_router
-from app.api.crm import router as crm_router
-from app.api.referrals import router as referrals_router
-from app.api.automation import router as automation_router
-from app.api.scorecards import router as scorecards_router
-from app.api.recruitment_analytics import router as recruitment_analytics_router
-from app.api.recruitment import router as recruitment_router
-from app.api.ats import router as ats_router
-from app.api.v2.document_intelligence import router as doc_intel_router
-from app.api.v2.employee_support import router as emp_support_router
-from app.api.v2.interview_bot import router as interview_bot_router
-from app.api.v2.hr_analytics_api import router as hr_analytics_router
-from app.api.v2.hr_workflow_api import router as hr_workflow_router
-from app.api.v2.payroll_api import router as payroll_router
-from app.api.v2.tax_api import router as tax_router
-from app.api.v2.performance_api import router as performance_router
-from app.api.v2.policy_api import router as policy_router
-from app.api.v2.wellness_api import router as wellness_router
-from app.api.v2.travel_api import router as travel_router
-from app.api.v2.reports_api import router as reports_router
-from app.api.v2.productivity_api import router as productivity_router
-from app.api.v2.goal_generator_api import router as goals_router
-from app.api.v2.compensation_api import router as compensation_router
-from app.api.v2.behavioural_api import router as behavioural_router
-from app.api.v2.email_generator_api import router as email_router
-from app.api.v2.emotion_chatbot_api import router as emotions_router
-from app.api.v2.org_intelligence_apis import org_map_router, skill_gap_router, shift_router, digital_twin_router
-from app.api.v2.employee_intelligence_apis import voice_router, mood_router, career_router, learning_router
-from app.api.v2.enterprise_intelligence_apis import workforce_router, talent_router, meetings_router, compliance_router, risk_router, copilot_router
-from app.api.v2.hr_copilot import router as hr_copilot_router
-from app.api.v2.candidate_matching import router as candidate_matching_router
-from app.api.v2.coding_assessment import router as coding_assessment_router
-from app.api.v2.ranking import router as ranking_router
-from app.api.v2.resume_parser import router as resume_parser_router
-from app.api.v2.screening import router as screening_router
-from app.api.v2.offer_letters import router as offer_letters_router
-from app.api.v2.interview_agent import router as interview_agent_router
-from app.api.v2.analytics import router as analytics_v2_router
-from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
-from app.api.global_notifications import router as global_notifications_router
-from app.api.generate_api import router as generate_router
-from app.api.connect import router as connect_router
-from app.api.helpdesk import router as helpdesk_router
-
-# AI Hub Gateway routers
-from app.api.v1.ai_hub.root import router as ai_hub_root_router
-from app.api.v1.ai_hub.agents import router as ai_hub_agents_router
-from app.api.v1.ai_hub.analytics_center import router as ai_hub_analytics_router
-from app.api.v1.ai_hub.attendance_monitor import router as ai_hub_attendance_router
-from app.api.v1.ai_hub.chat_assistant import router as ai_hub_chat_router
-from app.api.v1.ai_hub.compliance_monitor import router as ai_hub_compliance_router
-from app.api.v1.ai_hub.document_generator import router as ai_hub_docgen_router
-from app.api.v1.ai_hub.employee_health import router as ai_hub_health_router
-from app.api.v1.ai_hub.leave_assistant import router as ai_hub_leave_router
-from app.api.v1.ai_hub.meeting_intelligence import router as ai_hub_meeting_router
-from app.api.v1.ai_hub.payroll_insights import router as ai_hub_payroll_router
-from app.api.v1.ai_hub.performance_coach import router as ai_hub_performance_router
-from app.api.v1.ai_hub.policy_assistant import router as ai_hub_policy_router
-from app.api.v1.ai_hub.recruiter import router as ai_hub_recruiter_router
-from app.api.v1.ai_hub.workforce import (
-    insights_router as ai_hub_workforce_insights_router,
-    planning_router as ai_hub_workforce_planning_router,
-)
-
-# HRMS Core Modules (/api/v1/*)
-from app.routers import (
-    attendance as core_attendance_router,
-    analytics as core_analytics_router,
-    settings as core_settings_router,
-    performance as core_performance_router,
-    users as core_users_router,
-    profile as core_profile_router,
-    departments as core_departments_router,
-    compliance as core_compliance_router,
-    employee_health as core_employee_health_router,
-    leave_assistant as core_leave_assistant_router,
-    meeting_intelligence as core_meeting_intelligence_router,
-    performance_coach as core_performance_coach_router,
-    recruiter as core_recruiter_router,
-    workforce_insights as core_workforce_insights_router,
-    managers as core_managers_router,
-    policy_assistant as core_policy_assistant_router,
-    reports as core_reports_router,
-    notifications as core_notifications_router,
-    documents as core_documents_router,
-    assets as core_assets_router,
-    holidays as core_holidays_router,
-    dashboard as core_dashboard_router,
-)
+from app.api.v1.notifications import router as core_notifications_router  # from app.routers
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -705,171 +572,12 @@ def create_app() -> FastAPI:
     )
 
     install_exception_handlers(app)
-    # ── API v1 routers ─────────────────────────────────────────────────────────
-    app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hr_admin_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employees_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(managers_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(departments_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(announcements_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(jobs_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(assets_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(interviews_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(offers_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(exits_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(calendar_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(documents_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(timesheets_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(attendance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(leaves_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(templates_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(news_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(events_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(polls_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(internal_dashboard_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_copilot_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(chat_assistant_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_recruiter_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_attendance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_leave_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(v1_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(full_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_workforce_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_workforce_direct_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_health_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(policy_ai_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(meeting_ai_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(compliance_monitor_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(analytics_center_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_brain_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_insights_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(onboarding_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_onboarding_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_onboarding_admin_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hr_admin_onboarding_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hierarchy_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(exports_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(talent_pool_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(requisitions_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(vendors_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(crm_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(referrals_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(automation_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(scorecards_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(recruitment_analytics_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(recruitment_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ats_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(connect_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(reports_v1_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(intelligence_router, prefix=settings.API_V1_PREFIX)
 
-    # AI Hub Gateway (/api/v1/ai-hub/*)
-    for r in (
-        ai_hub_root_router,
-        ai_hub_agents_router,
-        ai_hub_analytics_router,
-        ai_hub_attendance_router,
-        ai_hub_chat_router,
-        ai_hub_compliance_router,
-        ai_hub_docgen_router,
-        ai_hub_health_router,
-        ai_hub_leave_router,
-        ai_hub_meeting_router,
-        ai_hub_payroll_router,
-        ai_hub_performance_router,
-        ai_hub_policy_router,
-        ai_hub_recruiter_router,
-        ai_hub_workforce_insights_router,
-        ai_hub_workforce_planning_router,
-    ):
-        app.include_router(r, prefix=settings.API_V1_PREFIX)
+    # ── Unified API v1 Router (all endpoints under /api/v1) ───────────────────────
+    app.include_router(v1_router)
 
-    # ── HRMS Core Modules (/api/v1/*) ──────────────────────────────────────────
-    for r in (
-        core_attendance_router.router,
-        core_analytics_router.router,
-        core_settings_router.router,
-        core_performance_router.router,
-        core_users_router.router,
-        core_profile_router.router,
-        core_departments_router.router,
-        core_compliance_router.router,
-        core_employee_health_router.router,
-        core_leave_assistant_router.router,
-        core_meeting_intelligence_router.router,
-        core_performance_coach_router.router,
-        core_recruiter_router.router,
-        core_workforce_insights_router.router,
-        core_managers_router.router,
-        core_policy_assistant_router.router,
-        core_reports_router.router,
-        core_notifications_router.router,
-        core_documents_router.router,
-        core_assets_router.router,
-        core_holidays_router.router,
-        core_dashboard_router.router,
-    ):
-        app.include_router(r, prefix=settings.API_V1_PREFIX)
-
-    # ── API v2 routers ─────────────────────────────────────────────────────────
-    app.include_router(doc_intel_router, prefix="/api/v2")
-    app.include_router(emp_support_router, prefix="/api/v2")
-    app.include_router(interview_bot_router, prefix="/api/v2")
-    app.include_router(hr_analytics_router, prefix="/api/v2")
-    app.include_router(hr_workflow_router, prefix="/api/v2")
-    app.include_router(payroll_router, prefix="/api/v2")
-    app.include_router(payroll_router, prefix="/v2")
-    app.include_router(tax_router, prefix="/api/v2")
-    app.include_router(performance_router, prefix="/api/v2")
-    app.include_router(policy_router, prefix="/api/v2")
-    app.include_router(wellness_router, prefix="/api/v2")
-    app.include_router(travel_router, prefix="/api/v2")
-    app.include_router(reports_router, prefix="/api/v2")
-    app.include_router(productivity_router, prefix="/api/v2")
-    app.include_router(goals_router, prefix="/api/v2")
-    app.include_router(compensation_router, prefix="/api/v2")
-    app.include_router(behavioural_router, prefix="/api/v2")
-    app.include_router(email_router, prefix="/api/v2")
-    app.include_router(emotions_router, prefix="/api/v2")
-    app.include_router(org_map_router, prefix="/api/v2")
-    app.include_router(skill_gap_router, prefix="/api/v2")
-    app.include_router(shift_router, prefix="/api/v2")
-    app.include_router(digital_twin_router, prefix="/api/v2")
-    app.include_router(voice_router, prefix="/api/v2")
-    app.include_router(mood_router, prefix="/api/v2")
-    app.include_router(career_router, prefix="/api/v2")
-    app.include_router(learning_router, prefix="/api/v2")
-    app.include_router(workforce_router, prefix="/api/v2")
-    app.include_router(talent_router, prefix="/api/v2")
-    app.include_router(meetings_router, prefix="/api/v2")
-    app.include_router(compliance_router, prefix="/api/v2")
-    app.include_router(risk_router, prefix="/api/v2")
-    app.include_router(copilot_router, prefix="/api/v2")
-    app.include_router(hr_copilot_router, prefix="/api/v2")
-    app.include_router(candidate_matching_router, prefix="/api/v2")
-    app.include_router(coding_assessment_router, prefix="/api/v2")
-    app.include_router(ranking_router, prefix="/api/v2")
-    app.include_router(resume_parser_router, prefix="/api/v2")
-    app.include_router(screening_router, prefix="/api/v2")
-    app.include_router(offer_letters_router, prefix="/api/v2")
-    app.include_router(interview_agent_router, prefix="/api/v2")
-    app.include_router(analytics_v2_router, prefix="/api/v2")
-    app.include_router(resume_ats_checker_router, prefix="/api/v2")
-    app.include_router(resume_ats_checker_router, prefix="/v2")
-    app.include_router(resume_ats_checker_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(resume_ats_checker_router)
+    # ── Unified API v2 Router (all endpoints under /api/v2) ───────────────────────
+    app.include_router(v2_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")
