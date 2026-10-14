@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 
@@ -24,3 +25,4 @@ class AIHubIndexResponse(BaseModel):
     description: str = "Unified AI services gateway for apiofc360"
     totalModules: int
     modules: list[AIHubModuleInfo]
+    ollama: dict[str, Any] | None = None

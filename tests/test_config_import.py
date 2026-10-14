@@ -12,7 +12,7 @@ def test_config_import_success():
     assert hasattr(settings, "OLLAMA_HOST")
     assert hasattr(settings, "OLLAMA_BASE_URL")
     assert hasattr(settings, "OLLAMA_MODEL")
-    assert settings.OLLAMA_MODEL == "qwen3:30b"
+    assert settings.OLLAMA_MODEL == "llama3.2:3b"
 
 
 def test_no_duplicate_settings_fields():

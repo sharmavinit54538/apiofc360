@@ -183,25 +183,27 @@ class Settings(BaseSettings):
     OLLAMA_ENABLED: bool = True
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_HOST: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3:latest"
-    OLLAMA_DEFAULT_MODEL: str = "llama3:latest"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text:latest"
     OLLAMA_FALLBACK_MODEL: str = "gemma:2b"
     OLLAMA_PRIORITY: int = 1
     OLLAMA_TIMEOUT: int = 120
     OLLAMA_TIMEOUT_SECONDS: int = 120
+    OLLAMA_CHAT_TIMEOUT_SECONDS: int = 110
     OLLAMA_KEEP_ALIVE: str = "30m"
     OLLAMA_MAX_CONNECTIONS: int = 50
     OLLAMA_TEMPERATURE: float = 0.3
     OLLAMA_TOP_P: float = 0.9
-    OLLAMA_NUM_PREDICT: int = 2048
+    OLLAMA_NUM_PREDICT: int = 1024
     OLLAMA_NUM_PARALLEL: int = 1
     OLLAMA_MAX_LOADED_MODELS: int = 1
 
     # ── AI Assistant specific settings ───────────────────────────────────────
-    AI_SQL_MODEL: str = "llama3:latest"
-    AI_ANSWER_MODEL: str = "llama3:latest"
-    AI_CHAT_TIMEOUT_SECONDS: int = 120
+    AI_SQL_MODEL: str = "llama3.2:3b"
+    AI_ANSWER_MODEL: str = "llama3.2:3b"
+    AI_CHAT_TIMEOUT_SECONDS: int = 110
+    AI_CHAT_NUM_PREDICT: int = 512
     AI_SQL_TIMEOUT_SECONDS: int = 30
     AI_AUTO_PULL_MODELS: bool = True
     AI_DB_READONLY_URL: str = ""
@@ -281,6 +283,7 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 3
     LLM_RATE_LIMIT_RPM: int = 60
     LLM_DAILY_BUDGET_USD: float = 100.0
+    LLM_MAX_CONCURRENT_CHATS: int = 2
 
 
     # ── AI Agent settings ────────────────────────────────────────────────────
@@ -459,6 +462,21 @@ class Settings(BaseSettings):
         """Set OLLAMA_HOST equal to OLLAMA_BASE_URL if not explicitly provided by env."""
         if "OLLAMA_HOST" not in self.model_fields_set:
             self.OLLAMA_HOST = self.OLLAMA_BASE_URL
+        return self
+
+    @model_validator(mode="after")
+    def validate_ollama_production_url(self) -> "Settings":
+        """Warn if OLLAMA_BASE_URL uses host.docker.internal/localhost in production."""
+        import logging
+        logger = logging.getLogger(__name__)
+        if self.is_production:
+            base_url = self.OLLAMA_BASE_URL.lower()
+            if "host.docker.internal" in base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+                logger.warning(
+                    "OLLAMA_BASE_URL='%s' uses local address in production. "
+                    "Set OLLAMA_BASE_URL to your Ollama server's network address (e.g., http://ollama:11434 in Docker Compose).",
+                    self.OLLAMA_BASE_URL,
+                )
         return self
 
 

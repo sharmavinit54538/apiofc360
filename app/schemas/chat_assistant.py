@@ -11,12 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class SourceCitation(BaseModel):
     """Citation source for RAG knowledge answers."""
 
-    document: str = Field("Employee Handbook 2026", description="Title of document")
+    document: str = Field(..., description="Title of document")
     title: Optional[str] = Field(None, description="Document title alias")
-    section: str = Field("Section 4.2 — Overtime & Compensation", description="Section header")
+    section: str = Field(..., description="Section header")
     snippet: Optional[str] = Field(None, description="Section snippet alias")
-    page: Optional[int] = Field(12, description="Page number")
-    similarity: float = Field(0.92, description="Vector similarity score 0-1")
+    page: Optional[int] = Field(None, description="Page number")
+    similarity: Optional[float] = Field(None, description="Vector similarity score 0-1")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,7 +30,7 @@ class SourceCitation(BaseModel):
 class ChartData(BaseModel):
     """Interactive chart payload."""
 
-    title: str = Field("Overtime Hours by Department", description="Chart title")
+    title: str = Field(..., description="Chart title")
     chart_type: str = Field("bar", description="bar | line | pie | donut")
     data: list[dict[str, Any]] = Field(default_factory=list, description="Chart dataset")
 
@@ -40,7 +40,7 @@ class ChartData(BaseModel):
 class TableData(BaseModel):
     """Tabular data payload."""
 
-    title: str = Field("High Risk Employees List", description="Table title")
+    title: str = Field(..., description="Table title")
     headers: list[str] = Field(default_factory=list, description="Column headers")
     rows: list[list[Any]] = Field(default_factory=list, description="Data rows")
 
@@ -121,7 +121,7 @@ class ChatAssistantResponse(BaseModel):
     content: Optional[str] = Field(None, description="Alias matching frontend content field")
     reply: Optional[str] = Field(None, description="Alias for frontend reply field")
     message: Optional[str] = Field(None, description="Alias for frontend message field")
-    confidence: float = Field(0.97, description="Confidence score 0-1")
+    confidence: float = Field(..., description="Confidence score 0-1")
     sources: list[SourceCitation] = Field(default_factory=list, description="Source document citations")
     charts: list[ChartData] = Field(default_factory=list, description="Chart visual objects")
     tables: list[TableData] = Field(default_factory=list, description="Tabular data objects")
@@ -135,6 +135,7 @@ class ChatAssistantResponse(BaseModel):
     messageId: Optional[str] = Field(None, description="Message UUID")
     message_id: Optional[str] = Field(None, description="Message UUID")
     ai_available: bool = Field(True, description="Whether AI/LLM service was available for this response")
+    degraded: bool = Field(False, description="Whether response is degraded due to LLM unavailability")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -237,6 +238,18 @@ class ChatFeedbackRequest(BaseModel):
     """User feedback payload for chat response."""
 
     conversation_id: str
-    rating: int = Field(5, description="1 to 5 stars")
+    message_id: Optional[str] = None
+    rating: int = Field(..., description="Rating: up/down/1-5", ge=1, le=5)
     feedback: Optional[str] = Field(None, description="Optional text feedback")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_rating(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "rating" in data:
+            rating = data["rating"]
+            if isinstance(rating, str):
+                if rating.lower() == "up":
+                    data["rating"] = 5
+                elif rating.lower() == "down":
+                    data["rating"] = 1
+        return data

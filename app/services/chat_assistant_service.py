@@ -132,14 +132,16 @@ class ChatAssistantService:
 
         # 5. Call LLM for response
         llm_error: Exception | None = None
+        degraded = False
         try:
-            chat_timeout = getattr(settings, "AI_CHAT_TIMEOUT_SECONDS", 120)
+            chat_timeout = getattr(settings, "OLLAMA_CHAT_TIMEOUT_SECONDS", getattr(settings, "AI_CHAT_TIMEOUT_SECONDS", 110))
+            num_predict = getattr(settings, "AI_CHAT_NUM_PREDICT", getattr(settings, "OLLAMA_NUM_PREDICT", 1024))
             answer_markdown = await asyncio.wait_for(
                 self.llm.complete(
                     prompt=raw_text,
                     system=f"{_SYSTEM_PROMPT}\n\n{context_text}",
                     temperature=0.3,
-                    num_predict=2048,
+                    num_predict=num_predict,
                 ),
                 timeout=chat_timeout,
             )
@@ -150,31 +152,30 @@ class ChatAssistantService:
         except asyncio.TimeoutError:
             logger.error("LLM chat completion timed out for query: %s", raw_text[:100])
             llm_error = asyncio.TimeoutError(f"LLM request timed out after {chat_timeout}s")
-            answer_markdown = (
-                "I'm experiencing a delay in generating a detailed response. "
-                f"Based on current data, there are **{metrics.get('total_employees', 0)} active employees** "
-                f"with an attrition rate of **{metrics.get('attrition_rate', 0)}%** "
-                f"and **{metrics.get('open_positions', 0)} open positions**. "
-                "Please try your query again for a more detailed analysis."
-            )
+            degraded = True
         except Exception as exc:
             logger.error("LLM chat completion error: %s", exc)
             llm_error = exc
-            answer_markdown = (
-                f"Based on the live workforce data:\n\n"
-                f"- **Total Active Employees**: {metrics.get('total_employees', 0)}\n"
-                f"- **Attrition Rate**: {metrics.get('attrition_rate', 0)}%\n"
-                f"- **Open Positions**: {metrics.get('open_positions', 0)}\n\n"
-                "AI service is temporarily unavailable. For a more detailed analysis, please try your query again."
-            )
+            degraded = True
 
-        if not answer_markdown:
+        if llm_error:
+            # Return real DB metrics only, no fake LLM response
             answer_markdown = (
-                f"Here is the current workforce snapshot:\n\n"
-                f"- **Total Active Employees**: {metrics.get('total_employees', 0)}\n"
-                f"- **Attrition Rate**: {metrics.get('attrition_rate', 0)}%\n"
-                f"- **Open Positions**: {metrics.get('open_positions', 0)}\n"
+                f"# Workforce Snapshot (AI Unavailable)\n\n"
+                f"| Metric | Value |\n"
+                f"|--------|-------|\n"
+                f"| **Total Active Employees** | {metrics.get('total_employees', 0)} |\n"
+                f"| **Attrition Rate** | {metrics.get('attrition_rate', 0)}% |\n"
+                f"| **Open Positions** | {metrics.get('open_positions', 0)} |\n"
+                f"| **New Hires (This Month)** | {metrics.get('new_hires_month', 0)} |\n"
             )
+            if dept_headcount:
+                answer_markdown += "\n## Department Distribution\n\n"
+                answer_markdown += "| Department | Headcount |\n"
+                answer_markdown += "|------------|-----------|\n"
+                for d in dept_headcount[:10]:
+                    answer_markdown += f"| {d.get('department', 'Unknown')} | {d.get('count', 0)} |\n"
+            answer_markdown += "\n> ⚠️ AI service is temporarily unavailable. Please try your query again for detailed analysis."
 
         # Save assistant response to memory
         session.add_message("assistant", answer_markdown)
@@ -215,6 +216,7 @@ class ChatAssistantService:
             conversationId=conv_id,
             conversation_id=conv_id,
             ai_available=llm_error is None,
+            degraded=degraded,
         )
 
     def _build_charts_from_metrics(self, metrics: dict, query_lower: str) -> list[ChartData]:
@@ -262,35 +264,33 @@ class ChatAssistantService:
         return tables
 
     async def _generate_follow_ups(self, query: str, metrics: dict) -> list[str]:
-        """Generate contextual follow-up questions using LLM."""
-        try:
-            prompt = (
-                f"Based on the user's HR query: '{query}'\n"
-                f"And workforce data: {metrics.get('total_employees', 0)} employees, "
-                f"{metrics.get('open_positions', 0)} open positions\n\n"
-                "Generate exactly 3 short follow-up questions the user might ask next. "
-                "Return ONLY a JSON array of strings, no explanation."
-            )
-            response = await asyncio.wait_for(
-                self.llm.complete(prompt=prompt, temperature=0.5, num_predict=256, json_mode=True),
-                timeout=5.0,
-            )
-            if response:
-                from app.llm.response_parser import ResponseParser
-                parsed = ResponseParser.extract_json_object(response)
-                if isinstance(parsed, list):
-                    return [str(q) for q in parsed[:3]]
-                if isinstance(parsed, dict) and "questions" in parsed:
-                    return [str(q) for q in parsed["questions"][:3]]
-        except Exception as exc:
-            logger.debug("Follow-up generation failed (non-critical): %s", exc)
-
-        # Minimal fallback based on actual data context
-        return [
-            f"Show department-wise breakdown of {metrics.get('total_employees', 0)} employees",
-            "What are the current open positions and their status?",
+        """Generate contextual follow-up questions from DB metrics (rule-based, no LLM call)."""
+        total_emp = metrics.get('total_employees', 0)
+        open_pos = metrics.get('open_positions', 0)
+        attrition = metrics.get('attrition_rate', 0)
+        dept_headcount = metrics.get('department_headcount', [])
+        
+        # Rule-based suggestions based on actual data
+        suggestions = []
+        
+        if total_emp > 0:
+            suggestions.append(f"Show department-wise breakdown of {total_emp} employees")
+        
+        if open_pos > 0:
+            suggestions.append("What are the current open positions and their status?")
+        
+        if attrition > 0:
+            suggestions.append(f"Analyze attrition trends (current rate: {attrition}%)")
+        
+        if dept_headcount:
+            suggestions.append("Compare headcount across departments")
+        
+        suggestions.extend([
             "Analyze recent hiring trends and pipeline efficiency",
-        ]
+            "Show workforce cost breakdown by department",
+        ])
+        
+        return suggestions[:3]
 
     async def process_query(
         self, request: ChatAssistantRequest, company_id: Optional[uuid.UUID] = None

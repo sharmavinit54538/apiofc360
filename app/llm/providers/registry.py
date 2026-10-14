@@ -87,6 +87,11 @@ class ProviderRegistry:
 
         self._initialised = True
 
+        # Start background health ping for Ollama providers (auto-recovery)
+        for provider in self._providers.values():
+            if hasattr(provider, 'start_health_ping'):
+                provider.start_health_ping()
+
         if registered_count == 0:
             logger.warning(
                 "No LLM providers registered! Enable OLLAMA_ENABLED=true. "
@@ -137,6 +142,8 @@ class ProviderRegistry:
         """Close all provider HTTP clients."""
         for provider in self._providers.values():
             try:
+                if hasattr(provider, 'stop_health_ping'):
+                    provider.stop_health_ping()
                 await provider.close()
             except Exception as exc:
                 logger.warning("Error closing provider %s: %s", provider.name, exc)

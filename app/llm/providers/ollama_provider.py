@@ -8,6 +8,7 @@ Supports local LLMs (Llama 3.1, Qwen, Mistral, DeepSeek, Gemma, Phi, etc.) with:
 - 60-second default request timeout
 - Differentiated error handling & HTTP exceptions
 - Detailed metrics logging (prompt tokens, completion tokens, latency, retries)
+- Background health ping for auto-recovery
 """
 
 from __future__ import annotations
@@ -31,6 +32,9 @@ from app.llm.providers.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Auto-recovery configuration
+HEALTH_PING_INTERVAL_SECONDS = 30
 
 
 class OllamaProvider(LLMProviderBase):
@@ -82,6 +86,44 @@ class OllamaProvider(LLMProviderBase):
         self._top_p = config.extra.get("top_p", 0.9)
         self._num_predict = config.extra.get("num_predict", 2048)
         self._fallback_model = getattr(settings, "OLLAMA_FALLBACK_MODEL", "gemma:2b")
+
+        # Background health ping for auto-recovery
+        self._health_ping_task: asyncio.Task | None = None
+        self._health_ping_interval = HEALTH_PING_INTERVAL_SECONDS
+
+    def start_health_ping(self) -> None:
+        """Start background health ping task for auto-recovery."""
+        if self._health_ping_task is None or self._health_ping_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._health_ping_task = loop.create_task(self._health_ping_loop())
+                logger.info("Started Ollama background health ping (interval=%ds)", self._health_ping_interval)
+            except RuntimeError:
+                # No running event loop (e.g., in tests) - skip background ping
+                logger.debug("No running event loop, skipping background health ping")
+
+    def stop_health_ping(self) -> None:
+        """Stop background health ping task."""
+        if self._health_ping_task and not self._health_ping_task.done():
+            self._health_ping_task.cancel()
+            self._health_ping_task = None
+            logger.info("Stopped Ollama background health ping")
+
+    async def _health_ping_loop(self) -> None:
+        """Periodically ping Ollama to enable auto-recovery from unhealthy state."""
+        while True:
+            try:
+                await asyncio.sleep(self._health_ping_interval)
+                if not self._healthy:
+                    logger.debug("Health ping: checking unhealthy Ollama provider...")
+                    healthy = await self.health_check()
+                    if healthy:
+                        self.mark_healthy()
+                        logger.info("Ollama provider auto-recovered via health ping")
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.debug("Health ping error (non-critical): %s", exc)
 
     # ------------------------------------------------------------------
     # Health Check & Model Validation

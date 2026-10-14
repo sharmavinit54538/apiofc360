@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
+from app.core.config import settings
+from app.llm.client import get_llm_client
 from app.middleware.auth import get_current_user_claims
 from app.schemas.ai_hub.root import AIHubIndexResponse, AIHubModuleInfo
 from app.schemas.auth import APIResponse
@@ -154,6 +157,37 @@ async def get_ai_hub_index(
         totalModules=len(modules),
         modules=modules,
     )
+    
+    # Add real-time Ollama status
+    llm_client = get_llm_client()
+    t0 = time.perf_counter()
+    health = await llm_client.check_health()
+    latency_ms = (time.perf_counter() - t0) * 1000
+    
+    ollama_details = health.get("providers", {}).get("ollama", {})
+    if isinstance(ollama_details, dict):
+        ollama_status = {
+            "healthy": ollama_details.get("healthy", False),
+            "model": settings.OLLAMA_MODEL,
+            "embedding_model": settings.OLLAMA_EMBEDDING_MODEL,
+            "model_available": ollama_details.get("model_available", False),
+            "installed_models": ollama_details.get("installed_models", []),
+            "latency_ms": round(latency_ms, 2),
+            "base_url": settings.OLLAMA_BASE_URL,
+        }
+    else:
+        ollama_status = {
+            "healthy": bool(ollama_details) if ollama_details else False,
+            "model": settings.OLLAMA_MODEL,
+            "embedding_model": settings.OLLAMA_EMBEDDING_MODEL,
+            "model_available": False,
+            "installed_models": [],
+            "latency_ms": round(latency_ms, 2),
+            "base_url": settings.OLLAMA_BASE_URL,
+        }
+    
+    data.ollama = ollama_status
+    
     return APIResponse[AIHubIndexResponse](
         success=True,
         message="AI Hub directory retrieved successfully.",
