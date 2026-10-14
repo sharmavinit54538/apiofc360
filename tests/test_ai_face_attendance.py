@@ -2,19 +2,21 @@
 
 import base64
 import io
-from unittest.mock import patch
+import logging
+from unittest.mock import patch, MagicMock
 import uuid
 import numpy as np
 import pytest
 from PIL import Image
 from httpx import AsyncClient, ASGITransport
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 
 from app.main import create_app
 from app.db.database import AsyncSessionLocal
 from app.models.company import Company
 from app.models.user import User, UserRole
 from app.models.employee import Employee
+from app.attendance.models.attendance import Attendance
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.utils.jwt import create_access_token
 
@@ -256,3 +258,507 @@ async def test_face_attendance_full_lifecycle():
             assert record["latitude"] == 28.6139
             assert record["longitude"] == 77.2090
             assert record["notes"] == "Verified morning checkin"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STALE SESSION AUTO-CLOSE & SAME-DAY ACTIVE SESSION TESTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_checkin_auto_closes_stale_previous_day_session():
+    """
+    Test that checking in when a stale open session from yesterday exists
+    auto-closes yesterday's session and succeeds with 200/201.
+    """
+    app = create_app()
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        # Create test company
+        comp_id = uuid.uuid4()
+        company = Company(
+            id=comp_id,
+            name=f"Stale Session Corp {comp_id.hex[:6]}",
+            onboarding_completed=True,
+        )
+        session.add(company)
+
+        # Create test user
+        user_id = uuid.uuid4()
+        user_email = f"stale_emp_{user_id.hex[:6]}@example.com"
+        user = User(
+            id=user_id,
+            company_id=comp_id,
+            name="Stale Session Employee",
+            email=user_email,
+            phone=f"98{user_id.int % 100000000:08d}",
+            password_hash="dummy_hash",
+            role=UserRole.EMPLOYEE,
+            account_status="ACTIVE",
+            is_active=True,
+            is_verified=True,
+        )
+        session.add(user)
+
+        # Create test employee linked to user
+        emp_id = uuid.uuid4()
+        employee = Employee(
+            id=emp_id,
+            user_id=user_id,
+            company_id=comp_id,
+            employee_id=f"EMP-{user_id.hex[:6].upper()}",
+            first_name="Stale",
+            last_name="Tester",
+            personal_email=user_email,
+            phone=user.phone,
+            department="Engineering",
+            designation="Software Engineer",
+            status="ACTIVE",
+            employment_status="CONFIRMED",
+            joining_date=date.today(),
+            is_active=True,
+            is_face_enrolled=True,
+            face_embedding=b"dummy_encrypted_embedding",
+        )
+        session.add(employee)
+
+        # Create a STALE active session from yesterday (check_out_time = None)
+        yesterday = date.today() - timedelta(days=1)
+        yesterday_utc = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=timezone.utc)
+        stale_session = Attendance(
+            id=uuid.uuid4(),
+            employee_id=emp_id,
+            company_id=comp_id,
+            date=yesterday,
+            check_in_time=yesterday_utc,
+            check_out_time=None,  # Active session
+            face_image_url="test.jpg",
+            captured_face_url="test.jpg",
+            status="Present",
+            punch_type="IN",
+            verified=True,
+            punch_verified_by="FACE",
+            auto_closed=False,
+        )
+        session.add(stale_session)
+        await session.commit()
+
+    token = create_access_token(
+        user_id=user_id,
+        role="employee",
+        company_id=comp_id,
+        email=user_email,
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    dummy_image_b64 = make_dummy_base64_image()
+    registered_embedding = generate_unit_vector(128, seed=101)
+    matching_embedding = (np.array(registered_embedding) + np.random.normal(0, 0.005, 128))
+    matching_embedding /= np.linalg.norm(matching_embedding)
+    matching_embedding = matching_embedding.tolist()
+
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Enroll face first
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(registered_embedding, 0.95)):
+            enroll_resp = await client.post(
+                "/api/v1/attendance/face-enroll",
+                headers=headers,
+                json={"image_base64": dummy_image_b64},
+            )
+            assert enroll_resp.status_code == 200
+
+        # Check-in with matching face - should AUTO-CLOSE stale session and succeed
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
+            checkin_resp = await client.post(
+                "/api/v1/attendance/checkin",
+                headers=headers,
+                json={
+                    "image_base64": dummy_image_b64,
+                    "location": {"latitude": 28.6139, "longitude": 77.2090},
+                    "notes": "New day checkin",
+                },
+            )
+            # Should succeed (200 or 201) - stale session was auto-closed
+            assert checkin_resp.status_code in (200, 201), f"Expected 200/201, got {checkin_resp.status_code}: {checkin_resp.text}"
+            checkin_data = checkin_resp.json()
+            assert checkin_data["success"] is True
+            record = checkin_data["data"]
+            assert record["status"] == "Present"
+            assert record["punch_type"] == "IN"
+            assert record["verified"] is True
+
+            # Verify the new check-in has today's date
+            assert record["date"] == date.today().isoformat()
+
+        # Verify the stale session was auto-closed
+        async with AsyncSessionLocal() as verify_session:
+            from sqlalchemy import select
+            stale_check = await verify_session.execute(
+                select(Attendance).where(Attendance.id == stale_session.id)
+            )
+            stale_record = stale_check.scalars().first()
+            assert stale_record is not None
+            assert stale_record.check_out_time is not None, "Stale session should be auto-closed"
+            assert stale_record.auto_closed is True, "Stale session should have auto_closed=True"
+            assert "Auto-closed" in (stale_record.notes or ""), "Stale session notes should mention auto-close"
+
+
+@pytest.mark.asyncio
+async def test_checkin_same_day_active_session_returns_session_details():
+    """
+    Test that checking in when an active session from TODAY exists
+    returns 409 with active_session details for frontend sync.
+    """
+    app = create_app()
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        # Create test company
+        comp_id = uuid.uuid4()
+        company = Company(
+            id=comp_id,
+            name=f"SameDay Session Corp {comp_id.hex[:6]}",
+            onboarding_completed=True,
+        )
+        session.add(company)
+
+        # Create test user
+        user_id = uuid.uuid4()
+        user_email = f"sameday_emp_{user_id.hex[:6]}@example.com"
+        user = User(
+            id=user_id,
+            company_id=comp_id,
+            name="Same Day Employee",
+            email=user_email,
+            phone=f"98{user_id.int % 100000000:08d}",
+            password_hash="dummy_hash",
+            role=UserRole.EMPLOYEE,
+            account_status="ACTIVE",
+            is_active=True,
+            is_verified=True,
+        )
+        session.add(user)
+
+        # Create test employee linked to user
+        emp_id = uuid.uuid4()
+        employee = Employee(
+            id=emp_id,
+            user_id=user_id,
+            company_id=comp_id,
+            employee_id=f"EMP-{user_id.hex[:6].upper()}",
+            first_name="SameDay",
+            last_name="Tester",
+            personal_email=user_email,
+            phone=user.phone,
+            department="Engineering",
+            designation="Software Engineer",
+            status="ACTIVE",
+            employment_status="CONFIRMED",
+            joining_date=date.today(),
+            is_active=True,
+            is_face_enrolled=True,
+            face_embedding=b"dummy_encrypted_embedding",
+        )
+        session.add(employee)
+
+        # Create an ACTIVE session from TODAY (check_out_time = None)
+        today_utc = datetime.now(timezone.utc).replace(microsecond=0)
+        active_session = Attendance(
+            id=uuid.uuid4(),
+            employee_id=emp_id,
+            company_id=comp_id,
+            date=date.today(),
+            check_in_time=today_utc,
+            check_out_time=None,  # Still active
+            face_image_url="test.jpg",
+            captured_face_url="test.jpg",
+            status="Present",
+            punch_type="IN",
+            verified=True,
+            punch_verified_by="FACE",
+            shift_name="Morning Shift",
+            is_late=False,
+        )
+        session.add(active_session)
+        await session.commit()
+        active_session_id = str(active_session.id)
+        active_checkin_time = active_session.check_in_time.isoformat()
+
+    token = create_access_token(
+        user_id=user_id,
+        role="employee",
+        company_id=comp_id,
+        email=user_email,
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    dummy_image_b64 = make_dummy_base64_image()
+    registered_embedding = generate_unit_vector(128, seed=101)
+    matching_embedding = (np.array(registered_embedding) + np.random.normal(0, 0.005, 128))
+    matching_embedding /= np.linalg.norm(matching_embedding)
+    matching_embedding = matching_embedding.tolist()
+
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Enroll face first
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(registered_embedding, 0.95)):
+            enroll_resp = await client.post(
+                "/api/v1/attendance/face-enroll",
+                headers=headers,
+                json={"image_base64": dummy_image_b64},
+            )
+            assert enroll_resp.status_code == 200
+
+        # Attempt check-in again - should return 409 with active_session details
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
+            checkin_resp = await client.post(
+                "/api/v1/attendance/checkin",
+                headers=headers,
+                json={
+                    "image_base64": dummy_image_b64,
+                    "location": {"latitude": 28.6139, "longitude": 77.2090},
+                    "notes": "Duplicate checkin attempt",
+                },
+            )
+            # Should return 409 with active_session details
+            assert checkin_resp.status_code == 409, f"Expected 409, got {checkin_resp.status_code}: {checkin_resp.text}"
+            err_data = checkin_resp.json()
+            
+            # Check error detail structure
+            detail = err_data.get("detail", {})
+            assert detail.get("code") == "ALREADY_CHECKED_IN"
+            assert "active_session" in detail, "Response should include active_session for frontend sync"
+            
+            session_info = detail["active_session"]
+            assert session_info["session_id"] == active_session_id
+            assert session_info["check_in_time"] == active_checkin_time
+            assert session_info["status"] == "Present"
+            assert session_info["date"] == date.today().isoformat()
+            assert session_info["shift_name"] == "Morning Shift"
+            assert session_info["is_late"] is False
+
+
+@pytest.mark.asyncio
+async def test_checkin_expired_shift_session_auto_closes():
+    """
+    Test that a session older than MAX_SHIFT_HOURS (16h) is considered stale
+    and auto-closed even if it's from today.
+    """
+    app = create_app()
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        comp_id = uuid.uuid4()
+        company = Company(
+            id=comp_id,
+            name=f"Expired Shift Corp {comp_id.hex[:6]}",
+            onboarding_completed=True,
+        )
+        session.add(company)
+
+        user_id = uuid.uuid4()
+        user_email = f"expired_emp_{user_id.hex[:6]}@example.com"
+        user = User(
+            id=user_id,
+            company_id=comp_id,
+            name="Expired Shift Employee",
+            email=user_email,
+            phone=f"98{user_id.int % 100000000:08d}",
+            password_hash="dummy_hash",
+            role=UserRole.EMPLOYEE,
+            account_status="ACTIVE",
+            is_active=True,
+            is_verified=True,
+        )
+        session.add(user)
+
+        emp_id = uuid.uuid4()
+        employee = Employee(
+            id=emp_id,
+            user_id=user_id,
+            company_id=comp_id,
+            employee_id=f"EMP-{user_id.hex[:6].upper()}",
+            first_name="Expired",
+            last_name="Shift",
+            personal_email=user_email,
+            phone=user.phone,
+            department="Engineering",
+            designation="Software Engineer",
+            status="ACTIVE",
+            employment_status="CONFIRMED",
+            joining_date=date.today(),
+            is_active=True,
+            is_face_enrolled=True,
+            face_embedding=b"dummy_encrypted_embedding",
+        )
+        session.add(employee)
+
+        # Create an active session from 18 hours ago (exceeds 16h max shift)
+        eighteen_hours_ago = datetime.now(timezone.utc) - timedelta(hours=18)
+        expired_session = Attendance(
+            id=uuid.uuid4(),
+            employee_id=emp_id,
+            company_id=comp_id,
+            date=date.today(),  # Same day but session is very old
+            check_in_time=eighteen_hours_ago,
+            check_out_time=None,
+            face_image_url="test.jpg",
+            captured_face_url="test.jpg",
+            status="Present",
+            punch_type="IN",
+            verified=True,
+            punch_verified_by="FACE",
+            auto_closed=False,
+        )
+        session.add(expired_session)
+        await session.commit()
+
+    token = create_access_token(
+        user_id=user_id,
+        role="employee",
+        company_id=comp_id,
+        email=user_email,
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    dummy_image_b64 = make_dummy_base64_image()
+    registered_embedding = generate_unit_vector(128, seed=101)
+    matching_embedding = (np.array(registered_embedding) + np.random.normal(0, 0.005, 128))
+    matching_embedding /= np.linalg.norm(matching_embedding)
+    matching_embedding = matching_embedding.tolist()
+
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(registered_embedding, 0.95)):
+            await client.post("/api/v1/attendance/face-enroll", headers=headers, json={"image_base64": dummy_image_b64})
+
+        # Check-in should auto-close the expired shift session and succeed
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
+            checkin_resp = await client.post(
+                "/api/v1/attendance/checkin",
+                headers=headers,
+                json={"image_base64": dummy_image_b64},
+            )
+            assert checkin_resp.status_code in (200, 201), f"Expected 200/201, got {checkin_resp.status_code}: {checkin_resp.text}"
+
+        # Verify the expired session was auto-closed
+        async with AsyncSessionLocal() as verify_session:
+            from sqlalchemy import select
+            expired_check = await verify_session.execute(
+                select(Attendance).where(Attendance.id == expired_session.id)
+            )
+            expired_record = expired_check.scalars().first()
+            assert expired_record is not None
+            assert expired_record.check_out_time is not None, "Expired shift session should be auto-closed"
+            assert expired_record.auto_closed is True
+            assert "Auto-closed" in (expired_record.notes or "")
+
+
+@pytest.mark.asyncio
+async def test_http_exception_not_logged_as_dbapi_error(caplog):
+    """
+    Test that HTTPException (409 ALREADY_CHECKED_IN) does not trigger
+    ERROR level DBAPI/Query exception log in get_db_session.
+    """
+    app = create_app()
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        comp_id = uuid.uuid4()
+        company = Company(
+            id=comp_id,
+            name=f"LogTest Corp {comp_id.hex[:6]}",
+            onboarding_completed=True,
+        )
+        session.add(company)
+
+        user_id = uuid.uuid4()
+        user_email = f"logtest_emp_{user_id.hex[:6]}@example.com"
+        user = User(
+            id=user_id,
+            company_id=comp_id,
+            name="Log Test Employee",
+            email=user_email,
+            phone=f"98{user_id.int % 100000000:08d}",
+            password_hash="dummy_hash",
+            role=UserRole.EMPLOYEE,
+            account_status="ACTIVE",
+            is_active=True,
+            is_verified=True,
+        )
+        session.add(user)
+
+        emp_id = uuid.uuid4()
+        employee = Employee(
+            id=emp_id,
+            user_id=user_id,
+            company_id=comp_id,
+            employee_id=f"EMP-{user_id.hex[:6].upper()}",
+            first_name="Log",
+            last_name="Test",
+            personal_email=user_email,
+            phone=user.phone,
+            department="Engineering",
+            designation="Software Engineer",
+            status="ACTIVE",
+            employment_status="CONFIRMED",
+            joining_date=date.today(),
+            is_active=True,
+            is_face_enrolled=True,
+            face_embedding=b"dummy_encrypted_embedding",
+        )
+        session.add(employee)
+
+        # Active session from today
+        today_utc = datetime.now(timezone.utc).replace(microsecond=0)
+        active_session = Attendance(
+            id=uuid.uuid4(),
+            employee_id=emp_id,
+            company_id=comp_id,
+            date=date.today(),
+            check_in_time=today_utc,
+            check_out_time=None,
+            face_image_url="test.jpg",
+            captured_face_url="test.jpg",
+            status="Present",
+            punch_type="IN",
+            verified=True,
+            punch_verified_by="FACE",
+        )
+        session.add(active_session)
+        await session.commit()
+
+    token = create_access_token(
+        user_id=user_id,
+        role="employee",
+        company_id=comp_id,
+        email=user_email,
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    dummy_image_b64 = make_dummy_base64_image()
+    registered_embedding = generate_unit_vector(128, seed=101)
+    matching_embedding = (np.array(registered_embedding) + np.random.normal(0, 0.005, 128))
+    matching_embedding /= np.linalg.norm(matching_embedding)
+    matching_embedding = matching_embedding.tolist()
+
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(registered_embedding, 0.95)):
+            await client.post("/api/v1/attendance/face-enroll", headers=headers, json={"image_base64": dummy_image_b64})
+
+        # Capture logs during the duplicate check-in attempt
+        with caplog.at_level(logging.ERROR, logger="app.db.database"):
+            with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
+                checkin_resp = await client.post(
+                    "/api/v1/attendance/checkin",
+                    headers=headers,
+                    json={"image_base64": dummy_image_b64},
+                )
+                assert checkin_resp.status_code == 409
+
+        # Verify no ERROR level DBAPI/Query exception was logged
+        dbapi_errors = [r for r in caplog.records if "DBAPI/Query exception" in r.getMessage()]
+        assert len(dbapi_errors) == 0, f"DBAPI/Query exception should not be logged for HTTPException: {dbapi_errors}"
+
+        # The HTTPException should be raised without database error traceback
+        # Check that we don't have ERROR logs from the database lifecycle for this expected error
+        error_logs = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(error_logs) == 0, f"Unexpected ERROR logs: {[(r.name, r.getMessage()) for r in error_logs]}"

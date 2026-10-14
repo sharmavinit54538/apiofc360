@@ -7,9 +7,11 @@ from typing import Any
 
 import asyncpg
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 
@@ -183,8 +185,9 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logger.debug("[DB Lifecycle] Rollback completed for session id=%s", id(session))
             raise
-        except HTTPException:
-            # HTTPException is an expected business logic response (e.g., 409 ALREADY_CHECKED_IN).
+        except (HTTPException, StarletteHTTPException, RequestValidationError):
+            # HTTPException/StarletteHTTPException/RequestValidationError are expected business logic responses
+            # (e.g., 409 ALREADY_CHECKED_IN, 400 validation errors, 422 unprocessable entity).
             # Roll back the transaction quietly without logging as a database error.
             if session.is_active:
                 try:

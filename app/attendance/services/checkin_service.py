@@ -12,6 +12,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from zoneinfo import ZoneInfo
 
 from app.attendance.models.attendance import Attendance
 from app.attendance.repositories.attendance_repository import AttendanceRepository
@@ -51,7 +52,8 @@ class AttendanceCheckInService:
         Steps:
         1. Resolve employee and validate company/active status.
         2. Validate face is enrolled.
-        3. Check for existing attendance today (one per day rule).
+        3. Check for active session - auto-close stale sessions (previous day/expired shift),
+           return active session details for same-day sessions for frontend sync.
         4. Decode image, run quality checks & passive anti-spoofing liveness verification.
         5. Extract 128-d face embedding (exactly 1 face).
         6. Biometric comparison against enrolled baseline embedding.
@@ -67,27 +69,42 @@ class AttendanceCheckInService:
         # 2. Mandatory enrollment check
         self.validator.validate_face_enrolled(employee)
 
-        # 3. One attendance per day rule (date-based unique constraint)
+        # 3. Check for active session - auto-close stale, return details for same-day
         tz = await get_company_tz(self.db, str(company_id))
         now_dt = now_utc()
-        # Use company timezone to determine business date for the "one per day" check
+        active_session_info = await self.validator.assert_no_active_session_or_auto_close(
+            employee.id, tz
+        )
+        
+        if active_session_info:
+            # Same-day active session exists - return 409 with session details for frontend sync
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "ALREADY_CHECKED_IN",
+                    "message": f"Active check-in session exists since {active_session_info.check_in_time}. Please check out first.",
+                    "active_session": active_session_info.to_dict(),
+                },
+            )
+
+        # 4. One attendance per day rule (date-based unique constraint)
         business_date = now_dt.astimezone(tz).date() if hasattr(tz, 'tzname') else now_dt.date()
         await self.validator.assert_no_duplicate_checkin(employee.id, business_date)
 
-        # 4 & 5. Decode image, quality checks, anti-spoofing liveness, and embedding extraction
+        # 5 & 6. Decode image, quality checks, anti-spoofing liveness, and embedding extraction
         rgb_array = FaceRecognitionService.decode_base64_image(image_base64)
         live_embedding, liveness_score = FaceRecognitionService.extract_face_embedding(
             rgb_array, enforce_liveness=True
         )
 
-        # 6. Biometric comparison against stored baseline
+        # 7. Biometric comparison against stored baseline
         distance = self.validator.validate_face_match(
             employee=employee,
             live_embedding=live_embedding,
             threshold=MATCH_DISTANCE_THRESHOLD,
         )
 
-        # 7. Geofence verification
+        # 8. Geofence verification
         lat_val: Optional[float] = None
         lng_val: Optional[float] = None
         accuracy_val: Optional[float] = None
@@ -132,14 +149,14 @@ class AttendanceCheckInService:
                 },
             )
 
-        # 8. Shift engine evaluation (timezone-aware)
+        # 9. Shift engine evaluation (timezone-aware)
         resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
         eval_result: CheckinEval = self.shift_service.evaluate_checkin(resolved, now_dt)
 
-        # 9. Save image proof locally
+        # 10. Save image proof locally
         image_url = await save_base64_image(image_base64, prefix="checkin")
 
-        # 10. Persist Attendance record with race-condition guard via DB partial unique index
+        # 11. Persist Attendance record with race-condition guard via DB partial unique index
         record = Attendance(
             id=uuid.uuid4(),
             employee_id=employee.id,
@@ -186,11 +203,24 @@ class AttendanceCheckInService:
                 active_session = await self.repo.get_active_session(employee.id)
                 if active_session:
                     check_in_str = active_session.check_in_time.isoformat() if active_session.check_in_time else "unknown"
+                    # Also get session details for frontend sync
+                    active_details = await self.repo.get_active_session_with_details(employee.id)
+                    session_info = {}
+                    if active_details:
+                        session_info = {
+                            "session_id": active_details["session_id"],
+                            "check_in_time": active_details["check_in_time"],
+                            "status": active_details["status"],
+                            "date": active_details["date"],
+                            "shift_name": active_details.get("shift_name"),
+                            "is_late": active_details.get("is_late", False),
+                        }
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail={
                             "code": "ALREADY_CHECKED_IN",
                             "message": f"Active check-in session already exists since {check_in_str}. Please check out of your previous session first.",
+                            "active_session": session_info,
                         },
                     )
             # Fall back to date-based duplicate check
@@ -212,7 +242,7 @@ class AttendanceCheckInService:
                 },
             )
 
-        # 11. Write security audit log
+        # 12. Write security audit log
         details = (
             f"Face Check-In Verified: Date={business_date} | Dist={distance:.3f} | "
             f"Liveness={liveness_score:.2f} | Late={eval_result.is_late} ({eval_result.late_minutes}m) | "
