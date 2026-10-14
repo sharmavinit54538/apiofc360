@@ -35,7 +35,7 @@ class UserNotification(Base):
             "ix_user_notifications_recipient_read_created",
             "recipient_id",
             "read_at",
-            text("created_at DESC"),
+            "created_at",
         ),
         Index(
             "uq_user_notifications_recipient_dedupe",

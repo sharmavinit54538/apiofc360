@@ -1861,9 +1861,10 @@ sa.Column('entities', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.ForeignKeyConstraint(['company_id'], ['companies.id'], name=op.f('fk_user_notifications_company_id_companies'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['recipient_id'], ['users.id'], name=op.f('fk_user_notifications_recipient_id_users'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_user_notifications'))
-    )
+)
     op.create_index('ix_user_notifications_company_id', 'user_notifications', ['company_id'], unique=False)
     op.create_index('ix_user_notifications_recipient_id', 'user_notifications', ['recipient_id'], unique=False)
+    op.create_index('ix_user_notifications_recipient_read_created', 'user_notifications', ['recipient_id', 'read_at', 'created_at'], unique=False)
     op.create_index('uq_user_notifications_recipient_dedupe', 'user_notifications', ['recipient_id', 'dedupe_key'], unique=True, postgresql_where=sa.text('dedupe_key IS NOT NULL'))
     op.create_table('voice_command_logs',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -4988,9 +4989,10 @@ def downgrade() -> None:
     op.drop_index('ix_agent_feedback_run_id', table_name='agent_feedback')
     op.drop_table('agent_feedback')
     op.drop_table('wellness_anonymous_chat_messages')
-    op.drop_index('ix_voice_logs_company_id', table_name='voice_command_logs')
+op.drop_index('ix_voice_logs_company_id', table_name='voice_command_logs')
     op.drop_table('voice_command_logs')
     op.drop_index('uq_user_notifications_recipient_dedupe', table_name='user_notifications', postgresql_where=sa.text('dedupe_key IS NOT NULL'))
+    op.drop_index('ix_user_notifications_recipient_read_created', table_name='user_notifications')
     op.drop_index('ix_user_notifications_recipient_id', table_name='user_notifications')
     op.drop_index('ix_user_notifications_company_id', table_name='user_notifications')
     op.drop_table('user_notifications')
