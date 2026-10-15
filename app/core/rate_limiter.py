@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from typing import Optional
 
@@ -109,6 +110,40 @@ class RateLimiter:
         self._rate_limit_sha: Optional[str] = None
         self._sliding_window_sha: Optional[str] = None
         self._redis_timeout = 0.1  # 100ms timeout for Redis calls
+        self._memory_cache: dict[str, list[float]] = {}
+
+    def reset(self) -> None:
+        """Reset in-memory rate limit cache (primarily for tests)."""
+        self._memory_cache.clear()
+
+    def _check_memory_rate_limit(
+        self,
+        key: str,
+        limit: int,
+        window_seconds: int,
+    ) -> tuple[bool, int, int]:
+        """In-memory sliding window rate limiter fallback when Redis is unavailable."""
+        now = time.time()
+        cutoff = now - window_seconds
+        
+        # Periodic cleanup if cache grows large
+        if len(self._memory_cache) > 5000:
+            stale_keys = [k for k, v in self._memory_cache.items() if not v or v[-1] <= cutoff]
+            for k in stale_keys:
+                self._memory_cache.pop(k, None)
+
+        history = [ts for ts in self._memory_cache.get(key, []) if ts > cutoff]
+        if len(history) >= limit:
+            oldest = history[0]
+            retry_after = max(1, math.ceil(window_seconds - (now - oldest)))
+            self._memory_cache[key] = history
+            return False, retry_after, 0
+
+        history.append(now)
+        self._memory_cache[key] = history
+        remaining = max(0, limit - len(history))
+        return True, 0, remaining
+
 
     @property
     def redis(self):
@@ -231,8 +266,8 @@ class RateLimiter:
             if fail_open:
                 logger.debug("Redis not connected, failing open for %s rate limiter", scope)
                 return True, 0, limit
-            logger.warning("Redis not connected, denying request for strict %s rate limiter", scope)
-            return False, window_seconds, 0
+            logger.debug("Redis not connected, using in-memory sliding window fallback for %s rate limiter", scope)
+            return self._check_memory_rate_limit(rate_key, limit, window_seconds)
 
         await self._load_scripts()
 
@@ -257,7 +292,7 @@ class RateLimiter:
             logger.warning("Custom rate limit check failed for %s: %s (fail_open=%s)", scope, e, fail_open)
             if fail_open:
                 return True, 0, limit
-            return False, window_seconds, 0
+            return self._check_memory_rate_limit(rate_key, limit, window_seconds)
 
 
 # Global rate limiter instance

@@ -6,6 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 USE_REAL_DB = bool(os.getenv("DATABASE_URL"))
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset in-memory rate limiter cache before each test."""
+    from app.core.rate_limiter import rate_limiter
+    rate_limiter.reset()
+    yield
+    rate_limiter.reset()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def mock_database():
     """Mock database connections for test collection when no real DB is configured."""
