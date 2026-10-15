@@ -190,7 +190,10 @@ jobs:
           sudo bash -c "
             cd ${{ env.APP_DIR }}
             SHORT_SHA='${GITHUB_SHA::7}'
-            echo '[Deploy] Pruning dangling build images...'
+            echo '[Deploy] Checking disk space before build...'
+            df -h /
+            echo '[Deploy] Pruning dangling images and builder cache...'
+            docker builder prune -f 2>/dev/null || true
             docker image prune -f 2>/dev/null || true
 
             echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
