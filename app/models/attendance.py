@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin, new_uuid
 
 
-class Attendance(Base, TimestampMixin):
+class StudentAttendance(Base, TimestampMixin):
     __tablename__ = "attendance"
     __table_args__ = (
         UniqueConstraint("student_id", "date", name="uq_attendance_student_date"),
@@ -27,3 +27,8 @@ class Attendance(Base, TimestampMixin):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(512), nullable=True)
     marked_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+
+
+# Backwards compatibility alias
+Attendance = StudentAttendance
+
