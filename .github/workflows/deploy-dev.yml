@@ -193,8 +193,8 @@ jobs:
             echo '[Deploy] Checking disk space before build...'
             df -h /
             echo '[Deploy] Pruning dangling images and builder cache...'
-            docker builder prune -f 2>/dev/null || true
-            docker image prune -f 2>/dev/null || true
+            docker builder prune -a -f --filter "until=24h" 2>/dev/null || true
+            docker image prune -a -f --filter "until=48h" 2>/dev/null || true
 
             echo \"[Deploy] Building fresh Docker images for SHA \${SHORT_SHA}...\"
             docker compose build --no-cache api celery_worker
@@ -210,7 +210,7 @@ jobs:
             echo '[Deploy] Recreating API & Celery Worker containers...'
             mkdir -p uploads
             chown -R 10001:10001 uploads 2>/dev/null || true
-            docker compose up -d --force-recreate api celery_worker
+            docker compose up -d --force-recreate --no-deps api celery_worker
           "
 
       - name: Health check
