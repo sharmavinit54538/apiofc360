@@ -76,22 +76,12 @@ async def run_migrations_with_lock() -> int:
                         print(f"[Entrypoint] WARNING: Database revision '{db_rev}' does not exist in local migration history!")
                         print(f"[Entrypoint] Auto-remediating: directly updating alembic_version to '{target_head}' via SQL...")
                         try:
-                            # Direct SQL UPDATE bypasses alembic's own revision validation
-                            # (alembic stamp also fails when the current revision is unknown)
+                            # Cleanly delete stale/unknown revisions and insert single target_head
+                            await conn.execute("DELETE FROM alembic_version")
                             await conn.execute(
-                                "UPDATE alembic_version SET version_num = $1",
+                                "INSERT INTO alembic_version (version_num) VALUES ($1)",
                                 target_head,
                             )
-                            updated = await conn.fetchval(
-                                "SELECT version_num FROM alembic_version WHERE version_num = $1",
-                                target_head,
-                            )
-                            if not updated:
-                                # Row may have been deleted; insert fresh
-                                await conn.execute(
-                                    "INSERT INTO alembic_version (version_num) VALUES ($1)",
-                                    target_head,
-                                )
                             print(f"[Entrypoint] alembic_version successfully updated to '{target_head}'.")
                         except Exception as sql_err:
                             print(f"[Entrypoint] ERROR: Failed to update alembic_version via SQL: {sql_err}")
