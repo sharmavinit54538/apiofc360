@@ -1,56 +1,57 @@
-Context: Pichle prompt me galti se "cloud provider (Anthropic/OpenAI) add karo" bola gaya tha. Wo GALAT tha.
-Is project me LLM = SIRF OLLAMA. Koi third-party/cloud API (OpenAI, Anthropic, Google, OpenRouter) nahi chahiye.
-Baaki pichle fixes (fake data hataya, history DB me, feedback, security wagairah) rakho, unhe mat chhedo.
-Sirf LLM provider wala part sahi karo.
+# Context: Pichle prompt me galti se "cloud provider (Anthropic/OpenAI) add karo" bola gaya tha. Wo GALAT tha.
+# Is project me LLM = SIRF OLLAMA. Koi third-party/cloud API (OpenAI, Anthropic, Google, OpenRouter) nahi chahiye.
+# Baaki pichle fixes (fake data hataya, history DB me, feedback, security wagairah) rakho, unhe mat chhedo.
+# Sirf LLM provider wala part sahi karo.
 
-STEP 1 - Audit (pehle batao, phir change karo)
-   `git diff` / `git log` se dekho pichle run me LLM provider ke liye kya badla. In files ko khaas dekho:
-   app/llm/providers/registry.py, app/llm/router.py, app/core/config.py, .env.example, requirements.txt,
-   docker-compose.yml, .github/ workflows, tests/ . Ek chhoti list do: kaunsi file me cloud-provider wiring add hui.
+# STEP 1 - Audit (pehle batao, phir change karo)
+#    `git diff` / `git log` se dekho pichle run me LLM provider ke liye kya badla. In files ko khaas dekho:
+#    app/llm/providers/registry.py, app/llm/router.py, app/core/config.py, .env.example, requirements.txt,
+#    docker-compose.yml, .github/ workflows, tests/ . Ek chhoti list do: kaunsi file me cloud-provider wiring add hui.
 
-STEP 2 - Cloud provider wiring REVERT karo
-   - registry.py: sirf OllamaProvider register ho (pehle jaisa). openai/anthropic/google/openrouter provider imports
-     aur registration hatao. `_create_provider` sirf "ollama" accept kare.
-   - config.py aur .env.example: OPENAI_*, ANTHROPIC_*, GOOGLE_AI_*, OPENROUTER_*, LLM_PRIMARY_PROVIDER ke cloud values
-     jo pichle run me add/uncomment hue wo hatao. LLM_PRIMARY_PROVIDER = "ollama" hi rahe (ya poora hata do agar sirf cloud ke liye tha).
-   - requirements.txt / Dockerfile: koi naya cloud SDK (openai, anthropic, google-generativeai) add hua ho to hatao.
-   - Tests: cloud provider ke liye likhe gaye tests/mocks hatao ya Ollama ke tests me badlo.
-   - Existing provider files (openai_provider.py, anthropic_provider.py, google_provider.py, openrouter_provider.py) pehle se repo me
-     the, unhe delete mat karo agar pehle se the. Bas registry se unregistered rahein.
-   - End me grep chalao: `grep -rniE "OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_AI_API_KEY|OPENROUTER_API_KEY" app/ .env.example docker-compose.yml .github/`
-     (providers/ ki files ko chhodkar) aur result dikhao; koi active reference nahi bachna chahiye.
+# STEP 2 - Cloud provider wiring REVERT karo
+#    - registry.py: sirf OllamaProvider register ho (pehle jaisa). openai/anthropic/google/openrouter provider imports
+#      aur registration hatao. `_create_provider` sirf "ollama" accept kare.
+#    - config.py aur .env.example: OPENAI_*, ANTHROPIC_*, GOOGLE_AI_*, OPENROUTER_*, LLM_PRIMARY_PROVIDER ke cloud values
+#      jo pichle run me add/uncomment hue wo hatao. LLM_PRIMARY_PROVIDER = "ollama" hi rahe (ya poora hata do agar sirf cloud ke liye tha).
+#    - requirements.txt / Dockerfile: koi naya cloud SDK (openai, anthropic, google-generativeai) add hua ho to hatao.
+#    - Tests: cloud provider ke liye likhe gaye tests/mocks hatao ya Ollama ke tests me badlo.
+#    - Existing provider files (openai_provider.py, anthropic_provider.py, google_provider.py, openrouter_provider.py) pehle se repo me
+#      the, unhe delete mat karo agar pehle se the. Bas registry se unregistered rahein.
+#    - End me grep chalao: `grep -rniE "OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_AI_API_KEY|OPENROUTER_API_KEY" app/ .env.example docker-compose.yml .github/`
+#      (providers/ ki files ko chhodkar) aur result dikhao; koi active reference nahi bachna chahiye.
 
-STEP 3 - Ollama ko reliable banao
-   a) Config (app/core/config.py + .env.example)
-      - OLLAMA_BASE_URL ka default "http://host.docker.internal:11434" sirf local dev ke liye. Prod me env se aayega.
-        ENVIRONMENT=production hote hue URL host.docker.internal/localhost ho to startup par WARNING log karo.
-      - Naya setting OLLAMA_CHAT_TIMEOUT_SECONDS (default 120). process_chat ka hardcoded asyncio.wait_for(30s) isse bind karo.
-        Frontend axios timeout 120s aur nginx 120s hai, to total request 110s se kam rakho.
-      - OLLAMA_MODEL env se override ho (default llama3.2:3b rahe).
-   b) Health aur startup
-      - App startup me Ollama /api/tags check karo, aur OLLAMA_MODEL + OLLAMA_EMBEDDING_MODEL pulled hain ya nahi. Na ho to ERROR log
-        (app crash mat karo).
-      - GET /api/v1/ai-hub (root.py) me real Ollama status, model name aur latency dikhao.
-      - Provider ek baar fail hone par mark_unhealthy() ho jata hai. Auto-recovery lagao (e.g. 30s baad dobara try ya background
-        health ping), warna ek timeout ke baad assistant permanently down rahega.
-   c) Outage handling (chat_assistant_service.process_chat)
-      - Ollama down/timeout/empty par fake "Based on the live workforce data..." wala success-fallback nahi. Ya to HTTP 503
-        (clear message), ya response me degraded=True ke saath sirf REAL DB metrics. Success=true ke saath error mat chhupao.
-        (Agar pichle run me ye already ho gaya hai to bas verify karo.)
-   d) Latency (small local model)
-      - Follow-up questions ke liye alag sequential LLM call nahi. Rule-based suggestions (DB metrics se) do ya asyncio.gather se
-        parallel chalao. Per-message 2 sequential LLM calls nahi.
-      - num_predict default ~512-1024, history last 10 messages, context chhota. keep_alive se model warm.
-   e) Concurrency
-      - OLLAMA_NUM_PARALLEL=1 hai. asyncio.Semaphore se chat requests queue karo; queue lambi ho to 429/503 "AI busy" do.
+# STEP 3 - Ollama ko reliable banao
+#    a) Config (app/core/config.py + .env.example)
+#       - OLLAMA_BASE_URL ka default "http://host.docker.internal:11434" sirf local dev ke liye. Prod me env se aayega.
+#         ENVIRONMENT=production hote hue URL host.docker.internal/localhost ho to startup par WARNING log karo.
+#       - Naya setting OLLAMA_CHAT_TIMEOUT_SECONDS (default 120). process_chat ka hardcoded asyncio.wait_for(30s) isse bind karo.
+#         Frontend axios timeout 120s aur nginx 120s hai, to total request 110s se kam rakho.
+#       - OLLAMA_MODEL env se override ho (default llama3.2:3b rahe).
+#    b) Health aur startup
+#       - App startup me Ollama /api/tags check karo, aur OLLAMA_MODEL + OLLAMA_EMBEDDING_MODEL pulled hain ya nahi. Na ho to ERROR log
+#         (app crash mat karo).
+#       - GET /api/v1/ai-hub (root.py) me real Ollama status, model name aur latency dikhao.
+#       - Provider ek baar fail hone par mark_unhealthy() ho jata hai. Auto-recovery lagao (e.g. 30s baad dobara try ya background
+#         health ping), warna ek timeout ke baad assistant permanently down rahega.
+#    c) Outage handling (chat_assistant_service.process_chat)
+#       - Ollama down/timeout/empty par fake "Based on the live workforce data..." wala success-fallback nahi. Ya to HTTP 503
+#         (clear message), ya response me degraded=True ke saath sirf REAL DB metrics. Success=true ke saath error mat chhupao.
+#         (Agar pichle run me ye already ho gaya hai to bas verify karo.)
+#    d) Latency (small local model)
+#       - Follow-up questions ke liye alag sequential LLM call nahi. Rule-based suggestions (DB metrics se) do ya asyncio.gather se
+#         parallel chalao. Per-message 2 sequential LLM calls nahi.
+#       - num_predict default ~512-1024, history last 10 messages, context chhota. keep_alive se model warm.
+#    e) Concurrency
+#       - OLLAMA_NUM_PARALLEL=1 hai. asyncio.Semaphore se chat requests queue karo; queue lambi ho to 429/503 "AI busy" do.
 
-STEP 4 - Tests
-   - Ollama down -> 503 ya degraded=True (success nahi).
-   - Provider unhealthy hone ke baad recovery.
-   - Registry me sirf "ollama" hai (assert).
-   - Purane tests na tootein. `pytest` ka result dikhao.
+# STEP 4 - Tests
+#    - Ollama down -> 503 ya degraded=True (success nahi).
+#    - Provider unhealthy hone ke baad recovery.
+#    - Registry me sirf "ollama" hai (assert).
+#    - Purane tests na tootein. `pytest` ka result dikhao.
 
-End me batao: kya revert hua, kaunsi files badli, kaunsi nayi env vars (sirf Ollama wali) ECS task definition me chahiye, aur pytest result."""Comprehensive tests for Analytics, Reports, and AI Insights hardening."""
+# End me batao: kya revert hua, kaunsi files badli, kaunsi nayi env vars (sirf Ollama wali) ECS task definition me chahiye, aur pytest result.
+"""Comprehensive tests for Analytics, Reports, and AI Insights hardening."""
 
 from __future__ import annotations
 

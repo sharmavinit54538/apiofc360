@@ -4983,7 +4983,7 @@ def downgrade() -> None:
     op.drop_table('announcement_reads')
     op.drop_index('ix_analysis_audit_user', table_name='analysis_audit_logs')
     op.drop_index('ix_analysis_audit_doc', table_name='analysis_audit_logs')
-op.drop_table('analysis_audit_logs')
+    op.drop_table('analysis_audit_logs')
     op.drop_index('ix_ai_messages_conversation_id', table_name='ai_messages')
     op.drop_table('ai_messages')
     op.drop_index('ix_agent_feedback_run_id', table_name='agent_feedback')
