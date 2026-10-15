@@ -69,14 +69,33 @@ async def run_migrations_with_lock() -> int:
                     try:
                         script_dir.get_revision(db_rev)
                     except CommandError:
-                        heads_str = code_heads[0] if code_heads else "head"
+                        target_head = code_heads[0] if code_heads else None
+                        if not target_head:
+                            print("[Entrypoint] ERROR: No codebase head found. Cannot auto-remediate.")
+                            return 1
                         print(f"[Entrypoint] WARNING: Database revision '{db_rev}' does not exist in local migration history!")
-                        print(f"[Entrypoint] Auto-remediating: stamping database to codebase head '{heads_str}'...")
-                        stamp_res = subprocess.run(["alembic", "stamp", heads_str])
-                        if stamp_res.returncode != 0:
-                            print(f"[Entrypoint] ERROR: Failed to stamp database to {heads_str}")
-                            return stamp_res.returncode
-                        print(f"[Entrypoint] Database successfully stamped to '{heads_str}'.")
+                        print(f"[Entrypoint] Auto-remediating: directly updating alembic_version to '{target_head}' via SQL...")
+                        try:
+                            # Direct SQL UPDATE bypasses alembic's own revision validation
+                            # (alembic stamp also fails when the current revision is unknown)
+                            await conn.execute(
+                                "UPDATE alembic_version SET version_num = $1",
+                                target_head,
+                            )
+                            updated = await conn.fetchval(
+                                "SELECT version_num FROM alembic_version WHERE version_num = $1",
+                                target_head,
+                            )
+                            if not updated:
+                                # Row may have been deleted; insert fresh
+                                await conn.execute(
+                                    "INSERT INTO alembic_version (version_num) VALUES ($1)",
+                                    target_head,
+                                )
+                            print(f"[Entrypoint] alembic_version successfully updated to '{target_head}'.")
+                        except Exception as sql_err:
+                            print(f"[Entrypoint] ERROR: Failed to update alembic_version via SQL: {sql_err}")
+                            return 1
                         break
 
         print("[Entrypoint] Database revision verified – running alembic upgrade head...")

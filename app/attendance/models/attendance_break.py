@@ -67,6 +67,6 @@ class AttendanceBreak(Base):
     )
 
     # Relationships
-    attendance: Mapped[Attendance] = relationship("Attendance", back_populates="breaks", lazy="select")
+    attendance: Mapped[Attendance] = relationship("app.attendance.models.attendance.Attendance", back_populates="breaks", lazy="select")
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
     company: Mapped[Optional[Company]] = relationship("Company", lazy="select")
