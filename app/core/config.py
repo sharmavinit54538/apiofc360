@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         default="",
         description="Secret key used for OTP hashing and other symmetric operations. Must be 32+ chars. Set via env var.",
     )
-    JWT_ALGORITHM: str = "RS256"
+    JWT_ALGORITHM: str = "HS256"
     JWT_PRIVATE_KEY: SecretStr = Field(
         default="",
         description="RSA private key (PEM format) for signing JWT tokens. Set via env var in production.",
