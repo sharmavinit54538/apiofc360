@@ -25,7 +25,7 @@ from app.schemas.chat_assistant import (
 from app.services.chat_assistant_service import ChatAssistantService
 from app.core.rbac import require_employee_or_above
 
-router = APIRouter(prefix="/ai/chat", tags=["AI Chat Assistant"])
+router = APIRouter(tags=["AI Chat Assistant"])
 
 
 async def get_chat_service(

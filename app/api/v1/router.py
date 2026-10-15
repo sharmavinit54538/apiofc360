@@ -221,9 +221,9 @@ def get_v1_router() -> APIRouter:
         router.include_router(r)
     
     # AI Module Routes
+    router.include_router(chat_assistant_router, prefix="/ai/chat")
     for r in (
         ai_copilot_router,
-        chat_assistant_router,
         ai_router,
         ai_recruiter_router,
         ai_attendance_router,
