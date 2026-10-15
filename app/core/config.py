@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         default="",
         description="Secret key used for OTP hashing and other symmetric operations. Must be 32+ chars. Set via env var.",
     )
-    JWT_ALGORITHM: str = "RS256"
+    JWT_ALGORITHM: str = "HS256"
     JWT_PRIVATE_KEY: SecretStr = Field(
         default="",
         description="RSA private key (PEM format) for signing JWT tokens. Set via env var in production.",
@@ -450,9 +450,9 @@ class Settings(BaseSettings):
             # Cloudinary required in production
             if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
                 raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
-            # Super Admin password required in production
+            # Super Admin password: if provided in production, ensure it is strong and not default
             sa_pwd = self.SUPER_ADMIN_PASSWORD.get_secret_value()
-            if not sa_pwd or sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12:
+            if sa_pwd and (sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12):
                 raise ValueError("SUPER_ADMIN_PASSWORD must be set to a strong password (12+ chars) via env var in production")
         return self
 

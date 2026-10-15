@@ -31,11 +31,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # Ollama Service (required - exclusive LLM provider)
+  # Ollama Service (optional LLM provider - enabled via --profile ai)
   ollama:
     image: ollama/ollama:latest
     container_name: ofc360_ollama
     restart: always
+    profiles:
+      - ai
     ports:
       - "127.0.0.1:11434:11434"
     volumes:
@@ -69,8 +71,6 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
