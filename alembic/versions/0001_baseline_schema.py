@@ -33,4 +33,8 @@ def downgrade() -> None:
     """Drop all tables - not recommended for production."""
     # This is a baseline migration - downgrade would drop everything.
     # Only use in development/test environments.
-    pass
+    op.execute("DROP TYPE IF EXISTS entryapprovalstatus CASCADE")
+    op.execute("DROP TYPE IF EXISTS shifttype CASCADE")
+    op.execute("DROP TYPE IF EXISTS shiftplansource CASCADE")
+    op.execute("DROP TYPE IF EXISTS shiftplanstatus CASCADE")
+    op.execute("DROP TYPE IF EXISTS user_role CASCADE")
