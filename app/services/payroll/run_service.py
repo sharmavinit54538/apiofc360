@@ -62,6 +62,7 @@ class PayrollRunService:
         period_id: uuid.UUID,
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> PayrollRun:
         # Verify period exists
         period_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
@@ -98,6 +99,19 @@ class PayrollRunService:
         session.add(run)
         await session.commit()
         await session.refresh(run)
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PayrollRun",
+            entity_id=run.id,
+            action="CREATE",
+            company_id=run.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=None,
+            after_status="DRAFT",
+            reason="Created payroll run",
+        )
 
         # Trigger automatic initial validation
         await cls.validate_run(session, run.id)

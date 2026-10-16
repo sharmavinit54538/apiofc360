@@ -346,6 +346,7 @@ class CompensationService:
         preview_token: str,
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> dict[str, Any]:
         cached = await redis_client.get(f"{cls.PREVIEW_PREFIX}{preview_token}")
         if not cached:

@@ -52,12 +52,15 @@ if TYPE_CHECKING:
 
 
 class PayrollPeriod(Base):
-    """Payroll Period defining calendar boundaries and pay dates for a company."""
+    """Payroll Period defining calendar boundaries and pay dates for a company.
+    Canonical period entity - all FKs point to this table.
+    """
 
     __tablename__ = "payroll_periods"
     __table_args__ = (
         Index("ix_payroll_periods_company_id", "company_id"),
         Index("ix_payroll_periods_dates", "start_date", "end_date"),
+        UniqueConstraint("company_id", "period_month", "period_year", name="uq_period_company_month_year"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -72,11 +75,16 @@ class PayrollPeriod(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     pay_date: Mapped[date] = mapped_column(Date, nullable=False)
+    processing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="OPEN", server_default=text("'OPEN'")
-    )  # OPEN | PROCESSING | CLOSED | VOID
+    )  # OPEN | LOCKED | PROCESSING | CLOSED | VOID
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    locked_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

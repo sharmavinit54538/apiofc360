@@ -23,6 +23,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.payroll_models import PayrollPeriod, PayrollRunEmployee
 
 
 class StatutoryComplianceConfig(Base):

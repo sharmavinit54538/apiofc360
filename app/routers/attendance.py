@@ -17,8 +17,6 @@ from app.schemas.core_modules.attendance import (
     AttendanceCheckOutRequest,
     AttendanceManualUpdateRequest,
     AttendanceRegularizationCreateRequest,
-    FaceCheckInRequest,
-    FaceEnrollRequest,
 )
 from app.services.core_modules.attendance_service import AttendanceCoreService
 
@@ -316,7 +314,7 @@ async def check_out(
 
 @router.post("/face/check-in")
 async def face_check_in(
-    payload: FaceCheckInRequest,
+    payload: AttendanceCheckInRequest,
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -332,7 +330,7 @@ async def face_check_in(
 
 @router.post("/face/check-out")
 async def face_check_out(
-    payload: FaceCheckInRequest,
+    payload: AttendanceCheckInRequest,
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -344,19 +342,6 @@ async def face_check_out(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
     record = await srv.face_check_out(emp.id, cid, payload)
     return _ok({"id": str(record.id), "verified": True, "punch_type": "OUT"})
-
-
-@router.post("/face-enroll")
-async def face_enroll(
-    payload: FaceEnrollRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    _require_admin_or_manager(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    res = await srv.face_enroll(cid, payload)
-    return _ok(res)
 
 
 @router.put("/{attendance_id}")
