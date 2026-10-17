@@ -466,6 +466,10 @@ class Settings(BaseSettings):
             self.OLLAMA_DEFAULT_MODEL = self.OLLAMA_MODEL
         elif "OLLAMA_DEFAULT_MODEL" in self.model_fields_set and "OLLAMA_MODEL" not in self.model_fields_set:
             self.OLLAMA_MODEL = self.OLLAMA_DEFAULT_MODEL
+        if "AI_SQL_MODEL" not in self.model_fields_set:
+            self.AI_SQL_MODEL = self.OLLAMA_MODEL
+        if "AI_ANSWER_MODEL" not in self.model_fields_set:
+            self.AI_ANSWER_MODEL = self.OLLAMA_MODEL
         return self
 
     @model_validator(mode="after")

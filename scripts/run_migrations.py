@@ -69,24 +69,9 @@ async def run_migrations_with_lock() -> int:
                     try:
                         script_dir.get_revision(db_rev)
                     except CommandError:
-                        target_head = code_heads[0] if code_heads else None
-                        if not target_head:
-                            print("[Entrypoint] ERROR: No codebase head found. Cannot auto-remediate.")
-                            return 1
-                        print(f"[Entrypoint] WARNING: Database revision '{db_rev}' does not exist in local migration history!")
-                        print(f"[Entrypoint] Auto-remediating: directly updating alembic_version to '{target_head}' via SQL...")
-                        try:
-                            # Cleanly delete stale/unknown revisions and insert single target_head
-                            await conn.execute("DELETE FROM alembic_version")
-                            await conn.execute(
-                                "INSERT INTO alembic_version (version_num) VALUES ($1)",
-                                target_head,
-                            )
-                            print(f"[Entrypoint] alembic_version successfully updated to '{target_head}'.")
-                        except Exception as sql_err:
-                            print(f"[Entrypoint] ERROR: Failed to update alembic_version via SQL: {sql_err}")
-                            return 1
-                        break
+                        print(f"[Entrypoint] FATAL: Database revision '{db_rev}' does not exist in local migration history!")
+                        print("[Entrypoint] Stamping without verification is prohibited. Aborting startup.")
+                        return 1
 
         print("[Entrypoint] Database revision verified – running alembic upgrade head...")
         result = subprocess.run(["alembic", "upgrade", "head"])
