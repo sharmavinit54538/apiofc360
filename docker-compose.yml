@@ -63,6 +63,7 @@ services:
     environment:
       - RUN_MIGRATIONS=true
       - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
@@ -85,6 +86,7 @@ services:
     environment:
       - RUN_MIGRATIONS=false
       - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
