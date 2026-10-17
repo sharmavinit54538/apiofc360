@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, status
@@ -100,8 +100,9 @@ async def test_department_list_limit_500_returns_422():
             headers={"Authorization": f"Bearer {token}"},
         )
         assert res.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        detail = str(res.json().get("detail", "")).lower()
-        assert "100" in detail or "less_than_equal" in detail or "limit" in detail
+        raw_text = str(res.json()).lower()
+        assert "100" in raw_text or "less_than_equal" in raw_text or "limit" in raw_text
+
 
 
 @pytest.mark.asyncio
@@ -265,10 +266,19 @@ async def test_seed_canonical_templates_fresh_db():
     """Verify document templates are seeded without foreign key violation when table is empty."""
     mock_session = AsyncMock()
 
-    # Empty existing templates
-    mock_exec_result = AsyncMock()
-    mock_exec_result.scalars.return_value.all.return_value = []
-    mock_session.execute.return_value = mock_exec_result
+    mock_template_result = MagicMock()
+    mock_template_result.scalars.return_value.all.return_value = []
+
+    mock_user_result = MagicMock()
+    mock_user_result.scalar_one_or_none.return_value = None
+
+    async def mock_execute(stmt):
+        stmt_str = str(stmt).lower()
+        if "user" in stmt_str:
+            return mock_user_result
+        return mock_template_result
+
+    mock_session.execute = AsyncMock(side_effect=mock_execute)
 
     inserted = await seed_canonical_templates_idempotent(mock_session)
 
@@ -281,6 +291,7 @@ async def test_seed_canonical_templates_fresh_db():
         added_obj = call[0][0]
         assert isinstance(added_obj, DocumentTemplate)
         assert str(added_obj.created_by) != "00000000-0000-0000-0000-000000000001"
+        assert added_obj.created_by is None
 
 
 @pytest.mark.asyncio
@@ -288,16 +299,45 @@ async def test_seed_canonical_templates_idempotent_no_duplicates():
     """Verify repeated seeding does not insert duplicates and is fully idempotent."""
     mock_session = AsyncMock()
 
-    # All canonical templates already present
-    mock_exec_result = AsyncMock()
-    mock_exec_result.scalars.return_value.all.return_value = [t["name"] for t in CANONICAL_TEMPLATES]
-    mock_session.execute.return_value = mock_exec_result
+    mock_template_result = MagicMock()
+    mock_template_result.scalars.return_value.all.return_value = [t["name"] for t in CANONICAL_TEMPLATES]
+
+    mock_session.execute = AsyncMock(return_value=mock_template_result)
 
     inserted = await seed_canonical_templates_idempotent(mock_session)
 
     assert inserted == 0
     mock_session.add.assert_not_called()
     mock_session.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_seed_canonical_templates_with_existing_user():
+    """Verify document templates attach legitimate existing admin user ID if one exists."""
+    mock_session = AsyncMock()
+    admin_id = uuid.uuid4()
+
+    mock_template_result = MagicMock()
+    mock_template_result.scalars.return_value.all.return_value = []
+
+    mock_user_result = MagicMock()
+    mock_user_result.scalar_one_or_none.return_value = admin_id
+
+    async def mock_execute(stmt):
+        stmt_str = str(stmt).lower()
+        if "user" in stmt_str:
+            return mock_user_result
+        return mock_template_result
+
+    mock_session.execute = AsyncMock(side_effect=mock_execute)
+
+    inserted = await seed_canonical_templates_idempotent(mock_session)
+
+    assert inserted == len(CANONICAL_TEMPLATES)
+    for call in mock_session.add.call_args_list:
+        added_obj = call[0][0]
+        assert added_obj.created_by == admin_id
+
 
 
 # ==============================================================================
