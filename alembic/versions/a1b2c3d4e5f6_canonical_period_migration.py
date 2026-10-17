@@ -37,8 +37,13 @@ def upgrade() -> None:
             status, is_locked, locked_by, locked_at, remarks, created_at, updated_at
         )
         SELECT 
-            pc.id, pc.company_id, pc.name, pc.start_date, pc.end_date, pc.payment_date,
-            pc.processing_date, pc.payment_date, pc.period_month, pc.period_year,
+            pc.id, pc.company_id, pc.name,
+            COALESCE(pc.start_date, make_date(pc.period_year, pc.period_month, 1)),
+            COALESCE(pc.end_date, (make_date(pc.period_year, pc.period_month, 1) + interval '1 month - 1 day')::date),
+            COALESCE(pc.payment_date, pc.end_date, (make_date(pc.period_year, pc.period_month, 1) + interval '1 month - 1 day')::date),
+            COALESCE(pc.processing_date, pc.end_date, (make_date(pc.period_year, pc.period_month, 1) + interval '1 month - 1 day')::date),
+            COALESCE(pc.payment_date, pc.end_date, (make_date(pc.period_year, pc.period_month, 1) + interval '1 month - 1 day')::date),
+            pc.period_month, pc.period_year,
             CASE pc.status
                 WHEN 'DRAFT' THEN 'OPEN'
                 WHEN 'SCHEDULED' THEN 'OPEN'

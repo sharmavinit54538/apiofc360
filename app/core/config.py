@@ -25,8 +25,8 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        """Check if environment is production (ENVIRONMENT in ('production', 'prod') or DEBUG is False)."""
-        return self.ENVIRONMENT.lower() in {"production", "prod"} or not self.DEBUG
+        """Check if environment is production (ENVIRONMENT in ('production', 'prod', 'staging'))."""
+        return self.ENVIRONMENT.lower() in {"production", "prod", "staging"}
 
     @property
     def should_enable_docs(self) -> bool:
@@ -183,6 +183,7 @@ class Settings(BaseSettings):
     OLLAMA_ENABLED: bool = True
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
     OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text:latest"
     OLLAMA_FALLBACK_MODEL: str = "gemma:2b"
@@ -461,6 +462,10 @@ class Settings(BaseSettings):
         """Set OLLAMA_HOST equal to OLLAMA_BASE_URL if not explicitly provided by env."""
         if "OLLAMA_HOST" not in self.model_fields_set:
             self.OLLAMA_HOST = self.OLLAMA_BASE_URL
+        if "OLLAMA_MODEL" in self.model_fields_set and "OLLAMA_DEFAULT_MODEL" not in self.model_fields_set:
+            self.OLLAMA_DEFAULT_MODEL = self.OLLAMA_MODEL
+        elif "OLLAMA_DEFAULT_MODEL" in self.model_fields_set and "OLLAMA_MODEL" not in self.model_fields_set:
+            self.OLLAMA_MODEL = self.OLLAMA_DEFAULT_MODEL
         return self
 
     @model_validator(mode="after")
@@ -468,12 +473,12 @@ class Settings(BaseSettings):
         """Warn if OLLAMA_BASE_URL uses host.docker.internal/localhost in production."""
         import logging
         logger = logging.getLogger(__name__)
-        if self.is_production:
+        if self.is_production and self.OLLAMA_ENABLED:
             base_url = self.OLLAMA_BASE_URL.lower()
-            if "host.docker.internal" in base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+            if any(local_addr in base_url for local_addr in ("localhost", "127.0.0.1", "host.docker.internal", "::1")):
                 logger.warning(
                     "OLLAMA_BASE_URL='%s' uses local address in production. "
-                    "Set OLLAMA_BASE_URL to your Ollama server's network address (e.g., http://ollama:11434 in Docker Compose).",
+                    "Set OLLAMA_BASE_URL to your Ollama server's network address (e.g., http://ollama:11434 in Docker Compose, or http://<ollama-host>:11434 on a separate server).",
                     self.OLLAMA_BASE_URL,
                 )
         return self
