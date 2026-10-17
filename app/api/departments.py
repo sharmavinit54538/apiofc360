@@ -16,6 +16,7 @@ from app.schemas.department import (
     DepartmentResponse,
     DepartmentUpdate,
     DepartmentStats,
+    DepartmentSummary,
 )
 from app.services.department_service import DepartmentService, get_department_service
 
@@ -85,12 +86,13 @@ async def list_departments(
     search: str | None = Query(None, description="Search by name or code"),
     sort_by: str | None = Query(None, description="Sort field"),
     sort_order: str | None = Query(None, description="Sort order (asc/desc)"),
-    page: int = Query(1, ge=1, le=100000),
-    limit: int = Query(20, ge=1, le=10000),
+    parent_id: uuid.UUID | None = Query(None, description="Filter by parent department ID"),
+    page: int = Query(1, ge=1, description="Page number (>= 1)"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page (1 to 100)"),
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     service: Annotated[DepartmentService, Depends(get_department_service)] = None,
 ) -> APIResponse[DepartmentListResponse]:
-    """List departments. Supports page, limit, search, status, sort_by, and sort_order filters."""
+    """List departments. Supports page, limit, search, status, sort_by, sort_order, and parent_id filters."""
     try:
         cid = _get_cid(claims)
         result = await service.list_departments(
@@ -98,6 +100,7 @@ async def list_departments(
             search=search,
             sort_by=sort_by,
             sort_order=sort_order,
+            parent_id=parent_id,
             page=page,
             limit=limit,
             company_id=cid,
@@ -124,17 +127,17 @@ async def list_departments(
 @router.get(
     "/summary",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
+    response_model=APIResponse[DepartmentSummary],
     summary="Get department summary metrics",
 )
 async def get_departments_summary(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
-) -> APIResponse[dict]:
+) -> APIResponse[DepartmentSummary]:
     """Get department summary metrics. Scoped by company_id."""
     cid = _get_cid(claims)
     summary = await service.get_departments_summary(company_id=cid)
-    return APIResponse[dict](
+    return APIResponse[DepartmentSummary](
         success=True,
         message="Department summary retrieved successfully.",
         data=summary,
@@ -163,11 +166,19 @@ async def get_department(
         data=dept,
         errors=None,
     )
+
+
 @router.put(
     "/{id}",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[DepartmentResponse],
     summary="Update department details",
+)
+@router.patch(
+    "/{id}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[DepartmentResponse],
+    summary="Update department details (partial)",
 )
 async def update_department(
     id: uuid.UUID,

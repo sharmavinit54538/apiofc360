@@ -172,7 +172,6 @@ def get_v1_router() -> APIRouter:
         core_performance_router.router,
         core_users_router.router,
         core_profile_router.router,
-        core_departments_router.router,
         core_compliance_router.router,
         core_employee_health_router.router,
         core_leave_assistant_router.router,

@@ -80,6 +80,7 @@ class DepartmentRepository:
         company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
+        parent_id: uuid.UUID | None = None,
         sort_by: str | None = None,
         sort_order: str | None = None,
         limit: int = 20,
@@ -88,6 +89,8 @@ class DepartmentRepository:
         filters = [self._active_filter()]
         if company_id is not None:
             filters.append(Department.company_id == company_id)
+        if parent_id is not None:
+            filters.append(Department.parent_department_id == parent_id)
 
         stmt = select(Department).where(and_(*filters)).options(
             selectinload(Department.parent_department),
@@ -121,7 +124,8 @@ class DepartmentRepository:
 
             sort_column = col.asc() if sort_order and sort_order.lower() == "asc" else col.desc()
 
-        stmt = stmt.order_by(sort_column).limit(limit).offset(offset)
+        # Deterministic secondary ordering by id to prevent pagination drift
+        stmt = stmt.order_by(sort_column, Department.id.asc()).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -130,10 +134,13 @@ class DepartmentRepository:
         company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
+        parent_id: uuid.UUID | None = None,
     ) -> int:
         filters = [self._active_filter()]
         if company_id is not None:
             filters.append(Department.company_id == company_id)
+        if parent_id is not None:
+            filters.append(Department.parent_department_id == parent_id)
 
         stmt = select(func.count()).select_from(Department).where(and_(*filters))
 
@@ -385,16 +392,32 @@ class DepartmentRepository:
         total_managers = int(row.managers or 0)
 
         emp_subquery = select(Department.id).where(and_(*dept_filters))
-        emp_stmt = select(func.count()).select_from(Employee).where(
-            and_(
-                Employee.is_deleted == False,  # noqa: E712
-                Employee.department_id.in_(emp_subquery),
-            )
-        )
+        emp_filters = [
+            Employee.is_deleted == False,  # noqa: E712
+            Employee.department_id.in_(emp_subquery),
+        ]
+        if company_id is not None:
+            emp_filters.append(Employee.company_id == company_id)
+        emp_stmt = select(func.count()).select_from(Employee).where(and_(*emp_filters))
         emp_res = await self.session.execute(emp_stmt)
         total_employees = int(emp_res.scalar_one() or 0)
 
         avg_team_size = round(total_employees / total_departments, 2) if total_departments > 0 else 0.0
+
+        open_positions = 0
+        try:
+            from app.models.recruitment import Job
+            job_filters = [
+                Job.is_deleted == False,  # noqa: E712
+                Job.status.in_(["OPEN", "PUBLISHED", "ACTIVE"]),
+            ]
+            if company_id is not None:
+                job_filters.append(Job.company_id == company_id)
+            job_stmt = select(func.coalesce(func.sum(Job.vacancies), 0)).select_from(Job).where(and_(*job_filters))
+            job_res = await self.session.execute(job_stmt)
+            open_positions = int(job_res.scalar_one() or 0)
+        except Exception:
+            open_positions = 0
 
         return {
             "total_departments": total_departments,
@@ -403,6 +426,6 @@ class DepartmentRepository:
             "total_employees": total_employees,
             "total_managers": total_managers,
             "avg_team_size": avg_team_size,
-            "open_positions": 0,
+            "open_positions": open_positions,
             "hiring_departments": hiring_departments,
         }

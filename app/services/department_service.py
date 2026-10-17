@@ -254,6 +254,7 @@ class DepartmentService:
         search: str | None = None,
         sort_by: str | None = None,
         sort_order: str | None = None,
+        parent_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
         company_id: uuid.UUID | None = None,
@@ -264,6 +265,7 @@ class DepartmentService:
                 company_id=company_id,
                 status=status_filter,
                 search=search,
+                parent_id=parent_id,
                 sort_by=sort_by,
                 sort_order=sort_order,
                 limit=limit,
@@ -273,6 +275,7 @@ class DepartmentService:
                 company_id=company_id,
                 status=status_filter,
                 search=search,
+                parent_id=parent_id,
             )
 
             items = []
