@@ -64,9 +64,9 @@ echo "[Deploy] Upgrading pip..."
 echo "[Deploy] Installing dependencies from requirements.txt..."
 "$PIP" install -r requirements.txt
 
-# 3. Compile Python syntax across app/
-echo "[Deploy] Compiling Python syntax across app/..."
-"$PY" -m compileall -q app
+# 3. Compile Python syntax across app/ and alembic/
+echo "[Deploy] Compiling Python syntax across app/ and alembic/..."
+"$PY" -m compileall -q app alembic
 
 # 4. Validate settings configuration without logging sensitive variable values
 echo "[Deploy] Validating settings configuration..."

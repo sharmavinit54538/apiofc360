@@ -36,12 +36,14 @@ logger = logging.getLogger(__name__)
 # Department Code Generator (e.g. DEP0001, DEP0002)
 # ---------------------------------------------------------------------------
 
-async def generate_department_code(session: AsyncSession) -> str:
+async def generate_department_code(session: AsyncSession, company_id: uuid.UUID | None = None) -> str:
     from app.models.department import Department
     from sqlalchemy import select
+
+    cid_filter = Department.company_id == company_id if company_id is not None else Department.company_id.is_(None)
     result = await session.execute(
         select(Department.department_code)
-        .where(Department.department_code.like("DEP%"))
+        .where(Department.department_code.like("DEP%"), cid_filter)
         .order_by(Department.department_code.desc())
         .limit(1)
     )
@@ -53,11 +55,11 @@ async def generate_department_code(session: AsyncSession) -> str:
             seq = 1
     else:
         seq = 1
-    
+
     while True:
         code = f"DEP{seq:04d}"
         check = await session.execute(
-            select(Department).where(Department.department_code == code)
+            select(Department).where(Department.department_code == code, cid_filter)
         )
         if not check.scalar_one_or_none():
             return code
@@ -98,7 +100,7 @@ class DepartmentService:
                 reporting_manager_name = m_user.name
 
         if dept.parent_department_id:
-            parent = await self.repo.get_by_id_raw(dept.parent_department_id)
+            parent = await self.repo.get_by_id(dept.parent_department_id)
             if parent:
                 parent_name = parent.department_name
                 if not reporting_manager_id:
@@ -143,11 +145,13 @@ class DepartmentService:
     # CRUD Operations
     # ------------------------------------------------------------------
 
-    async def create_department(self, user_id: uuid.UUID, payload: DepartmentCreate) -> DepartmentResponse:
-        logger.info("create_department | user_id=%s | name=%s", user_id, payload.department_name)
+    async def create_department(
+        self, user_id: uuid.UUID, payload: DepartmentCreate, company_id: uuid.UUID | None = None
+    ) -> DepartmentResponse:
+        logger.info("create_department | user_id=%s | name=%s | company_id=%s", user_id, payload.department_name, company_id)
         try:
             # Uniqueness check (including soft-deleted ones)
-            existing = await self.repo.get_by_name_all(payload.department_name)
+            existing = await self.repo.get_by_name_all(payload.department_name, company_id=company_id)
             if existing and not existing.is_deleted:
                 raise ConflictException(
                     message="A department with this name already exists.",
@@ -156,14 +160,14 @@ class DepartmentService:
 
             # Parent check
             if payload.parent_department_id:
-                parent = await self.repo.get_by_id_raw(payload.parent_department_id)
+                parent = await self.repo.get_by_id_raw(payload.parent_department_id, company_id=company_id)
                 if not parent:
                     raise AppException(message="Parent department not found.", status_code=status.HTTP_400_BAD_REQUEST)
 
             # Manager Head check
             resolved_manager_user_id = None
             if payload.manager_id:
-                manager = await self.repo.get_manager_by_user_id(payload.manager_id)
+                manager = await self.repo.get_manager_by_user_id(payload.manager_id, company_id=company_id)
                 if not manager:
                     raise AppException(
                         message="Department Head must be a valid User with MANAGER role.",
@@ -190,6 +194,7 @@ class DepartmentService:
                 dept = existing
                 dept.is_deleted = False
                 dept.deleted_at = None
+                dept.company_id = company_id
                 dept.description = payload.description.strip()
                 dept.manager_id = resolved_manager_user_id
                 dept.parent_department_id = payload.parent_department_id
@@ -200,29 +205,39 @@ class DepartmentService:
                 dept.extension_number = payload.extension_number.strip() if payload.extension_number else None
                 dept.employee_capacity = payload.employee_capacity if payload.employee_capacity is not None else 100
                 dept.status = payload.status
+                await self.session.commit()
             else:
-                code = await generate_department_code(self.session)
-                dept_kwargs = {
-                    "department_code": code,
-                    "department_name": payload.department_name.strip(),
-                    "description": payload.description.strip(),
-                    "manager_id": resolved_manager_user_id,
-                    "parent_department_id": payload.parent_department_id,
-                    "branch_id": payload.branch_id,
-                    "location": payload.location.strip(),
-                    "cost_center": cost_center_str or f"CC-{code.replace('DEP', '')}",
-                    "budget": payload.budget,
-                    "extension_number": payload.extension_number.strip() if payload.extension_number else None,
-                    "employee_capacity": payload.employee_capacity if payload.employee_capacity is not None else 100,
-                    "status": payload.status,
-                    "created_by": user_id,
-                }
-                dept = await self.repo.create_department(**dept_kwargs)
-
-            await self.session.commit()
+                dept = None
+                for attempt in range(3):
+                    code = await generate_department_code(self.session, company_id=company_id)
+                    dept_kwargs = {
+                        "department_code": code,
+                        "department_name": payload.department_name.strip(),
+                        "description": payload.description.strip(),
+                        "manager_id": resolved_manager_user_id,
+                        "parent_department_id": payload.parent_department_id,
+                        "branch_id": payload.branch_id,
+                        "location": payload.location.strip(),
+                        "cost_center": cost_center_str or f"CC-{code.replace('DEP', '')}",
+                        "budget": payload.budget,
+                        "extension_number": payload.extension_number.strip() if payload.extension_number else None,
+                        "employee_capacity": payload.employee_capacity if payload.employee_capacity is not None else 100,
+                        "status": payload.status,
+                        "created_by": user_id,
+                        "company_id": company_id,
+                    }
+                    try:
+                        dept = await self.repo.create_department(**dept_kwargs)
+                        await self.session.commit()
+                        break
+                    except IntegrityError:
+                        await self.session.rollback()
+                        dept = None
+                        if attempt == 2:
+                            raise ConflictException("Could not generate a unique department code, please retry.")
 
             # Re-fetch with loaded relations
-            full_dept = await self.repo.get_by_id(dept.id)
+            full_dept = await self.repo.get_by_id(dept.id, company_id=company_id)
             return await self._to_response(full_dept)
 
         except (AppException, ConflictException):
@@ -239,22 +254,28 @@ class DepartmentService:
         search: str | None = None,
         sort_by: str | None = None,
         sort_order: str | None = None,
+        parent_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
+        company_id: uuid.UUID | None = None,
     ) -> DepartmentListResponse:
         try:
             offset = (page - 1) * limit
             departments = await self.repo.list_departments(
+                company_id=company_id,
                 status=status_filter,
                 search=search,
+                parent_id=parent_id,
                 sort_by=sort_by,
                 sort_order=sort_order,
                 limit=limit,
                 offset=offset,
             )
             total = await self.repo.count_departments(
+                company_id=company_id,
                 status=status_filter,
                 search=search,
+                parent_id=parent_id,
             )
 
             items = []
@@ -308,9 +329,9 @@ class DepartmentService:
             logger.exception("list_departments: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def get_department(self, department_uuid: uuid.UUID) -> DepartmentResponse:
+    async def get_department(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> DepartmentResponse:
         try:
-            dept = await self.repo.get_by_id(department_uuid)
+            dept = await self.repo.get_by_id(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
             return await self._to_response(dept)
@@ -321,11 +342,11 @@ class DepartmentService:
             raise DatabaseException() from exc
 
     async def update_department(
-        self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: DepartmentUpdate
+        self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: DepartmentUpdate, company_id: uuid.UUID | None = None
     ) -> DepartmentResponse:
-        logger.info("update_department | user_id=%s | dept_id=%s", user_id, department_uuid)
+        logger.info("update_department | user_id=%s | dept_id=%s | company_id=%s", user_id, department_uuid, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -375,7 +396,7 @@ class DepartmentService:
                         update_data[field] = None
 
             if "department_name" in update_data:
-                existing = await self.repo.get_by_name_all(update_data["department_name"])
+                existing = await self.repo.get_by_name_all(update_data["department_name"], company_id=company_id)
                 if existing and existing.id != department_uuid:
                     if existing.is_deleted:
                         raise ConflictException(
@@ -394,12 +415,12 @@ class DepartmentService:
                         message="A department cannot be its own parent.",
                         status_code=status.HTTP_400_BAD_REQUEST,
                     )
-                parent = await self.repo.get_by_id_raw(update_data["parent_department_id"])
+                parent = await self.repo.get_by_id_raw(update_data["parent_department_id"], company_id=company_id)
                 if not parent:
                     raise AppException(message="Parent department not found.", status_code=status.HTTP_400_BAD_REQUEST)
 
             if "manager_id" in update_data and update_data["manager_id"] is not None:
-                manager = await self.repo.get_manager_by_user_id(update_data["manager_id"])
+                manager = await self.repo.get_manager_by_user_id(update_data["manager_id"], company_id=company_id)
                 if not manager:
                     raise AppException(
                         message="Department Head must be a valid User with MANAGER role.",
@@ -407,10 +428,10 @@ class DepartmentService:
                     )
                 update_data["manager_id"] = manager.id
 
-            await self.repo.update_department(department_uuid, **update_data)
+            await self.repo.update_department(department_uuid, company_id=company_id, **update_data)
             await self.session.commit()
 
-            full_dept = await self.repo.get_by_id(department_uuid)
+            full_dept = await self.repo.get_by_id(department_uuid, company_id=company_id)
             return await self._to_response(full_dept)
 
         except (AppException, ConflictException):
@@ -421,10 +442,10 @@ class DepartmentService:
             logger.exception("update_department: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def delete_department(self, user_id: uuid.UUID, department_uuid: uuid.UUID) -> None:
-        logger.info("delete_department | user_id=%s | dept_id=%s", user_id, department_uuid)
+    async def delete_department(self, user_id: uuid.UUID, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        logger.info("delete_department | user_id=%s | dept_id=%s | company_id=%s", user_id, department_uuid, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -436,7 +457,7 @@ class DepartmentService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            await self.repo.soft_delete(department_uuid)
+            await self.repo.soft_delete(department_uuid, company_id=company_id)
             await self.session.commit()
             logger.info("delete_department: success | dept_id=%s", department_uuid)
 
@@ -452,21 +473,23 @@ class DepartmentService:
     # Assign Manager & Employees
     # ------------------------------------------------------------------
 
-    async def assign_manager(self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: AssignManagerRequest) -> None:
-        logger.info("assign_manager | user_id=%s | dept_id=%s", user_id, department_uuid)
+    async def assign_manager(
+        self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: AssignManagerRequest, company_id: uuid.UUID | None = None
+    ) -> None:
+        logger.info("assign_manager | user_id=%s | dept_id=%s | company_id=%s", user_id, department_uuid, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            manager = await self.repo.get_manager_by_user_id(payload.manager_user_id)
+            manager = await self.repo.get_manager_by_user_id(payload.manager_user_id, company_id=company_id)
             if not manager:
                 raise AppException(
                     message="Department Head must be a valid User with MANAGER role.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            await self.repo.assign_manager(department_uuid, manager.id)
+            await self.repo.assign_manager(department_uuid, manager.id, company_id=company_id)
             await self.session.commit()
 
         except AppException:
@@ -477,14 +500,14 @@ class DepartmentService:
             logger.exception("assign_manager: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def remove_manager(self, user_id: uuid.UUID, department_uuid: uuid.UUID) -> None:
-        logger.info("remove_manager | user_id=%s | dept_id=%s", user_id, department_uuid)
+    async def remove_manager(self, user_id: uuid.UUID, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        logger.info("remove_manager | user_id=%s | dept_id=%s | company_id=%s", user_id, department_uuid, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            await self.repo.remove_manager(department_uuid)
+            await self.repo.remove_manager(department_uuid, company_id=company_id)
             await self.session.commit()
 
         except AppException:
@@ -495,15 +518,17 @@ class DepartmentService:
             logger.exception("remove_manager: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def assign_employees(self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: AssignEmployeesRequest) -> None:
-        logger.info("assign_employees | user_id=%s | dept_id=%s", user_id, department_uuid)
+    async def assign_employees(
+        self, user_id: uuid.UUID, department_uuid: uuid.UUID, payload: AssignEmployeesRequest, company_id: uuid.UUID | None = None
+    ) -> None:
+        logger.info("assign_employees | user_id=%s | dept_id=%s | company_id=%s", user_id, department_uuid, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
-                raise AppException(message="Department not found.", status_code=status.HTTP_440_NOT_FOUND if hasattr(status, "HTTP_440_NOT_FOUND") else status.HTTP_404_NOT_FOUND)
+                raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
             # Assign all employee records to this department
-            await self.repo.assign_employees(department_uuid, payload.employee_ids)
+            await self.repo.assign_employees(department_uuid, payload.employee_ids, company_id=company_id)
             await self.session.commit()
 
         except AppException:
@@ -514,14 +539,16 @@ class DepartmentService:
             logger.exception("assign_employees: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def remove_employee(self, user_id: uuid.UUID, department_uuid: uuid.UUID, employee_id: uuid.UUID) -> None:
-        logger.info("remove_employee | user_id=%s | dept_id=%s | emp_id=%s", user_id, department_uuid, employee_id)
+    async def remove_employee(
+        self, user_id: uuid.UUID, department_uuid: uuid.UUID, employee_id: uuid.UUID, company_id: uuid.UUID | None = None
+    ) -> None:
+        logger.info("remove_employee | user_id=%s | dept_id=%s | emp_id=%s | company_id=%s", user_id, department_uuid, employee_id, company_id)
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            await self.repo.remove_employee_from_department(employee_id)
+            await self.repo.remove_employee_from_department(employee_id, company_id=company_id)
             await self.session.commit()
 
         except AppException:
@@ -532,13 +559,13 @@ class DepartmentService:
             logger.exception("remove_employee: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def get_department_employees(self, department_uuid: uuid.UUID) -> list[Any]:
+    async def get_department_employees(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> list[Any]:
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
-            employees = await self.repo.get_department_employees(department_uuid)
+            employees = await self.repo.get_department_employees(department_uuid, company_id=company_id)
             # return custom briefs or response objects
             return employees
         except AppException:
@@ -547,16 +574,16 @@ class DepartmentService:
             logger.exception("get_department_employees: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def get_department_stats(self, department_uuid: uuid.UUID) -> DepartmentStats:
+    async def get_department_stats(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> DepartmentStats:
         try:
-            dept = await self.repo.get_by_id_raw(department_uuid)
+            dept = await self.repo.get_by_id_raw(department_uuid, company_id=company_id)
             if not dept:
                 raise AppException(message="Department not found.", status_code=status.HTTP_404_NOT_FOUND)
 
             active_cnt = await self.repo.get_employee_count(department_uuid, active_only=True)
             inactive_cnt = await self.repo.get_inactive_employee_count(department_uuid)
             total_cnt = active_cnt + inactive_cnt
-            subs_cnt = await self.repo.get_sub_departments_count(department_uuid)
+            subs_cnt = await self.repo.get_sub_departments_count(department_uuid, company_id=company_id)
 
             return DepartmentStats(
                 department_id=department_uuid,
@@ -570,6 +597,13 @@ class DepartmentService:
             raise
         except SQLAlchemyError as exc:
             logger.exception("get_department_stats: db error", exc_info=exc)
+            raise DatabaseException() from exc
+
+    async def get_departments_summary(self, company_id: uuid.UUID | None = None) -> dict[str, Any]:
+        try:
+            return await self.repo.get_departments_summary(company_id=company_id)
+        except SQLAlchemyError as exc:
+            logger.exception("get_departments_summary: db error", exc_info=exc)
             raise DatabaseException() from exc
 
 

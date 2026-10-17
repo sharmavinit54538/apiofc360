@@ -43,6 +43,7 @@ class VariableInputService:
         session: AsyncSession,
         period_id: Optional[str] = None,
         type_filter: Optional[str] = None,
+        input_type: Optional[str] = None,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
         page: int = 1,
@@ -61,8 +62,10 @@ class VariableInputService:
                 stmt = stmt.where(VariableInput.period_id == p_uuid)
             except ValueError:
                 pass
-        if type_filter:
-            stmt = stmt.where(VariableInput.type == type_filter.lower())
+        # Accept both type_filter and input_type for backward compatibility
+        effective_type_filter = type_filter or input_type
+        if effective_type_filter:
+            stmt = stmt.where(VariableInput.type == effective_type_filter.lower())
         if status_filter:
             stmt = stmt.where(VariableInput.status == status_filter.upper())
         if search:
@@ -95,6 +98,7 @@ class VariableInputService:
         payload: VariableInputCreateRequest,
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> VariableInput:
         emp_id = uuid.UUID(payload.employee_id)
         p_id = uuid.UUID(payload.period_id)
@@ -131,6 +135,7 @@ class VariableInputService:
             action="CREATE",
             company_id=target_company_id,
             actor_id=user_id,
+            actor_role=user_role,
             before_status=None,
             after_status="PENDING",
             reason=f"Created {payload.type} variable input",
@@ -278,7 +283,7 @@ class VariableInputService:
 
     @classmethod
     async def apply_bulk_inputs(
-        cls, session: AsyncSession, preview_token: str, company_id: Optional[uuid.UUID] = None, user_id: Optional[uuid.UUID] = None
+        cls, session: AsyncSession, preview_token: str, company_id: Optional[uuid.UUID] = None, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> dict[str, Any]:
         cached = await redis_client.get(f"{cls.PREVIEW_PREFIX}{preview_token}")
         if not cached:

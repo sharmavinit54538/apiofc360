@@ -15,8 +15,24 @@ from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTClaimsE
 from app.core.config import settings
 
 
-_JWT_ALGORITHM: str = settings.JWT_ALGORITHM
-_IS_SYMMETRIC: bool = _JWT_ALGORITHM.upper().startswith("HS")
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _get_algorithm() -> str:
+    algo = settings.JWT_ALGORITHM.upper()
+    if algo.startswith("HS"):
+        return algo
+    pem = settings.JWT_PRIVATE_KEY.get_secret_value().strip()
+    if not pem or not pem.startswith("-----BEGIN"):
+        return "HS256"
+    return algo
+
+
+def _is_symmetric() -> bool:
+    return _get_algorithm().startswith("HS")
+
 
 # ---------------------------------------------------------------------------
 # Key helpers — lazy-loaded once on first use
@@ -32,7 +48,7 @@ _PUBLIC_KEY: Any = None
 
 def _get_signing_key() -> Any:
     """Return the key used to *sign* tokens (private RSA key or SECRET_KEY)."""
-    if _IS_SYMMETRIC:
+    if _is_symmetric():
         global _SYMMETRIC_KEY
         if _SYMMETRIC_KEY is None:
             _SYMMETRIC_KEY = settings.SECRET_KEY.get_secret_value()
@@ -40,18 +56,25 @@ def _get_signing_key() -> Any:
 
     global _PRIVATE_KEY
     if _PRIVATE_KEY is None:
-        from cryptography.hazmat.primitives import serialization
-        pem = settings.JWT_PRIVATE_KEY.get_secret_value()
-        _PRIVATE_KEY = serialization.load_pem_private_key(
-            pem.encode("utf-8"),
-            password=None,
-        )
+        pem = settings.JWT_PRIVATE_KEY.get_secret_value().strip()
+        if not pem or not pem.startswith("-----BEGIN"):
+            logger.warning("JWT_PRIVATE_KEY not configured or not valid PEM; falling back to HS256 with SECRET_KEY")
+            return settings.SECRET_KEY.get_secret_value()
+        try:
+            from cryptography.hazmat.primitives import serialization
+            _PRIVATE_KEY = serialization.load_pem_private_key(
+                pem.encode("utf-8"),
+                password=None,
+            )
+        except Exception as e:
+            logger.warning("Failed to load JWT_PRIVATE_KEY: %s; falling back to HS256 with SECRET_KEY", e)
+            return settings.SECRET_KEY.get_secret_value()
     return _PRIVATE_KEY
 
 
 def _get_verification_key() -> Any:
     """Return the key used to *verify* tokens (public RSA key or SECRET_KEY)."""
-    if _IS_SYMMETRIC:
+    if _is_symmetric():
         global _SYMMETRIC_KEY
         if _SYMMETRIC_KEY is None:
             _SYMMETRIC_KEY = settings.SECRET_KEY.get_secret_value()
@@ -59,11 +82,18 @@ def _get_verification_key() -> Any:
 
     global _PUBLIC_KEY
     if _PUBLIC_KEY is None:
-        from cryptography.hazmat.primitives import serialization
-        pem = settings.JWT_PUBLIC_KEY.get_secret_value()
-        _PUBLIC_KEY = serialization.load_pem_public_key(
-            pem.encode("utf-8"),
-        )
+        pem = settings.JWT_PUBLIC_KEY.get_secret_value().strip()
+        if not pem or not pem.startswith("-----BEGIN"):
+            logger.warning("JWT_PUBLIC_KEY not configured or not valid PEM; falling back to HS256 with SECRET_KEY")
+            return settings.SECRET_KEY.get_secret_value()
+        try:
+            from cryptography.hazmat.primitives import serialization
+            _PUBLIC_KEY = serialization.load_pem_public_key(
+                pem.encode("utf-8"),
+            )
+        except Exception as e:
+            logger.warning("Failed to load JWT_PUBLIC_KEY: %s; falling back to HS256 with SECRET_KEY", e)
+            return settings.SECRET_KEY.get_secret_value()
     return _PUBLIC_KEY
 
 
@@ -94,7 +124,7 @@ def create_access_token(
         payload["email"] = str(email).strip().lower()
     if company_id:
         payload["company_id"] = str(company_id)
-    return jwt.encode(payload, _get_signing_key(), algorithm=_JWT_ALGORITHM)
+    return jwt.encode(payload, _get_signing_key(), algorithm=_get_algorithm())
 
 
 def create_refresh_token(user_id: Any) -> str:
@@ -109,7 +139,7 @@ def create_refresh_token(user_id: Any) -> str:
         "iat": int(now.timestamp()),
         "jti": str(uuid.uuid4()),
     }
-    return jwt.encode(payload, _get_signing_key(), algorithm=_JWT_ALGORITHM)
+    return jwt.encode(payload, _get_signing_key(), algorithm=_get_algorithm())
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +150,15 @@ def create_refresh_token(user_id: Any) -> str:
 def decode_token(token: str) -> dict[str, Any]:
     """Decode and validate a JWT token; returns token claims.
 
-    Accepts only the configured algorithm (HS256 or RS256).
+    Accepts configured algorithm (HS256 or RS256).
     """
 
     try:
+        algo = _get_algorithm()
         return jwt.decode(
             token,
             _get_verification_key(),
-            algorithms=[_JWT_ALGORITHM],
+            algorithms=[algo, "HS256", "RS256"],
             options={"verify_signature": True, "verify_exp": True, "verify_iat": True},
         )
     except ExpiredSignatureError as exc:

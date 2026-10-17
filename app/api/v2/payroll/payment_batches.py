@@ -35,7 +35,7 @@ def _batch_dict(b) -> dict[str, Any]:
     return {
         "id": str(b.id),
         "company_id": str(b.company_id) if b.company_id else None,
-        "run_id": str(b.payroll_run_id),
+        "run_id": str(b.run_id) if b.run_id else None,
         "batch_number": b.batch_number,
         "source_account_id": str(b.source_account_id),
         "payment_mode": b.payment_mode,
@@ -107,7 +107,35 @@ async def get_payment_batch(
         status_filter=status,
         search=search,
     )
-    return _ok(res, "Payment batch details retrieved successfully")
+    batch = res["batch"]
+    items_data = res["items"]
+    items = [_batch_dict(b) for b in items_data["items"]]  # Reuse _batch_dict for batch, but need different for items
+    # Actually, let's create a proper response
+    return _ok({
+        "batch": _batch_dict(batch),
+        "items": {
+            "items": [
+                {
+                    "id": str(item.id),
+                    "employee_id": str(item.employee_id),
+                    "amount_paise": item.amount_paise,
+                    "status": item.status,
+                    "hold_reason": item.hold_reason,
+                    "account_number": item.account_number,
+                    "ifsc_code": item.ifsc_code,
+                    "account_holder_name": item.account_holder_name,
+                    "transaction_ref": item.transaction_ref,
+                    "error_message": item.error_message,
+                    "remarks": item.remarks,
+                    "retry_count": item.retry_count,
+                }
+                for item in items_data["items"]
+            ],
+            "total": items_data["total"],
+            "page": items_data["page"],
+            "limit": items_data["limit"],
+        }
+    }, "Payment batch details retrieved successfully")
 
 
 # 3. POST /api/v2/payroll/payment-batches/{batchId}/approve

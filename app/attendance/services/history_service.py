@@ -13,7 +13,8 @@ from app.attendance.repositories.attendance_repository import AttendanceReposito
 from app.attendance.repositories.history_repository import AttendanceHistoryRepository
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.break_service import BreakService
-from app.attendance.services.shift_service import ShiftService
+from app.attendance.services.shift_service import ResolvedShift, ShiftService
+from app.attendance.utils.timezone import get_company_tz
 from app.core.exceptions import AppException
 
 
@@ -33,13 +34,22 @@ class AttendanceHistoryService:
         if not employee:
             raise AppException("Employee record not found.", status_code=404)
 
+        tz = await get_company_tz(self.db, str(employee.company_id))
+        company_today = date.today()  # This will be replaced with company_today(tz) when needed
+
+        # Get active session first (might be from previous day for overnight shifts)
+        active_session = await self.repo.get_active_session(employee.id)
+
+        # Resolve shift for today
         today = date.today()
-        # Resolve shift information
-        shift_info = await self.shift_service.resolve_employee_shift(employee, today)
+        shift_info = await self.shift_service.resolve_for_date(employee, today, tz)
         is_enrolled = bool(getattr(employee, "is_face_enrolled", False) and getattr(employee, "face_embedding", None))
         enrolled_at = getattr(employee, "face_enrolled_at", None)
 
-        record = await self.repo.get_record_by_date(employee.id, today)
+        # Determine which record to use: active session (any date) or today's record
+        record = active_session
+        if not record:
+            record = await self.repo.get_record_by_date(employee.id, today)
 
         emp_summary = {
             "id": employee.id,
@@ -53,15 +63,16 @@ class AttendanceHistoryService:
         }
 
         shift_summary = {
-            "shift_id": str(shift_info.get("shift_id")) if shift_info.get("shift_id") else None,
-            "shift_name": shift_info.get("shift_name"),
-            "start_time": shift_info["start_time"].strftime("%H:%M") if shift_info.get("start_time") else None,
-            "end_time": shift_info["end_time"].strftime("%H:%M") if shift_info.get("end_time") else None,
-            "grace_period_mins": shift_info.get("grace_period_mins"),
-            "is_overnight": shift_info.get("is_overnight", False),
-            "is_off": shift_info.get("is_off", False),
-            "is_holiday": shift_info.get("is_holiday", False),
-            "holiday_name": shift_info.get("holiday_name"),
+            "shift_id": str(shift_info.shift_id) if shift_info.shift_id else None,
+            "shift_name": shift_info.shift_name,
+            "start_time": shift_info.start_dt.strftime("%H:%M") if shift_info.start_dt else None,
+            "end_time": shift_info.end_dt.strftime("%H:%M") if shift_info.end_dt else None,
+            "grace_period_mins": shift_info.grace_period_mins,
+            "is_overnight": shift_info.is_overnight,
+            "is_off": shift_info.is_off,
+            "is_holiday": shift_info.is_holiday,
+            "holiday_name": shift_info.holiday_name,
+            "source": shift_info.source,
         }
 
         if not record:
@@ -91,9 +102,15 @@ class AttendanceHistoryService:
         break_summary = await self.break_service.get_break_summary(record.id)
 
         checked_out = record.check_out_time is not None
-        msg = f"Checked in at {record.check_in_time.strftime('%I:%M %p')}."
-        if checked_out and record.check_out_time:
-            msg += f" Checked out at {record.check_out_time.strftime('%I:%M %p')}."
+        msg = "You have not checked in yet today."
+        if record.check_in_time:
+            # Format in company timezone
+            from app.attendance.utils.timezone import to_company_local
+            check_in_local = to_company_local(record.check_in_time, tz)
+            msg = f"Checked in at {check_in_local.strftime('%I:%M %p')}."
+            if checked_out and record.check_out_time:
+                check_out_local = to_company_local(record.check_out_time, tz)
+                msg += f" Checked out at {check_out_local.strftime('%I:%M %p')}."
 
         record.employee_name = f"{employee.first_name} {employee.last_name}"
         today_att_serialized = AttendanceResponse.model_validate(record)

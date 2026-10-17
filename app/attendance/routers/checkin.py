@@ -46,6 +46,7 @@ async def _handle_checkin_request(
     content_type = request.headers.get("content-type", "").lower()
     service = AttendanceCheckInService(db)
     client_ip = request.client.host if request.client else None
+    idempotency_key = request.headers.get("Idempotency-Key")
 
     image_b64: Optional[str] = None
     location_dict: Optional[dict] = None
@@ -101,6 +102,7 @@ async def _handle_checkin_request(
         notes=notes,
         device_info=device_info,
         ip_address=client_ip,
+        idempotency_key=idempotency_key,
     )
 
     return {

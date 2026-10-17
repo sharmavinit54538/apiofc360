@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,19 +17,17 @@ from app.schemas.core_modules.attendance import (
     AttendanceCheckOutRequest,
     AttendanceManualUpdateRequest,
     AttendanceRegularizationCreateRequest,
-    FaceCheckInRequest,
-    FaceEnrollRequest,
 )
 from app.services.core_modules.attendance_service import AttendanceCoreService
 
 router = APIRouter(prefix="/attendance", tags=["Core - Attendance"])
 
 
-def _ok(data: Any, message: str = "Operation successful") -> Dict[str, Any]:
+def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message}
 
 
-def _get_cid(claims: dict) -> Optional[uuid.UUID]:
+def _get_cid(claims: dict) -> uuid.UUID | None:
     cid = claims.get("company_id")
     try:
         return uuid.UUID(str(cid)) if cid else None
@@ -91,8 +89,8 @@ async def get_today_company_attendance(
 async def get_attendance_history(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: Optional[date] = Query(None),
-    to_date: Optional[date] = Query(None),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -136,9 +134,9 @@ async def get_company_attendance(
 async def get_all_records(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: Optional[date] = Query(None),
-    to_date: Optional[date] = Query(None),
-    status: Optional[str] = Query(None),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
+    status: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -154,11 +152,49 @@ async def get_all_records(
 async def get_attendance_analytics(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    target_date: Optional[date] = Query(None),
+    target_date: date | None = Query(None),
 ):
     cid = _get_cid(claims)
     srv = AttendanceCoreService(session)
     res = await srv.get_analytics(company_id=cid, target_date=target_date)
+    return _ok(res)
+
+
+@router.get("/analytics/trends")
+async def get_attendance_analytics_trends(
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
+):
+    cid = _get_cid(claims)
+    srv = AttendanceCoreService(session)
+    res = await srv.get_analytics_trends(company_id=cid, from_date=from_date, to_date=to_date)
+    return _ok(res)
+
+
+@router.get("/analytics/rate")
+async def get_attendance_analytics_rate(
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
+):
+    cid = _get_cid(claims)
+    srv = AttendanceCoreService(session)
+    res = await srv.get_analytics_rate(company_id=cid, from_date=from_date, to_date=to_date)
+    return _ok(res)
+
+
+@router.get("/analytics/weekly")
+async def get_attendance_analytics_weekly(
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+    weeks: int = Query(4, ge=1, le=12),
+):
+    cid = _get_cid(claims)
+    srv = AttendanceCoreService(session)
+    res = await srv.get_analytics_weekly(company_id=cid, weeks=weeks)
     return _ok(res)
 
 
@@ -233,8 +269,8 @@ async def get_overtime_records(
 @router.get("/export")
 async def export_attendance(
     claims: dict = Depends(get_current_user_claims),
-    from_date: Optional[date] = Query(None),
-    to_date: Optional[date] = Query(None),
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
 ):
     _require_admin_or_manager(claims)
     return _ok({
@@ -278,7 +314,7 @@ async def check_out(
 
 @router.post("/face/check-in")
 async def face_check_in(
-    payload: FaceCheckInRequest,
+    payload: AttendanceCheckInRequest,
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -294,7 +330,7 @@ async def face_check_in(
 
 @router.post("/face/check-out")
 async def face_check_out(
-    payload: FaceCheckInRequest,
+    payload: AttendanceCheckInRequest,
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -306,19 +342,6 @@ async def face_check_out(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
     record = await srv.face_check_out(emp.id, cid, payload)
     return _ok({"id": str(record.id), "verified": True, "punch_type": "OUT"})
-
-
-@router.post("/face-enroll")
-async def face_enroll(
-    payload: FaceEnrollRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    _require_admin_or_manager(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    res = await srv.face_enroll(cid, payload)
-    return _ok(res)
 
 
 @router.put("/{attendance_id}")
@@ -357,7 +380,7 @@ async def list_regularization_requests(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ):
-    uid = _uid(claims)
+    _uid(claims)
     cid = _get_cid(claims)
     srv = AttendanceCoreService(session)
     res = await srv.list_regularizations(company_id=cid, page=page, limit=limit)

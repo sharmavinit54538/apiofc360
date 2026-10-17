@@ -6,9 +6,12 @@ This updated version routes through the provider registry instead of directly ca
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, AsyncGenerator
 
+from app.core.config import settings
+from app.core.exceptions import LLMUnavailableError
 from app.llm.router import LLMRouter, get_llm_router
 from app.llm.providers.base import LLMResponse, EmbeddingResponse
 from app.llm.cost_tracker import get_cost_tracker
@@ -26,6 +29,8 @@ class LLMClient:
     def __init__(self) -> None:
         self._router = get_llm_router()
         self._cost_tracker = get_cost_tracker()
+        from app.core.config import settings
+        self._chat_semaphore = asyncio.Semaphore(getattr(settings, "LLM_MAX_CONCURRENT_CHATS", 2))
 
     # ------------------------------------------------------------------
     # Chat (backward-compatible with old LLMChatMixin)
@@ -42,14 +47,15 @@ class LLMClient:
         provider: str | None = None,
     ) -> str:
         """Generate a chat completion — returns content string for backward compatibility."""
-        response = await self._router.chat(
-            messages,
-            model=model,
-            provider=provider,
-            temperature=temperature if temperature is not None else 0.3,
-            max_tokens=num_predict or 2048,
-            json_mode=json_mode,
-        )
+        async with self._chat_semaphore:
+            response = await self._router.chat(
+                messages,
+                model=model,
+                provider=provider,
+                temperature=temperature if temperature is not None else 0.3,
+                max_tokens=num_predict or 2048,
+                json_mode=json_mode,
+            )
 
         # Track usage
         if response.total_tokens > 0:
@@ -60,6 +66,13 @@ class LLMClient:
                 completion_tokens=response.completion_tokens,
                 latency_ms=response.latency_ms,
                 endpoint="chat",
+            )
+
+        if not response.content:
+            raise LLMUnavailableError(
+                reason="empty_response",
+                provider=response.provider,
+                model=response.model,
             )
 
         return response.content
@@ -76,15 +89,16 @@ class LLMClient:
         tools: list[dict] | None = None,
     ) -> LLMResponse:
         """Generate a chat completion — returns full LLMResponse with metadata."""
-        response = await self._router.chat(
-            messages,
-            model=model,
-            provider=provider,
-            temperature=temperature if temperature is not None else 0.3,
-            max_tokens=max_tokens,
-            json_mode=json_mode,
-            tools=tools,
-        )
+        async with self._chat_semaphore:
+            response = await self._router.chat(
+                messages,
+                model=model,
+                provider=provider,
+                temperature=temperature if temperature is not None else 0.3,
+                max_tokens=max_tokens,
+                json_mode=json_mode,
+                tools=tools,
+            )
 
         if response.total_tokens > 0:
             self._cost_tracker.record(
@@ -111,13 +125,14 @@ class LLMClient:
         provider: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Yield chat tokens as they arrive from the best available provider."""
-        async for token in self._router.stream_chat(
-            messages,
-            model=model,
-            provider=provider,
-            temperature=temperature if temperature is not None else 0.3,
-        ):
-            yield token
+        async with self._chat_semaphore:
+            async for token in self._router.stream_chat(
+                messages,
+                model=model,
+                provider=provider,
+                temperature=temperature if temperature is not None else 0.3,
+            ):
+                yield token
 
     # ------------------------------------------------------------------
     # Completion (backward-compatible with old LLMCompletionsMixin)

@@ -9,6 +9,22 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 # ---------------------------------------------------------------------------
+# Flexible Base Request Model
+# ---------------------------------------------------------------------------
+
+class CopilotBaseRequest(BaseModel):
+    """Base request with flexible payload fields."""
+    query: Optional[str] = Field(None, description="Natural language prompt or question")
+    message: Optional[str] = Field(None, description="User message text alias")
+    content: Optional[str] = Field(None, description="User message text alias")
+    prompt: Optional[str] = Field(None, description="User prompt alias")
+    model_config = ConfigDict(populate_by_name=True)
+
+    @property
+    def text(self) -> str:
+        return (self.query or self.message or self.content or self.prompt or "").strip()
+
+# ---------------------------------------------------------------------------
 # Extractions & Parsing Schemas
 # ---------------------------------------------------------------------------
 
@@ -34,7 +50,7 @@ class ExtractionDataResponse(BaseModel):
 # Matching & Embedding Schemas
 # ---------------------------------------------------------------------------
 
-class SemanticMatchRequest(BaseModel):
+class SemanticMatchRequest(CopilotBaseRequest):
     resume_document_id: uuid.UUID
     job_id: uuid.UUID
 

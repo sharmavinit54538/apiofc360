@@ -96,7 +96,7 @@ async def approve_compensation_revision(
     user_id = _uid(claims)
     user_role = _role(claims)
     remarks = payload.remarks if payload else None
-    rev = await CompensationService.approve_revision(
+    rev = await CompensationService.approve_compensation_revision(
         session=db,
         revision_id=revisionId,
         user_id=user_id,
@@ -125,7 +125,7 @@ async def reject_compensation_revision(
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
-    rev = await CompensationService.reject_revision(
+    rev = await CompensationService.reject_compensation_revision(
         session=db,
         revision_id=revisionId,
         user_id=user_id,

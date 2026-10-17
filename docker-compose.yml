@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     container_name: ofc360_redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,13 +31,39 @@ services:
       timeout: 5s
       retries: 5
 
+  # Ollama Service (optional LLM provider - enabled via --profile ai)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ofc360_ollama
+    restart: always
+    profiles:
+      - ai
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # FastAPI Web Application
   api:
     build: .
     container_name: ofc360_api
-    restart: always
+    restart: "on-failure:5"
+    init: true
     ports:
       - "8000:8000"
+    environment:
+      - RUN_MIGRATIONS=true
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
@@ -55,7 +81,12 @@ services:
     build: .
     container_name: ofc360_celery_worker
     restart: always
+    init: true
     command: celery -A app.workers.celery_app worker --loglevel=info
+    environment:
+      - RUN_MIGRATIONS=false
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     extra_hosts:
@@ -69,7 +100,14 @@ services:
         condition: service_started
     volumes:
       - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   postgres_data:
   redis_data:
+  ollama_data:

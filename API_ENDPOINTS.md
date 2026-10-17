@@ -381,3 +381,101 @@ All endpoints are covered by automated integration test suite:
   - 12 primary endpoints under `/api/v1/{module}/*`
   - 3 aliased endpoints under `/api/v1/ai/{module}/*`
   - Legacy thunk compatibility under `/api/v1/ai-brain/*`
+
+---
+
+## 5. AI Resume Screening (`/api/v2/screening`)
+
+Automated candidate pre-screening with multi-tenant isolation, bias protection, auditability, and human decision workflows.
+
+### 5.1 Trigger Bulk Screening Run
+- **Path**: `POST /api/v2/screening/jobs/{job_id}/run`
+- **Body**:
+```json
+{
+  "application_ids": ["uuid-1", "uuid-2"],
+  "model": "optional-model-override"
+}
+```
+- **Description**: Asynchronous, non-blocking execution across candidate applications.
+- **Response Shape (`data`)**:
+```json
+{
+  "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "status": "RUNNING",
+  "total": 24,
+  "thresholds": {
+    "shortlist": 0.65,
+    "reject": 0.35
+  }
+}
+```
+
+### 5.2 Get Screening Results for Job
+- **Path**: `GET /api/v2/screening/jobs/{job_id}/results`
+- **Description**: Returns latest screening analysis and decisions per application for the specified job.
+- **Response Shape (`data`)**:
+```json
+{
+  "thresholds": {
+    "shortlist": 0.65,
+    "reject": 0.35
+  },
+  "run": {
+    "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "status": "COMPLETED",
+    "completed": 24,
+    "total": 24
+  },
+  "results": [
+    {
+      "application_id": "550e8400-e29b-41d4-a716-446655440000",
+      "candidate_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "candidate_name": "Jane Doe",
+      "resume_document_id": "7fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "status": "COMPLETED",
+      "decision": "SHORTLIST",
+      "confidence": 0.88,
+      "match_score": 0.82,
+      "strengths": ["Strong FastAPI expertise", "Distributed systems experience"],
+      "weaknesses": ["Limited Kubernetes experience"],
+      "missing_skills": ["Kubernetes"],
+      "red_flags": [],
+      "green_flags": ["Open source contributor"],
+      "hiring_recommendation": "Recommend for technical round",
+      "hr_notes": "Very strong candidate; verify notice period.",
+      "questions_to_ask": ["How do you handle DB concurrency?"],
+      "model_used": "ollama",
+      "screened_at": "2026-10-01T10:00:00Z",
+      "human_decision": null,
+      "human_decision_by": null,
+      "human_decision_reason": null
+    }
+  ]
+}
+```
+
+### 5.3 Submit Human Review Decision
+- **Path**: `POST /api/v2/screening/results/{screening_id}/decision`
+- **Body**:
+```json
+{
+  "action": "SHORTLIST",
+  "reason": "Clear match on all core requirements"
+}
+```
+- **Description**: Records human decision (`SHORTLIST`, `REJECT`, `KEEP_REVIEW`), applies stage changes to the application through `RecruitmentService`, and creates an immutable audit trail entry in `recruitment_audit_logs`.
+- **Response Shape (`data`)**:
+```json
+{
+  "screening_id": "7fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "action": "SHORTLIST",
+  "reason": "Clear match on all core requirements",
+  "human_decision_by": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "human_decision_at": "2026-10-01T10:30:00Z",
+  "thresholds": {
+    "shortlist": 0.65,
+    "reject": 0.35
+  }
+}
+```

@@ -1,78 +1,68 @@
-"""FastAPI Route Handlers for Enterprise Payroll Cycle Management — Database Persisted, Locks & Audit Logged."""
+"""FastAPI Route Handlers for Enterprise Payroll Period Management — Database Persisted, Locks & Audit Logged."""
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import DB, Claims
 from app.api.payroll.permissions import _require_admin_or_manager, _require_admin
 from app.api.payroll.responses import success_response
+from app.models.payroll import PayrollAuditLog
 from app.schemas.auth import APIResponse
-from app.schemas.payroll_cycle import (
-    PayCycleSchema,
-    PayCycleCreateSchema,
-    PayCycleUpdateSchema,
-    PayCycleLockSchema,
-    PayCycleActionSchema,
-)
-from app.services.pay_cycle_full_service import PayCycleFullService
+from app.services.payroll.cycle_service import PayrollCycleService
 
 router = APIRouter()
 
 
-def _cycle_to_dict(c) -> dict:
-    """Helper to convert PayCycle model to dictionary."""
+def _period_to_dict(p) -> dict:
+    """Helper to convert PayrollPeriod model to dictionary."""
     return {
-        "id": str(c.id),
-        "company_id": str(c.company_id) if c.company_id else None,
-        "name": c.name or "Monthly Payroll Cycle",
-        "frequency": c.frequency or "MONTHLY",
-        "period_month": c.period_month,
-        "period_year": c.period_year,
-        "status": c.status or "DRAFT",
-        "start_date": c.start_date.isoformat() if c.start_date else None,
-        "end_date": c.end_date.isoformat() if c.end_date else None,
-        "processing_date": c.processing_date.isoformat() if c.processing_date else None,
-        "payment_date": c.payment_date.isoformat() if c.payment_date else None,
-        "payslip_generation_date": c.payslip_generation_date.isoformat() if c.payslip_generation_date else None,
-        "attendance_lock_date": c.attendance_lock_date.isoformat() if c.attendance_lock_date else None,
-        "leave_lock_date": c.leave_lock_date.isoformat() if c.leave_lock_date else None,
-        "overtime_lock_date": c.overtime_lock_date.isoformat() if c.overtime_lock_date else None,
-        "tax_calculation_date": c.tax_calculation_date.isoformat() if c.tax_calculation_date else None,
-        "bonus_processing_date": c.bonus_processing_date.isoformat() if c.bonus_processing_date else None,
-        "is_active": c.is_active,
-        "is_locked": c.is_locked,
-        "locks": c.locks or {
-            "attendance": False, "leaves": False, "overtime": False,
-            "components": False, "tax": False, "payslips": False
-        },
-        "automation": c.automation or {
-            "auto_generation": True, "auto_payslip": True, "auto_calc": True,
-            "auto_email": True, "auto_whatsapp": False, "auto_rollover": True
-        },
-        "total_employees": c.total_employees or 0,
-        "total_gross": float(c.total_gross or 0.0),
-        "total_deductions": float(c.total_deductions or 0.0),
-        "total_net": float(c.total_net or 0.0),
-        "remarks": c.remarks or "",
-        "created_at": c.created_at.isoformat() if c.created_at else None,
-        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        "id": str(p.id),
+        "company_id": str(p.company_id) if p.company_id else None,
+        "name": p.name,
+        "frequency": "MONTHLY",
+        "period_month": p.period_month,
+        "period_year": p.period_year,
+        "status": p.status,
+        "start_date": p.start_date.isoformat() if p.start_date else None,
+        "end_date": p.end_date.isoformat() if p.end_date else None,
+        "processing_date": p.processing_date.isoformat() if p.processing_date else None,
+        "payment_date": p.payment_date.isoformat() if p.payment_date else None,
+        "pay_date": p.pay_date.isoformat() if p.pay_date else None,
+        "is_active": p.status not in ("VOID", "CLOSED"),
+        "is_locked": p.is_locked,
+        "total_employees": 0,
+        "total_gross": 0.0,
+        "total_deductions": 0.0,
+        "total_net": 0.0,
+        "remarks": p.remarks or "",
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
 
-@router.get("/cycles", response_model=APIResponse[dict], summary="List all payroll cycles")
+@router.get("/cycles", response_model=APIResponse[dict], summary="List all payroll periods")
 @router.head("/cycles")
 async def list_payroll_cycles(
     status_filter: Optional[str] = Query(None, alias="status"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    cycles = await PayCycleFullService.list_cycles(db, status_filter=status_filter)
-    items = [_cycle_to_dict(c) for c in cycles]
-    return success_response({"items": items, "total": len(items)}, "Payroll cycles retrieved successfully.")
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    res = await PayrollCycleService.list_cycles(db, company_id=c_uuid, status_filter=status_filter, page=page, page_size=page_size)
+    items = [_period_to_dict(c) for c in res["items"]]
+    return success_response({"items": items, "total": res["total"], "page": res["page"], "page_size": res["page_size"]}, "Payroll periods retrieved successfully.")
 
 
 @router.get("/cycles/logs", response_model=APIResponse[List[dict]], summary="Get payroll cycle audit logs")
@@ -81,57 +71,63 @@ async def get_payroll_cycle_logs(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    logs = await PayCycleFullService.get_logs(db)
-    return success_response(logs, "Payroll cycle logs retrieved successfully.")
+    logs = await PayrollCycleService.get_logs(db)
+    return success_response(logs, "Payroll period logs retrieved successfully.")
 
 
-@router.get("/cycles/history", response_model=APIResponse[List[dict]], summary="Get payroll cycle history")
+@router.get("/cycles/history", response_model=APIResponse[List[dict]], summary="Get payroll period history")
 async def get_payroll_cycle_history(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    logs = await PayCycleFullService.get_logs(db)
-    return success_response(logs, "Payroll cycle history retrieved successfully.")
+    logs = await PayrollCycleService.get_logs(db)
+    return success_response(logs, "Payroll period history retrieved successfully.")
 
 
-@router.get("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Get single payroll cycle details")
+@router.get("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Get single payroll period details")
 async def get_payroll_cycle_details(
     cycle_id: uuid.UUID,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    cycle = await PayCycleFullService.get_cycle_by_id(db, cycle_id)
-    if not cycle:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(cycle), "Payroll cycle details retrieved.")
+    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    return success_response(_period_to_dict(period), "Payroll period details retrieved.")
 
 
-@router.post("/cycles", status_code=201, response_model=APIResponse[dict], summary="Create new payroll cycle")
+@router.post("/cycles", status_code=201, response_model=APIResponse[dict], summary="Create new payroll period")
 async def create_payroll_cycle(
-    payload: PayCycleCreateSchema,
+    payload: dict,
     request: Request,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    ip_address = request.client.host if request.client else "127.0.0.1"
-    browser = request.headers.get("user-agent", "Dashboard Web")
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
+    user_role = claims.get("role")
 
-    created = await PayCycleFullService.create_cycle(
-        db=db,
-        data=payload.model_dump(),
-        actor_email=actor_email,
-        ip_address=ip_address,
-        browser=browser
+    created = await PayrollCycleService.create_cycle(
+        session=db,
+        company_id=c_uuid,
+        name=payload.get("name", "New Payroll Period"),
+        frequency=payload.get("frequency", "MONTHLY"),
+        period_month=payload.get("period_month", 1),
+        period_year=payload.get("period_year", 2026),
+        start_date=date.fromisoformat(payload["start_date"]) if payload.get("start_date") else None,
+        end_date=date.fromisoformat(payload["end_date"]) if payload.get("end_date") else None,
+        processing_date=date.fromisoformat(payload["processing_date"]) if payload.get("processing_date") else None,
+        payment_date=date.fromisoformat(payload["payment_date"]) if payload.get("payment_date") else None,
+        user_id=user_id,
+        user_role=user_role,
     )
-    return success_response(_cycle_to_dict(created), "Payroll cycle created successfully.")
+    return success_response(_period_to_dict(created), "Payroll period created successfully.")
 
 
-@router.put("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Update payroll cycle")
-@router.patch("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Partial update payroll cycle")
+@router.put("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Update payroll period")
+@router.patch("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Partial update payroll period")
 async def update_payroll_cycle(
     cycle_id: uuid.UUID,
     payload: dict,
@@ -140,110 +136,80 @@ async def update_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    ip_address = request.client.host if request.client else "127.0.0.1"
-    browser = request.headers.get("user-agent", "Dashboard Web")
-
-    updated = await PayCycleFullService.update_cycle(
-        db=db,
-        cycle_id=cycle_id,
-        payload=payload,
-        actor_email=actor_email,
-        ip_address=ip_address,
-        browser=browser
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(updated), "Payroll cycle updated successfully.")
+    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    # Simple update - just update allowed fields
+    for field in ["name", "remarks", "start_date", "end_date", "processing_date", "payment_date"]:
+        if field in payload and payload[field] is not None:
+            if field.endswith("_date"):
+                setattr(period, field, date.fromisoformat(payload[field]))
+            else:
+                setattr(period, field, payload[field])
+    period.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(period)
+    return success_response(_period_to_dict(period), "Payroll period updated successfully.")
 
 
-@router.delete("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Delete payroll cycle")
+@router.delete("/cycles/{cycle_id}", response_model=APIResponse[dict], summary="Delete payroll period (only OPEN/DRAFT)")
 async def delete_payroll_cycle(
     cycle_id: uuid.UUID,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
-    deleted = await PayCycleFullService.delete_cycle(db, cycle_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response({"id": str(cycle_id)}, "Payroll cycle deleted successfully.")
+    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    if period.status not in ("OPEN", "DRAFT"):
+        raise HTTPException(status_code=400, detail="Only OPEN/DRAFT periods can be deleted.")
+    await db.delete(period)
+    await db.commit()
+    return success_response({"id": str(cycle_id)}, "Payroll period deleted successfully.")
 
 
-@router.post("/cycles/{cycle_id}/activate", response_model=APIResponse[dict], summary="Activate payroll cycle")
-async def activate_payroll_cycle(
-    cycle_id: uuid.UUID,
-    claims: Claims = None,
-    db: DB = None,
-) -> APIResponse[dict]:
-    _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    activated = await PayCycleFullService.activate_cycle(db, cycle_id, actor_email=actor_email)
-    if not activated:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(activated), "Payroll cycle activated as primary active run.")
-
-
-@router.post("/cycles/{cycle_id}/lock", response_model=APIResponse[dict], summary="Lock payroll cycle")
+@router.post("/cycles/{cycle_id}/lock", response_model=APIResponse[dict], summary="Lock payroll period")
 async def lock_payroll_cycle(
     cycle_id: uuid.UUID,
-    payload: PayCycleLockSchema = None,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    locks_data = None
-    if payload:
-        dumped = payload.model_dump(exclude_unset=True)
-        locks_data = {k.replace("lock_", ""): v for k, v in dumped.items() if k.startswith("lock_")}
-
-    locked = await PayCycleFullService.toggle_lock(db, cycle_id, lock_state=True, locks_data=locks_data, actor_email=actor_email)
+    user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
+    user_role = claims.get("role")
+    locked = await PayrollCycleService.lock_cycle(db, cycle_id, user_id=user_id, user_role=user_role)
     if not locked:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(locked), "Payroll cycle locked successfully.")
+        raise HTTPException(status_code=404, detail="Payroll period not found.")
+    return success_response(_period_to_dict(locked), "Payroll period locked successfully.")
 
 
-@router.post("/cycles/{cycle_id}/unlock", response_model=APIResponse[dict], summary="Unlock payroll cycle")
+@router.post("/cycles/{cycle_id}/unlock", response_model=APIResponse[dict], summary="Unlock payroll period (reopen)")
 async def unlock_payroll_cycle(
     cycle_id: uuid.UUID,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    unlocked = await PayCycleFullService.toggle_lock(db, cycle_id, lock_state=False, actor_email=actor_email)
+    user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
+    user_role = claims.get("role")
+    # Reopen is the equivalent of unlock for PayrollPeriod
+    payload = type('obj', (object,), {'reason': 'Unlocked by admin'})()
+    unlocked = await PayrollCycleService.reopen_cycle(db, cycle_id, reason="Unlocked by admin", user_id=user_id, user_role=user_role)
     if not unlocked:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(unlocked), "Payroll cycle unlocked successfully.")
+        raise HTTPException(status_code=404, detail="Payroll period not found.")
+    return success_response(_period_to_dict(unlocked), "Payroll period unlocked successfully.")
 
 
-@router.post("/cycles/{cycle_id}/duplicate", response_model=APIResponse[dict], summary="Duplicate payroll cycle")
-async def duplicate_payroll_cycle(
+@router.post("/cycles/{cycle_id}/void", response_model=APIResponse[dict], summary="Void payroll period")
+async def void_payroll_cycle(
     cycle_id: uuid.UUID,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    duplicated = await PayCycleFullService.duplicate_cycle(db, cycle_id, actor_email=actor_email)
-    if not duplicated:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(duplicated), "Payroll cycle duplicated for upcoming period.")
-
-
-@router.post("/cycles/{cycle_id}/archive", response_model=APIResponse[dict], summary="Archive payroll cycle")
-async def archive_payroll_cycle(
-    cycle_id: uuid.UUID,
-    claims: Claims = None,
-    db: DB = None,
-) -> APIResponse[dict]:
-    _require_admin_or_manager(claims)
-    actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    archived = await PayCycleFullService.archive_cycle(db, cycle_id, actor_email=actor_email)
-    if not archived:
-        raise HTTPException(status_code=404, detail="Payroll cycle not found.")
-    return success_response(_cycle_to_dict(archived), "Payroll cycle archived successfully.")
+    user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
+    user_role = claims.get("role")
+    voided = await PayrollCycleService.void_cycle(db, cycle_id, reason="Voided by admin", user_id=user_id, user_role=user_role)
+    if not voided:
+        raise HTTPException(status_code=404, detail="Payroll period not found.")
+    return success_response(_period_to_dict(voided), "Payroll period voided successfully.")
 
 
 # Backward compatibility aliases

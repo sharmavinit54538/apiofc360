@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, JSON
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -76,8 +76,9 @@ class AIMessage(Base):
         ForeignKey("ai_conversations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    role: Mapped[str] = mapped_column(String(50), nullable=False)  # 'user' or 'ai'
+    role: Mapped[str] = mapped_column(String(50), nullable=False)  # 'user' or 'assistant'
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    message_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # charts, tables, sources
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

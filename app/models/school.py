@@ -20,8 +20,6 @@ class School(Base, TimestampMixin):
     school_name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | suspended
 
-    users = relationship("User", back_populates="school", foreign_keys="User.school_id", cascade="all, delete-orphan")
-
     @property
     def tenant_id(self) -> str:
         return self.id

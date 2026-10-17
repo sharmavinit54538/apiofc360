@@ -116,7 +116,10 @@ async def generate_employee_id(session: AsyncSession) -> str:
         ).execution_options(bypass_tenant=True)
     )
     max_seq = result.scalar_one_or_none()
-    seq = (max_seq or 0) + 1
+    try:
+        seq = int(max_seq) + 1 if max_seq is not None else 1
+    except (TypeError, ValueError):
+        seq = 1
 
     while True:
         employee_id = f"{prefix}{seq:04d}"

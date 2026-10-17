@@ -62,6 +62,7 @@ class PayrollRunService:
         period_id: uuid.UUID,
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> PayrollRun:
         # Verify period exists
         period_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
@@ -98,6 +99,19 @@ class PayrollRunService:
         session.add(run)
         await session.commit()
         await session.refresh(run)
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PayrollRun",
+            entity_id=run.id,
+            action="CREATE",
+            company_id=run.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=None,
+            after_status="DRAFT",
+            reason="Created payroll run",
+        )
 
         # Trigger automatic initial validation
         await cls.validate_run(session, run.id)
@@ -652,6 +666,36 @@ class PayrollRunService:
         run.total_net = Decimal(str(total_net_paise / 100.0))
         run.status = "PROCESSED"
         run.validation_status = "VALID"
+
+        if run.company_id:
+            try:
+                from app.models.user import User
+                from app.services import notification_service
+                admins_res = await session.execute(
+                    select(User.id).where(
+                        User.company_id == run.company_id,
+                        User.role.in_(["hr_admin", "super_admin", "admin", "cfo", "ceo"]),
+                    ).limit(10)
+                )
+                admin_ids = list(admins_res.scalars().all())
+                if admin_ids:
+                    await notification_service.notify(
+                        session,
+                        company_id=run.company_id,
+                        recipient_ids=admin_ids,
+                        type="payroll.run_needs_approval",
+                        category="payroll",
+                        module="payroll",
+                        title="Payroll Run Requires Approval",
+                        body=f"Payroll run #{run.run_number} for {run.total_employees} employees requires review and approval.",
+                        link=f"/dashboard/payroll/runs/{run.id}/review",
+                        priority="high",
+                        entity={"type": "payroll_run", "id": str(run.id)},
+                        dedupe_key=f"payroll:run:{run.id}:approval",
+                        mandatory=True,
+                    )
+            except Exception as e:
+                logger.warning("Failed to emit payroll approval notification: %s", e)
 
         await session.commit()
         await session.refresh(run)

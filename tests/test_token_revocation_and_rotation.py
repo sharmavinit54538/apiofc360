@@ -288,7 +288,7 @@ async def test_refresh_token_rotation_preserves_family_id():
     assert new_refresh is not None
 
     # Verify old token was marked revoked
-    mock_repo.revoke_refresh_token.assert_awaited_once_with(old_record.id)
+    mock_repo.revoke_refresh_token.assert_awaited_once_with(old_record.id, reason="ROTATION")
 
     # Verify new token created with identical family_id
     call_kwargs = mock_repo.create_refresh_token.call_args.kwargs

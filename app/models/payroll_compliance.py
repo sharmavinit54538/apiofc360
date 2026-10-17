@@ -99,7 +99,7 @@ class ComplianceHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
-class ComplianceAuditLog(Base):
+class PayrollComplianceAuditLog(Base):
     """Audit log entries for statutory compliance changes."""
     __tablename__ = "payroll_compliance_audit_logs"
 
@@ -113,3 +113,8 @@ class ComplianceAuditLog(Base):
     browser: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# Backwards compatibility alias
+ComplianceAuditLog = PayrollComplianceAuditLog
+

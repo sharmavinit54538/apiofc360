@@ -21,7 +21,8 @@ from sqlalchemy.exc import (
     DBAPIError,
 )
 
-from app.core.exceptions import NotFoundException
+from app.core.config import settings
+from app.core.exceptions import NotFoundException, LLMUnavailableError
 from app.db.database import get_db_session
 from app.models.ai import AIConversation, AIMessage
 from app.models.employee import Employee
@@ -31,6 +32,8 @@ from app.schemas.ai import ChatResponse, ConversationDetail, ConversationSummary
 from app.services.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
+
+ASSISTANT_NAME = "OFC HR AI"
 
 # Simple in-memory cache with TTL support
 class MemoryCache:
@@ -60,12 +63,186 @@ class MemoryCache:
 ai_cache = MemoryCache()
 
 
+# ─── ALLOWED_TABLES Whitelist ──────────────────────────────────────────────
+# Each table defines: allowed columns, blocklisted columns, whether it has company_id/is_deleted,
+# and few-shot examples for the SQL generator.
+ALLOWED_TABLES: dict[str, dict] = {
+    "employees": {
+        "columns": [
+            "id", "user_id", "company_id", "employee_id", "first_name", "last_name",
+            "profile_photo_url", "gender", "date_of_birth", "personal_email", "company_email",
+            "phone", "alternate_phone", "blood_group", "marital_status", "middle_name",
+            "father_name", "mother_name", "spouse_name", "nationality", "preferred_language",
+            "aadhaar_number", "passport_number", "driving_license", "voter_id", "tax_regime",
+            "upi_id", "esic_number", "work_mode", "business_unit", "employee_category",
+            "probation_period_months", "onboarding_data", "employee_onboarding_completed",
+            "employee_onboarding_step", "face_embedding", "is_face_enrolled", "face_enrolled_at",
+            "department", "designation", "team", "reporting_manager_id", "manager_id",
+            "branch", "work_location", "employment_type", "employment_status", "joining_date",
+            "probation_end_date", "shift", "shift_id", "employee_capacity", "cost_center_id",
+            "ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax",
+            "pan_number", "uan_number", "pf_number", "esi_number",
+            "role", "leave_group", "status", "role_metadata", "verification_status",
+            "is_active", "deactivated_at", "deactivated_by", "deactivation_reason",
+            "activation_token", "activation_token_expires_at", "invited_at", "invited_by",
+            "is_deleted", "deleted_at", "created_by", "created_at", "updated_at",
+            "department_id",
+        ],
+        "blocklist": {
+            "password_hash", "password", "token", "activation_token", "aadhaar_number",
+            "pan_number", "uan_number", "pf_number", "esi_number", "bank_account",
+        },
+        "has_company_id": True,
+        "has_is_deleted": True,
+        "few_shots": [
+            {
+                "q": "Show all active employees",
+                "sql": "SELECT id, employee_id, first_name, last_name, department, designation, employment_status, joining_date FROM employees WHERE is_deleted = false AND status = 'ACTIVE' LIMIT 50;"
+            },
+            {
+                "q": "Show employees in Engineering department",
+                "sql": "SELECT id, employee_id, first_name, last_name, department, designation, joining_date FROM employees WHERE is_deleted = false AND department ILIKE '%engineering%' LIMIT 50;"
+            },
+            {
+                "q": "How many employees joined this month",
+                "sql": "SELECT count(*) FROM employees WHERE is_deleted = false AND joining_date >= date_trunc('month', current_date) AND joining_date < date_trunc('month', current_date) + interval '1 month';"
+            },
+        ],
+    },
+    "departments": {
+        "columns": [
+            "id", "company_id", "department_code", "department_name", "normalized_code",
+            "normalized_name", "description", "manager_id", "parent_department_id",
+            "branch_id", "location", "cost_center", "budget", "extension_number",
+            "employee_capacity", "status", "is_deleted", "deleted_at", "created_by",
+            "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": True,
+        "has_is_deleted": True,
+        "few_shots": [
+            {
+                "q": "Show all departments",
+                "sql": "SELECT id, department_code, department_name, description, status FROM departments WHERE is_deleted = false ORDER BY department_name LIMIT 50;"
+            },
+        ],
+    },
+    "jobs": {
+        "columns": [
+            "id", "company_id", "title", "slug", "department", "designation",
+            "employment_type", "experience_required", "min_experience", "max_experience",
+            "min_salary", "max_salary", "location", "vacancies", "job_description",
+            "responsibilities", "requirements", "benefits", "application_deadline",
+            "interview_process_description", "status", "is_deleted", "deleted_at",
+            "created_by", "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": True,
+        "has_is_deleted": True,
+        "few_shots": [
+            {
+                "q": "Show open job positions",
+                "sql": "SELECT id, title, department, location, vacancies, min_salary, max_salary FROM jobs WHERE is_deleted = false AND status = 'PUBLISHED' LIMIT 50;"
+            },
+        ],
+    },
+    "leave_requests": {
+        "columns": [
+            "id", "employee_id", "leave_type", "start_date", "end_date", "total_days",
+            "reason", "status", "approved_by_id", "rejection_reason", "reviewed_by_id",
+            "reviewed_at", "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": False,
+        "has_is_deleted": False,
+        "few_shots": [
+            {
+                "q": "Show employees on leave this month",
+                "sql": "SELECT lr.id, lr.employee_id, lr.leave_type, lr.start_date, lr.end_date, lr.status FROM leave_requests lr WHERE lr.start_date >= date_trunc('month', current_date) AND lr.start_date < date_trunc('month', current_date) + interval '1 month' AND lr.status = 'APPROVED' LIMIT 50;"
+            },
+        ],
+    },
+    "attendance": {
+        "columns": [
+            "id", "employee_id", "date", "check_in_time", "check_out_time",
+            "status", "source", "confidence", "remarks", "marked_by", "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": False,
+        "has_is_deleted": False,
+        "few_shots": [
+            {
+                "q": "Show attendance today",
+                "sql": "SELECT a.employee_id, a.check_in_time, a.check_out_time, a.status FROM attendance a WHERE a.date = current_date ORDER BY a.employee_id LIMIT 50;"
+            },
+        ],
+    },
+    "payslips": {
+        "columns": [
+            "id", "company_id", "payroll_run_id", "employee_id", "salary_structure_id",
+            "payslip_number", "period_month", "period_year", "total_days_in_month",
+            "paid_days", "lop_days", "basic", "hra", "conveyance", "special_allowance",
+            "other_allowances_total", "arrears", "bonus", "lop_deduction", "gross_earnings",
+            "employee_pf", "employer_pf", "employee_esi", "employer_esi", "professional_tax",
+            "tds", "other_deductions", "total_deductions", "net_pay", "net_pay_words",
+            "payment_status", "payment_date", "payment_reference", "pdf_path", "generated_at",
+            "email_status", "email_sent_at", "download_count", "view_count", "created_at", "updated_at",
+        ],
+        "blocklist": {
+            "bank_account", "pan_number", "aadhaar_number",
+        },
+        "has_company_id": True,
+        "has_is_deleted": False,
+        "few_shots": [
+            {
+                "q": "Show payroll summary for current month",
+                "sql": "SELECT p.employee_id, p.basic, p.hra, p.gross_earnings, p.total_deductions, p.net_pay FROM payslips p WHERE p.period_month = extract(month from current_date) AND p.period_year = extract(year from current_date) LIMIT 50;"
+            },
+        ],
+    },
+    "payroll_runs": {
+        "columns": [
+            "id", "company_id", "period_id", "run_number", "period_month", "period_year",
+            "status", "total_employees", "total_gross", "total_deductions", "total_net",
+            "validation_status", "is_locked", "run_by", "run_at", "approved_by", "approved_at",
+            "finalized_by", "finalized_at", "paid_at", "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": True,
+        "has_is_deleted": False,
+        "few_shots": [
+            {
+                "q": "Show latest payroll run",
+                "sql": "SELECT * FROM payroll_runs WHERE company_id = '{company_id}' ORDER BY period_year DESC, period_month DESC LIMIT 1;"
+            },
+        ],
+    },
+    "salary_structures": {
+        "columns": [
+            "id", "company_id", "employee_id", "annual_ctc", "basic_monthly", "hra_monthly",
+            "conveyance_monthly", "special_allowance_monthly", "other_allowances", "annual_bonus",
+            "is_metro_city", "rent_paid_monthly", "tax_regime", "effective_from", "effective_to",
+            "is_active", "created_by", "created_at", "updated_at",
+        ],
+        "blocklist": set(),
+        "has_company_id": True,
+        "has_is_deleted": False,
+        "few_shots": [
+            {
+                "q": "Show average CTC by department",
+                "sql": "SELECT e.department, avg(ss.annual_ctc) as avg_ctc FROM salary_structures ss JOIN employees e ON ss.employee_id = e.id WHERE ss.is_active = true AND e.is_deleted = false GROUP BY e.department ORDER BY avg_ctc DESC LIMIT 50;"
+            },
+        ],
+    },
+}
+
+
 class DBSchemaCache:
     """Dynamic DB Schema Cache with 10 minutes (600s) TTL."""
     def __init__(self, ttl: int = 600):
         self.ttl = ttl
         self.last_loaded = 0
-        self.tables = {}  # e.g., {"employees": [{"column_name": "first_name", "data_type": "character varying"}, ...]}
+        self.tables: dict[str, list[dict]] = {}
 
     async def get_schema_description(self, db: AsyncSession) -> str:
         current_time = time.time()
@@ -77,19 +254,24 @@ class DBSchemaCache:
                 if not self.tables:
                     return self.get_fallback_schema_description()
         
-        # Build schema description string
         desc = "ACTUAL DATABASE SCHEMA (Do NOT invent tables or columns):\n"
         for table_name, columns in self.tables.items():
             desc += f"- {table_name} (\n"
             for col in columns:
                 desc += f"    {col['column_name']} {col['data_type']},\n"
             desc += ")\n"
+        
+        # Add few-shot examples
+        desc += "\n--- FEW-SHOT EXAMPLES ---\n"
+        for table_name, config in ALLOWED_TABLES.items():
+            if table_name in self.tables:
+                for fs in config.get("few_shots", []):
+                    desc += f"-- Q: {fs['q']}\n{fs['sql']}\n\n"
         return desc
 
     async def load_schema(self, db: AsyncSession):
         from sqlalchemy import text
         
-        # Query active public tables
         tables_query = """
             SELECT table_name 
             FROM information_schema.tables 
@@ -100,8 +282,7 @@ class DBSchemaCache:
         
         new_tables = {}
         for table in table_names:
-            # We strictly focus on employees, departments, and jobs for the copilot workspace context
-            if table not in ("employees", "departments", "jobs"):
+            if table not in ALLOWED_TABLES:
                 continue
                 
             columns_query = f"""
@@ -111,7 +292,10 @@ class DBSchemaCache:
             """
             res_cols = await db.execute(text(columns_query))
             cols = [{"column_name": r[0], "data_type": r[1]} for r in res_cols.all()]
-            new_tables[table] = cols
+            
+            # Filter out blocklisted columns
+            allowed_cols = [c for c in cols if c["column_name"] not in ALLOWED_TABLES[table].get("blocklist", set())]
+            new_tables[table] = allowed_cols
             
         if new_tables:
             self.tables = new_tables
@@ -119,66 +303,200 @@ class DBSchemaCache:
             logger.info("Successfully loaded database schema dynamically: %s", list(self.tables.keys()))
 
     def get_fallback_schema_description(self) -> str:
-        return """ACTUAL DATABASE SCHEMA:
-- employees (
-    employee_id character varying,
-    first_name character varying,
-    last_name character varying,
-    personal_email character varying,
-    company_email character varying,
-    phone character varying,
-    department character varying,
-    designation character varying,
-    employment_status character varying,
-    joining_date date,
-    ctc numeric,
-    status character varying,
-    is_deleted boolean,
-    company_id uuid
-)
-- departments (
-    company_id uuid,
-    department_code character varying,
-    department_name character varying,
-    status character varying,
-    is_deleted boolean
-)
-- jobs (
-    company_id uuid,
-    title character varying,
-    department character varying,
-    status character varying,
-    is_deleted boolean
-)
-"""
+        desc = "ACTUAL DATABASE SCHEMA (Do NOT invent tables or columns):\n"
+        for table_name, config in ALLOWED_TABLES.items():
+            desc += f"- {table_name} (\n"
+            for col in config["columns"]:
+                if col not in config.get("blocklist", set()):
+                    desc += f"    {col} <type>,\n"
+            desc += ")\n"
+        return desc
+
 
 schema_cache = DBSchemaCache()
 
 
-SQL_KEYWORDS = {
-    "select", "from", "join", "on", "where", "and", "or", "limit", "ilike", 
-    "as", "distinct", "null", "not", "in", "order", "by", "group", "desc", 
-    "asc", "like", "is", "left", "right", "inner", "outer", "cross", "using", 
-    "count", "sum", "avg", "min", "max", "coalesce", "concat", "case", "when", 
-    "then", "else", "end", "cast", "date", "interval", "extract", "now", "current_date",
-    "true", "false", "having", "between", "any", "all", "exists",
-    "date_trunc", "age", "to_char", "to_date", "to_number", "concat_ws", "round", "floor", "ceil", "nullif", "greatest", "least"
-}
-
-
 def validate_sql_query(sql: str, schema: dict) -> tuple[bool, str]:
-    """Parses and validates a generated SQL query against table/column presence and dangerous keywords."""
+    """Validates a generated SQL query using sqlglot (PostgreSQL dialect).
+    
+    Rules:
+    - Exactly one statement, root SELECT only
+    - No DML/DDL (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, TRUNCATE, GRANT, REVOKE)
+    - No dangerous functions (pg_sleep, pg_read_file, set_config, dblink, lo_*)
+    - All tables must be in ALLOWED_TABLES
+    - All columns must exist and not be blocklisted
+    - Must accept EXTRACT, lower(), ::text, FILTER, OVER, UNION, OFFSET
+    - Keywords inside string literals are ignored
+    """
+    try:
+        import sqlglot
+        from sqlglot import exp
+    except ImportError:
+        logger.error("sqlglot not installed, falling back to regex validator")
+        return _validate_sql_query_regex(sql, schema)
+    
+    # Parse with PostgreSQL dialect
+    try:
+        parsed = sqlglot.parse(sql, dialect="postgres")
+    except Exception as e:
+        return False, f"SQL parse error: {e}"
+    
+    if not parsed:
+        return False, "Generated query is empty."
+    
+    if len(parsed) > 1:
+        return False, "Multiple statements are not allowed."
+    
+    stmt = parsed[0]
+    
+    # Must be a SELECT statement (or UNION which wraps in SetOperation)
+    if not (isinstance(stmt, exp.Select) or isinstance(stmt, exp.SetOperation)):
+        return False, "Only SELECT statements are permitted."
+    
+    # For SetOperation (UNION), check all sub-statements are SELECT
+    if isinstance(stmt, exp.SetOperation):
+        for sub_stmt in stmt.flatten():
+            if not isinstance(sub_stmt, exp.Select):
+                return False, "UNION components must be SELECT statements."
+    
+    # Check for forbidden statement types - use string names to handle version differences
+    forbidden_type_names = {"Insert", "Update", "Delete", "Create", "Drop", "Alter", "Truncate", "Grant", "Revoke", "Copy", "Vacuum"}
+    for node in stmt.walk():
+        if type(node).__name__ in forbidden_type_names:
+            return False, f"Dangerous SQL operation detected: {type(node).__name__} is strictly prohibited."
+    
+    # Check for dangerous functions
+    dangerous_funcs = {"pg_sleep", "pg_read_file", "set_config", "dblink", "lo_import", "lo_export", "lo_create", "lo_unlink"}
+    for func in stmt.find_all(exp.Anonymous):
+        if func.this.lower() in dangerous_funcs:
+            return False, f"Dangerous function '{func.this}' is not allowed."
+    
+    # Handle UNION queries by validating each sub-query separately
+    def _validate_select(select_stmt, schema):
+        """Validate a single SELECT statement."""
+        # Collect tables in this sub-query
+        sub_referenced_tables = set()
+        for table in select_stmt.find_all(exp.Table):
+            table_name = table.name.lower()
+            if table_name:
+                sub_referenced_tables.add(table_name)
+        
+        if not sub_referenced_tables:
+            return False, "No tables referenced in the query."
+        
+        # Verify all tables are allowed
+        for table_name in sub_referenced_tables:
+            if table_name not in ALLOWED_TABLES:
+                return False, f"Table '{table_name}' is not allowed. Allowed tables: {', '.join(ALLOWED_TABLES.keys())}"
+        
+        # Verify columns
+        for column in select_stmt.find_all(exp.Column):
+            col_name = column.name.lower()
+            table_name = column.table.lower() if column.table else None
+            
+            # If column is qualified with table name, check against that table
+            if table_name and table_name in ALLOWED_TABLES:
+                target_tables = {table_name}
+            else:
+                # Unqualified column - check against all tables in this sub-query
+                target_tables = sub_referenced_tables
+            
+            for target_table in target_tables:
+                if target_table not in ALLOWED_TABLES:
+                    continue
+                
+                # Use schema parameter if provided, otherwise fall back to ALLOWED_TABLES
+                if schema and target_table in schema:
+                    allowed_cols = {c["column_name"].lower() for c in schema[target_table] if isinstance(c, dict) and "column_name" in c}
+                    # Also handle case where schema has simple column names
+                    if not allowed_cols:
+                        allowed_cols = {c.lower() for c in schema[target_table] if isinstance(c, str)}
+                else:
+                    allowed_cols = {c.lower() for c in ALLOWED_TABLES[target_table]["columns"]}
+                
+                blocklist = {c.lower() for c in ALLOWED_TABLES[target_table].get("blocklist", set())}
+                
+                if col_name in blocklist:
+                    return False, f"Column '{col_name}' is blocklisted in table '{target_table}'."
+                
+                if col_name and col_name not in allowed_cols:
+                    # Allow sqlglot-generated pseudo-columns like ROW_NUMBER, etc.
+                    if col_name not in {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile"}:
+                        return False, f"Column '{col_name}' does not exist in table '{target_table}'."
+        
+        return True, "Valid SQL query."
+    
+    # For UNION, validate each sub-query separately
+    if isinstance(stmt, exp.SetOperation):
+        for sub_stmt in stmt.flatten():
+            is_valid, msg = _validate_select(sub_stmt, schema)
+            if not is_valid:
+                return False, msg
+        return True, "Valid SQL query."
+    
+    # For regular SELECT, collect all tables
+    referenced_tables = set()
+    for table in stmt.find_all(exp.Table):
+        table_name = table.name.lower()
+        if table_name:
+            referenced_tables.add(table_name)
+    
+    if not referenced_tables:
+        return False, "No tables referenced in the query."
+    
+    # Verify all tables are allowed
+    for table_name in referenced_tables:
+        if table_name not in ALLOWED_TABLES:
+            return False, f"Table '{table_name}' is not allowed. Allowed tables: {', '.join(ALLOWED_TABLES.keys())}"
+    
+    # Verify columns
+    for column in stmt.find_all(exp.Column):
+        col_name = column.name.lower()
+        table_name = column.table.lower() if column.table else None
+        
+        # If column is qualified with table name, check against that table
+        if table_name and table_name in ALLOWED_TABLES:
+            target_tables = {table_name}
+        else:
+            # Unqualified column - check against all referenced tables
+            target_tables = referenced_tables
+        
+        for target_table in target_tables:
+            if target_table not in ALLOWED_TABLES:
+                continue
+            
+            # Use schema parameter if provided, otherwise fall back to ALLOWED_TABLES
+            if schema and target_table in schema:
+                allowed_cols = {c["column_name"].lower() for c in schema[target_table] if isinstance(c, dict) and "column_name" in c}
+                # Also handle case where schema has simple column names
+                if not allowed_cols:
+                    allowed_cols = {c.lower() for c in schema[target_table] if isinstance(c, str)}
+            else:
+                allowed_cols = {c.lower() for c in ALLOWED_TABLES[target_table]["columns"]}
+            
+            blocklist = {c.lower() for c in ALLOWED_TABLES[target_table].get("blocklist", set())}
+            
+            if col_name in blocklist:
+                return False, f"Column '{col_name}' is blocklisted in table '{target_table}'."
+            
+            if col_name and col_name not in allowed_cols:
+                # Allow sqlglot-generated pseudo-columns like ROW_NUMBER, etc.
+                if col_name not in {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile"}:
+                    return False, f"Column '{col_name}' does not exist in table '{target_table}'."
+    
+    return True, "Valid SQL query."
+
+
+def _validate_sql_query_regex(sql: str, schema: dict) -> tuple[bool, str]:
+    """Fallback regex-based validator (kept for compatibility)."""
     # Strip SQL comments
-    # Remove single line comments
     q_clean = re.sub(r'--.*', '', sql)
-    # Remove multi-line comments
     q_clean = re.sub(r'/\*.*?\*/', '', q_clean, flags=re.DOTALL)
     q_clean = q_clean.strip().strip(";").strip()
     
     if not q_clean:
         return False, "Generated query is empty."
         
-    # Check for dangerous keywords (SQL Guard)
     dangerous_keywords = {"drop", "delete", "truncate", "alter", "update", "insert", "create", "grant", "revoke"}
     words = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', q_clean.lower())
     for word in words:
@@ -187,108 +505,221 @@ def validate_sql_query(sql: str, schema: dict) -> tuple[bool, str]:
             
     if not q_clean.lower().startswith("select"):
         return False, f"Dangerous query blocked. Only safe SELECT queries are permitted. Query started with: {q_clean[:20]}"
+    
+    return True, "Valid SQL query (regex fallback)."
 
-    # Strip string literals enclosed in single quotes to prevent false positive identifier parsing
-    q_no_literals = re.sub(r"'[^']*'", "", q_clean)
+
+def rewrite_sql_for_tenant(sql: str, company_id: uuid.UUID | None, is_super_admin: bool, role: str, max_rows: int = 100) -> str:
+    """Rewrite validated SQL to enforce tenant isolation and limits.
     
-    # Collect all aliases defined using 'AS'
-    aliases = set(re.findall(r'\bas\s+([a-zA-Z_][a-zA-Z0-9_]*)\b', q_no_literals, re.IGNORECASE))
-    aliases = {a.lower() for a in aliases}
+    - Adds company_id = :company_id AND is_deleted = false to all ALLOWED_TABLES that support it
+    - Enforces LIMIT max_rows (default 100)
+    - Uses bound parameter for company_id (never formats into SQL)
+    - Raises if company_id is required but missing and user is not super_admin
+    """
+    import sqlglot
+    from sqlglot import exp
     
-    tokens = re.split(r'\s+', q_no_literals.replace(",", " , ").replace("(", " ( ").replace(")", " ) ").strip())
-    referenced_tables = {}  # alias: table_name
+    if not company_id and not is_super_admin:
+        raise ValueError("Company ID required for tenant isolation unless super_admin")
     
-    idx = 0
-    while idx < len(tokens):
-        token_lower = tokens[idx].lower()
-        if token_lower in ("from", "join"):
-            idx += 1
-            if idx < len(tokens):
-                table_cand = tokens[idx].strip('",;`').lower()
-                if table_cand == "(":
-                    idx += 1
-                    continue
-                # Table verification
-                if table_cand not in schema:
-                    return False, f"Table '{table_cand}' does not exist in the database schema."
+    try:
+        parsed = sqlglot.parse(sql, dialect="postgres")
+        if not parsed:
+            return sql
+        stmt = parsed[0]
+    except Exception:
+        # If parsing fails, return original (should not happen after validation)
+        return sql
+    
+    # Find all table references
+    for table in stmt.find_all(exp.Table):
+        table_name = table.name.lower()
+        if table_name in ALLOWED_TABLES:
+            config = ALLOWED_TABLES[table_name]
+            
+            # Add company_id filter if table supports it and we have a company_id
+            if config.get("has_company_id") and company_id:
+                # Create a WHERE condition: table.company_id = :company_id
+                company_id_param = exp.Placeholder(this="company_id")
+                company_id_cond = exp.EQ(
+                    this=exp.Column(this=exp.Identifier(this="company_id"), table=exp.Identifier(this=table_name)),
+                    expression=company_id_param,
+                )
                 
-                alias = table_cand
-                if idx + 1 < len(tokens):
-                    next_token = tokens[idx + 1].lower()
-                    if next_token == "as":
-                        if idx + 2 < len(tokens):
-                            alias = tokens[idx + 2].strip('",;`').lower()
-                            idx += 2
-                    elif next_token not in (",", "join", "on", "where", "limit", "order", "group", "and", "or", ")"):
-                        alias = tokens[idx + 1].strip('",;`').lower()
-                        idx += 1
-                referenced_tables[alias] = table_cand
-        idx += 1
-
-    if not referenced_tables:
-        return False, "No tables referenced in the query."
-
-    # Map tables by their actual names too
-    for tname in list(referenced_tables.values()):
-        referenced_tables[tname] = tname
-
-    # Collect valid columns
-    valid_cols_by_table = {}
-    all_valid_cols = set()
-    for alias, tname in referenced_tables.items():
-        valid_cols = {col["column_name"].lower() for col in schema[tname]}
-        valid_cols_by_table[alias] = valid_cols
-        all_valid_cols.update(valid_cols)
-
-    # Check dot references (e.g. employees.first_name)
-    dot_refs = re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b', q_no_literals)
-    for alias_cand, col_cand in dot_refs:
-        alias_l = alias_cand.lower()
-        col_l = col_cand.lower()
-        
-        if alias_l in referenced_tables:
-            tname = referenced_tables[alias_l]
-            if col_l not in valid_cols_by_table[alias_l]:
-                return False, f"Column '{col_cand}' does not exist in table '{tname}'."
-
-    # Check single word references
-    all_words = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', q_no_literals)
-    for word in all_words:
-        word_l = word.lower()
-        if word_l in SQL_KEYWORDS:
-            continue
-        if word_l in referenced_tables:
-            continue
-        if word_l in aliases:
-            continue
-        
-        # Verify it exists in at least one of the queried tables
-        if word_l not in all_valid_cols:
-            queried_tables_str = ", ".join(f"'{t}'" for t in set(referenced_tables.values()))
-            return False, f"Column '{word}' does not exist in any of the queried tables: {queried_tables_str}."
-
-    return True, "Valid SQL query."
-
-
-def map_db_exception(exc: Exception) -> str:
-    exc_name = type(exc).__name__
-    exc_str = str(exc).lower()
+                # Add is_deleted = false if table supports it
+                if config.get("has_is_deleted"):
+                    is_deleted_cond = exp.EQ(
+                        this=exp.Column(this=exp.Identifier(this="is_deleted"), table=exp.Identifier(this=table_name)),
+                        expression=exp.false(),
+                    )
+                    combined_cond = exp.And(this=company_id_cond, expression=is_deleted_cond)
+                else:
+                    combined_cond = company_id_cond
+                
+                # Add to WHERE clause
+                if stmt.args.get("where"):
+                    existing_where = stmt.args["where"]
+                    stmt.set("where", exp.Where(this=exp.And(this=existing_where.this, expression=combined_cond)))
+                else:
+                    stmt.set("where", exp.Where(this=combined_cond))
     
-    if "undefinedcolumn" in exc_str or "undefined_column" in exc_str:
-        return "I couldn't execute that query because it references a column that does not exist in the database schema."
-    if "undefinedtable" in exc_str or "undefined_table" in exc_str:
-        return "I couldn't execute that query because it references a table that does not exist in the database schema."
-    if "timeout" in exc_str:
-        return "The database query timed out. Please try a simpler request."
-    if isinstance(exc, ProgrammingError):
-        return "There was a syntax or programming error in the generated database query."
-    if isinstance(exc, IntegrityError):
-        return "The database query could not be completed due to a data integrity constraint."
-    if isinstance(exc, OperationalError):
-        return "A database operational error occurred. The database might be busy or offline."
-    if isinstance(exc, DBAPIError):
-        return "A database interface error occurred."
-    return f"A database error occurred: {exc_name}"
+    # Enforce LIMIT
+    if max_rows > 0:
+        # Remove existing LIMIT
+        stmt = stmt.transform(
+            lambda node: None if isinstance(node, exp.Limit) else node,
+            copy=False,
+        )
+        # Add new LIMIT
+        stmt = stmt.limit(max_rows)
+    
+    return stmt.sql(dialect="postgres")
+
+
+def get_read_only_session(db: AsyncSession, timeout_seconds: int):
+    """Create a read-only session with statement timeout."""
+    from sqlalchemy import text
+    async def _setup(conn):
+        await conn.execute(text("SET TRANSACTION READ ONLY"))
+        await conn.execute(text(f"SET LOCAL statement_timeout = {timeout_seconds * 1000}"))
+    return _setup
+
+
+def build_sql_prompt(company_id: uuid.UUID | None, history_text: str, query: str) -> str:
+    """Single prompt builder used for both first attempt and repair retry."""
+    schema_desc = schema_cache.get_fallback_schema_description()  # Will be replaced with dynamic
+    return (
+        f"{schema_desc}\n\n"
+        + SQL_GEN_PROMPT.format(
+            company_id=str(company_id) if company_id else "",
+            history_text=history_text,
+            query=query
+        )
+    )
+
+
+async def _execute_sql_loop(
+    self,
+    message: str,
+    company_id: uuid.UUID | None,
+    conversation_id: uuid.UUID,
+    claims: dict,
+    schema_desc: str,
+    max_retries: int = 3,
+) -> tuple[str, str]:
+    """Shared SQL generate/validate/execute/repair loop.
+    
+    Returns:
+        tuple: (results_json, generated_sql)
+    
+    Raises:
+        LLMUnavailableError: If LLM is unavailable
+        ValueError: If SQL validation fails after retries
+        Exception: If database execution fails after retries
+    """
+    sql_error = None
+    retry_count = 0
+    generated_sql = ""
+    results_json = "[]"
+    
+    while retry_count < max_retries:
+        history_text = await self._compile_history(conversation_id)
+        
+        if sql_error:
+            prompt = (
+                f"Your previously generated SQL was invalid:\n"
+                f"SQL: {generated_sql}\n"
+                f"ERROR: {sql_error}\n"
+                f"Please generate a CORRECT PostgreSQL query using ONLY correct columns from the schema:\n\n"
+                f"{schema_desc}\n\n"
+                f"USER QUESTION: {message}\n"
+                f"Corrected SQL:"
+            )
+        else:
+            prompt = build_sql_prompt(company_id, history_text, message)
+        
+        try:
+            raw_sql = await ollama_client.generate_completion(
+                prompt=prompt,
+                system_prompt=SQL_SYSTEM_PROMPT,
+                model=settings.AI_SQL_MODEL
+            )
+            generated_sql = clean_generated_sql(raw_sql)
+        except LLMUnavailableError as llm_exc:
+            logger.error("LLM unavailable during SQL generation: %s", llm_exc)
+            raise
+        except Exception as exc:
+            logger.error("SQL generation failed: %s", exc)
+            sql_error = f"Ollama model generation error: {str(exc)}"
+            retry_count += 1
+            continue
+        
+        # Validate SQL
+        is_valid, err_msg = validate_sql_query(generated_sql, self.schema_cache.tables)
+        if not is_valid:
+            sql_error = err_msg
+            retry_count += 1
+            continue
+        
+        # Execute SQL with tenant isolation
+        try:
+            from sqlalchemy import text
+            
+            user_role = claims.get("role", "")
+            is_super_admin = user_role.lower() in {"super_admin", "SUPER_ADMIN"} or claims.get("is_super_admin", False)
+            
+            rewritten_sql = rewrite_sql_for_tenant(
+                generated_sql,
+                company_id=company_id,
+                is_super_admin=is_super_admin,
+                role=user_role,
+                max_rows=100
+            )
+            
+            # Set up read-only transaction with timeout
+            sql_timeout = getattr(settings, "AI_SQL_TIMEOUT_SECONDS", 30)
+            await self.db.execute(text("SET TRANSACTION READ ONLY"))
+            await self.db.execute(text(f"SET LOCAL statement_timeout = {sql_timeout * 1000}"))
+            
+            # Execute with bound parameter for company_id
+            result = await self.db.execute(
+                text(rewritten_sql),
+                {"company_id": str(company_id)} if company_id else {}
+            )
+            if result.returns_rows:
+                rows = result.mappings().all()
+                
+                from decimal import Decimal
+                from datetime import date
+                class CustomEncoder(json.JSONEncoder):
+                    def default(self, obj):
+                        if isinstance(obj, (Decimal, float)):
+                            return float(obj)
+                        if isinstance(obj, (date, datetime)):
+                            return obj.isoformat()
+                        if isinstance(obj, uuid.UUID):
+                            return str(obj)
+                        return super().default(obj)
+                
+                cleaned_rows = [clean_row_data(dict(row), claims.get("role")) for row in rows]
+                if cleaned_rows:
+                    results_json = json.dumps(cleaned_rows, cls=CustomEncoder, indent=2)
+                else:
+                    results_json = "No matching records found in the database."
+            else:
+                results_json = "Query executed successfully, but returned no rows."
+            
+            # Success
+            return results_json, generated_sql
+        except Exception as sql_exc:
+            await self.db.rollback()
+            logger.error("SQL query execution failed: %s. SQL: %s", sql_exc, rewritten_sql if 'rewritten_sql' in locals() else generated_sql)
+            sql_error = map_db_exception(sql_exc)
+            retry_count += 1
+    
+    # If we exhausted retries
+    raise ValueError(f"SQL repair loop exhausted: {sql_error}")
 
 
 SYSTEM_PROMPT = """You are OFC HR AI, the advanced workforce intelligence assistant for Office Function Consolidator – Human Resources.
@@ -364,83 +795,144 @@ INSTRUCTIONS:
 
 
 def classify_intent_fast(message: str) -> str:
-    msg = message.strip().lower()
-    words = msg.split()
-    cleaned_words = [w.strip("?,.!") for w in words]
+    """Classify user intent using word-boundary matching and Hinglish support.
     
-    # 1. Greetings
+    Returns one of: Greeting, Goodbye, Help, Payroll, Attendance, Leave,
+    Employee Search, Department, Report, Analytics, Database Query, Unknown
+    """
+    import re
+    msg = message.strip().lower()
+    
+    # Tokenize with word boundaries (including Hinglish words)
+    tokens = set(re.findall(r'\b[\w\']+\b', msg))
+    
+    # 1. Greetings - exact matches only for short messages
     greetings = {
         "hi", "hii", "hiii", "hello", "hlo", "hey", "heyy", "hey there",
         "good morning", "good afternoon", "good evening", "g'day",
-        "thanks", "thank you", "thank u", "thx"
+        "thanks", "thank you", "thank u", "thx",
+        "namaste", "namaskar", "pranam",  # Hinglish greetings
     }
     
-    # 2. Who are you / How can you help
+    if msg in greetings or (len(tokens) <= 2 and any(t in greetings for t in tokens)):
+        return "Greeting"
+    
+    # 2. Who are you / How can you help - phrase matching
     who_are_you_phrases = [
         "who are you", "who are u", "what are you", "your name",
-        "how can you help", "how can u help", "what can you do", "what can u do"
+        "how can you help", "how can u help", "what can you do", "what can u do",
+        "tum kaun ho", "aap kaun ho", "kaun ho tum",  # Hinglish
     ]
+    if any(p in msg for p in who_are_you_phrases) and len(tokens) <= 8:
+        return "Greeting"
     
     # 3. Goodbye
     goodbyes = {
-        "bye", "goodbye", "see ya", "see you", "see u", "farewell", "quit", "exit"
+        "bye", "goodbye", "see ya", "see you", "see u", "farewell", "quit", "exit",
+        "alvida", "chalta hoon", "phir milenge",  # Hinglish
     }
+    if msg in goodbyes or (len(tokens) <= 2 and any(t in goodbyes for t in tokens)):
+        return "Goodbye"
     
     # 4. Help
-    help_words = {"help", "commands", "features", "guide"}
-
-    # Checks
-    if msg in greetings or (cleaned_words and cleaned_words[0] in greetings and len(cleaned_words) <= 2):
-        return "Greeting"
-        
-    if any(p in msg for p in who_are_you_phrases) and len(cleaned_words) <= 6:
-        return "Greeting"
-        
-    if msg in goodbyes or (cleaned_words and cleaned_words[0] in goodbyes and len(cleaned_words) <= 2):
-        return "Goodbye"
-        
-    if msg in help_words or (len(cleaned_words) == 1 and cleaned_words[0] == "help"):
+    help_words = {"help", "commands", "features", "guide", "madad", "sahayata"}  # Hinglish
+    if msg in help_words or (len(tokens) == 1 and next(iter(tokens)) in help_words):
         return "Help"
-
-    # Keywords classification
-    payroll_keywords = {"payroll", "salary", "ctc", "pay", "compensation", "payslip"}
-    attendance_keywords = {"attendance", "checkin", "checkout", "present", "absent", "working hours", "late", "shift"}
-    leave_keywords = {"leave", "leaves", "vacation", "holiday", "holidays", "time off"}
-    employee_keywords = {"employee", "employees", "staff", "member", "members", "personnel", "hire", "hired", "join", "joining"}
-    department_keywords = {"department", "departments", "dept", "depts", "branch"}
-    analytics_keywords = {"analytics", "chart", "graph", "metric", "metrics", "stats", "statistics", "insight", "insights"}
-    report_keywords = {"report", "reports", "summary"}
-
-    if any(k in msg for k in payroll_keywords):
+    
+    # 5. Domain keywords with word-boundary matching
+    # Hinglish variants included
+    payroll_keywords = {
+        "payroll", "salary", "ctc", "pay", "compensation", "payslip",
+        "kitni salary", "kitna salary", "salary kitni", "ctc kitna",
+        "pay kitna", "payslip chahiye", "salary details",
+    }
+    attendance_keywords = {
+        "attendance", "checkin", "checkout", "present", "absent", "working hours", "late", "shift",
+        "aaj attendance", "aaj ki attendance", "attendance today", "check in", "check out",
+        "present kaun", "absent kaun", "late kaun",
+    }
+    leave_keywords = {
+        "leave", "leaves", "vacation", "holiday", "holidays", "time off",
+        "chutti", "chuttiyan", "leave balance", "kitni chutti",
+    }
+    employee_keywords = {
+        "employee", "employees", "staff", "member", "members", "personnel", "hire", "hired", "join", "joining",
+        "kitne employee", "kitne employees", "employee kitne", "staff kitna",
+        "employee list", "staff list", "new hire", "new joiner",
+    }
+    department_keywords = {
+        "department", "departments", "dept", "depts", "branch",
+        "department kitne", "departments list", "dept list",
+    }
+    analytics_keywords = {
+        "analytics", "chart", "graph", "metric", "metrics", "stats", "statistics", "insight", "insights",
+        "report", "reports", "summary", "dashboard", "visualize",
+    }
+    
+    # Check with word-boundary matching (for multi-word phrases) and token matching (for single words)
+    def has_keyword(keywords: set[str]) -> bool:
+        for kw in keywords:
+            if ' ' in kw:
+                # Multi-word phrase - check as substring
+                if kw in msg:
+                    return True
+            else:
+                # Single word - check token boundary
+                if kw in tokens:
+                    return True
+        return False
+    
+    if has_keyword(payroll_keywords):
         return "Payroll"
-    if any(k in msg for k in attendance_keywords):
+    if has_keyword(attendance_keywords):
         return "Attendance"
-    if any(k in msg for k in leave_keywords):
+    if has_keyword(leave_keywords):
         return "Leave"
-    if any(k in msg for k in department_keywords):
+    if has_keyword(department_keywords):
         return "Department"
-    if any(k in msg for k in employee_keywords):
+    if has_keyword(employee_keywords):
         return "Employee Search"
-    if any(k in msg for k in report_keywords):
-        return "Report"
-    if any(k in msg for k in analytics_keywords):
+    if has_keyword(analytics_keywords):
         return "Analytics"
-        
-    db_indicators = {"show", "list", "select", "find", "search", "who is", "who are", "get", "display", "retrieve", "how many", "count"}
-    if any(k in msg for k in db_indicators):
+    
+    # 6. Database query indicators
+    db_indicators = {
+        "show", "list", "select", "find", "search", "who is", "who are", "get", "display", "retrieve", "how many", "count",
+        "dikhao", "batao", "kitne", "kaun", "kya",  # Hinglish query words
+    }
+    if has_keyword(db_indicators):
         return "Database Query"
-        
+    
     return "Unknown"
 
 
-def clean_row_data(row_dict: dict) -> dict:
-    """Strips sensitive columns, UUIDs, tokens, and system metadata from db results."""
+def clean_row_data(row_dict: dict, role: str | None = None) -> dict:
+    """Strips sensitive columns, UUIDs, tokens, and system metadata from db results.
+    
+    Role-based filtering:
+    - Salary/CTC columns (ctc, basic_salary, hra, bonus, pf, esi, professional_tax, 
+      pan_number, uan_number, pf_number, esi_number) are only shown to HR/admin roles
+    - PII columns (aadhaar_number, pan_number, etc.) are always stripped
+    """
+    # Always excluded keys (system metadata, PII, tokens)
     excluded_keys = {
         "id", "company_id", "created_by", "deleted_at", "updated_at",
         "activation_token", "activation_token_expires_at", "invited_by", "invited_at",
         "is_deleted", "password_hash", "password", "token", "token_expires_at",
-        "department_id", "user_id", "reporting_manager_id"
+        "department_id", "user_id", "reporting_manager_id",
+        # PII - always blocked
+        "aadhaar_number", "pan_number", "uan_number", "pf_number", "esi_number",
+        "bank_account", "passport_number", "driving_license", "voter_id",
     }
+    
+    # Role-based exclusions: salary/CTC only for HR/admin/super_admin
+    is_hr_admin = role and role.lower() in {"hr_admin", "hr_manager", "admin", "super_admin", "super_admin"}
+    if not is_hr_admin:
+        excluded_keys.update({
+            "ctc", "basic_salary", "hra", "bonus", "pf", "esi", "professional_tax",
+            "pf_number", "esi_number",  # duplicate but explicit
+        })
+    
     return {k: v for k, v in row_dict.items() if k not in excluded_keys}
 
 
@@ -682,96 +1174,30 @@ class AIService:
                 # Load Schema dynamically
                 schema_desc = await self.schema_cache.get_schema_description(self.db)
                 
-                sql_error = None
-                max_retries = 3
-                results_json = "[]"
-                
-                # SQL generation/repair loop
-                while retry_count < max_retries:
-                    history_text = await self._compile_history(conversation_id)
-                    
-                    if sql_error:
-                        prompt = (
-                            f"Your previously generated SQL was invalid:\n"
-                            f"SQL: {generated_sql}\n"
-                            f"ERROR: {sql_error}\n"
-                            f"Please generate a CORRECT PostgreSQL query using ONLY correct columns from the schema:\n\n"
-                            f"{schema_desc}\n\n"
-                            f"USER QUESTION: {message}\n"
-                            f"Corrected SQL:"
-                        )
-                    else:
-                        prompt = (
-                            f"{schema_desc}\n\n"
-                            + SQL_GEN_PROMPT.format(
-                                company_id=str(company_id) if company_id else "",
-                                history_text=history_text,
-                                query=message
-                            )
-                        )
-                    
-                    try:
-                        raw_sql = await ollama_client.generate_completion(
-                            prompt=prompt,
-                            system_prompt=SQL_SYSTEM_PROMPT,
-                            model="gemma:2b"
-                        )
-                        generated_sql = clean_generated_sql(raw_sql)
-                    except Exception as exc:
-                        logger.error("SQL generation failed: %s", exc)
-                        sql_error = f"Ollama model generation error: {str(exc)}"
-                        retry_count += 1
-                        continue
-
-                    # Validate SQL
-                    is_valid, err_msg = validate_sql_query(generated_sql, self.schema_cache.tables)
-                    validation_result = err_msg
-                    if not is_valid:
-                        sql_error = err_msg
-                        retry_count += 1
-                        continue
-
-                    # Execute SQL
-                    try:
-                        from sqlalchemy import text
-                        result = await self.db.execute(text(generated_sql))
-                        if result.returns_rows:
-                            rows = result.mappings().all()
-                            rows_returned = len(rows)
-                            
-                            from decimal import Decimal
-                            from datetime import date
-                            class CustomEncoder(json.JSONEncoder):
-                                def default(self, obj):
-                                    if isinstance(obj, (Decimal, float)):
-                                        return float(obj)
-                                    if isinstance(obj, (date, datetime)):
-                                        return obj.isoformat()
-                                    if isinstance(obj, uuid.UUID):
-                                        return str(obj)
-                                    return super().default(obj)
-                            
-                            cleaned_rows = [clean_row_data(dict(row)) for row in rows]
-                            if cleaned_rows:
-                                results_json = json.dumps(cleaned_rows, cls=CustomEncoder, indent=2)
-                            else:
-                                results_json = "No matching records found in the database."
-                        else:
-                            results_json = "Query executed successfully, but returned no rows."
-                        
-                        # Success
-                        sql_error = None
-                        break
-                    except Exception as sql_exc:
-                        await self.db.rollback()
-                        rollback_status = "Executed automatic rollback after execution failure"
-                        logger.error("SQL query execution failed: %s. SQL: %s", sql_exc, generated_sql)
-                        sql_error = map_db_exception(sql_exc)
-                        retry_count += 1
-
-                # If repair loop exhausted
-                if sql_error:
-                    response_text = f"I couldn't execute that query because it doesn't match the current database schema. Let me correct it. Error detail: {sql_error}"
+                try:
+                    results_json, generated_sql = await self._execute_sql_loop(
+                        message=message,
+                        company_id=company_id,
+                        conversation_id=conversation_id,
+                        claims=claims,
+                        schema_desc=schema_desc,
+                        max_retries=3,
+                    )
+                except LLMUnavailableError as llm_exc:
+                    logger.error("LLM unavailable during SQL generation: %s", llm_exc)
+                    return ChatResponse(
+                        success=False,
+                        conversation_id=conversation_id,
+                        response="The AI service is temporarily unavailable. Please try again.",
+                        sources=[],
+                        suggestions=[],
+                    )
+                except ValueError as val_exc:
+                    logger.error("SQL validation failed after retries: %s", val_exc)
+                    response_text = f"I couldn't execute that query because it doesn't match the current database schema. Error: {val_exc}"
+                except Exception as exc:
+                    logger.error("SQL execution failed: %s", exc)
+                    response_text = f"A database error occurred: {map_db_exception(exc)}"
                 else:
                     # 4. Format response using LLM
                     format_prompt = ANSWER_FORMAT_PROMPT.format(
@@ -877,6 +1303,24 @@ class AIService:
         rollback_status = "No transaction modifications"
         tokens_count = "N/A"
         response_text = ""
+        request_id = uuid.uuid4().hex[:8]
+
+        def _user_error(event: str, detail: str) -> dict:
+            """Generate user-facing error message without exposing internals."""
+            messages = {
+                "ollama_unreachable": "I'm unable to connect to the AI service. Please try again in a moment.",
+                "model_missing": "The AI model is not available. Please contact your administrator.",
+                "timeout": "The request took too long to complete. Please try a simpler query.",
+                "invalid_sql": "I couldn't understand that query. Please rephrase or try a different question.",
+                "db_error": "A database error occurred. Please try again later.",
+                "no_data": "No matching records found for your query.",
+            }
+            return {
+                "event": "error",
+                "message": messages.get(event, "An error occurred. Please try again."),
+                "error_code": event,
+                "request_id": request_id,
+            }
 
         try:
             # Fetch or initialize conversation
@@ -933,7 +1377,7 @@ class AIService:
 
         try:
             if is_who_are_you:
-                who_msg = "I'm Aurix AI, your HRMS assistant. I can help with employees, payroll, attendance, reports, analytics, onboarding and company information."
+                who_msg = f"I'm {ASSISTANT_NAME}, your HRMS assistant. I can help with employees, payroll, attendance, reports, analytics, onboarding and company information."
                 for token in who_msg.split(" "):
                     token_event = {"event": "token", "text": token + " "}
                     yield f"data: {json.dumps(token_event)}\n\n"
@@ -941,7 +1385,7 @@ class AIService:
                 response_text = who_msg
                 
             elif intent == "Greeting":
-                greeting_msg = "Hello! 👋 I'm Aurix AI, your enterprise HR assistant. I can help you with employee records, department structures, payroll stats, attendance tracking, leave policies, onboarding details, and analytics. Try asking 'What departments do we have?' or 'Show all active employees'."
+                greeting_msg = f"Hello! 👋 I'm {ASSISTANT_NAME}, your enterprise HR assistant. I can help you with employee records, department structures, payroll stats, attendance tracking, leave policies, onboarding details, and analytics. Try asking 'What departments do we have?' or 'Show all active employees'."
                 for token in greeting_msg.split(" "):
                     token_event = {"event": "token", "text": token + " "}
                     yield f"data: {json.dumps(token_event)}\n\n"
@@ -958,7 +1402,7 @@ class AIService:
 
             elif intent == "Help":
                 help_msg = (
-                    "Hello! I am Aurix AI, your HRMS assistant. Here are the categories of information you can query:\n\n"
+                    f"Hello! I am {ASSISTANT_NAME}, your HRMS assistant. Here are the categories of information you can query:\n\n"
                     "👥 **Employees**\n"
                     "- [Show all active employees](query:Show%20all%20active%20employees)\n"
                     "- [Show employees in Engineering](query:Show%20employees%20in%20Engineering)\n\n"
@@ -988,107 +1432,33 @@ class AIService:
             elif intent in ("Database Query", "Analytics", "Payroll", "Attendance", "Leave", "Employee Search", "Department", "Report"):
                 is_healthy = await ollama_client.check_health()
                 if not is_healthy:
-                    err_event = {
-                        "event": "error",
-                        "message": "Ollama AI model server is offline/unavailable.",
-                        "status_code": 503
-                    }
-                    yield f"data: {json.dumps(err_event)}\n\n"
+                    yield f"data: {json.dumps(_user_error('ollama_unreachable', 'Ollama unreachable'))}\n\n"
                     return
 
                 # Load schema dynamically
                 schema_desc = await self.schema_cache.get_schema_description(self.db)
                 
-                sql_error = None
-                max_retries = 3
-                results_json = "[]"
-                
-                # SQL Generation / Repair Loop
-                while retry_count < max_retries:
-                    history_text = await self._compile_history(conversation_id)
-                    
-                    if sql_error:
-                        prompt = (
-                            f"Your previously generated SQL was invalid:\n"
-                            f"SQL: {generated_sql}\n"
-                            f"ERROR: {sql_error}\n"
-                            f"Please generate a CORRECT PostgreSQL query using ONLY correct columns from the schema:\n\n"
-                            f"{schema_desc}\n\n"
-                            f"USER QUESTION: {message}\n"
-                            f"Corrected SQL:"
-                        )
-                    else:
-                        prompt = (
-                            f"{schema_desc}\n\n"
-                            + SQL_GEN_PROMPT.format(
-                                company_id=str(company_id) if company_id else "",
-                                history_text=history_text,
-                                query=message
-                            )
-                        )
-
-                    try:
-                        raw_sql = await ollama_client.generate_completion(
-                            prompt=prompt,
-                            system_prompt=SQL_SYSTEM_PROMPT,
-                            model="gemma:2b"
-                        )
-                        generated_sql = clean_generated_sql(raw_sql)
-                    except Exception as exc:
-                        logger.error("SQL generation failed: %s", exc)
-                        sql_error = f"Ollama model generation error: {str(exc)}"
-                        retry_count += 1
-                        continue
-
-                    # Validate SQL
-                    is_valid, err_msg = validate_sql_query(generated_sql, self.schema_cache.tables)
-                    validation_result = err_msg
-                    if not is_valid:
-                        sql_error = err_msg
-                        retry_count += 1
-                        continue
-
-                    # Execute SQL
-                    try:
-                        from sqlalchemy import text
-                        result = await self.db.execute(text(generated_sql))
-                        if result.returns_rows:
-                            rows = result.mappings().all()
-                            rows_returned = len(rows)
-                            
-                            from decimal import Decimal
-                            from datetime import date
-                            class CustomEncoder(json.JSONEncoder):
-                                def default(self, obj):
-                                    if isinstance(obj, (Decimal, float)):
-                                        return float(obj)
-                                    if isinstance(obj, (date, datetime)):
-                                        return obj.isoformat()
-                                    if isinstance(obj, uuid.UUID):
-                                        return str(obj)
-                                    return super().default(obj)
-                            
-                            cleaned_rows = [clean_row_data(dict(row)) for row in rows]
-                            if cleaned_rows:
-                                results_json = json.dumps(cleaned_rows, cls=CustomEncoder, indent=2)
-                            else:
-                                results_json = "No matching records found in the database."
-                        else:
-                            results_json = "Query executed successfully, but returned no rows."
-                        
-                        # Successful execution, exit loop
-                        sql_error = None
-                        break
-                    except Exception as sql_exc:
-                        await self.db.rollback()
-                        rollback_status = "Executed automatic rollback after execution failure"
-                        logger.error("SQL query execution failed: %s. SQL: %s", sql_exc, generated_sql)
-                        sql_error = map_db_exception(sql_exc)
-                        retry_count += 1
-
-                # If repair loop exhausted
-                if sql_error:
-                    response_text = f"I couldn't execute that query because it doesn't match the current database schema. Let me correct it. Error detail: {sql_error}"
+                try:
+                    results_json, generated_sql = await self._execute_sql_loop(
+                        message=message,
+                        company_id=company_id,
+                        conversation_id=conversation_id,
+                        claims=claims,
+                        schema_desc=schema_desc,
+                        max_retries=3,
+                    )
+                except LLMUnavailableError as llm_exc:
+                    logger.error("LLM unavailable during SQL generation: %s", llm_exc)
+                    yield f"data: {json.dumps(_user_error('model_missing', str(llm_exc)))}\n\n"
+                    return
+                except ValueError as val_exc:
+                    logger.error("SQL validation failed after retries: %s", val_exc)
+                    response_text = f"I couldn't execute that query because it doesn't match the current database schema. Error: {val_exc}"
+                    token_event = {"event": "token", "text": response_text}
+                    yield f"data: {json.dumps(token_event)}\n\n"
+                except Exception as exc:
+                    logger.error("SQL execution failed: %s", exc)
+                    response_text = f"A database error occurred: {map_db_exception(exc)}"
                     token_event = {"event": "token", "text": response_text}
                     yield f"data: {json.dumps(token_event)}\n\n"
                 else:
@@ -1117,12 +1487,7 @@ class AIService:
                 # Fallback for Unknown
                 is_healthy = await ollama_client.check_health()
                 if not is_healthy:
-                    err_event = {
-                        "event": "error",
-                        "message": "Ollama AI model server is offline/unavailable.",
-                        "status_code": 503
-                    }
-                    yield f"data: {json.dumps(err_event)}\n\n"
+                    yield f"data: {json.dumps(_user_error('ollama_unreachable', 'Ollama unreachable'))}\n\n"
                     return
 
                 db_facts = await self._gather_database_facts(message, company_id)
@@ -1406,7 +1771,7 @@ class AIService:
             return header + "Here is what I found in the database matching your query:\n\n" + facts["matched_employees_text"].replace("MATCHED EMPLOYEE RECORDS:\n", "")
 
         fallback_msg = (
-            f"Hello! I am Aurix AI, your workforce intelligence assistant.\n\n"
+            f"Hello! I am {ASSISTANT_NAME}, your workforce intelligence assistant.\n\n"
             f"Currently, my natural language generator is offline, but I can retrieve live facts from your database directly. "
             f"Here is a summary of your workplace data:\n\n"
             f"- **Total Active Employees:** {facts['total_employees']}\n"

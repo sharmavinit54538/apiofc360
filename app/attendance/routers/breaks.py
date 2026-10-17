@@ -9,8 +9,9 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance.schemas.face import BreakSessionResponse, BreakStartRequest
+from app.attendance.schemas.face import BreakEndRequest, BreakSessionResponse, BreakStartRequest
 from app.attendance.services.break_service import BreakService
+from app.attendance.utils.helpers import parse_face_request
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -34,23 +35,33 @@ def _get_company_id(claims: dict) -> uuid.UUID:
 @router.post(
     "/start",
     status_code=status.HTTP_200_OK,
-    summary="Start an attendance break session",
+    summary="Start an attendance break session with real face verification",
 )
 async def start_break(
-    payload: Optional[BreakStartRequest] = None,
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
-    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    request: Request = None,
+    request: Request,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> dict:
-    """Starts a new break session for today's active check-in."""
+    """Starts a new break session for today's active check-in with mandatory face verification."""
     user_id = _get_user_id(claims)
     company_id = _get_company_id(claims)
     ip_address = request.client.host if request and request.client else None
 
+    image_b64, location_dict, notes, device_info = await parse_face_request(
+        request,
+        require_image=True,
+        missing_image_message="Face image is required for break verification.",
+    )
+
     service = BreakService(db)
-    notes = payload.notes if payload else None
     break_session = await service.start_break(
-        user_id=user_id, company_id=company_id, notes=notes, ip_address=ip_address
+        user_id=user_id,
+        company_id=company_id,
+        image_base64=image_b64,
+        location=location_dict,
+        notes=notes,
+        device_info=device_info,
+        ip_address=ip_address,
     )
 
     return {
@@ -62,6 +73,10 @@ async def start_break(
             "break_start": break_session.break_start.isoformat(),
             "status": break_session.status,
             "notes": break_session.notes,
+            "face_distance": break_session.start_face_distance,
+            "liveness_score": break_session.start_liveness_score,
+            "image_url": break_session.start_image_url,
+            "start_image_url": break_session.start_image_url,
         },
         "error": None,
     }
@@ -70,21 +85,33 @@ async def start_break(
 @router.post(
     "/end",
     status_code=status.HTTP_200_OK,
-    summary="End the currently active attendance break session",
+    summary="End the currently active attendance break session with real face verification",
 )
 async def end_break(
-    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
-    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    request: Request = None,
+    request: Request,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> dict:
-    """Ends the currently active break session and records duration."""
+    """Ends the currently active break session with mandatory face verification and records duration."""
     user_id = _get_user_id(claims)
     company_id = _get_company_id(claims)
     ip_address = request.client.host if request and request.client else None
 
+    image_b64, location_dict, notes, device_info = await parse_face_request(
+        request,
+        require_image=True,
+        missing_image_message="Face image is required for break verification.",
+    )
+
     service = BreakService(db)
     break_session = await service.end_break(
-        user_id=user_id, company_id=company_id, ip_address=ip_address
+        user_id=user_id,
+        company_id=company_id,
+        image_base64=image_b64,
+        location=location_dict,
+        notes=notes,
+        device_info=device_info,
+        ip_address=ip_address,
     )
 
     return {
@@ -97,6 +124,11 @@ async def end_break(
             "break_end": break_session.break_end.isoformat() if break_session.break_end else None,
             "duration_minutes": break_session.duration_minutes,
             "status": break_session.status,
+            "notes": break_session.notes,
+            "face_distance": break_session.end_face_distance,
+            "liveness_score": break_session.end_liveness_score,
+            "image_url": break_session.end_image_url,
+            "end_image_url": break_session.end_image_url,
         },
         "error": None,
     }

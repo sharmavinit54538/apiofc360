@@ -23,8 +23,10 @@ uvicorn.err.log
 uvicorn.out.log
 
 # Uploads & Scratch directories
-uploads/
+uploads/*
+!uploads/**/.gitkeep
 scratch/
+archive/
 
 # Database files
 *.sqlite
@@ -36,3 +38,51 @@ scratch/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated API inventories / reports (regenerate with scripts)
+/openapi.json
+/api_inventory.json
+/api_inventory_summary.md
+/all_live_fastapi_routes.json
+/ai_payroll_endpoints.json
+/attendance_routes.json
+/benchmark_results.json
+/categorized_connect_endpoints.json
+/categorized_hr_endpoints.json
+/connect_endpoints_detailed.json
+/connect_full_specs.json
+/connect_routes.json
+/full_hr_admin_dashboard_report.json
+/hr_dashboard_extracted.json
+/parsed_endpoints.json
+/payroll_all_routes.json
+/payroll_submodules_parsed.json
+/ui_5_sections_endpoints.json
+/schema_diff.txt
+/categorize_connect.py
+app/templates.zip
+
+# Root-level one-off diagnostic & test scripts
+/check_*.py
+/inspect_*.py
+/read_*.py
+/fix_*.py
+/reset_*.py
+/seed_*.py
+/update_*.py
+/verify_*.py
+/migrate_*.py
+/apply_*.py
+/add_*.py
+/scratch_*.py
+/test_*.py
+/dump_*.py
+/filter_*.py
+/generate_*.py
+/extract_*.py
+/parse_*.py
+/print_*.py
+
+# Ensure essential script utilities are tracked
+!scripts/seed_super_admin.py
+!scripts/check_schema.py

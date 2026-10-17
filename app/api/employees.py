@@ -17,6 +17,8 @@ from app.schemas.employee import (
     ActivateEmployeeRequest,
     ApproveRejectRequest,
     EmployeeCreate,
+    EmployeeListItem,
+    EmployeeListItemFull,
     EmployeeListResponse,
     EmployeeOnboardingStatusResponse,
     EmployeeResponse,

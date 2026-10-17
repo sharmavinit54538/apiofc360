@@ -64,11 +64,19 @@ class ChatConversationDeleteResponse(BaseModel):
 
 
 class SendChatMessageRequest(BaseModel):
+    """Flexible payload accepting multiple field aliases."""
     model_config = ConfigDict(populate_by_name=True)
 
     conversationId: str
-    content: str
+    content: Optional[str] = None
+    message: Optional[str] = None
+    prompt: Optional[str] = None
+    query: Optional[str] = None
     agentId: Optional[str] = None
+
+    @property
+    def text(self) -> str:
+        return (self.content or self.message or self.prompt or self.query or "").strip()
 
 
 class ChatMessageResponse(BaseModel):
@@ -78,6 +86,14 @@ class ChatMessageResponse(BaseModel):
     messageId: str
     role: str = "ai"
     content: str
+    reply: Optional[str] = None
+    message: Optional[str] = None
     agentId: Optional[str] = None
     suggestions: list[str] = Field(default_factory=list)
     createdAt: str
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.reply is None:
+            self.reply = self.content
+        if self.message is None:
+            self.message = self.content

@@ -34,7 +34,7 @@ class DepartmentCreate(BaseModel):
     departmentHeadId: uuid.UUID | None = None
     parent_department_id: uuid.UUID | None = Field(None, description="Parent Department UUID")
     branch_id: uuid.UUID | None = Field(None, description="Branch UUID")
-    location: str = Field(..., min_length=1, max_length=100, examples=["Headquarters, Floor 4"])
+    location: str = Field("Main Office", min_length=1, max_length=100, examples=["Headquarters, Floor 4"])
     cost_center: str | None = Field(None, max_length=50, examples=["CC-HR-101"])
     cost_id: str | None = Field(None, max_length=50)
     costID: str | None = Field(None, max_length=50)
@@ -567,3 +567,16 @@ class AssignEmployeesRequest(BaseModel):
 
 class AssignManagerRequest(BaseModel):
     manager_user_id: uuid.UUID = Field(..., description="The User ID of the Manager to assign as Head of Department")
+
+
+class DepartmentSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total_departments: int = Field(0, description="Total active and inactive non-deleted departments")
+    active_departments: int = Field(0, description="Departments with ACTIVE status")
+    inactive_departments: int = Field(0, description="Departments with INACTIVE status")
+    total_employees: int = Field(0, description="Total non-deleted employees assigned to company departments")
+    total_managers: int = Field(0, description="Total departments that have a manager assigned")
+    avg_team_size: float = Field(0.0, description="Average employees per department")
+    open_positions: int = Field(0, description="Current open job positions for departments")
+    hiring_departments: int = Field(0, description="Departments with HIRING status")

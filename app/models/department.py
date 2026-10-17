@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func, text, Numeric
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func, text, Numeric
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,8 @@ class Department(Base):
         Index("ix_departments_parent_department_id", "parent_department_id"),
         Index("ix_departments_status", "status"),
         Index("ix_departments_is_deleted", "is_deleted"),
+        UniqueConstraint("company_id", "normalized_name", name="uq_departments_company_normalized_name"),
+        UniqueConstraint("company_id", "normalized_code", name="uq_departments_company_normalized_code"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -39,6 +41,8 @@ class Department(Base):
     )
     department_code: Mapped[str] = mapped_column(String(30), nullable=False)
     department_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    normalized_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    normalized_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str] = mapped_column(String(1000), nullable=False)
 
     # Department Head (links to users.id)

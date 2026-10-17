@@ -87,11 +87,35 @@ class PayslipService:
 
         payslips = (await session.execute(stmt)).scalars().all()
         generated_count = 0
+        from app.models.employee import Employee
+        from app.services import notification_service
+
         for ps in payslips:
             if not ps.pdf_path or force:
                 ps.pdf_path = f"uploads/payslips/{run_id}/{ps.employee_id}.pdf"
                 ps.generated_at = datetime.now()
                 generated_count += 1
+
+                # Emit payslip published notification to employee
+                try:
+                    emp = await session.get(Employee, ps.employee_id)
+                    if emp and emp.user_id and emp.company_id:
+                        await notification_service.notify(
+                            session,
+                            company_id=emp.company_id,
+                            recipient_ids=[emp.user_id],
+                            type="payroll.payslip_published",
+                            category="payroll",
+                            module="payroll",
+                            title=f"Payslip Published: {ps.period_month:02d}/{ps.period_year}",
+                            body=f"Your payslip for {ps.period_month:02d}/{ps.period_year} is ready to view.",
+                            link="/dashboard/payroll/payslips",
+                            priority="normal",
+                            entity={"type": "payslip", "id": str(ps.id)},
+                            dedupe_key=f"payroll:payslip:{ps.id}:published",
+                        )
+                except Exception as e:
+                    logger.warning("Failed to emit payslip notification for emp=%s: %s", ps.employee_id, e)
 
         await session.commit()
         return generated_count

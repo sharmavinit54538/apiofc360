@@ -77,6 +77,34 @@ async def process_document_expiry_alerts(session: AsyncSession) -> int:
                         threshold,
                     )
 
+                    try:
+                        from app.services import notification_service
+                        if doc.employee and doc.employee.user_id and doc.company_id:
+                            is_expired = threshold == 0
+                            notif_type = "documents.expired" if is_expired else "documents.expiring_soon"
+                            notif_title = f"Document Expired: {doc.title}" if is_expired else f"Document Expiring Soon: {doc.title}"
+                            notif_body = (
+                                f"Your document '{doc.title}' has expired on {doc.expiry_date.isoformat()}."
+                                if is_expired
+                                else f"Your document '{doc.title}' will expire in {delta_days} day(s) on {doc.expiry_date.isoformat()}."
+                            )
+                            await notification_service.notify(
+                                session,
+                                company_id=doc.company_id,
+                                recipient_ids=[doc.employee.user_id],
+                                type=notif_type,
+                                category="documents",
+                                module="documents",
+                                title=notif_title,
+                                body=notif_body,
+                                link="/dashboard/people",
+                                priority="high" if is_expired else "normal",
+                                entity={"type": "employee_document", "id": str(doc.id)},
+                                dedupe_key=f"doc:{doc.id}:expiry:{threshold}",
+                            )
+                    except Exception as notif_err:
+                        logger.warning("Failed to emit document expiry notification for doc=%s: %s", doc.id, notif_err)
+
         if tracked_count > 0:
             await session.commit()
             logger.info("Committed %d document expiry tracking alerts.", tracked_count)

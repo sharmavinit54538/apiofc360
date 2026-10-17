@@ -15,7 +15,7 @@ import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator
+from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator, model_validator
 from sqlalchemy import select
 from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
@@ -73,22 +73,37 @@ class StartSessionRequest(BaseModel):
 
 
 class PostMessageRequest(BaseModel):
-    """Payload for POST /emotions/sessions/{session_id}/messages."""
+    """Payload for POST /emotions/sessions/{session_id}/messages.
+
+    Accepts flexible field names: message, content, prompt, query
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
-    message: str = Field(
-        ...,
+    message: Optional[str] = Field(
+        None,
         min_length=1,
         max_length=4000,
         description="The message text to send to the chatbot.",
         examples=["I'm feeling stressed about the upcoming deadline."],
     )
+    content: Optional[str] = Field(None, description="Alias for message")
+    prompt: Optional[str] = Field(None, description="Alias for message")
+    query: Optional[str] = Field(None, description="Alias for message")
     model: Optional[str] = Field(
         default=None,
         description="Optional LLM model override.",
         examples=["llama3.2"],
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            msg = data.get("message") or data.get("content") or data.get("prompt") or data.get("query")
+            if msg is not None:
+                data["message"] = msg
+        return data
 
     @field_validator("message", mode="before")
     @classmethod
