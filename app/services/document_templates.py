@@ -78,14 +78,27 @@ CANONICAL_TEMPLATES: list[dict[str, Any]] = [
 ]
 
 
-async def seed_canonical_templates_idempotent(session: AsyncSession) -> None:
-    """Idempotently seed the four canonical document templates (Offer, NDA, Relieving, Handbook)."""
+async def seed_canonical_templates_idempotent(session: AsyncSession) -> int:
+    """Idempotently seed the four canonical document templates (Offer, NDA, Relieving, Handbook).
+    
+    Uses legitimate existing admin user if available, or None for global system templates.
+    Returns the number of templates inserted.
+    """
     try:
         stmt = select(DocumentTemplate.name)
         result = await session.execute(stmt)
         existing_names = set(result.scalars().all())
 
-        system_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        # Safely resolve an active administrative user if one exists; otherwise use None for global templates
+        system_user_id: uuid.UUID | None = None
+        try:
+            from app.models.user import User
+            user_stmt = select(User.id).where(User.is_active == True).limit(1)  # noqa: E712
+            res = await session.execute(user_stmt)
+            system_user_id = res.scalar_one_or_none()
+        except Exception:
+            system_user_id = None
+
         inserted = 0
         for item in CANONICAL_TEMPLATES:
             if item["name"] not in existing_names:
@@ -102,6 +115,8 @@ async def seed_canonical_templates_idempotent(session: AsyncSession) -> None:
         if inserted > 0:
             await session.commit()
             logger.info("Seeded %d canonical document templates.", inserted)
+        return inserted
     except Exception as exc:
         await session.rollback()
-        logger.warning("Canonical templates seed notice: %s", exc)
+        logger.error("Failed to seed canonical document templates: %s", exc)
+        raise

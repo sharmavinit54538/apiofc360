@@ -39,6 +39,7 @@ from app.api.billing import router as billing_router
 from app.api.payments import router as payments_router
 from app.api.onboarding import router as onboarding_router
 from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
+from app.api.sidebar import router as sidebar_router
 from app.routers.notifications import router as core_notifications_router
 
 from app.db.database import engine, get_db_session
@@ -589,6 +590,8 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
     app.include_router(core_notifications_router)
+    app.include_router(sidebar_router, prefix="/api")
+    app.include_router(sidebar_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])

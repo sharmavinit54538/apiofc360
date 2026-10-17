@@ -261,6 +261,7 @@ def get_v1_router() -> APIRouter:
         connect_router,
         helpdesk_router,
         reports_v1_router,
+        sidebar_router,
     ):
         router.include_router(r)
     
