@@ -1,22 +1,33 @@
-"""Department Management API routes."""
+"""Department Management API routes - Canonical and unified router for OFC360."""
+
+from __future__ import annotations
 
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.department import (
     AssignEmployeesRequest,
     AssignManagerRequest,
+    BulkActionResponse,
+    BulkAssignManagerRequest,
+    BulkDeleteRequest,
+    BulkStatusRequest,
+    DepartmentAnalyticsResponse,
     DepartmentCreate,
+    DepartmentHierarchyNode,
+    DepartmentImportRequest,
+    DepartmentListItem,
     DepartmentListResponse,
     DepartmentResponse,
-    DepartmentUpdate,
     DepartmentStats,
     DepartmentSummary,
+    DepartmentUpdate,
+    TransferEmployeesRequest,
 )
 from app.services.department_service import DepartmentService, get_department_service
 
@@ -35,12 +46,15 @@ def _get_cid(claims: dict | None) -> uuid.UUID | None:
         return None
 
 
-# Helper dependency to enforce Admin, HR, or IT Admin for write operations
+# Helper dependencies for RBAC
 async def require_admin_or_hr(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
     role = str(claims.get("role") or "").lower()
     if role not in {"super_admin", "hr_admin", "it_admin"}:
         from app.core.exceptions import AppException
-        raise AppException(message="Only Super Admin, HR Admin and IT Admin can manage departments.", status_code=status.HTTP_403_FORBIDDEN)
+        raise AppException(
+            message="Only Super Admin, HR Admin and IT Admin can manage departments.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     return claims
 
 
@@ -48,9 +62,16 @@ async def require_admin_or_hr_or_manager(claims: Annotated[dict, Depends(get_cur
     role = str(claims.get("role") or "").lower()
     if role not in {"super_admin", "hr_admin", "manager", "executive", "it_admin"}:
         from app.core.exceptions import AppException
-        raise AppException(message="Admin, HR, IT Admin or Executive access required.", status_code=status.HTTP_403_FORBIDDEN)
+        raise AppException(
+            message="Admin, HR, IT Admin or Executive access required.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     return claims
 
+
+# ==============================================================================
+# 1. Base Department CRUD (Create & List)
+# ==============================================================================
 
 @router.post(
     "",
@@ -63,7 +84,7 @@ async def create_department(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[DepartmentResponse]:
-    """Create a new department. Admin and HR only."""
+    """Create a new department. Admin, HR Admin, and IT Admin only."""
     user_id = uuid.UUID(claims["sub"])
     cid = _get_cid(claims)
     dept = await service.create_department(user_id, payload, company_id=cid)
@@ -82,7 +103,7 @@ async def create_department(
     summary="List all departments",
 )
 async def list_departments(
-    status_filter: str | None = Query(None, alias="status", description="Filter by status (ACTIVE/INACTIVE)"),
+    status_filter: str | None = Query(None, alias="status", description="Filter by status (ACTIVE/INACTIVE/HIRING)"),
     search: str | None = Query(None, description="Search by name or code"),
     sort_by: str | None = Query(None, description="Sort field"),
     sort_order: str | None = Query(None, description="Sort order (asc/desc)"),
@@ -124,6 +145,10 @@ async def list_departments(
         )
 
 
+# ==============================================================================
+# 2. Static Endpoints (MUST be registered before /{id} to avoid 422 routing conflicts)
+# ==============================================================================
+
 @router.get(
     "/summary",
     status_code=status.HTTP_200_OK,
@@ -146,6 +171,240 @@ async def get_departments_summary(
 
 
 @router.get(
+    "/stats",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[DepartmentSummary],
+    summary="Get department statistics overview",
+)
+async def get_departments_overview_stats(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[DepartmentSummary]:
+    """Overview department statistics (alias to summary metrics)."""
+    cid = _get_cid(claims)
+    summary = await service.get_departments_summary(company_id=cid)
+    return APIResponse[DepartmentSummary](
+        success=True,
+        message="Department statistics retrieved successfully.",
+        data=summary,
+        errors=None,
+    )
+
+
+@router.get(
+    "/analytics",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[DepartmentAnalyticsResponse],
+    summary="Get department detailed analytics",
+)
+async def get_department_analytics(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[DepartmentAnalyticsResponse]:
+    """Get deep department analytics (capacity utilization, budget allocation, team size breakdown)."""
+    cid = _get_cid(claims)
+    analytics = await service.get_department_analytics(company_id=cid)
+    return APIResponse[DepartmentAnalyticsResponse](
+        success=True,
+        message="Department analytics retrieved successfully.",
+        data=analytics,
+        errors=None,
+    )
+
+
+@router.get(
+    "/hierarchy",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[DepartmentHierarchyNode]],
+    summary="Get organizational hierarchy tree of departments",
+)
+@router.get(
+    "/tree",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[DepartmentHierarchyNode]],
+    summary="Get organizational hierarchy tree of departments (alias)",
+)
+async def get_department_hierarchy(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[list[DepartmentHierarchyNode]]:
+    """Retrieve full company department hierarchy tree with employee counts and manager assignments."""
+    cid = _get_cid(claims)
+    tree = await service.get_department_hierarchy(company_id=cid)
+    return APIResponse[list[DepartmentHierarchyNode]](
+        success=True,
+        message="Department hierarchy tree retrieved successfully.",
+        data=tree,
+        errors=None,
+    )
+
+
+@router.post(
+    "/bulk-delete",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk soft delete departments",
+)
+async def bulk_delete_departments(
+    payload: BulkDeleteRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk soft delete departments. Blocks any departments with active employees assigned."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    result = await service.bulk_delete_departments(user_id, payload.department_ids, company_id=cid)
+    return APIResponse[BulkActionResponse](
+        success=True,
+        message=f"Bulk delete completed. {result.affected_count} departments deleted.",
+        data=result,
+        errors=result.errors,
+    )
+
+
+@router.post(
+    "/bulk-status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk update department status",
+)
+async def bulk_update_status(
+    payload: BulkStatusRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk update status for departments (ACTIVE, INACTIVE, HIRING, GROWING)."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    result = await service.bulk_update_status(user_id, payload.department_ids, payload.status, company_id=cid)
+    return APIResponse[BulkActionResponse](
+        success=True,
+        message=f"Status updated to '{payload.status}' for {result.affected_count} departments.",
+        data=result,
+        errors=None,
+    )
+
+
+@router.post(
+    "/bulk-assign-manager",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk assign manager to departments",
+)
+async def bulk_assign_manager(
+    payload: BulkAssignManagerRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk assign department head/manager to multiple departments."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    result = await service.bulk_assign_manager(user_id, payload.department_ids, payload.manager_user_id, company_id=cid)
+    return APIResponse[BulkActionResponse](
+        success=True,
+        message=f"Manager assigned across {result.affected_count} departments.",
+        data=result,
+        errors=None,
+    )
+
+
+@router.post(
+    "/transfer-employees",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Transfer employees between departments",
+)
+async def transfer_employees(
+    payload: TransferEmployeesRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Transfer employees from one department to another."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    result = await service.transfer_employees(
+        user_id,
+        payload.source_department_id,
+        payload.target_department_id,
+        payload.employee_ids,
+        company_id=cid,
+    )
+    return APIResponse[BulkActionResponse](
+        success=True,
+        message=f"Transferred {result.affected_count} employees successfully.",
+        data=result,
+        errors=None,
+    )
+
+
+@router.get(
+    "/export",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[dict[str, Any]]],
+    summary="Export all company departments",
+)
+async def export_departments(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[list[dict[str, Any]]]:
+    """Export departments as structured JSON list."""
+    cid = _get_cid(claims)
+    records = await service.export_departments(company_id=cid)
+    return APIResponse[list[dict[str, Any]]](
+        success=True,
+        message=f"Exported {len(records)} departments.",
+        data=records,
+        errors=None,
+    )
+
+
+@router.get(
+    "/export/csv",
+    status_code=status.HTTP_200_OK,
+    summary="Export departments as CSV file",
+)
+async def export_departments_csv(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> Response:
+    """Export departments as CSV download."""
+    cid = _get_cid(claims)
+    csv_content = await service.export_departments_csv(company_id=cid)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=departments.csv"},
+    )
+
+
+@router.post(
+    "/import",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk import departments",
+)
+async def import_departments(
+    payload: DepartmentImportRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk import departments."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    result = await service.import_departments(user_id, payload.departments, company_id=cid)
+    return APIResponse[BulkActionResponse](
+        success=True,
+        message=f"Import completed. {result.affected_count} departments created.",
+        data=result,
+        errors=result.errors,
+    )
+
+
+# ==============================================================================
+# 3. Dynamic Endpoints By Department ID (/{id})
+# ==============================================================================
+
+@router.get(
     "/{id}",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[DepartmentResponse],
@@ -156,8 +415,7 @@ async def get_department(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[DepartmentResponse]:
-    """Get department by ID. Managers/Employees can only access if they belong to it (checked inside or allowed)."""
-    # For now, retrieve details
+    """Get department by ID."""
     cid = _get_cid(claims)
     dept = await service.get_department(id, company_id=cid)
     return APIResponse[DepartmentResponse](
@@ -186,7 +444,7 @@ async def update_department(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[DepartmentResponse]:
-    """Update department details. Admin and HR only."""
+    """Update department details. Admin, HR Admin, and IT Admin only."""
     user_id = uuid.UUID(claims["sub"])
     cid = _get_cid(claims)
     dept = await service.update_department(user_id, id, payload, company_id=cid)
@@ -196,6 +454,7 @@ async def update_department(
         data=dept,
         errors=None,
     )
+
 
 @router.delete(
     "/{id}",
@@ -208,7 +467,7 @@ async def delete_department(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[None]:
-    """Soft delete department. Guard checks if employees are assigned. Admin and HR only."""
+    """Soft delete department. Guard checks if active employees are assigned."""
     user_id = uuid.UUID(claims["sub"])
     cid = _get_cid(claims)
     await service.delete_department(user_id, id, company_id=cid)
@@ -218,6 +477,29 @@ async def delete_department(
         data=None,
         errors=None,
     )
+
+
+@router.get(
+    "/{id}/hierarchy",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[DepartmentHierarchyNode],
+    summary="Get department subtree hierarchy",
+)
+async def get_department_subtree_hierarchy(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[DepartmentHierarchyNode]:
+    """Retrieve subtree hierarchy rooted at the specified department."""
+    cid = _get_cid(claims)
+    subtree = await service.get_department_subtree_hierarchy(id, company_id=cid)
+    return APIResponse[DepartmentHierarchyNode](
+        success=True,
+        message="Subtree hierarchy retrieved successfully.",
+        data=subtree,
+        errors=None,
+    )
+
 
 @router.post(
     "/{id}/assign-manager",
@@ -242,6 +524,53 @@ async def assign_manager(
         errors=None,
     )
 
+
+@router.delete(
+    "/{id}/remove-manager",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[None],
+    summary="Remove Head of Department",
+)
+async def remove_manager(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[None]:
+    """Remove Department Head. Admin and HR only."""
+    user_id = uuid.UUID(claims["sub"])
+    cid = _get_cid(claims)
+    await service.remove_manager(user_id, id, company_id=cid)
+    return APIResponse[None](
+        success=True,
+        message="Department head removed successfully.",
+        data=None,
+        errors=None,
+    )
+
+
+@router.get(
+    "/{id}/manager",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict | None],
+    summary="Get department manager (Head of Department)",
+)
+async def get_manager(
+    id: uuid.UUID,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[dict | None]:
+    """Get the manager of a department."""
+    cid = _get_cid(claims)
+    dept = await service.get_department(id, company_id=cid)
+    from fastapi.encoders import jsonable_encoder
+    return APIResponse[dict | None](
+        success=True,
+        message="Department manager retrieved successfully.",
+        data=jsonable_encoder(dept.manager_details) if dept.manager_details else None,
+        errors=None,
+    )
+
+
 @router.post(
     "/{id}/assign-employees",
     status_code=status.HTTP_200_OK,
@@ -265,27 +594,6 @@ async def assign_employees(
         errors=None,
     )
 
-@router.delete(
-    "/{id}/remove-manager",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[None],
-    summary="Remove Head of Department",
-)
-async def remove_manager(
-    id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
-    service: Annotated[DepartmentService, Depends(get_department_service)],
-) -> APIResponse[None]:
-    """Remove Department Head. Admin and HR only."""
-    user_id = uuid.UUID(claims["sub"])
-    cid = _get_cid(claims)
-    await service.remove_manager(user_id, id, company_id=cid)
-    return APIResponse[None](
-        success=True,
-        message="Department head removed successfully.",
-        data=None,
-        errors=None,
-    )
 
 @router.delete(
     "/{id}/remove-employee/{employee_id}",
@@ -310,6 +618,7 @@ async def remove_employee(
         errors=None,
     )
 
+
 @router.get(
     "/{id}/employees",
     status_code=status.HTTP_200_OK,
@@ -321,10 +630,9 @@ async def get_employees(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[list]:
-    """List employees assigned to department. Allowed for anyone (managers, employees, HR, admin)."""
+    """List employees assigned to department."""
     cid = _get_cid(claims)
     employees = await service.get_department_employees(id, company_id=cid)
-    # Convert models to serialization-safe dicts/briefs
     from fastapi.encoders import jsonable_encoder
     return APIResponse[list](
         success=True,
@@ -333,27 +641,6 @@ async def get_employees(
         errors=None,
     )
 
-@router.get(
-    "/{id}/manager",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict | None],
-    summary="Get department manager (Head of Department)",
-)
-async def get_manager(
-    id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
-    service: Annotated[DepartmentService, Depends(get_department_service)],
-) -> APIResponse[dict | None]:
-    """Get the manager of a department."""
-    cid = _get_cid(claims)
-    dept = await service.get_department(id, company_id=cid)
-    from fastapi.encoders import jsonable_encoder
-    return APIResponse[dict | None](
-        success=True,
-        message="Department manager retrieved successfully.",
-        data=jsonable_encoder(dept.manager_details) if dept.manager_details else None,
-        errors=None,
-    )
 
 @router.get(
     "/{id}/stats",
@@ -366,7 +653,7 @@ async def get_stats(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[DepartmentService, Depends(get_department_service)],
 ) -> APIResponse[DepartmentStats]:
-    """Retrieve statistics (employee counts, sub-departments count) for a department."""
+    """Retrieve statistics (employee counts, sub-departments count) for a specific department."""
     cid = _get_cid(claims)
     stats = await service.get_department_stats(id, company_id=cid)
     return APIResponse[DepartmentStats](

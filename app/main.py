@@ -41,6 +41,7 @@ from app.api.onboarding import router as onboarding_router
 from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
 from app.api.sidebar import router as sidebar_router
 from app.routers.notifications import router as core_notifications_router
+from app.api.departments import router as departments_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims

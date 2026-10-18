@@ -20,7 +20,6 @@ from app.routers import (
     performance as core_performance_router,
     users as core_users_router,
     profile as core_profile_router,
-    departments as core_departments_router,
     compliance as core_compliance_router,
     employee_health as core_employee_health_router,
     leave_assistant as core_leave_assistant_router,

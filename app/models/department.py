@@ -43,7 +43,7 @@ class Department(Base):
     department_name: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
     normalized_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    description: Mapped[str] = mapped_column(String(1000), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="", server_default=text("''"))
 
     # Department Head (links to users.id)
     manager_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -21,7 +21,9 @@ class UserBrief(BaseModel):
 
 class DepartmentCreate(BaseModel):
     department_name: str = Field(..., min_length=1, max_length=100, examples=["Human Resources"])
-    description: str = Field(..., min_length=1, max_length=1000, examples=["Handles recruitment and employee relations"])
+    department_code: str | None = Field(None, max_length=30, description="Unique department code e.g. ENG, HR")
+    description: str | None = Field("", max_length=1000, examples=["Handles recruitment and employee relations"])
+    company_id: uuid.UUID | None = Field(None, description="Company UUID")
     manager_id: uuid.UUID | None = Field(None, description="Department Head (Manager user ID)")
     managerId: uuid.UUID | None = None
     reporting_manager_id: uuid.UUID | None = None
@@ -47,11 +49,40 @@ class DepartmentCreate(BaseModel):
     extension_number: str | None = Field(None, max_length=50, description="Phone Extension")
     employee_capacity: int | None = Field(100, ge=0, description="Department Employee Capacity")
     status: str = Field("ACTIVE", description="ACTIVE or INACTIVE")
+    headcount: int | None = Field(0, description="Department employee count")
+    employee_count: int | None = Field(0, description="Department employee count")
 
     @model_validator(mode="before")
     @classmethod
     def handle_aliases(cls, data: any) -> any:
         if isinstance(data, dict):
+            # Code aliases
+            code_alias = (
+                data.get("department_code")
+                or data.get("departmentCode")
+                or data.get("code")
+            )
+            if code_alias is not None:
+                data["department_code"] = str(code_alias).strip()
+
+            # Company ID alias
+            cid_alias = data.get("company_id") or data.get("companyId")
+            if cid_alias is not None:
+                data["company_id"] = cid_alias
+
+            # Description defaults to empty string if omitted/None
+            if "description" not in data or data.get("description") is None:
+                data["description"] = ""
+
+            # Headcount aliases
+            hc_alias = data.get("headcount") or data.get("employee_count") or data.get("employeeCount")
+            if hc_alias is not None:
+                try:
+                    data["headcount"] = int(hc_alias)
+                    data["employee_count"] = int(hc_alias)
+                except (ValueError, TypeError):
+                    pass
+
             if "extensionNumber" in data and "extension_number" not in data:
                 data["extension_number"] = data["extensionNumber"]
             cc = (
@@ -99,9 +130,12 @@ class DepartmentCreate(BaseModel):
                 data["managerId"] = mgr
                 data["reporting_manager_id"] = mgr
                 data["reportingManagerId"] = mgr
-            elif mgr is None and ("manager_id" in data or "reporting_manager_id" in data or "reporting_manager" in data):
+                data["head_id"] = mgr
+                data["headId"] = mgr
+            elif mgr is None and ("manager_id" in data or "reporting_manager_id" in data or "reporting_manager" in data or "head_id" in data):
                 data["manager_id"] = None
                 data["reporting_manager_id"] = None
+                data["head_id"] = None
 
             if "employeeCapacity" in data and "employee_capacity" not in data:
                 data["employee_capacity"] = data["employeeCapacity"]
@@ -120,7 +154,9 @@ class DepartmentCreate(BaseModel):
 
 class DepartmentUpdate(BaseModel):
     department_name: str | None = Field(None, min_length=1, max_length=100)
+    department_code: str | None = Field(None, max_length=30)
     description: str | None = Field(None, min_length=1, max_length=1000)
+    company_id: uuid.UUID | None = None
     manager_id: uuid.UUID | None = None
     managerId: uuid.UUID | None = None
     reporting_manager_id: uuid.UUID | None = None
@@ -146,11 +182,34 @@ class DepartmentUpdate(BaseModel):
     extension_number: str | None = Field(None, max_length=50, description="Phone Extension")
     employee_capacity: int | None = Field(None, ge=0, description="Department Employee Capacity")
     status: str | None = None
+    headcount: int | None = None
+    employee_count: int | None = None
 
     @model_validator(mode="before")
     @classmethod
     def handle_aliases(cls, data: any) -> any:
         if isinstance(data, dict):
+            # Code aliases
+            code_alias = (
+                data.get("department_code")
+                or data.get("departmentCode")
+                or data.get("code")
+            )
+            if code_alias is not None:
+                data["department_code"] = str(code_alias).strip()
+
+            cid_alias = data.get("company_id") or data.get("companyId")
+            if cid_alias is not None:
+                data["company_id"] = cid_alias
+
+            hc_alias = data.get("headcount") or data.get("employee_count") or data.get("employeeCount")
+            if hc_alias is not None:
+                try:
+                    data["headcount"] = int(hc_alias)
+                    data["employee_count"] = int(hc_alias)
+                except (ValueError, TypeError):
+                    pass
+
             if "extensionNumber" in data and "extension_number" not in data:
                 data["extension_number"] = data["extensionNumber"]
             cc = (
@@ -198,9 +257,12 @@ class DepartmentUpdate(BaseModel):
                 data["managerId"] = mgr
                 data["reporting_manager_id"] = mgr
                 data["reportingManagerId"] = mgr
-            elif mgr is None and ("manager_id" in data or "reporting_manager_id" in data or "reporting_manager" in data):
+                data["head_id"] = mgr
+                data["headId"] = mgr
+            elif mgr is None and ("manager_id" in data or "reporting_manager_id" in data or "reporting_manager" in data or "head_id" in data):
                 data["manager_id"] = None
                 data["reporting_manager_id"] = None
+                data["head_id"] = None
 
             if "employeeCapacity" in data and "employee_capacity" not in data:
                 data["employee_capacity"] = data["employeeCapacity"]
@@ -223,11 +285,14 @@ class DepartmentListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    company_id: uuid.UUID | None = None
     department_code: str
     department_name: str
     description: str | None = None
     manager_id: uuid.UUID | None = None
     manager_name: str | None = None
+    head_id: uuid.UUID | None = None
+    head_name: str | None = None
     reporting_manager_id: uuid.UUID | None = None
     reporting_manager_name: str | None = None
     parent_department_id: uuid.UUID | None = None
@@ -238,6 +303,7 @@ class DepartmentListItem(BaseModel):
     extension_number: str | None = None
     employee_capacity: int | None = 100
     employee_count: int = 0
+    headcount: int = 0
     status: str
     created_at: datetime
 
@@ -351,22 +417,27 @@ class DepartmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    company_id: uuid.UUID | None = None
     department_code: str
     department_name: str
-    description: str
+    description: str | None = None
     manager_id: uuid.UUID | None = None
     manager_name: str | None = None
+    head_id: uuid.UUID | None = None
+    head_name: str | None = None
     reporting_manager_id: uuid.UUID | None = None
     reporting_manager_name: str | None = None
     parent_department_id: uuid.UUID | None = None
     parent_department_name: str | None = None
     branch_id: uuid.UUID | None = None
-    location: str
+    location: str = "Main Office"
     cost_center: str | None = None
     budget: float | None = 0.0
     extension_number: str | None = None
     employee_capacity: int | None = 100
-    status: str
+    employee_count: int = 0
+    headcount: int = 0
+    status: str = "ACTIVE"
     created_by: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
@@ -580,3 +651,78 @@ class DepartmentSummary(BaseModel):
     avg_team_size: float = Field(0.0, description="Average employees per department")
     open_positions: int = Field(0, description="Current open job positions for departments")
     hiring_departments: int = Field(0, description="Departments with HIRING status")
+
+
+class BulkDeleteRequest(BaseModel):
+    department_ids: list[uuid.UUID] = Field(..., min_length=1, description="List of department UUIDs to soft delete")
+
+
+class BulkStatusRequest(BaseModel):
+    department_ids: list[uuid.UUID] = Field(..., min_length=1, description="List of department UUIDs")
+    status: str = Field(..., description="Target status: ACTIVE, INACTIVE, HIRING, or GROWING")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        v = v.upper()
+        if v not in DEPARTMENT_STATUS_VALUES:
+            raise ValueError("status must be ACTIVE, INACTIVE, HIRING, or GROWING")
+        return v
+
+
+class BulkAssignManagerRequest(BaseModel):
+    department_ids: list[uuid.UUID] = Field(..., min_length=1, description="List of department UUIDs")
+    manager_user_id: uuid.UUID = Field(..., description="User ID of the manager to assign")
+
+
+class TransferEmployeesRequest(BaseModel):
+    source_department_id: uuid.UUID = Field(..., description="Source department UUID")
+    target_department_id: uuid.UUID = Field(..., description="Target department UUID")
+    employee_ids: list[uuid.UUID] | None = Field(None, description="Specific employee UUIDs to transfer, or None to transfer all")
+
+
+class DepartmentHierarchyNode(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    department_code: str
+    department_name: str
+    description: str | None = None
+    parent_department_id: uuid.UUID | None = None
+    manager_id: uuid.UUID | None = None
+    manager_name: str | None = None
+    head_id: uuid.UUID | None = None
+    head_name: str | None = None
+    employee_count: int = 0
+    headcount: int = 0
+    budget: float = 0.0
+    status: str = "ACTIVE"
+    location: str = "Main Office"
+    children: list[DepartmentHierarchyNode] = Field(default_factory=list)
+
+
+class DepartmentAnalyticsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total_departments: int = 0
+    active_departments: int = 0
+    inactive_departments: int = 0
+    hiring_departments: int = 0
+    total_headcount: int = 0
+    total_budget: float = 0.0
+    departments_without_manager: int = 0
+    capacity_utilization_pct: float = 0.0
+    average_team_size: float = 0.0
+    open_positions: int = 0
+    department_breakdown: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DepartmentImportRequest(BaseModel):
+    departments: list[DepartmentCreate] = Field(..., min_length=1, description="List of departments to import")
+
+
+class BulkActionResponse(BaseModel):
+    affected_count: int = 0
+    success_ids: list[uuid.UUID] = Field(default_factory=list)
+    errors: list[dict[str, Any]] | None = None
+
