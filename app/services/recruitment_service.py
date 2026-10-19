@@ -64,6 +64,14 @@ from app.schemas.recruitment import (
     RecruitmentAutomationRuleResponse,
     RecruitmentNotificationResponse,
     RecruitmentRecentActivity,
+    RecruitmentAnalyticsResponse,
+    JobAnalyticsMetrics,
+    ApplicantAnalyticsMetrics,
+    PipelineBreakdown,
+    FunnelStage,
+    ConversionRates,
+    DepartmentRecruitmentMetric,
+    SourceRecruitmentMetric,
 )
 from app.services.email_service import EmailService, get_email_service
 from app.utils.employee import generate_temp_password
@@ -2037,39 +2045,166 @@ Generate realistic content under each heading. Make the tone professional, encou
             raise DatabaseException() from exc
 
     # ------------------------------------------------------------------
-    # Analytical aggregation queries (Phase 3 task)
+    # Recruitment Analytics Aggregations
     # ------------------------------------------------------------------
 
-    async def get_recruitment_analytics(self, company_id: uuid.UUID | None = None) -> dict:
+    async def get_recruitment_analytics(
+        self,
+        company_id: uuid.UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        department: str | None = None,
+        job_id: uuid.UUID | None = None,
+    ) -> RecruitmentAnalyticsResponse:
+        """Calculate complete recruitment metrics, pipeline stages, funnel conversions, and time-to-hire."""
         try:
-            from app.models.recruitment import Application, Job
-            from sqlalchemy import select, func, or_
+            raw_data = await self.repo.get_recruitment_analytics_data(
+                company_id=company_id,
+                start_date=start_date,
+                end_date=end_date,
+                department=department,
+                job_id=job_id,
+            )
 
-            stmt = select(Application.status, func.count(Application.id))
-            if company_id:
-                stmt = stmt.where(
-                    or_(
-                        Application.company_id == company_id,
-                        Application.job_id.in_(select(Job.id).where(Job.company_id == company_id)),
-                    )
+            job_row = raw_data["job_row"]
+            req_row = raw_data["req_row"]
+            status_map = raw_data["status_counts"]
+            app_summary_row = raw_data["app_summary_row"]
+            cand_row = raw_data["cand_row"]
+            source_rows = raw_data["source_rows"]
+            dept_rows = raw_data["dept_rows"]
+            hired_rows = raw_data["hired_rows"]
+
+            # 1. Job & Requisition Metrics
+            jobs_metrics = JobAnalyticsMetrics(
+                total_jobs=job_row.total_jobs or 0,
+                active_jobs=job_row.active_jobs or 0,
+                draft_jobs=job_row.draft_jobs or 0,
+                closed_jobs=job_row.closed_jobs or 0,
+                total_requisitions=req_row.total_requisitions or 0,
+                active_requisitions=req_row.active_requisitions or 0,
+                pending_requisitions=req_row.pending_requisitions or 0,
+                closed_requisitions=req_row.closed_requisitions or 0,
+                total_vacancies=int(job_row.total_vacancies or 0),
+            )
+
+            # 2. Pipeline Breakdown (current status distribution)
+            applied_count = status_map.get("APPLIED", 0) + status_map.get("UNDER_REVIEW", 0)
+            shortlisted_count = status_map.get("SHORTLISTED", 0)
+            interviewed_count = (
+                status_map.get("INTERVIEW_SCHEDULED", 0)
+                + status_map.get("INTERVIEW_COMPLETED", 0)
+                + status_map.get("SELECTED", 0)
+            )
+            offered_count = status_map.get("OFFER_SENT", 0)
+            hired_count = status_map.get("OFFER_ACCEPTED", 0) + status_map.get("EMPLOYEE_CREATED", 0)
+            rejected_count = status_map.get("REJECTED", 0) + status_map.get("OFFER_REJECTED", 0)
+
+            pipeline = PipelineBreakdown(
+                applied=applied_count,
+                shortlisted=shortlisted_count,
+                interviewed=interviewed_count,
+                offered=offered_count,
+                hired=hired_count,
+                rejected=rejected_count,
+            )
+
+            # 3. Applicant volume metrics
+            total_applications = app_summary_row.total_applications or 0
+            unique_applicants = app_summary_row.unique_applicants or 0
+            total_cands = max(cand_row.total_candidates or 0, unique_applicants)
+
+            applicants_metrics = ApplicantAnalyticsMetrics(
+                total_candidates=total_cands,
+                total_applications=total_applications,
+                talent_pool_candidates=cand_row.talent_pool_candidates or 0,
+                applications_today=app_summary_row.applications_today or 0,
+                applications_this_month=app_summary_row.applications_this_month or 0,
+            )
+
+            # 4. Funnel stages (cumulative progression)
+            stage_applied = total_applications
+            stage_shortlisted = shortlisted_count + interviewed_count + offered_count + hired_count
+            stage_interview = interviewed_count + offered_count + hired_count
+            stage_offer = offered_count + hired_count + status_map.get("OFFER_REJECTED", 0)
+            stage_hired = hired_count
+
+            # 5. Conversion rates & Time-to-Hire
+            app_to_shortlist = round((stage_shortlisted / stage_applied * 100), 2) if stage_applied > 0 else 0.0
+            shortlist_to_interview = round((stage_interview / stage_shortlisted * 100), 2) if stage_shortlisted > 0 else 0.0
+            interview_to_offer = round((stage_offer / stage_interview * 100), 2) if stage_interview > 0 else 0.0
+            offer_acceptance = round((stage_hired / stage_offer * 100), 2) if stage_offer > 0 else 0.0
+            overall_hire_rate = round((stage_hired / stage_applied * 100), 2) if stage_applied > 0 else 0.0
+
+            # Time to hire duration calculation
+            durations = []
+            for app_created, hired_at in hired_rows:
+                if app_created and hired_at:
+                    if hired_at.tzinfo is not None and app_created.tzinfo is None:
+                        app_created = app_created.replace(tzinfo=hired_at.tzinfo)
+                    elif app_created.tzinfo is not None and hired_at.tzinfo is None:
+                        hired_at = hired_at.replace(tzinfo=app_created.tzinfo)
+                    diff = (hired_at - app_created).total_seconds() / 86400.0
+                    if diff >= 0:
+                        durations.append(diff)
+            avg_time_to_hire = round(sum(durations) / len(durations), 1) if durations else None
+
+            conversion_rates = ConversionRates(
+                application_to_shortlist_rate=app_to_shortlist,
+                shortlist_to_interview_rate=shortlist_to_interview,
+                interview_to_offer_rate=interview_to_offer,
+                offer_acceptance_rate=offer_acceptance,
+                overall_hire_rate=overall_hire_rate,
+                avg_time_to_hire_days=avg_time_to_hire,
+                avg_time_to_fill_days=avg_time_to_hire,
+            )
+
+            # 6. Funnel stage list for visualization
+            funnel = [
+                FunnelStage(stage="Applied", count=stage_applied, conversion_rate=100.0),
+                FunnelStage(stage="Shortlisted", count=stage_shortlisted, conversion_rate=app_to_shortlist),
+                FunnelStage(stage="Interview", count=stage_interview, conversion_rate=shortlist_to_interview),
+                FunnelStage(stage="Offer", count=stage_offer, conversion_rate=interview_to_offer),
+                FunnelStage(stage="Hired", count=stage_hired, conversion_rate=offer_acceptance),
+                FunnelStage(
+                    stage="Rejected",
+                    count=rejected_count,
+                    conversion_rate=round(rejected_count / stage_applied * 100, 2) if stage_applied > 0 else 0.0,
+                ),
+            ]
+
+            # 7. Department breakdown
+            department_breakdown = [
+                DepartmentRecruitmentMetric(
+                    department=row.department or "Unassigned",
+                    total_jobs=row.total_jobs or 0,
+                    active_jobs=row.active_jobs or 0,
+                    total_applications=row.total_applications or 0,
+                    hired_count=row.hired_count or 0,
                 )
-            stmt = stmt.group_by(Application.status)
+                for row in dept_rows
+            ]
 
-            result = await self.session.execute(stmt)
-            funnel_map = {row[0].lower(): row[1] for row in result.all()}
+            # 8. Source breakdown
+            total_source_candidates = sum(row.source_count for row in source_rows) or 1
+            source_breakdown = [
+                SourceRecruitmentMetric(
+                    source=row.source or "Direct",
+                    candidate_count=row.source_count,
+                    percentage=round((row.source_count / total_source_candidates) * 100, 2),
+                )
+                for row in source_rows
+            ]
 
-            return {
-                "funnel": [
-                    {"stage": "applied", "count": funnel_map.get("applied", 0)},
-                    {"stage": "screening", "count": funnel_map.get("under_review", 0)},
-                    {"stage": "assessment", "count": funnel_map.get("shortlisted", 0)},
-                    {"stage": "interview", "count": funnel_map.get("interview_scheduled", 0)},
-                    {"stage": "technical", "count": funnel_map.get("interview_completed", 0)},
-                    {"stage": "hr", "count": funnel_map.get("selected", 0)},
-                    {"stage": "offer", "count": funnel_map.get("offer_sent", 0)},
-                    {"stage": "hired", "count": funnel_map.get("offer_accepted", 0) + funnel_map.get("employee_created", 0)},
-                ],
-            }
+            return RecruitmentAnalyticsResponse(
+                jobs=jobs_metrics,
+                applicants=applicants_metrics,
+                pipeline=pipeline,
+                conversion_rates=conversion_rates,
+                funnel=funnel,
+                department_breakdown=department_breakdown,
+                source_breakdown=source_breakdown,
+            )
         except SQLAlchemyError as exc:
             logger.exception("get_recruitment_analytics: db error", exc_info=exc)
             raise DatabaseException() from exc

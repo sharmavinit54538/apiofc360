@@ -574,7 +574,7 @@ class OfferResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Dashboard Stats
+# Dashboard Stats & Analytics
 # ---------------------------------------------------------------------------
 
 class RecruitmentDashboardStats(BaseModel):
@@ -590,6 +590,100 @@ class RecruitmentDashboardStats(BaseModel):
     offers_sent_count: int
     offers_accepted_count: int
     employees_hired_count: int
+
+
+class JobAnalyticsMetrics(BaseModel):
+    """Job requisition and posting volume analytics."""
+    model_config = ConfigDict(from_attributes=True)
+
+    total_jobs: int = 0
+    active_jobs: int = 0          # PUBLISHED or ACTIVE
+    draft_jobs: int = 0           # DRAFT
+    closed_jobs: int = 0          # CLOSED
+    total_requisitions: int = 0
+    active_requisitions: int = 0  # APPROVED
+    pending_requisitions: int = 0 # PENDING
+    closed_requisitions: int = 0  # REJECTED or CLOSED
+    total_vacancies: int = 0
+
+
+class ApplicantAnalyticsMetrics(BaseModel):
+    """Candidate and application volume metrics."""
+    model_config = ConfigDict(from_attributes=True)
+
+    total_candidates: int = 0
+    total_applications: int = 0
+    talent_pool_candidates: int = 0
+    applications_today: int = 0
+    applications_this_month: int = 0
+
+
+class PipelineBreakdown(BaseModel):
+    """Recruitment stage pipeline breakdown."""
+    model_config = ConfigDict(from_attributes=True)
+
+    applied: int = 0
+    shortlisted: int = 0
+    interviewed: int = 0
+    offered: int = 0
+    hired: int = 0
+    rejected: int = 0
+
+
+class FunnelStage(BaseModel):
+    """Stage in the hiring funnel with stage count and conversion percentage."""
+    model_config = ConfigDict(from_attributes=True)
+
+    stage: str
+    count: int = 0
+    conversion_rate: float = 0.0
+
+
+class ConversionRates(BaseModel):
+    """Hiring velocity and stage-by-stage conversion metrics."""
+    model_config = ConfigDict(from_attributes=True)
+
+    application_to_shortlist_rate: float = 0.0  # (shortlisted / applied) * 100
+    shortlist_to_interview_rate: float = 0.0    # (interviewed / shortlisted) * 100
+    interview_to_offer_rate: float = 0.0        # (offered / interviewed) * 100
+    offer_acceptance_rate: float = 0.0          # (hired / offered) * 100
+    overall_hire_rate: float = 0.0              # (hired / applied) * 100
+    avg_time_to_hire_days: float | None = None  # Avg days from applied to hired
+    avg_time_to_fill_days: float | None = None  # Avg days to fill requisition
+
+
+class DepartmentRecruitmentMetric(BaseModel):
+    """Department-level job and application distribution."""
+    model_config = ConfigDict(from_attributes=True)
+
+    department: str
+    total_jobs: int = 0
+    active_jobs: int = 0
+    total_applications: int = 0
+    hired_count: int = 0
+
+
+class SourceRecruitmentMetric(BaseModel):
+    """Source-level applicant acquisition breakdown."""
+    model_config = ConfigDict(from_attributes=True)
+
+    source: str
+    candidate_count: int = 0
+    percentage: float = 0.0
+
+
+class RecruitmentAnalyticsResponse(BaseModel):
+    """Complete structured recruitment analytics payload."""
+    model_config = ConfigDict(from_attributes=True)
+
+    jobs: JobAnalyticsMetrics
+    applicants: ApplicantAnalyticsMetrics
+    pipeline: PipelineBreakdown
+    conversion_rates: ConversionRates
+    funnel: list[FunnelStage] = []
+    department_breakdown: list[DepartmentRecruitmentMetric] = []
+    source_breakdown: list[SourceRecruitmentMetric] = []
+
 
 
 # ---------------------------------------------------------------------------
