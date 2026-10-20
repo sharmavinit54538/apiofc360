@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import time
-from typing import Any, List, Optional
+from datetime import datetime, time, timezone
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import and_, case, func, or_, select
@@ -31,28 +31,62 @@ def _get_company_id(claims: dict) -> uuid.UUID:
     return uuid.UUID(company_id_str)
 
 
+def _to_time(val: Any) -> Optional[time]:
+    """Safely convert value to datetime.time, or return None."""
+    if val is None:
+        return None
+    if isinstance(val, time):
+        return val
+    if isinstance(val, datetime):
+        return val.time()
+    if isinstance(val, str):
+        val_str = val.strip()
+        if not val_str:
+            return None
+        for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+            try:
+                return datetime.strptime(val_str, fmt).time()
+            except ValueError:
+                continue
+        try:
+            return time.fromisoformat(val_str)
+        except (ValueError, TypeError):
+            pass
+        return None
+    return None
+
+
 def _parse_time_str(time_str: str) -> time:
     """Parse time string in HH:MM, H:MM, or HH:MM AM/PM format and return time object."""
-    time_str = time_str.strip()
-    # Try HH:MM format first
-    for fmt in ("%H:%M", "%I:%M %p", "%I:%M%p", "%H:%M:%S"):
-        try:
-            from datetime import datetime
-            return datetime.strptime(time_str, fmt).time()
-        except ValueError:
-            continue
+    parsed = _to_time(time_str)
+    if parsed is not None:
+        return parsed
     raise ValueError(f"Invalid time format: {time_str}. Use HH:MM (24-hour) format.")
 
 
-def _format_time(time_obj: time) -> str:
-    """Format time object as HH:MM string."""
-    return time_obj.strftime("%H:%M")
+def _format_time(time_obj: Any) -> str:
+    """Format time object or string as HH:MM string."""
+    if time_obj is None:
+        return ""
+    if isinstance(time_obj, time):
+        return time_obj.strftime("%H:%M")
+    parsed = _to_time(time_obj)
+    if parsed is not None:
+        return parsed.strftime("%H:%M")
+    if isinstance(time_obj, str):
+        val_str = time_obj.strip()
+        return val_str[:5] if len(val_str) >= 5 else val_str
+    return ""
 
 
-def _calculate_duration_hours(start_time: time, end_time: time) -> float:
+def _calculate_duration_hours(start_time: Any, end_time: Any) -> float:
     """Calculate shift duration in hours."""
-    start_minutes = start_time.hour * 60 + start_time.minute
-    end_minutes = end_time.hour * 60 + end_time.minute
+    st = _to_time(start_time)
+    et = _to_time(end_time)
+    if st is None or et is None:
+        return 0.0
+    start_minutes = st.hour * 60 + st.minute
+    end_minutes = et.hour * 60 + et.minute
     if end_minutes <= start_minutes:
         end_minutes += 24 * 60
     return round((end_minutes - start_minutes) / 60.0, 2)
@@ -378,15 +412,17 @@ async def update_shift(
 
     # Recalculate derived fields if times changed
     if "start_time" in body or "end_time" in body:
-        shift.is_overnight = shift.end_time < shift.start_time
-        start_min = shift.start_time.hour * 60 + shift.start_time.minute
-        end_min = shift.end_time.hour * 60 + shift.end_time.minute
-        if end_min <= start_min:
-            end_min += 24 * 60
-        shift.duration_minutes = end_min - start_min
-        shift.work_hours = round(max(0, shift.duration_minutes - shift.break_duration_minutes) / 60.0, 2)
+        st = _to_time(shift.start_time)
+        et = _to_time(shift.end_time)
+        if st and et:
+            shift.is_overnight = et < st
+            start_min = st.hour * 60 + st.minute
+            end_min = et.hour * 60 + et.minute
+            if end_min <= start_min:
+                end_min += 24 * 60
+            shift.duration_minutes = end_min - start_min
+            shift.work_hours = round(max(0, shift.duration_minutes - shift.break_duration_minutes) / 60.0, 2)
 
-    from datetime import datetime, timezone
     shift.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(shift)
@@ -491,7 +527,6 @@ async def delete_shift(
             status_code=status.HTTP_409_CONFLICT,
         )
 
-    from datetime import datetime, timezone
     shift.deleted_at = datetime.now(timezone.utc)
     shift.is_active = False
     await db.commit()
@@ -502,7 +537,3 @@ async def delete_shift(
         data={"deleted": True},
         errors=None,
     )
-
-
-# Need to import Annotated
-from typing import Annotated

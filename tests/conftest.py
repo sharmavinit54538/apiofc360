@@ -3,7 +3,9 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
-USE_REAL_DB = bool(os.getenv("DATABASE_URL"))
+from app.core.config import settings
+
+USE_REAL_DB = bool(os.getenv("DATABASE_URL") or getattr(settings, "DATABASE_URL", None))
 
 
 @pytest.fixture(autouse=True)
