@@ -2,6 +2,7 @@
 
 from app.models.otp import OTP
 from app.models.user import User
+from app.models.notification import UserNotification
 from app.models.refresh_token import RefreshToken
 from app.models.password_reset import PasswordResetToken
 from app.models.audit_log import AuditLog
@@ -17,7 +18,8 @@ from app.models.company import Company
 from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
-from app.models.onboarding import CompanySettings, Designation, LeavePolicy, Shift, OnboardingProgress
+from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress
+from app.models.shift import Shift
 from app.models.employee_invitation import EmployeeInvitation
 
 # Employee module models
@@ -67,6 +69,18 @@ from app.models.recruitment import (
     CandidateCrmNote,
     RecruitmentNotification,
     JobPublishChannel,
+)
+
+# AI Recruitment module models
+from app.models.ai_recruitment import (
+    AIResumeDocument,
+    CandidateMatchScore,
+    AIScreeningResult,
+    AIRecruitmentInterviewSession,
+    CodingAssessmentRecord,
+    HRCopilotQuery,
+    JobTemplate,
+    RecruitmentAuditLog,
 )
 
 # Exit module models
@@ -232,6 +246,7 @@ from app.models.skill_gap import SkillGapAnalysis
 
 # AI Shift Planner
 from app.models.shift_plan import ShiftPlan, ShiftPlanEntry
+from app.models.shift import Shift, EmployeeShiftAssignment, ShiftChangeRequest
 
 # AI Employee Digital Twin
 from app.models.digital_twin import EmployeeDigitalTwin
@@ -613,4 +628,13 @@ __all__ = [
     "ComplianceRecord",
     "EmployeeHealthRecord",
     "AIInteraction",
+    "UserNotification",
+    "AIResumeDocument",
+    "CandidateMatchScore",
+    "AIScreeningResult",
+    "AIRecruitmentInterviewSession",
+    "CodingAssessmentRecord",
+    "HRCopilotQuery",
+    "JobTemplate",
+    "RecruitmentAuditLog",
 ]

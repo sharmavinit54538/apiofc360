@@ -5,18 +5,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SourceCitation(BaseModel):
     """Citation source for RAG knowledge answers."""
 
-    document: str = Field("Employee Handbook 2026", description="Title of document")
+    document: str = Field(..., description="Title of document")
     title: Optional[str] = Field(None, description="Document title alias")
-    section: str = Field("Section 4.2 — Overtime & Compensation", description="Section header")
+    section: str = Field(..., description="Section header")
     snippet: Optional[str] = Field(None, description="Section snippet alias")
-    page: Optional[int] = Field(12, description="Page number")
-    similarity: float = Field(0.92, description="Vector similarity score 0-1")
+    page: Optional[int] = Field(None, description="Page number")
+    similarity: Optional[float] = Field(None, description="Vector similarity score 0-1")
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,7 +30,7 @@ class SourceCitation(BaseModel):
 class ChartData(BaseModel):
     """Interactive chart payload."""
 
-    title: str = Field("Overtime Hours by Department", description="Chart title")
+    title: str = Field(..., description="Chart title")
     chart_type: str = Field("bar", description="bar | line | pie | donut")
     data: list[dict[str, Any]] = Field(default_factory=list, description="Chart dataset")
 
@@ -40,7 +40,7 @@ class ChartData(BaseModel):
 class TableData(BaseModel):
     """Tabular data payload."""
 
-    title: str = Field("High Risk Employees List", description="Table title")
+    title: str = Field(..., description="Table title")
     headers: list[str] = Field(default_factory=list, description="Column headers")
     rows: list[list[Any]] = Field(default_factory=list, description="Data rows")
 
@@ -53,8 +53,10 @@ class ChatAssistantRequest(BaseModel):
     query: Optional[str] = Field(None, description="User prompt or question")
     message: Optional[str] = Field(None, description="User message text")
     content: Optional[str] = Field(None, description="User message text alias")
+    prompt: Optional[str] = Field(None, description="User prompt alias")
     conversation_id: Optional[str] = Field(None, description="Existing conversation UUID")
     conversationId: Optional[str] = Field(None, alias="conversationId", description="CamelCase conversation UUID alias")
+    session_id: Optional[str] = Field(None, description="Session UUID alias")
     department_id: Optional[uuid.UUID] = Field(None, description="Filter by department")
     date_range: Optional[str] = Field(None, description="Date filter e.g. 2026-07-01 to 2026-07-24")
     role: Optional[str] = Field(None, description="User role context")
@@ -62,6 +64,29 @@ class ChatAssistantRequest(BaseModel):
     agent_id: Optional[str] = Field(None, alias="agentId", description="Optional agent id")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any) -> Any:
+        """Normalize flexible payload fields so frontend variations never trigger 422."""
+        if isinstance(data, dict):
+            # Normalize message-like fields to 'message'
+            msg = data.get("message") or data.get("content") or data.get("prompt") or data.get("query")
+            if msg is not None:
+                data["message"] = msg
+            # Normalize conversation_id fields
+            conv_id = data.get("conversationId") or data.get("session_id")
+            if conv_id is not None and data.get("conversation_id") is None:
+                data["conversation_id"] = conv_id
+        return data
+
+    def get_message_text(self) -> str:
+        """Get the normalized message text."""
+        return (self.message or self.content or self.prompt or self.query or "").strip()
+
+    def get_conversation_id(self) -> Optional[str]:
+        """Get the normalized conversation ID."""
+        return self.conversation_id or self.conversationId or self.session_id
 
 
 class CreateConversationRequest(BaseModel):
@@ -73,9 +98,20 @@ class CreateConversationRequest(BaseModel):
     message: Optional[str] = Field(None, description="Optional message text")
     query: Optional[str] = Field(None, description="Optional prompt query")
     content: Optional[str] = Field(None, description="Optional content text")
+    prompt: Optional[str] = Field(None, description="Optional prompt text")
     department_id: Optional[uuid.UUID] = Field(None, description="Filter by department")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any) -> Any:
+        """Normalize flexible payload fields."""
+        if isinstance(data, dict):
+            msg = data.get("initial_message") or data.get("message") or data.get("content") or data.get("prompt") or data.get("query")
+            if msg is not None:
+                data["initial_message"] = msg
+        return data
 
 
 class ChatAssistantResponse(BaseModel):
@@ -83,7 +119,9 @@ class ChatAssistantResponse(BaseModel):
 
     answer: str = Field(..., description="AI generated answer in markdown format")
     content: Optional[str] = Field(None, description="Alias matching frontend content field")
-    confidence: float = Field(0.97, description="Confidence score 0-1")
+    reply: Optional[str] = Field(None, description="Alias for frontend reply field")
+    message: Optional[str] = Field(None, description="Alias for frontend message field")
+    confidence: float = Field(..., description="Confidence score 0-1")
     sources: list[SourceCitation] = Field(default_factory=list, description="Source document citations")
     charts: list[ChartData] = Field(default_factory=list, description="Chart visual objects")
     tables: list[TableData] = Field(default_factory=list, description="Tabular data objects")
@@ -92,15 +130,22 @@ class ChatAssistantResponse(BaseModel):
     suggestions: list[str] = Field(default_factory=list, description="Suggested next actions")
     conversationId: str = Field(..., description="CamelCase conversation UUID")
     conversation_id: str = Field(..., description="Snake_case conversation UUID")
+    session_id: Optional[str] = Field(None, description="Session ID alias")
     role: str = Field("ai", description="Message sender role")
     messageId: Optional[str] = Field(None, description="Message UUID")
     message_id: Optional[str] = Field(None, description="Message UUID")
+    ai_available: bool = Field(True, description="Whether AI/LLM service was available for this response")
+    degraded: bool = Field(False, description="Whether response is degraded due to LLM unavailability")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     def model_post_init(self, __context: Any) -> None:
         if self.content is None:
             self.content = self.answer
+        if self.reply is None:
+            self.reply = self.answer
+        if self.message is None:
+            self.message = self.answer
         if not self.suggestions and self.follow_up_questions:
             self.suggestions = list(self.follow_up_questions)
         if self.messageId is None:
@@ -109,6 +154,8 @@ class ChatAssistantResponse(BaseModel):
             self.message_id = mid
         elif self.message_id is None:
             self.message_id = self.messageId
+        if self.session_id is None:
+            self.session_id = self.conversation_id
 
 
 class ReportGeneratePayload(BaseModel):
@@ -191,6 +238,18 @@ class ChatFeedbackRequest(BaseModel):
     """User feedback payload for chat response."""
 
     conversation_id: str
-    rating: int = Field(5, description="1 to 5 stars")
+    message_id: Optional[str] = None
+    rating: int = Field(..., description="Rating: up/down/1-5", ge=1, le=5)
     feedback: Optional[str] = Field(None, description="Optional text feedback")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_rating(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "rating" in data:
+            rating = data["rating"]
+            if isinstance(rating, str):
+                if rating.lower() == "up":
+                    data["rating"] = 5
+                elif rating.lower() == "down":
+                    data["rating"] = 1
+        return data

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
-from app.core.security import hash_password
+from app.core.security import hash_password, hash_password_async
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.employee_repository import EmployeeRepository
@@ -1022,7 +1022,11 @@ class EmployeeService:
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
                     await redis_client.revoke_user_tokens(employee.user_id)
-                elif new_is_active is True and new_status == "ACTIVE":
+                    # Invalidate auth active cache
+                    if employee.company_id:
+                        from app.middleware.auth import invalidate_auth_active_cache
+                        await invalidate_auth_active_cache(employee.user_id, employee.company_id)
+            elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
                             is_active=True,
@@ -1219,6 +1223,10 @@ class EmployeeService:
 
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
                 await redis_client.revoke_user_tokens(employee.user_id)
+                # Invalidate auth active cache
+                if employee.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(employee.user_id, employee.company_id)
             await self.session.commit()
             logger.info("delete_employee: success | employee_id=%s", employee_uuid)
         except AppException:
@@ -1363,6 +1371,10 @@ class EmployeeService:
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
                 await redis_client.revoke_user_tokens(employee.user_id)
+                # Invalidate auth active cache
+                if employee.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(employee.user_id, employee.company_id)
 
             # Write Audit log
             audit_log = AuditLog(
@@ -1442,9 +1454,9 @@ class EmployeeService:
                         errors=[{"field": "phone", "message": "Phone number already in use by another account."}],
                     )
 
-                # Generate a temporary password
+# Generate a temporary password
                 temp_password = generate_temp_password()
-                password_hash = hash_password(temp_password)
+                password_hash = await hash_password_async(temp_password)
 
                 new_user = await self.auth_repo.create_user(
                     name=f"{employee.first_name} {employee.last_name}",
@@ -1576,7 +1588,7 @@ class EmployeeService:
                 )
 
             now = datetime.now(timezone.utc)
-            new_hash = hash_password(payload.new_password)
+            new_hash = await hash_password_async(payload.new_password)
             user_email = (employee.company_email or employee.personal_email).lower().strip()
 
             raw_phone = employee.phone or ""
@@ -1763,6 +1775,10 @@ class EmployeeService:
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(employee.user_id)
                 await redis_client.revoke_user_tokens(employee.user_id)
+                # Invalidate auth active cache
+                if employee.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(employee.user_id, employee.company_id)
             await self.session.commit()
             logger.info(
                 "reject_employee: success | employee_id=%s | reason=%s",
@@ -1795,7 +1811,7 @@ class EmployeeService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
             temp_password = generate_temp_password()
-            password_hash = hash_password(temp_password)
+            password_hash = await hash_password_async(temp_password)
             from sqlalchemy import update as sa_update
             from app.models.user import User
             await self.session.execute(

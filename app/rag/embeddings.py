@@ -1,11 +1,10 @@
-"""Embedding service — generates and caches text embeddings via multi-provider LLM layer.
+"""Embedding service — generates and caches text embeddings via Ollama LLM layer.
 
 Provides:
 - Single text embedding
 - Batch embedding generation
 - Embedding caching (in-memory with TTL)
 - Async-safe batch processing with concurrency limits
-- Multi-provider support (OpenAI, Ollama, Google)
 """
 
 from __future__ import annotations
@@ -78,15 +77,15 @@ class EmbeddingService:
         use_cache: bool = True,
     ) -> None:
         self._llm = llm_client or get_llm_client()
-        self._model = model or getattr(settings, "OPENAI_EMBEDDING_MODEL", "") or getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        self._model = model or getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text:latest")
         self._provider = provider
         self._use_cache = use_cache
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text string.
 
-        Returns actual embedding from configured provider. Raises on total failure
-        instead of returning fake hash-based vectors.
+        Returns actual embedding from configured provider. Wraps in try-except
+        to return empty vector on total failure instead of crashing.
         """
         if not text or not text.strip():
             logger.warning("Empty text provided for embedding — returning empty vector")
@@ -98,7 +97,11 @@ class EmbeddingService:
             if cached is not None:
                 return cached
 
-        embedding = await self._llm.embed(text, model=self._model, provider=self._provider)
+        try:
+            embedding = await self._llm.embed(text, model=self._model, provider=self._provider)
+        except Exception as exc:
+            logger.error("Embedding generation failed: %s", exc)
+            embedding = []
 
         if embedding and self._use_cache:
             _embedding_cache.set(key, embedding)

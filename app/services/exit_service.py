@@ -590,6 +590,10 @@ class ExitService:
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(exit_obj.employee.user_id)
                 await redis_client.revoke_user_tokens(exit_obj.employee.user_id)
+                # Invalidate auth active cache
+                if exit_obj.employee.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(exit_obj.employee.user_id, exit_obj.employee.company_id)
 
             await self.session.commit()
             logger.info("complete_exit: success | deactivated user_id=%s", exit_obj.employee.user_id)

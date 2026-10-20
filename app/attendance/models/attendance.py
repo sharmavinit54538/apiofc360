@@ -68,8 +68,24 @@ class Attendance(Base):
 
     is_late: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False, server_default=text("false"))
     late_minutes: Mapped[int | None] = mapped_column(nullable=True, default=0, server_default=text("0"))
-    shift_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True
+    )
     shift_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    shift_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    is_early_checkout: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    early_minutes: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    overtime_hours: Mapped[float] = mapped_column(nullable=False, default=0.0, server_default=text("0.0"))
+
+    is_off_day_work: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_holiday_work: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    auto_closed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    auto_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

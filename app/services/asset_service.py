@@ -50,6 +50,7 @@ class AssetService:
 
     async def list_assets(
         self,
+        company_id: uuid.UUID,
         category: str | None = None,
         status: str | None = None,
         search: str | None = None,
@@ -63,6 +64,7 @@ class AssetService:
     ) -> AssetListResponse:
         """Query and paginate asset list from repository with additional filtering and sorting."""
         items, total = await self.repo.list_assets(
+            company_id=company_id,
             category=category,
             status=status,
             search=search,
@@ -81,26 +83,26 @@ class AssetService:
             limit=limit,
         )
 
-    async def get_filter_options(self) -> AssetFilterOptionsResponse:
+    async def get_filter_options(self, company_id: uuid.UUID) -> AssetFilterOptionsResponse:
         """Get distinct filter values (vendors, locations, departments) from repository."""
-        vendors, locations, departments = await self.repo.get_filter_options()
+        vendors, locations, departments = await self.repo.get_filter_options(company_id=company_id)
         return AssetFilterOptionsResponse(
             vendors=vendors,
             locations=locations,
             departments=departments,
         )
 
-    async def get_asset(self, asset_id: uuid.UUID) -> AssetResponse:
+    async def get_asset(self, asset_id: uuid.UUID, company_id: uuid.UUID | None = None) -> AssetResponse:
         """Fetch asset details by UUID."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
         return AssetResponse.model_validate(asset)
 
-    async def create_asset(self, payload: AssetCreate, user_id: uuid.UUID) -> AssetResponse:
+    async def create_asset(self, payload: AssetCreate, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Register a new asset and append its creation log to the timeline."""
-        # Check if asset tag already exists
-        existing = await self.repo.get_asset_by_tag(payload.tag)
+        # Check if asset tag already exists within company
+        existing = await self.repo.get_asset_by_tag(payload.tag, company_id=company_id)
         if existing:
             raise BadRequestException(f"Asset tag '{payload.tag}' already exists.")
 
@@ -116,6 +118,7 @@ class AssetService:
         }
 
         asset_data = payload.model_dump()
+        asset_data["company_id"] = company_id
         asset_data["timeline"] = [timeline_event]
         asset_data["status"] = "available"
 
@@ -123,12 +126,12 @@ class AssetService:
         await self.session.commit()
         
         # Re-fetch with relationships
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def update_asset(self, asset_id: uuid.UUID, payload: AssetUpdate, user_id: uuid.UUID) -> AssetResponse:
+    async def update_asset(self, asset_id: uuid.UUID, payload: AssetUpdate, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Update specifications of an asset and append a specifications update log."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -151,30 +154,31 @@ class AssetService:
         await self.repo.update_asset(asset, **update_data)
         await self.session.commit()
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def delete_asset(self, asset_id: uuid.UUID) -> None:
+    async def delete_asset(self, asset_id: uuid.UUID, company_id: uuid.UUID) -> None:
         """Delete an asset record."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
         await self.repo.delete_asset(asset)
         await self.session.commit()
 
-    async def assign_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID) -> AssetResponse:
+    async def assign_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Assign an asset to an employee, writing history and timeline events."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
         if asset.status == "assigned":
             raise BadRequestException("Asset is already assigned to another employee.")
 
-        # Find employee
+        # Find employee within the same company
         res = await self.session.execute(
             select(Employee).where(
                 func.concat(Employee.first_name, " ", Employee.last_name) == payload.employee_name,
+                Employee.company_id == company_id,
                 Employee.is_deleted == False
             )
         )
@@ -214,12 +218,12 @@ class AssetService:
 
         await self.session.commit()
         
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def return_asset(self, asset_id: uuid.UUID, user_id: uuid.UUID) -> AssetResponse:
+    async def return_asset(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Return an asset back to inventory, closing active assignment history and logging timeline."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -255,18 +259,19 @@ class AssetService:
 
         await self.session.commit()
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def transfer_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID) -> AssetResponse:
+    async def transfer_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Transfer assignment directly from one employee to another."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
         res = await self.session.execute(
             select(Employee).where(
                 func.concat(Employee.first_name, " ", Employee.last_name) == payload.employee_name,
+                Employee.company_id == company_id,
                 Employee.is_deleted == False
             )
         )
@@ -313,12 +318,12 @@ class AssetService:
 
         await self.session.commit()
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def mark_lost(self, asset_id: uuid.UUID, user_id: uuid.UUID) -> AssetResponse:
+    async def mark_lost(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Flag asset status as lost and append timeline audit log."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -338,12 +343,12 @@ class AssetService:
 
         await self.session.commit()
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def mark_retired(self, asset_id: uuid.UUID, user_id: uuid.UUID) -> AssetResponse:
+    async def mark_retired(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Decommission asset, release active assignment, and log to timeline."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -372,14 +377,14 @@ class AssetService:
 
         await self.session.commit()
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
     async def add_maintenance(
-        self, asset_id: uuid.UUID, payload: AssetMaintenanceCreate, user_id: uuid.UUID
+        self, asset_id: uuid.UUID, payload: AssetMaintenanceCreate, user_id: uuid.UUID, company_id: uuid.UUID
     ) -> AssetResponse:
         """Send asset for repair, register cost/vendor, and log to timeline."""
-        asset = await self.repo.get_asset_by_id(asset_id)
+        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -411,12 +416,12 @@ class AssetService:
         await self.session.commit()
         self.session.expire(asset, ["maintenance_history"])
 
-        full_asset = await self.repo.get_asset_by_id(asset.id)
+        full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
-    async def get_analytics(self) -> AssetAnalyticsResponse:
+    async def get_analytics(self, company_id: uuid.UUID) -> AssetAnalyticsResponse:
         """Aggregate statistical report data of total inventory assets and repair valuations."""
-        data = await self.repo.get_analytics_data()
+        data = await self.repo.get_analytics_data(company_id=company_id)
 
         status_distribution = [
             StatusCount(name=k, value=v) for k, v in data["status_counts"].items()

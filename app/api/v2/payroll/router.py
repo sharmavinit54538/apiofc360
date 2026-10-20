@@ -15,6 +15,7 @@ from app.api.v2.payroll.payment_batches import router as payment_batches_router
 from app.api.v2.payroll.payslips import router as payslips_router
 from app.api.v2.payroll.reports import router as reports_router
 from app.api.v2.payroll.runs import router as runs_router
+from app.api.v2.payroll.salary_processing import router as salary_processing_router
 from app.api.v2.payroll.statutory import router as statutory_router
 from app.api.v2.payroll.variable_inputs import router as variable_inputs_router
 
@@ -32,6 +33,7 @@ router.include_router(pay_components_router)
 router.include_router(payment_batches_router)
 router.include_router(reports_router)
 router.include_router(runs_router)
+router.include_router(salary_processing_router)
 router.include_router(statutory_router)
 router.include_router(variable_inputs_router)
 

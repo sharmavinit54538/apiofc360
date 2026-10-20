@@ -29,6 +29,7 @@ class EmployeeExit(Base):
         Index("ix_employee_exits_employee_id", "employee_id"),
         Index("ix_employee_exits_status", "status"),
         Index("ix_employee_exits_is_deleted", "is_deleted"),
+        Index("ix_employee_exits_company_date", "company_id", "last_working_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -152,7 +153,7 @@ class FnfSettlement(Base):
     last_salary: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     pending_salary: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     leave_encashment: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
-    gratuity: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
+    gratuity: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0, server_default=text("0.0"))
     bonus: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     incentives: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
 

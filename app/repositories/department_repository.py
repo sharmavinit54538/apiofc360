@@ -64,8 +64,9 @@ class DepartmentRepository:
         stmt = select(Department).where(func.lower(Department.department_name) == name.lower())
         if company_id is not None:
             stmt = stmt.where(Department.company_id == company_id)
+        stmt = stmt.order_by(Department.is_deleted.asc()).limit(1)
         result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_by_code(self, code: str, company_id: uuid.UUID | None = None) -> Department | None:
         stmt = select(Department).where(and_(Department.department_code == code.upper(), self._active_filter()))
@@ -74,11 +75,20 @@ class DepartmentRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_code_all(self, code: str, company_id: uuid.UUID | None = None) -> Department | None:
+        stmt = select(Department).where(func.lower(Department.department_code) == code.lower())
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        stmt = stmt.order_by(Department.is_deleted.asc()).limit(1)
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def list_departments(
         self,
         company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
+        parent_id: uuid.UUID | None = None,
         sort_by: str | None = None,
         sort_order: str | None = None,
         limit: int = 20,
@@ -87,6 +97,8 @@ class DepartmentRepository:
         filters = [self._active_filter()]
         if company_id is not None:
             filters.append(Department.company_id == company_id)
+        if parent_id is not None:
+            filters.append(Department.parent_department_id == parent_id)
 
         stmt = select(Department).where(and_(*filters)).options(
             selectinload(Department.parent_department),
@@ -120,7 +132,8 @@ class DepartmentRepository:
 
             sort_column = col.asc() if sort_order and sort_order.lower() == "asc" else col.desc()
 
-        stmt = stmt.order_by(sort_column).limit(limit).offset(offset)
+        # Deterministic secondary ordering by id to prevent pagination drift
+        stmt = stmt.order_by(sort_column, Department.id.asc()).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -129,10 +142,13 @@ class DepartmentRepository:
         company_id: uuid.UUID | None = None,
         status: str | None = None,
         search: str | None = None,
+        parent_id: uuid.UUID | None = None,
     ) -> int:
         filters = [self._active_filter()]
         if company_id is not None:
             filters.append(Department.company_id == company_id)
+        if parent_id is not None:
+            filters.append(Department.parent_department_id == parent_id)
 
         stmt = select(func.count()).select_from(Department).where(and_(*filters))
 
@@ -166,23 +182,25 @@ class DepartmentRepository:
     # Employee count helpers
     # ------------------------------------------------------------------
 
-    async def get_employee_count(self, department_uuid: uuid.UUID, active_only: bool = False) -> int:
-        stmt = select(func.count()).select_from(Employee).where(
-            and_(Employee.department_id == department_uuid, Employee.is_deleted == False)  # noqa: E712
-        )
+    async def get_employee_count(self, department_uuid: uuid.UUID, active_only: bool = False, company_id: uuid.UUID | None = None) -> int:
+        filters = [Employee.department_id == department_uuid, Employee.is_deleted == False]  # noqa: E712
         if active_only:
-            stmt = stmt.where(Employee.status == "ACTIVE")
+            filters.append(Employee.status == "ACTIVE")
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+        stmt = select(func.count()).select_from(Employee).where(and_(*filters))
         result = await self.session.execute(stmt)
         return result.scalar_one() or 0
 
-    async def get_inactive_employee_count(self, department_uuid: uuid.UUID) -> int:
-        stmt = select(func.count()).select_from(Employee).where(
-            and_(
-                Employee.department_id == department_uuid,
-                Employee.is_deleted == False,  # noqa: E712
-                Employee.status != "ACTIVE",
-            )
-        )
+    async def get_inactive_employee_count(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> int:
+        filters = [
+            Employee.department_id == department_uuid,
+            Employee.is_deleted == False,  # noqa: E712
+            Employee.status != "ACTIVE",
+        ]
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+        stmt = select(func.count()).select_from(Employee).where(and_(*filters))
         result = await self.session.execute(stmt)
         return result.scalar_one() or 0
 
@@ -190,54 +208,55 @@ class DepartmentRepository:
     # Assign / Remove Manager / Employee
     # ------------------------------------------------------------------
 
-    async def assign_manager(self, department_uuid: uuid.UUID, manager_user_id: uuid.UUID) -> None:
-        await self.session.execute(
-            update(Department)
-            .where(Department.id == department_uuid)
-            .values(manager_id=manager_user_id)
-        )
+    async def assign_manager(self, department_uuid: uuid.UUID, manager_user_id: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Department).where(Department.id == department_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        await self.session.execute(stmt.values(manager_id=manager_user_id))
 
-    async def remove_manager(self, department_uuid: uuid.UUID) -> None:
-        await self.session.execute(
-            update(Department)
-            .where(Department.id == department_uuid)
-            .values(manager_id=None)
-        )
+    async def remove_manager(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Department).where(Department.id == department_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        await self.session.execute(stmt.values(manager_id=None))
 
-    async def get_manager_by_user_id(self, user_id: uuid.UUID) -> User | None:
-        from app.models.user import User, UserRole
-        from app.models.manager import Manager
-        from app.models.employee import Employee
-        from sqlalchemy import select
+    async def get_manager_by_user_id(self, user_id: uuid.UUID, company_id: uuid.UUID | None = None) -> User | None:
+        from app.models.user import UserRole
 
         # 1. Try resolving directly as a User
         allowed_roles = {"super_admin", "hr_admin", "manager", "executive", "it_admin"}
-        result = await self.session.execute(
-            select(User).where(and_(User.id == user_id, User.role.in_(allowed_roles)))
-        )
+        stmt = select(User).where(and_(User.id == user_id, User.role.in_(allowed_roles)))
+        if company_id is not None:
+            stmt = stmt.where(User.company_id == company_id)
+        result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if user:
             return user
 
         # 2. Check if user_id is a Manager ID (Manager.id)
-        result = await self.session.execute(
-            select(Manager).where(Manager.id == user_id)
-        )
+        m_stmt = select(Manager).where(Manager.id == user_id)
+        if company_id is not None:
+            m_stmt = m_stmt.where(Manager.company_id == company_id)
+        result = await self.session.execute(m_stmt)
         manager = result.scalar_one_or_none()
         if manager:
             if manager.user_id:
-                result = await self.session.execute(
-                    select(User).where(and_(User.id == manager.user_id, User.role.in_(allowed_roles)))
-                )
+                u_stmt = select(User).where(and_(User.id == manager.user_id, User.role.in_(allowed_roles)))
+                if company_id is not None:
+                    u_stmt = u_stmt.where(User.company_id == company_id)
+                result = await self.session.execute(u_stmt)
                 user = result.scalar_one_or_none()
                 if user:
                     return user
             else:
                 # Check if a user with this manager's email already exists
-                manager_email = manager.company_email.lower() if manager.company_email else manager.personal_email.lower()
-                result = await self.session.execute(
-                    select(User).where(User.email == manager_email)
-                )
+                manager_email = (manager.company_email or manager.personal_email or "").strip().lower()
+                if not manager_email:
+                    return None
+                u_stmt = select(User).where(User.email == manager_email)
+                if company_id is not None:
+                    u_stmt = u_stmt.where(User.company_id == company_id)
+                result = await self.session.execute(u_stmt)
                 existing_user = result.scalar_one_or_none()
                 if existing_user:
                     manager.user_id = existing_user.id
@@ -249,7 +268,7 @@ class DepartmentRepository:
                 new_user_id = uuid.uuid4()
                 user = User(
                     id=new_user_id,
-                    company_id=manager.company_id,
+                    company_id=manager.company_id or company_id,
                     name=f"{manager.first_name} {manager.last_name}".strip(),
                     email=manager_email,
                     phone=manager.phone[:10] if manager.phone else None,
@@ -265,24 +284,29 @@ class DepartmentRepository:
                 return user
 
         # 3. Check if user_id is an Employee ID (Employee.id)
-        result = await self.session.execute(
-            select(Employee).where(Employee.id == user_id)
-        )
+        e_stmt = select(Employee).where(Employee.id == user_id)
+        if company_id is not None:
+            e_stmt = e_stmt.where(Employee.company_id == company_id)
+        result = await self.session.execute(e_stmt)
         employee = result.scalar_one_or_none()
         if employee:
             if employee.user_id:
-                result = await self.session.execute(
-                    select(User).where(and_(User.id == employee.user_id, User.role.in_(allowed_roles)))
-                )
+                u_stmt = select(User).where(and_(User.id == employee.user_id, User.role.in_(allowed_roles)))
+                if company_id is not None:
+                    u_stmt = u_stmt.where(User.company_id == company_id)
+                result = await self.session.execute(u_stmt)
                 user = result.scalar_one_or_none()
                 if user:
                     return user
             else:
                 # Check if a user with this employee's email already exists
-                employee_email = employee.company_email.lower() if employee.company_email else employee.personal_email.lower()
-                result = await self.session.execute(
-                    select(User).where(User.email == employee_email)
-                )
+                employee_email = (employee.company_email or employee.personal_email or "").strip().lower()
+                if not employee_email:
+                    return None
+                u_stmt = select(User).where(User.email == employee_email)
+                if company_id is not None:
+                    u_stmt = u_stmt.where(User.company_id == company_id)
+                result = await self.session.execute(u_stmt)
                 existing_user = result.scalar_one_or_none()
                 if existing_user:
                     employee.user_id = existing_user.id
@@ -294,10 +318,16 @@ class DepartmentRepository:
                 new_user_id = uuid.uuid4()
                 emp_role = UserRole.EMPLOYEE
                 if employee.role and employee.role.lower() in allowed_roles:
-                    emp_role = employee.role.lower()
+                    try:
+                        emp_role = UserRole(employee.role.lower())
+                    except (ValueError, KeyError):
+                        try:
+                            emp_role = UserRole[employee.role.upper()]
+                        except (ValueError, KeyError):
+                            emp_role = UserRole.EMPLOYEE
                 user = User(
                     id=new_user_id,
-                    company_id=employee.company_id,
+                    company_id=employee.company_id or company_id,
                     name=f"{employee.first_name} {employee.last_name}".strip(),
                     email=employee_email,
                     phone=employee.phone[:10] if employee.phone else None,
@@ -314,31 +344,242 @@ class DepartmentRepository:
 
         return None
 
-    async def assign_employees(self, department_uuid: uuid.UUID, employee_uuids: list[uuid.UUID]) -> None:
+    async def assign_employees(self, department_uuid: uuid.UUID, employee_uuids: list[uuid.UUID], company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Employee).where(Employee.id.in_(employee_uuids))
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
         await self.session.execute(
-            update(Employee)
-            .where(Employee.id.in_(employee_uuids))
-            .values(department_id=department_uuid)
+            stmt.values(department_id=department_uuid)
         )
 
-    async def remove_employee_from_department(self, employee_uuid: uuid.UUID) -> None:
+    async def remove_employee_from_department(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> None:
+        stmt = update(Employee).where(Employee.id == employee_uuid)
+        if company_id is not None:
+            stmt = stmt.where(Employee.company_id == company_id)
         await self.session.execute(
-            update(Employee)
-            .where(Employee.id == employee_uuid)
-            .values(department_id=None)
+            stmt.values(department_id=None)
         )
 
-    async def get_department_employees(self, department_uuid: uuid.UUID) -> list[Employee]:
+    async def get_department_employees(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> list[Employee]:
+        filters = [Employee.department_id == department_uuid, Employee.is_deleted == False]  # noqa: E712
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
         result = await self.session.execute(
-            select(Employee).where(
-                and_(Employee.department_id == department_uuid, Employee.is_deleted == False)  # noqa: E712
-            )
+            select(Employee).where(and_(*filters))
         )
         return list(result.scalars().all())
 
-    async def get_sub_departments_count(self, department_uuid: uuid.UUID) -> int:
-        stmt = select(func.count()).select_from(Department).where(
-            and_(Department.parent_department_id == department_uuid, Department.is_deleted == False)  # noqa: E712
-        )
+    async def get_sub_departments_count(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> int:
+        filters = [Department.parent_department_id == department_uuid, Department.is_deleted == False]  # noqa: E712
+        if company_id is not None:
+            filters.append(Department.company_id == company_id)
+        stmt = select(func.count()).select_from(Department).where(and_(*filters))
         result = await self.session.execute(stmt)
         return result.scalar_one() or 0
+
+    async def get_departments_summary(self, company_id: uuid.UUID | None = None) -> dict[str, Any]:
+        from sqlalchemy import case
+
+        dept_filters = [Department.is_deleted == False]  # noqa: E712
+        if company_id is not None:
+            dept_filters.append(Department.company_id == company_id)
+
+        dept_stmt = select(
+            func.count().label("total"),
+            func.coalesce(func.sum(case((Department.status == "ACTIVE", 1), else_=0)), 0).label("active"),
+            func.coalesce(func.sum(case((Department.status == "INACTIVE", 1), else_=0)), 0).label("inactive"),
+            func.coalesce(func.sum(case((Department.status == "HIRING", 1), else_=0)), 0).label("hiring"),
+            func.count(Department.manager_id).label("managers"),
+        ).select_from(Department).where(and_(*dept_filters))
+
+        dept_res = await self.session.execute(dept_stmt)
+        row = dept_res.one()
+
+        total_departments = int(row.total or 0)
+        active_departments = int(row.active or 0)
+        inactive_departments = int(row.inactive or 0)
+        hiring_departments = int(row.hiring or 0)
+        total_managers = int(row.managers or 0)
+
+        emp_subquery = select(Department.id).where(and_(*dept_filters))
+        emp_filters = [
+            Employee.is_deleted == False,  # noqa: E712
+            Employee.department_id.in_(emp_subquery),
+        ]
+        if company_id is not None:
+            emp_filters.append(Employee.company_id == company_id)
+        emp_stmt = select(func.count()).select_from(Employee).where(and_(*emp_filters))
+        emp_res = await self.session.execute(emp_stmt)
+        total_employees = int(emp_res.scalar_one() or 0)
+
+        avg_team_size = round(total_employees / total_departments, 2) if total_departments > 0 else 0.0
+
+        open_positions = 0
+        try:
+            from app.models.recruitment import Job
+            job_filters = [
+                Job.is_deleted == False,  # noqa: E712
+                Job.status.in_(["OPEN", "PUBLISHED", "ACTIVE"]),
+            ]
+            if company_id is not None:
+                job_filters.append(Job.company_id == company_id)
+            job_stmt = select(func.coalesce(func.sum(Job.vacancies), 0)).select_from(Job).where(and_(*job_filters))
+            job_res = await self.session.execute(job_stmt)
+            open_positions = int(job_res.scalar_one() or 0)
+        except Exception:
+            open_positions = 0
+
+        return {
+            "total_departments": total_departments,
+            "active_departments": active_departments,
+            "inactive_departments": inactive_departments,
+            "total_employees": total_employees,
+            "total_managers": total_managers,
+            "avg_team_size": avg_team_size,
+            "open_positions": open_positions,
+            "hiring_departments": hiring_departments,
+        }
+
+    # ------------------------------------------------------------------
+    # Hierarchy & Bulk Operations
+    # ------------------------------------------------------------------
+
+    async def get_all_active_departments(self, company_id: uuid.UUID | None = None) -> list[Department]:
+        """Fetch all active departments with parent and manager relations for tree/hierarchy building."""
+        stmt = (
+            select(Department)
+            .where(self._active_filter())
+            .options(
+                selectinload(Department.parent_department),
+                selectinload(Department.manager_user),
+            )
+            .order_by(Department.department_name.asc())
+        )
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_department_ancestor_ids(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> set[uuid.UUID]:
+        """Traverse upwards to retrieve all ancestor department IDs to detect and prevent cycles."""
+        ancestor_ids: set[uuid.UUID] = set()
+        current_id: uuid.UUID | None = department_uuid
+
+        visited: set[uuid.UUID] = set()
+        while current_id is not None and current_id not in visited:
+            visited.add(current_id)
+            stmt = select(Department.parent_department_id).where(
+                and_(Department.id == current_id, self._active_filter())
+            )
+            if company_id is not None:
+                stmt = stmt.where(Department.company_id == company_id)
+            res = await self.session.execute(stmt)
+            parent_id = res.scalar_one_or_none()
+            if parent_id:
+                ancestor_ids.add(parent_id)
+                current_id = parent_id
+            else:
+                break
+        return ancestor_ids
+
+    async def get_department_descendant_ids(self, department_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> set[uuid.UUID]:
+        """Retrieve all descendant department IDs under a given department."""
+        descendants: set[uuid.UUID] = set()
+        queue = [department_uuid]
+
+        while queue:
+            parent = queue.pop(0)
+            stmt = select(Department.id).where(
+                and_(Department.parent_department_id == parent, self._active_filter())
+            )
+            if company_id is not None:
+                stmt = stmt.where(Department.company_id == company_id)
+            res = await self.session.execute(stmt)
+            child_ids = res.scalars().all()
+            for child_id in child_ids:
+                if child_id not in descendants:
+                    descendants.add(child_id)
+                    queue.append(child_id)
+        return descendants
+
+    async def bulk_soft_delete(self, department_uuids: list[uuid.UUID], company_id: uuid.UUID | None = None) -> int:
+        """Soft delete multiple departments by IDs, respecting tenant isolation."""
+        if not department_uuids:
+            return 0
+        stmt = update(Department).where(Department.id.in_(department_uuids))
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        res = await self.session.execute(stmt.values(is_deleted=True, deleted_at=func.now()))
+        return res.rowcount or 0
+
+    async def bulk_update_status(self, department_uuids: list[uuid.UUID], status: str, company_id: uuid.UUID | None = None) -> int:
+        """Bulk update status for departments."""
+        if not department_uuids:
+            return 0
+        stmt = update(Department).where(and_(Department.id.in_(department_uuids), self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        res = await self.session.execute(stmt.values(status=status.upper()))
+        return res.rowcount or 0
+
+    async def bulk_assign_manager(self, department_uuids: list[uuid.UUID], manager_user_id: uuid.UUID | None, company_id: uuid.UUID | None = None) -> int:
+        """Bulk assign or clear manager for departments."""
+        if not department_uuids:
+            return 0
+        stmt = update(Department).where(and_(Department.id.in_(department_uuids), self._active_filter()))
+        if company_id is not None:
+            stmt = stmt.where(Department.company_id == company_id)
+        res = await self.session.execute(stmt.values(manager_id=manager_user_id))
+        return res.rowcount or 0
+
+    async def transfer_employees(
+        self,
+        source_dept_id: uuid.UUID,
+        target_dept_id: uuid.UUID,
+        target_dept_name: str | None = None,
+        employee_ids: list[uuid.UUID] | None = None,
+        company_id: uuid.UUID | None = None,
+    ) -> int:
+        """Transfer employees from source department to target department."""
+        filters = [Employee.department_id == source_dept_id, Employee.is_deleted == False]  # noqa: E712
+        if employee_ids:
+            filters.append(Employee.id.in_(employee_ids))
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        update_values: dict[str, Any] = {"department_id": target_dept_id}
+        if target_dept_name:
+            update_values["department"] = target_dept_name
+
+        stmt = update(Employee).where(and_(*filters)).values(**update_values)
+        res = await self.session.execute(stmt)
+        return res.rowcount or 0
+
+    async def get_department_employees_paginated(
+        self,
+        department_uuid: uuid.UUID,
+        include_sub_departments: bool = False,
+        page: int = 1,
+        limit: int = 50,
+        company_id: uuid.UUID | None = None,
+    ) -> tuple[list[Employee], int]:
+        """Fetch employees for a department with optional sub-department inclusion and pagination."""
+        dept_ids = [department_uuid]
+        if include_sub_departments:
+            sub_ids = await self.get_department_descendant_ids(department_uuid, company_id=company_id)
+            dept_ids.extend(sub_ids)
+
+        filters = [Employee.department_id.in_(dept_ids), Employee.is_deleted == False]  # noqa: E712
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        count_stmt = select(func.count()).select_from(Employee).where(and_(*filters))
+        total_res = await self.session.execute(count_stmt)
+        total = total_res.scalar_one() or 0
+
+        offset = max(0, (page - 1) * limit)
+        emp_stmt = select(Employee).where(and_(*filters)).order_by(Employee.first_name.asc(), Employee.last_name.asc()).limit(limit).offset(offset)
+        emp_res = await self.session.execute(emp_stmt)
+        employees = list(emp_res.scalars().all())
+
+        return employees, total

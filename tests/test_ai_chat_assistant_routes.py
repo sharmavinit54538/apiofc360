@@ -108,10 +108,10 @@ async def test_send_message_aliases(token_company_a: str):
     transport = ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {token_company_a}"}
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Standard POST /api/v1/ai/chat with content and conversationId
+        # Standard POST /api/v1/ai/chat with message and conversationId
         res1 = await ac.post(
             "/api/v1/ai/chat",
-            json={"content": "What is our current attrition rate?"},
+            json={"message": "What is our current attrition rate?"},
             headers=headers,
         )
         assert res1.status_code == 200
@@ -122,7 +122,7 @@ async def test_send_message_aliases(token_company_a: str):
         # Alias POST /api/v1/ai/chat/message
         res2 = await ac.post(
             "/api/v1/ai/chat/message",
-            json={"conversationId": d1["conversationId"], "content": "How does it compare to last year?"},
+            json={"conversationId": d1["conversationId"], "message": "How does it compare to last year?"},
             headers=headers,
         )
         assert res2.status_code == 200

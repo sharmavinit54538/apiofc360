@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password, verify_password, hash_password_async, verify_password_async
 from app.db.database import get_db_session
 from app.repositories.auth_repository import AuthRepository
 from app.schemas.auth import (
@@ -132,16 +132,43 @@ class AccountService:
             user = await self.auth_repository.get_user_by_id(user_id)
             if not user:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
-            if not verify_password(payload.current_password, user.password_hash):
+            if not await verify_password_async(payload.current_password, user.password_hash):
                 logger.warning("change_password: wrong current password | user_id=%s | file=account_service.py | func=change_password", user_id)
-            if verify_password(payload.new_password, user.password_hash):
+                raise AppException(message="Current password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
+            if await verify_password_async(payload.new_password, user.password_hash):
                 raise AppException(message="New password must be different from the current password.", status_code=status.HTTP_400_BAD_REQUEST)
-            await self.auth_repository.update_user_password(user_id, hash_password(payload.new_password))
+            await self.auth_repository.update_user_password(user_id, await hash_password_async(payload.new_password))
             await self.auth_repository.revoke_all_user_refresh_tokens(user_id, reason="PASSWORD_CHANGE")
             await redis_client.revoke_user_tokens(user_id)
+            # Invalidate auth active cache
+            if user.company_id:
+                from app.middleware.auth import invalidate_auth_active_cache
+                await invalidate_auth_active_cache(user.id, user.company_id)
             # Immediately invalidate any outstanding password reset tokens and active OTPs
             await self.auth_repository.invalidate_all_user_password_resets(user_id)
             await self.auth_repository.invalidate_all_user_otps(user_id)
+
+            if getattr(user, "company_id", None):
+                try:
+                    from app.services import notification_service
+                    await notification_service.notify(
+                        self.session,
+                        company_id=user.company_id,
+                        recipient_ids=[user.id],
+                        type="security.password_changed",
+                        category="security",
+                        module="security",
+                        title="Password Changed",
+                        body="Your account password was successfully updated.",
+                        link="/dashboard/settings",
+                        priority="high",
+                        entity={"type": "user", "id": str(user.id)},
+                        dedupe_key=f"security:{user.id}:pwd_change:{int(datetime.now().timestamp())}",
+                        mandatory=True,
+                    )
+                except Exception as notif_err:
+                    logger.warning("Failed to emit password changed notification: %s", notif_err)
+
             await self.session.commit()
             logger.info("change_password: success | user_id=%s | file=account_service.py | func=change_password", user_id)
         except AppException:
@@ -163,7 +190,7 @@ class AccountService:
             user = await self.auth_repository.get_user_by_id(user_id)
             if not user:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
-            if not payload.password or not verify_password(payload.password, user.password_hash):
+            if not payload.password or not await verify_password_async(payload.password, user.password_hash):
                 logger.warning("change_email: wrong password | user_id=%s | file=account_service.py | func=change_email", user_id)
                 raise AppException(message="Password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if user.email.lower() == "superadmin@ofc360.com":
@@ -283,7 +310,7 @@ class AccountService:
             user = await self.auth_repository.get_user_by_id(user_id)
             if not user:
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
-            if not verify_password(payload.password, user.password_hash):
+            if not await verify_password_async(payload.password, user.password_hash):
                 logger.warning("change_phone: wrong password | user_id=%s | file=account_service.py | func=change_phone", user_id)
                 raise AppException(message="Password is incorrect.", status_code=status.HTTP_401_UNAUTHORIZED)
             if payload.phone == user.phone:

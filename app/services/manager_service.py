@@ -530,6 +530,10 @@ class ManagerService:
                     )
                     await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
                     await redis_client.revoke_user_tokens(manager.user_id)
+                    # Invalidate auth active cache
+                    if manager.company_id:
+                        from app.middleware.auth import invalidate_auth_active_cache
+                        await invalidate_auth_active_cache(manager.user_id, manager.company_id)
                 elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == manager.user_id).values(
@@ -578,6 +582,10 @@ class ManagerService:
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
                 await redis_client.revoke_user_tokens(manager.user_id)
+                # Invalidate auth active cache
+                if manager.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(manager.user_id, manager.company_id)
             await self.session.commit()
             logger.info("delete_manager: success | manager_id=%s", manager_uuid)
         except AppException:
@@ -709,7 +717,7 @@ class ManagerService:
                 raise AppException(message="This account has already been activated.", status_code=status.HTTP_400_BAD_REQUEST)
             if not manager.user_id:
                 raise AppException(message="No user account linked. Please contact HR.", status_code=status.HTTP_400_BAD_REQUEST)
-            new_hash = hash_password(payload.new_password)
+            new_hash = await hash_password_async(payload.new_password)
             await self.auth_repo.update_user_activation(
                 manager.user_id,
                 password_hash=new_hash,
@@ -764,7 +772,7 @@ class ManagerService:
             if not manager.user_id:
                 raise AppException(message="No user account linked to this manager.", status_code=status.HTTP_400_BAD_REQUEST)
             temp_password = generate_temp_password()
-            password_hash = hash_password(temp_password)
+            password_hash = await hash_password_async(temp_password)
 
             from sqlalchemy import update as sa_update
             from app.models.user import User
@@ -937,7 +945,7 @@ class ManagerService:
             from app.models.manager import Manager
             from app.models.employee import Employee
             from app.models.user import User
-            from app.core.security import hash_password
+            from app.core.security import hash_password, hash_password_async
             from app.services.token_service import TokenService
 
             result = await self.session.execute(
@@ -985,7 +993,7 @@ class ManagerService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            password_hash = hash_password(password)
+            password_hash = await hash_password_async(password)
 
             # Clean phone
             phone_to_use = payload.phone or manager.phone
@@ -1157,6 +1165,10 @@ class ManagerService:
                 )
                 await self.auth_repo.revoke_all_user_refresh_tokens(manager.user_id)
                 await redis_client.revoke_user_tokens(manager.user_id)
+                # Invalidate auth active cache
+                if manager.company_id:
+                    from app.middleware.auth import invalidate_auth_active_cache
+                    await invalidate_auth_active_cache(manager.user_id, manager.company_id)
             await self.session.commit()
             logger.info("deactivate_manager: success | manager_id=%s", manager_uuid)
         except AppException:
@@ -1260,7 +1272,7 @@ class ManagerService:
                 user.onboarding_completed = True
                 user.first_login = False
                 if payload.password:
-                    user.password_hash = hash_password(payload.password)
+                    user.password_hash = await hash_password_async(payload.password)
 
             await self.session.commit()
             logger.info("complete_manager_onboarding: success | manager_id=%s", manager.id)

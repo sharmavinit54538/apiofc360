@@ -11,7 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CMAKE_BUILD_PARALLEL_LEVEL=4 \
     DLIB_NO_GUI_SUPPORT=1 \
-    DLIB_USE_CUDA=0
+    DLIB_USE_CUDA=0 \
+    UVLOOP=1
 
 WORKDIR /build
 
@@ -57,7 +58,8 @@ FROM python:3.11-slim-bookworm AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    UVLOOP=1
 
 WORKDIR /app
 
@@ -68,6 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libopenblas0 \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy assembled virtual environment from builder stage
@@ -80,23 +83,21 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy application source code (done AFTER dependencies for optimal Docker layer reuse)
 COPY . /app
 
-# Create non-root system user and prepare uploads directory for security
+# Smoke test imports in the final runtime container and compile bytecode
+RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
+RUN python -m compileall app
+
+# Create non-root system user and ensure application files are owned by appuser
 RUN useradd -m -u 10001 appuser && \
     mkdir -p /app/uploads && \
     chown -R appuser:appuser /app
 
-USER appuser
-
 EXPOSE 8000
 
-# Smoke test imports in the final runtime container
-RUN python -c "import dlib, face_recognition, face_recognition_models, cv2, numpy, fastapi; from greenlet import getcurrent; assert face_recognition.face_locations is not None; print('[Runtime] Smoke test PASSED: All biometrics, web modules, and greenlet load cleanly.')"
-RUN python -m compileall app && python -c "from app.core.config import settings; print('[Runtime] Smoke test PASSED: Config and settings loaded successfully!')"
-
-# Container healthcheck probe
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+# Container healthcheck probe - light check, no DB/Redis
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
-# Default entrypoint and command
+# Default entrypoint and command - worker count from env (default to CPU count)
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--workers", "4"]

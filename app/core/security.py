@@ -1,5 +1,8 @@
 """Password hashing and JWT helper utilities."""
 
+from __future__ import annotations
+
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -10,7 +13,7 @@ from app.utils.jwt import create_access_token as _create_access_token
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password using bcrypt."""
+    """Hash a plaintext password using bcrypt (sync version)."""
 
     # bcrypt max password limit is 72 bytes. Our validators ensure it's shorter.
     password_bytes = password.encode("utf-8")
@@ -20,7 +23,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
-    """Verify a plaintext password against a bcrypt hash."""
+    """Verify a plaintext password against a bcrypt hash (sync version)."""
 
     try:
         password_bytes = plain_password.encode("utf-8")
@@ -28,6 +31,16 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password_bytes, hash_bytes)
     except Exception:
         return False
+
+
+async def hash_password_async(password: str) -> str:
+    """Hash a plaintext password using bcrypt in a thread pool (async version)."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, password_hash: str) -> bool:
+    """Verify a plaintext password against a bcrypt hash in a thread pool (async version)."""
+    return await asyncio.to_thread(verify_password, plain_password, password_hash)
 
 
 def create_access_token(

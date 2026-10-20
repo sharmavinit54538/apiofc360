@@ -1,5 +1,6 @@
 """AI Chat Assistant API endpoints."""
 
+import logging
 import uuid
 from typing import Annotated
 
@@ -17,8 +18,96 @@ from app.schemas.ai import (
 )
 from app.services.ai_service import AIService, get_ai_service
 from app.services.ollama_client import ollama_client
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI Chat Assistant"])
+
+
+@router.get(
+    "/health",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="AI Assistant health check (admin/super-admin only)",
+)
+async def ai_health(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> APIResponse[dict]:
+    """Health check for AI Assistant: Ollama connectivity, model availability, DB status.
+    Restricted to admin/super-admin roles.
+    """
+    role = claims.get("role", "").lower()
+    is_admin = role in {"admin", "hr_admin", "super_admin", "SUPER_ADMIN"} or claims.get("is_super_admin")
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required for AI health check.",
+        )
+
+    from app.llm.client import get_llm_client
+    from sqlalchemy import text
+    from app.db.database import engine
+
+    request_id = uuid.uuid4().hex[:8]
+    base_url = settings.OLLAMA_BASE_URL
+    host_only = base_url.replace("http://", "").replace("https://", "").split(":")[0] if base_url else "unknown"
+    
+    # Check Ollama
+    ollama_reachable = False
+    installed_models = []
+    configured_models = {
+        "sql": getattr(settings, "AI_SQL_MODEL", settings.OLLAMA_MODEL),
+        "answer": getattr(settings, "AI_ANSWER_MODEL", settings.OLLAMA_MODEL),
+    }
+    models_missing = []
+    last_error = None
+    
+    try:
+        llm_client = get_llm_client()
+        health = await llm_client.check_health()
+        ollama_reachable = health.get("healthy", False)
+        installed_models = health.get("models", [])
+        
+        # Check configured models
+        for model in configured_models.values():
+            if model and model not in installed_models:
+                model_base = model.split(":")[0]
+                if not any(m.split(":")[0] == model_base for m in installed_models):
+                    models_missing.append(model)
+    except Exception as e:
+        last_error = str(e)
+        logger.error("AI health check Ollama error (req_id=%s): %s", request_id, e)
+
+    # Check DB
+    db_ok = False
+    schema_tables_loaded = False
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ok = True
+        # Check if schema cache has tables loaded
+        from app.services.ai_service import schema_cache
+        schema_tables_loaded = bool(schema_cache.tables)
+    except Exception as e:
+        last_error = last_error or str(e)
+        logger.error("AI health check DB error (req_id=%s): %s", request_id, e)
+
+    return APIResponse[dict](
+        success=True,
+        message="AI health check completed.",
+        data={
+            "ollama_reachable": ollama_reachable,
+            "base_url": host_only,
+            "installed_models": installed_models,
+            "configured_models": configured_models,
+            "models_missing": models_missing,
+            "db_ok": db_ok,
+            "schema_tables_loaded": schema_tables_loaded,
+            "last_error": last_error,
+        },
+        errors=None,
+    )
 
 
 @router.post(
@@ -30,7 +119,7 @@ async def chat_message(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIService, Depends(get_ai_service)],
 ) -> StreamingResponse:
-    """Send a query to Aurix AI, streaming database-grounded response details chunk by chunk."""
+    """Send a query to OFC HR AI, streaming database-grounded response details chunk by chunk."""
     user_id = uuid.UUID(claims.get("sub"))
     co_id_str = claims.get("company_id")
     company_id = uuid.UUID(co_id_str) if co_id_str else None

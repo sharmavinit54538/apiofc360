@@ -6,8 +6,12 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import asyncpg
+from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 
@@ -76,6 +80,9 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
             "user": db_url.username,
             "password": db_url.password,
             "database": db_url.database,
+            "server_settings": {
+                "statement_timeout": "15000",  # 15 second statement timeout
+            },
         }
         if ssl_setting is not None:
             kwargs["ssl"] = ssl_setting
@@ -113,6 +120,9 @@ async def get_asyncpg_connection() -> asyncpg.Connection:
         "user": db_url.username,
         "password": db_url.password,
         "database": db_url.database,
+        "server_settings": {
+            "statement_timeout": "15000",  # 15 second statement timeout
+        },
     }
 
     if ssl_setting is not None and ssl_setting is not False:
@@ -141,7 +151,8 @@ engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
     async_creator=get_asyncpg_connection,
     echo=settings.DB_ECHO,
-    pool_pre_ping=True,
+    pool_pre_ping=False,  # Disabled for remote DBs - adds RTT on every checkout; use pool_recycle instead
+    pool_use_lifo=True,   # Better connection reuse pattern
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
@@ -165,14 +176,33 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             logger.debug("[DB Lifecycle] Request execution completed. Session active: %s", session.is_active)
-        except Exception as exc:
+        except (SQLAlchemyError, DBAPIError) as db_exc:
             logger.exception(
                 "[DB Lifecycle] DBAPI/Query exception during session execution (id=%s): %s. Executing rollback...",
                 id(session),
-                str(exc),
+                str(db_exc),
             )
             await session.rollback()
             logger.debug("[DB Lifecycle] Rollback completed for session id=%s", id(session))
+            raise
+        except (HTTPException, StarletteHTTPException, RequestValidationError):
+            # HTTPException/StarletteHTTPException/RequestValidationError are expected business logic responses
+            # (e.g., 409 ALREADY_CHECKED_IN, 400 validation errors, 422 unprocessable entity).
+            # Roll back the transaction quietly without logging as a database error.
+            if session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+            raise
+        except Exception:
+            # Quiet rollback for other non-database exceptions (e.g., AppException, validation errors)
+            # without logging database ERROR traces.
+            if session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
             raise
         finally:
             logger.debug("[DB Lifecycle] Closing AsyncSession (id=%s)...", id(session))
@@ -225,4 +255,75 @@ def _before_flush(session, flush_context, instances):
         for obj in session.new:
             if hasattr(obj, "company_id") and getattr(obj, "company_id") is None:
                 obj.company_id = tenant_id
+
+
+# ---------------------------------------------------------------------------
+# Schema Healing Utility
+# ---------------------------------------------------------------------------
+
+async def heal_database_schema(engine: AsyncEngine) -> None:
+    """Idempotent startup schema-healing utility.
+    
+    Runs Base.metadata.create_all() and uses ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+    for any missing columns in AI chat tables and related tables.
+    """
+    from sqlalchemy import text, inspect
+    from app.db.base import Base
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # First, create all tables that don't exist
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database schema create_all completed successfully.")
+        
+        # Then check for missing columns in specific tables and add them
+        async with engine.connect() as conn:
+            inspector = inspect(engine.sync_engine)
+            
+            # Define expected columns for AI chat tables
+            ai_chat_tables = {
+                "ai_chat_sessions": [
+                    ("id", "UUID"),
+                    ("company_id", "UUID"),
+                    ("user_id", "UUID"),
+                    ("title", "VARCHAR(255)"),
+                    ("metadata", "JSONB"),
+                    ("created_at", "TIMESTAMP WITH TIME ZONE"),
+                    ("updated_at", "TIMESTAMP WITH TIME ZONE"),
+                ],
+                "ai_chat_messages": [
+                    ("id", "UUID"),
+                    ("session_id", "UUID"),
+                    ("role", "VARCHAR(50)"),
+                    ("content", "TEXT"),
+                    ("metadata", "JSONB"),
+                    ("created_at", "TIMESTAMP WITH TIME ZONE"),
+                ],
+            }
+            
+            for table_name, expected_columns in ai_chat_tables.items():
+                if not await conn.run_sync(lambda sync_conn: inspector.has_table(table_name)):
+                    continue
+                    
+                existing_columns = await conn.run_sync(
+                    lambda sync_conn: [col["name"] for col in inspector.get_columns(table_name)]
+                )
+                
+                for col_name, col_type in expected_columns:
+                    if col_name not in existing_columns:
+                        try:
+                            await conn.execute(text(
+                                f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                            ))
+                            await conn.commit()
+                            logger.info("Added missing column %s.%s (%s)", table_name, col_name, col_type)
+                        except Exception as exc:
+                            logger.warning("Could not add column %s.%s: %s", table_name, col_name, exc)
+                            
+    except Exception as exc:
+        logger.error("Schema healing failed: %s", exc)
+        # Don't raise - this is a best-effort utility
 

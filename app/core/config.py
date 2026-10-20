@@ -25,8 +25,8 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        """Check if environment is production (ENVIRONMENT in ('production', 'prod') or DEBUG is False)."""
-        return self.ENVIRONMENT.lower() in {"production", "prod"} or not self.DEBUG
+        """Check if environment is production (ENVIRONMENT in ('production', 'prod', 'staging'))."""
+        return self.ENVIRONMENT.lower() in {"production", "prod", "staging"}
 
     @property
     def should_enable_docs(self) -> bool:
@@ -48,8 +48,9 @@ class Settings(BaseSettings):
         description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues - e.g., Supabase direct). Default False for Render/standard PostgreSQL.",
     )
     DB_ECHO: bool = False
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # DB pool defaults kept small for ECS Fargate. Tune based on RDS max_connections.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 300
 
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
         default="",
         description="Secret key used for OTP hashing and other symmetric operations. Must be 32+ chars. Set via env var.",
     )
-    JWT_ALGORITHM: str = "RS256"
+    JWT_ALGORITHM: str = "HS256"
     JWT_PRIVATE_KEY: SecretStr = Field(
         default="",
         description="RSA private key (PEM format) for signing JWT tokens. Set via env var in production.",
@@ -68,11 +69,24 @@ class Settings(BaseSettings):
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_TOKEN_GRACE_SECONDS: int = 15
+    REFRESH_REUSE_GRACE_SECONDS: int = 15
+
+    # Auth cookie settings
+    COOKIE_NAME: str = "ofc360_refresh_token"
+    COOKIE_DOMAIN: str | None = None
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_MAX_AGE: int = 30 * 24 * 3600
 
     SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
     SUPER_ADMIN_PASSWORD: SecretStr = Field(
-        default=SecretStr("SuperAdmin@2026"),
-        description="Platform Super Admin initial password used during provisioning.",
+        default=SecretStr(""),
+        description="Platform Super Admin initial password. MUST be set via env var in production.",
+    )
+    RESET_SUPER_ADMIN_PASSWORD: bool = Field(
+        default=False,
+        description="Set to true to force-reset the super admin password on next startup.",
     )
 
     BCRYPT_ROUNDS: int = 12
@@ -167,27 +181,32 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM settings ────────────────────────────────────────────────
     OLLAMA_ENABLED: bool = True
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"
     OLLAMA_DEFAULT_MODEL: str = "llama3.2:3b"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text:latest"
+    OLLAMA_FALLBACK_MODEL: str = "gemma:2b"
     OLLAMA_PRIORITY: int = 1
-    OLLAMA_TIMEOUT: int = 60
-    OLLAMA_TIMEOUT_SECONDS: int = 60
+    OLLAMA_TIMEOUT: int = 120
+    OLLAMA_TIMEOUT_SECONDS: int = 120
+    OLLAMA_CHAT_TIMEOUT_SECONDS: int = 110
     OLLAMA_KEEP_ALIVE: str = "30m"
     OLLAMA_MAX_CONNECTIONS: int = 50
     OLLAMA_TEMPERATURE: float = 0.3
     OLLAMA_TOP_P: float = 0.9
-    OLLAMA_NUM_PREDICT: int = 2048
+    OLLAMA_NUM_PREDICT: int = 1024
     OLLAMA_NUM_PARALLEL: int = 1
     OLLAMA_MAX_LOADED_MODELS: int = 1
 
-    @property
-    def OLLAMA_HOST(self) -> str:
-        """Alias for OLLAMA_BASE_URL to unify host configuration across environments."""
-        return self.OLLAMA_BASE_URL
-
-
+    # ── AI Assistant specific settings ───────────────────────────────────────
+    AI_SQL_MODEL: str = "llama3.2:3b"
+    AI_ANSWER_MODEL: str = "llama3.2:3b"
+    AI_CHAT_TIMEOUT_SECONDS: int = 110
+    AI_CHAT_NUM_PREDICT: int = 512
+    AI_SQL_TIMEOUT_SECONDS: int = 30
+    AI_AUTO_PULL_MODELS: bool = True
+    AI_DB_READONLY_URL: str = ""
 
     # ── OCR settings ────────────────────────────────────────────────────────
     OCR_ENGINE_PREFERENCE: str = "auto"      # auto | paddle | easyocr | tesseract
@@ -242,36 +261,20 @@ class Settings(BaseSettings):
     DOCUMENT_EXPIRY_WARNING_DAYS: int = 30
     MAX_DOCUMENT_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
 
-    # ── Cloudinary settings ──────────────────────────────────────────────────
-    CLOUDINARY_CLOUD_NAME: str = "sfqkvhk1"
-    CLOUDINARY_API_KEY: str = "256143848656332"
-    CLOUDINARY_API_SECRET: str = "XWUxbxAr-tXLDwewBcF7F6OrU8s"
+    # ── Attendance/Shift Engine settings ──────────────────────────────────────
+    ATTENDANCE_DEFAULT_TIMEZONE: str = "Asia/Kolkata"
+    ATTENDANCE_EARLY_CHECKIN_WINDOW_MINS: int = 120
+    ATTENDANCE_POST_SHIFT_WINDOW_MINS: int = 240
+    ATTENDANCE_AUTO_CLOSE_GRACE_HOURS: int = 4
+    ATTENDANCE_AUTO_CLOSE_INTERVAL_MINS: int = 15
+    ATTENDANCE_AUTO_BREAK_MIN_GROSS_HOURS: float = 6.0
+    SHIFT_PLAN_MAX_DAYS: int = 92
+    SHIFT_PLAN_MAX_EMPLOYEES: int = 200
 
-    # ── Multi-Provider LLM settings DISABLED ──────────────────────────────
-    # Cloud LLM providers are DISABLED. Only Ollama is supported.
-    # OPENAI_API_KEY: str = ""
-    # OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    # OPENAI_MODEL: str = "gpt-4o-mini"
-    # OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    # OPENAI_PRIORITY: int = 10
-    #
-    # # Anthropic Claude
-    # ANTHROPIC_API_KEY: str = ""
-    # ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
-    # ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
-    # ANTHROPIC_PRIORITY: int = 20
-    #
-    # # Google Gemini
-    # GOOGLE_AI_API_KEY: str = ""
-    # GOOGLE_AI_MODEL: str = "gemini-2.0-flash"
-    # GOOGLE_AI_EMBEDDING_MODEL: str = "text-embedding-004"
-    # GOOGLE_AI_PRIORITY: int = 15
-    #
-    # # OpenRouter (gateway for DeepSeek, Qwen, Mistral, etc.)
-    # OPENROUTER_API_KEY: str = ""
-    # OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    # OPENROUTER_MODEL: str = "deepseek/deepseek-chat"
-    # OPENROUTER_PRIORITY: int = 30
+    # ── Cloudinary settings ──────────────────────────────────────────────────
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
 
 
     # LLM Routing & Limits
@@ -280,11 +283,18 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 3
     LLM_RATE_LIMIT_RPM: int = 60
     LLM_DAILY_BUDGET_USD: float = 100.0
+    LLM_MAX_CONCURRENT_CHATS: int = 2
 
 
     # ── AI Agent settings ────────────────────────────────────────────────────
     AI_SCREENING_THRESHOLD: float = 0.65     # Auto-shortlist above this score
     AI_REJECTION_THRESHOLD: float = 0.35     # Auto-reject below this score
+    AI_AUTO_REJECT_ENABLED: bool = False     # Compliance: never auto-reject unless explicitly enabled
+    AI_SCREENING_RESUME_MAX_CHARS: int = 12000 # Max characters to retain from resume before truncation
+    AI_SCREENING_JD_MAX_CHARS: int = 6000    # Max characters to retain from job description
+    AI_SCREENING_MAX_CONCURRENCY: int = 5    # Max concurrent LLM screening calls
+    AI_SCREENING_TIMEOUT_SECONDS: int = 45   # Timeout per screening LLM call
+    AI_SCREENING_MAX_RETRIES: int = 2        # Max retries on transient LLM failures
     AI_RANKING_TOP_N: int = 50               # Default top-N for ranking
     AI_CONFIDENCE_MIN: float = 0.0
     AI_CONFIDENCE_MAX: float = 1.0
@@ -300,7 +310,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", mode="before")
+    @field_validator("DEBUG", "DB_ECHO", "SMTP_USE_TLS", "SMTP_USE_SSL", "OCR_PREPROCESSING_ENABLED", "USE_CELERY", "RESET_SUPER_ADMIN_PASSWORD", "AI_AUTO_REJECT_ENABLED", mode="before")
     @classmethod
     def parse_bool(cls, value: Any) -> bool:
         """Parse booleans defensively when global env vars are present."""
@@ -438,6 +448,43 @@ class Settings(BaseSettings):
                     raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
                 if not public_key.strip().startswith("-----BEGIN"):
                     raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            # Cloudinary required in production
+            if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
+                raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
+            # Super Admin password: if provided in production, ensure it is strong and not default
+            sa_pwd = self.SUPER_ADMIN_PASSWORD.get_secret_value()
+            if sa_pwd and (sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12):
+                raise ValueError("SUPER_ADMIN_PASSWORD must be set to a strong password (12+ chars) via env var in production")
+        return self
+
+    @model_validator(mode="after")
+    def sync_ollama_host(self) -> "Settings":
+        """Set OLLAMA_HOST equal to OLLAMA_BASE_URL if not explicitly provided by env."""
+        if "OLLAMA_HOST" not in self.model_fields_set:
+            self.OLLAMA_HOST = self.OLLAMA_BASE_URL
+        if "OLLAMA_MODEL" in self.model_fields_set and "OLLAMA_DEFAULT_MODEL" not in self.model_fields_set:
+            self.OLLAMA_DEFAULT_MODEL = self.OLLAMA_MODEL
+        elif "OLLAMA_DEFAULT_MODEL" in self.model_fields_set and "OLLAMA_MODEL" not in self.model_fields_set:
+            self.OLLAMA_MODEL = self.OLLAMA_DEFAULT_MODEL
+        if "AI_SQL_MODEL" not in self.model_fields_set:
+            self.AI_SQL_MODEL = self.OLLAMA_MODEL
+        if "AI_ANSWER_MODEL" not in self.model_fields_set:
+            self.AI_ANSWER_MODEL = self.OLLAMA_MODEL
+        return self
+
+    @model_validator(mode="after")
+    def validate_ollama_production_url(self) -> "Settings":
+        """Warn if OLLAMA_BASE_URL uses host.docker.internal/localhost in production."""
+        import logging
+        logger = logging.getLogger(__name__)
+        if self.is_production and self.OLLAMA_ENABLED:
+            base_url = self.OLLAMA_BASE_URL.lower()
+            if any(local_addr in base_url for local_addr in ("localhost", "127.0.0.1", "host.docker.internal", "::1")):
+                logger.warning(
+                    "OLLAMA_BASE_URL='%s' uses local address in production. "
+                    "Set OLLAMA_BASE_URL to your Ollama server's network address (e.g., http://ollama:11434 in Docker Compose, or http://<ollama-host>:11434 on a separate server).",
+                    self.OLLAMA_BASE_URL,
+                )
         return self
 
 

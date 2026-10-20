@@ -100,16 +100,24 @@ class DocumentRAGPipeline:
         filter_metadata: Optional[dict] = None,
     ) -> list[dict[str, Any]]:
         """Retrieve most similar chunks matching query."""
-        query_emb = await self.embedder.embed(query)
+        try:
+            query_emb = await self.embedder.embed(query)
+        except Exception as exc:
+            logger.error("Embedding generation failed: %s", exc)
+            return []
         if not query_emb:
             return []
 
-        results = self.store.search(
-            query_embedding=query_emb,
-            top_k=top_k,
-            filter_metadata=filter_metadata
-        )
-        return results
+        try:
+            results = self.store.search(
+                query_embedding=query_emb,
+                top_k=top_k,
+                filter_metadata=filter_metadata
+            )
+            return results
+        except Exception as exc:
+            logger.error("Vector search failed: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     # RAG Question Answering
@@ -124,7 +132,11 @@ class DocumentRAGPipeline:
     ) -> dict[str, Any]:
         """Perform RAG Q&A scoped to specified document IDs."""
         # 1. Retrieve candidate chunks
-        query_emb = await self.embedder.embed(question)
+        try:
+            query_emb = await self.embedder.embed(question)
+        except Exception as exc:
+            logger.error("Embedding generation failed: %s", exc)
+            return {"answer": "Unable to generate embedding for the question.", "sources": []}
         if not query_emb:
             return {"answer": "Unable to generate embedding for the question.", "sources": []}
 
@@ -132,11 +144,15 @@ class DocumentRAGPipeline:
         if company_id:
             filter_meta["company_id"] = company_id
 
-        raw_results = self.store.search(
-            query_embedding=query_emb,
-            top_k=8,
-            filter_metadata=filter_meta if filter_meta else None
-        )
+        try:
+            raw_results = self.store.search(
+                query_embedding=query_emb,
+                top_k=8,
+                filter_metadata=filter_meta if filter_meta else None
+            )
+        except Exception as exc:
+            logger.error("Vector search failed: %s", exc)
+            raw_results = []
 
         # Filter by document list (scoped search)
         matched_results = []
@@ -184,12 +200,16 @@ Question: {question}
 
 Helpful Answer:"""
 
-        answer_text = await self.llm.complete(
-            prompt=prompt,
-            system=system,
-            model=model,
-            temperature=0.3
-        )
+        try:
+            answer_text = await self.llm.complete(
+                prompt=prompt,
+                system=system,
+                model=model,
+                temperature=0.3
+            )
+        except Exception as exc:
+            logger.error("LLM completion failed: %s", exc)
+            answer_text = "I'm currently unable to generate a response. Please try again."
 
         return {
             "answer": answer_text or "No response from LLM.",

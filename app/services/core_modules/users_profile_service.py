@@ -140,8 +140,10 @@ class UsersProfileService:
             for d in docs
         ]
 
-    async def get_profile_assets(self, employee_id: uuid.UUID) -> List[Dict[str, Any]]:
-        stmt = select(Asset).where(Asset.employee_id == employee_id)
+    async def get_profile_assets(self, employee_id: uuid.UUID, company_id: Optional[uuid.UUID] = None) -> List[Dict[str, Any]]:
+        if not company_id:
+            return []
+        stmt = select(Asset).where(Asset.employee_id == employee_id, Asset.company_id == company_id)
         assets = (await self.session.execute(stmt)).scalars().all()
         return [
             {

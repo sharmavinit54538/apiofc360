@@ -85,17 +85,26 @@ async def get_profile_documents(
     return _ok(docs)
 
 
+def _cid(claims: dict) -> Optional[uuid.UUID]:
+    cid = claims.get("company_id")
+    try:
+        return uuid.UUID(str(cid)) if cid else None
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/assets")
 async def get_profile_assets(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
     uid = _uid(claims)
+    cid = _cid(claims)
     srv = UsersProfileService(session)
     emp = await srv.get_profile_by_user_id(uid)
     if not emp:
         return _ok([])
-    assets = await srv.get_profile_assets(emp.id)
+    assets = await srv.get_profile_assets(emp.id, company_id=cid)
     return _ok(assets)
 
 

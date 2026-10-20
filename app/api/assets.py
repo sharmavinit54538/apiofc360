@@ -24,6 +24,18 @@ from app.services.asset_service import AssetService, get_asset_service
 router = APIRouter(prefix="/assets", tags=["Asset Management"])
 
 
+def _get_cid(claims: dict) -> uuid.UUID:
+    cid = claims.get("company_id")
+    if not cid:
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException("Company ID missing in user token/context.")
+    try:
+        return uuid.UUID(str(cid))
+    except (ValueError, TypeError):
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException("Invalid Company ID in user token/context.")
+
+
 @router.get(
     "",
     status_code=status.HTTP_200_OK,
@@ -45,7 +57,9 @@ async def list_assets(
     sort_dir: str = Query("desc", description="asc or desc"),
 ) -> APIResponse[AssetListResponse]:
     """Retrieve list of company inventory assets with filtering and pagination."""
+    cid = _get_cid(claims)
     result = await service.list_assets(
+        company_id=cid,
         category=category,
         status=status_filter,
         search=search,
@@ -76,7 +90,8 @@ async def get_analytics(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetAnalyticsResponse]:
     """Get statistics for categories, status divisions, valuations, and repair expenses."""
-    result = await service.get_analytics()
+    cid = _get_cid(claims)
+    result = await service.get_analytics(company_id=cid)
     return APIResponse[AssetAnalyticsResponse](
         success=True,
         message="Asset analytics retrieved successfully.",
@@ -96,7 +111,8 @@ async def get_filter_options(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetFilterOptionsResponse]:
     """Get distinct vendors, locations, and departments for filtering."""
-    result = await service.get_filter_options()
+    cid = _get_cid(claims)
+    result = await service.get_filter_options(company_id=cid)
     return APIResponse[AssetFilterOptionsResponse](
         success=True,
         message="Filter options retrieved successfully.",
@@ -222,8 +238,9 @@ async def create_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Register a new hardware asset in the inventory."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.create_asset(payload, user_id)
+    result = await service.create_asset(payload, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset created successfully.",
@@ -264,7 +281,8 @@ async def get_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Get full details of a specific asset by UUID including timeline logs."""
-    result = await service.get_asset(id)
+    cid = _get_cid(claims)
+    result = await service.get_asset(id, company_id=cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset details retrieved successfully.",
@@ -286,8 +304,9 @@ async def update_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Update hardware parameters or metadata on a target asset."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.update_asset(id, payload, user_id)
+    result = await service.update_asset(id, payload, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset updated successfully.",
@@ -308,7 +327,8 @@ async def delete_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[None]:
     """Remove asset from inventory system."""
-    await service.delete_asset(id)
+    cid = _get_cid(claims)
+    await service.delete_asset(id, cid)
     return APIResponse[None](
         success=True,
         message="Asset deleted successfully.",
@@ -330,8 +350,9 @@ async def assign_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Assign available asset to active employee."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.assign_asset(id, payload, user_id)
+    result = await service.assign_asset(id, payload, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset assigned successfully.",
@@ -352,8 +373,9 @@ async def return_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Check back in assigned asset as available in stock room."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.return_asset(id, user_id)
+    result = await service.return_asset(id, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset returned successfully.",
@@ -375,8 +397,9 @@ async def transfer_asset(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Reassign asset assignment seamlessly from current employee to new employee."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.transfer_asset(id, payload, user_id)
+    result = await service.transfer_asset(id, payload, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset transferred successfully.",
@@ -397,8 +420,9 @@ async def mark_lost(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Flag status as lost."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.mark_lost(id, user_id)
+    result = await service.mark_lost(id, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset marked as lost.",
@@ -419,8 +443,9 @@ async def mark_retired(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Decommission asset permanently."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.mark_retired(id, user_id)
+    result = await service.mark_retired(id, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset marked as retired.",
@@ -442,8 +467,9 @@ async def add_maintenance(
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Send asset to repair and record service cost."""
+    cid = _get_cid(claims)
     user_id = uuid.UUID(claims["sub"])
-    result = await service.add_maintenance(id, payload, user_id)
+    result = await service.add_maintenance(id, payload, user_id, cid)
     return APIResponse[AssetResponse](
         success=True,
         message="Asset maintenance recorded.",

@@ -6,9 +6,15 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.exceptions import invalid_token, school_suspended, tenant_mismatch, user_inactive
+from app.core.exceptions import (
+    ValidationException as invalid_token,
+    ConflictException as school_suspended,
+    ConflictException as tenant_mismatch,
+    ForbiddenException as user_inactive,
+    ForbiddenException as permission_denied,
+)
 from app.core.permissions import permission_granted
-from app.core.security import decode_token
+from app.utils.jwt import decode_token
 from app.db.session import get_db
 from app.models.school import School
 from app.models.user import User
@@ -89,7 +95,7 @@ async def get_current_user(
 def require_permission(permission: str):
     async def _dep(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         if not permission_granted(current.permissions, permission):
-            from app.core.exceptions import permission_denied
+            from app.core.exceptions import ForbiddenException as permission_denied
 
             raise permission_denied()
         return current
@@ -100,7 +106,7 @@ def require_permission(permission: str):
 def require_role(*roles: str):
     async def _dep(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         if current.role not in roles:
-            from app.core.exceptions import permission_denied
+            from app.core.exceptions import ForbiddenException as permission_denied
 
             raise permission_denied()
         return current

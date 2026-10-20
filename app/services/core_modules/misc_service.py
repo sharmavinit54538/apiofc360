@@ -281,7 +281,9 @@ class TopLevelMiscService:
         ]
 
     async def list_assets(self, company_id: Optional[uuid.UUID]) -> List[Dict[str, Any]]:
-        stmt = select(Asset).limit(50)
+        if not company_id:
+            return []
+        stmt = select(Asset).where(Asset.company_id == company_id).limit(50)
         items = (await self.session.execute(stmt)).scalars().all()
         return [
             {

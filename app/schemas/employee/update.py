@@ -220,6 +220,18 @@ class EmployeeListItem(BaseModel):
     email: str | None = None
     job_title: str | None = None
     role: str | None = None
+
+    # Slim version - no salary/CTC fields for list endpoints
+    is_active: bool = True
+    deactivated_at: datetime | None = None
+    deactivated_by: uuid.UUID | None = None
+    deactivation_reason: str | None = None
+    role_metadata: dict | None = None
+    verification_status: str | None = None
+
+
+class EmployeeListItemFull(EmployeeListItem):
+    """Full employee representation including salary fields (for detail endpoints only)."""
     ctc: Decimal | None = None
     annual_ctc: Decimal | None = None
     annualCtc: Decimal | None = None
@@ -236,6 +248,7 @@ class EmployeeListItem(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def populate_cost_id(cls, data: Any) -> Any:
+        # ... (same as EmployeeListItem's validator)
         from app.core.config import settings
 
         cc_val = None
@@ -427,6 +440,18 @@ class EmployeeListItem(BaseModel):
             data["professional_tax"] = pt_in
             data["professionalTax"] = pt_in
         return data
+    ctc: Decimal | None = None
+    annual_ctc: Decimal | None = None
+    annualCtc: Decimal | None = None
+    salary: Decimal | None = None
+    basic_salary: Decimal | None = None
+    basicSalary: Decimal | None = None
+    hra: Decimal | None = None
+    bonus: Decimal | None = None
+    pf: Decimal | None = None
+    esi: Decimal | None = None
+    professional_tax: Decimal | None = None
+    professionalTax: Decimal | None = None
     role_metadata: dict | None = None
     verification_status: str | None = None
     is_active: bool = True

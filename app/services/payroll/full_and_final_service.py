@@ -88,6 +88,7 @@ class FullAndFinalService:
         remarks: Optional[str] = None,
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> FullAndFinalSettlement:
         emp_stmt = select(Employee).where(Employee.id == employee_id)
         emp = (await session.execute(emp_stmt)).scalar_one_or_none()
@@ -142,6 +143,7 @@ class FullAndFinalService:
             action="CREATE",
             company_id=target_company_id,
             actor_id=user_id,
+            actor_role=user_role,
             before_status=None,
             after_status="PENDING_APPROVAL",
             reason=remarks or "Created F&F settlement request",

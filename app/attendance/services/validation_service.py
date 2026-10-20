@@ -3,19 +3,43 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
-from typing import List, Optional
+from datetime import date, datetime, timezone
+from typing import List, Optional, Union
 
 from fastapi import HTTPException, UploadFile, status
+from zoneinfo import ZoneInfo
 
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.attendance.utils.biometric_crypto import decrypt_face_embedding
 from app.models.employee import Employee
+from app.attendance.utils.timezone import now_utc
 
 # Validation Constants
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+MAX_SHIFT_HOURS = 16  # Maximum shift duration before considering session stale
+
+
+class ActiveSessionInfo:
+    """Info about an active session for frontend sync."""
+    def __init__(self, session_id: str, check_in_time: str, status: str, date: str, shift_name: str | None = None, is_late: bool = False):
+        self.session_id = session_id
+        self.check_in_time = check_in_time
+        self.status = status
+        self.date = date
+        self.shift_name = shift_name
+        self.is_late = is_late
+
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "check_in_time": self.check_in_time,
+            "status": self.status,
+            "date": self.date,
+            "shift_name": self.shift_name,
+            "is_late": self.is_late,
+        }
 
 
 class AttendanceValidationService:
@@ -68,17 +92,60 @@ class AttendanceValidationService:
             )
         return employee
 
-    async def assert_no_active_session(self, employee_id: uuid.UUID) -> None:
-        """Asserts no active check-in session already exists."""
-        active = await self.repo.get_active_session(employee_id)
-        if active:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "ALREADY_CHECKED_IN",
-                    "message": "Active check-in session already exists. Please check out of your previous session first.",
-                },
-            )
+    async def assert_no_active_session_or_auto_close(
+        self, 
+        employee_id: uuid.UUID, 
+        company_tz: ZoneInfo,
+        max_shift_hours: int = MAX_SHIFT_HOURS
+    ) -> Optional[ActiveSessionInfo]:
+        """
+        Check for active session. If stale (previous day or expired shift), auto-close it.
+        If same-day active session, return ActiveSessionInfo for frontend sync.
+        
+        Returns:
+            - None: No active session or stale session was auto-closed
+            - ActiveSessionInfo: Same-day active session exists (frontend should sync to checked-in state)
+        """
+        # First check for active session with details
+        active_details = await self.repo.get_active_session_with_details(employee_id)
+        
+        if not active_details:
+            return None  # No active session
+
+        # Check if the active session is stale (previous day or expired shift)
+        check_in_time_str = active_details["check_in_time"]
+        if not check_in_time_str:
+            # No check-in time, treat as stale
+            await self.repo.auto_close_stale_session(employee_id, company_tz, max_shift_hours)
+            return None
+
+        # Parse check-in time and compare with today in company timezone
+        check_in_dt = datetime.fromisoformat(check_in_time_str.replace('Z', '+00:00'))
+        check_in_local = check_in_dt.astimezone(company_tz)
+        today_local = now_utc().astimezone(company_tz).date()
+        session_date = check_in_local.date()
+
+        # Check if session is from previous day
+        is_previous_day = session_date < today_local
+        
+        # Check if session has exceeded max shift duration
+        session_duration_hours = (now_utc() - check_in_dt).total_seconds() / 3600
+        is_expired_shift = session_duration_hours > max_shift_hours
+
+        if is_previous_day or is_expired_shift:
+            # Stale session - auto-close it
+            await self.repo.auto_close_stale_session(employee_id, company_tz, max_shift_hours)
+            return None
+
+        # Same-day active session - return details for frontend sync
+        return ActiveSessionInfo(
+            session_id=active_details["session_id"],
+            check_in_time=active_details["check_in_time"],
+            status=active_details["status"],
+            date=active_details["date"],
+            shift_name=active_details.get("shift_name"),
+            is_late=active_details.get("is_late", False),
+        )
 
     async def assert_no_duplicate_checkin(self, employee_id: uuid.UUID, dt: date) -> None:
         """Asserts no check-in record exists on date (One attendance per day rule)."""
