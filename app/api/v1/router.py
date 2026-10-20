@@ -307,6 +307,9 @@ def get_v1_router() -> APIRouter:
     ):
         router.include_router(r)
     
+    # Super Admin Platform Administration (/api/v1/super-admin/*)
+    router.include_router(super_admin_router)
+    
     return router
 
 
