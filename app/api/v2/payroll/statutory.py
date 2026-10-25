@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager
 from app.db.database import get_db_session
-from app.schemas.payroll_v2.statutory import StatutoryReportRequest
+from app.schemas.payroll_v2.statutory import (
+    StatutoryConfigRequest,
+    StatutoryReportRequest,
+    StatutorySimulationRequest,
+)
 from app.services.payroll.statutory_service import StatutoryService
 from app.workers.payroll_tasks import dispatch_statutory_report
 
@@ -19,6 +23,27 @@ router = APIRouter(tags=["Payroll v2 - Statutory"])
 
 def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message}
+
+
+def _config_dict(cfg) -> dict[str, Any]:
+    return {
+        "id": str(cfg.id),
+        "company_id": str(cfg.company_id) if cfg.company_id else None,
+        "company_name": cfg.company_name,
+        "pf_enabled": cfg.pf_enabled,
+        "employee_pf_rate": float(cfg.employee_pf_rate) if cfg.employee_pf_rate is not None else 0.12,
+        "employer_pf_rate": float(cfg.employer_pf_rate) if cfg.employer_pf_rate is not None else 0.12,
+        "pf_wage_ceiling": float(cfg.pf_wage_ceiling) if cfg.pf_wage_ceiling is not None else 15000.0,
+        "pf_on_full_basic": cfg.pf_on_full_basic,
+        "esi_enabled": cfg.esi_enabled,
+        "employee_esi_rate": float(cfg.employee_esi_rate) if cfg.employee_esi_rate is not None else 0.0075,
+        "employer_esi_rate": float(cfg.employer_esi_rate) if cfg.employer_esi_rate is not None else 0.0325,
+        "esi_wage_ceiling": float(cfg.esi_wage_ceiling) if cfg.esi_wage_ceiling is not None else 21000.0,
+        "pt_state": cfg.pt_state or "MAHARASHTRA",
+        "default_tax_regime": cfg.default_tax_regime or "NEW",
+        "lop_basis": cfg.lop_basis or "CALENDAR_DAYS",
+        "is_active": cfg.is_active,
+    }
 
 
 # 1. GET /api/v2/payroll/statutory/config
@@ -31,10 +56,54 @@ async def get_statutory_config(
     company_id_str = claims.get("company_id") if claims else None
     c_uuid = uuid.UUID(company_id_str) if company_id_str else None
     config = await StatutoryService.get_config(db, company_id=c_uuid)
-    return _ok(config, "Statutory configuration retrieved successfully")
+    return _ok(_config_dict(config), "Statutory configuration retrieved successfully")
 
 
-# 2. POST /api/v2/payroll/statutory/reports/{component}
+# 2. PUT /api/v2/payroll/statutory/config
+@router.put("/statutory/config", summary="Update statutory compliance configuration")
+@router.patch("/statutory/config", summary="Partially update statutory compliance configuration")
+async def update_statutory_config(
+    payload: StatutoryConfigRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    update_data = payload.model_dump(exclude_unset=True)
+    cfg = await StatutoryService.update_config(db, update_data, company_id=c_uuid)
+    return _ok(_config_dict(cfg), "Statutory configuration updated successfully")
+
+
+# 3. POST /api/v2/payroll/statutory/simulate
+@router.post("/statutory/simulate", summary="Simulate end-to-end Indian Statutory Gross-to-Net breakdown")
+async def simulate_statutory(
+    payload: StatutorySimulationRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    config = await StatutoryService.get_config(db, company_id=c_uuid)
+
+    result = StatutoryService.simulate_statutory_calculation(
+        basic_monthly_paise=payload.basic_monthly_paise,
+        hra_monthly_paise=payload.hra_monthly_paise,
+        special_allowance_monthly_paise=payload.special_allowance_monthly_paise,
+        other_earnings_paise=payload.other_earnings_paise,
+        paid_days=payload.paid_days,
+        total_days=payload.total_days,
+        state=payload.state,
+        month=payload.month,
+        tax_regime=payload.tax_regime,
+        pf_on_full_basic=payload.pf_on_full_basic,
+        declarations=payload.declarations,
+        config=config,
+    )
+    return _ok(result, "Statutory simulation computed successfully")
+
+
+# 4. POST /api/v2/payroll/statutory/reports/{component}
 @router.post("/statutory/reports/{component}", summary="Generate statutory authority returns (e.g. PF ECR)")
 async def generate_statutory_report(
     component: str,
@@ -59,7 +128,7 @@ async def generate_statutory_report(
     )
 
 
-# 3. GET /api/v2/payroll/statutory/summary
+# 5. GET /api/v2/payroll/statutory/summary
 @router.get("/statutory/summary", summary="Get statutory liability summary for a period")
 async def get_statutory_summary(
     periodId: uuid.UUID = Query(..., description="Payroll period UUID"),

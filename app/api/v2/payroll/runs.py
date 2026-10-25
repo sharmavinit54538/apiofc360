@@ -413,6 +413,18 @@ async def process_run_v2(
     return _ok({"job_id": job_id, "status": "PROCESSING"}, "Payroll run processing initiated")
 
 
+# 15b. POST /api/v2/payroll/runs/{runId}/calculate
+@router.post("/runs/{runId}/calculate", summary="Synchronously execute payroll calculation engine")
+async def calculate_run_sync_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.execute_run_calculation(db, run_id=runId)
+    return _ok(_run_dict(run), "Payroll calculation executed successfully")
+
+
 # 16. POST /api/v2/payroll/runs/{runId}/reject
 @router.post("/runs/{runId}/reject", summary="Reject payroll run")
 async def reject_run_v2(

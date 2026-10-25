@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
 from app.models.payroll import (
+    EmployeeInvestmentDeclaration,
     PayrollAttendanceInput,
     PayrollRun,
     Payslip,
@@ -32,6 +33,7 @@ from app.models.payroll_models import (
     VariableInput,
 )
 from app.services.payroll.audit_service import PayrollAuditService
+from app.services.payroll.statutory_service import StatutoryService
 
 logger = logging.getLogger(__name__)
 
@@ -568,22 +570,80 @@ class PayrollRunService:
 
             gross_paise = emp_basic_paise + emp_hra_paise + emp_special_paise + variable_earnings_paise
 
-            # 4. Statutory Deductions
-            # PF: 12% of basic (capped at ceiling 15000 if pf_on_full_basic is False)
-            pf_wage = min(emp_basic_paise, 15000 * 100) if not config.pf_on_full_basic else emp_basic_paise
-            employee_pf_paise = int(pf_wage * 0.12) if config.pf_enabled else 0
+            # 4. Indian Statutory Deductions Engine
+            pf_res = StatutoryService.calculate_pf(
+                basic_paise=emp_basic_paise,
+                config=config,
+            )
+            employee_pf_paise = pf_res["employee_pf_paise"]
 
-            # ESI: 0.75% of gross if gross <= 21000 INR
-            employee_esi_paise = int(gross_paise * 0.0075) if (config.esi_enabled and (gross_paise <= 21000 * 100)) else 0
+            esi_res = StatutoryService.calculate_esi(
+                gross_monthly_paise=gross_paise,
+                config=config,
+            )
+            employee_esi_paise = esi_res["employee_esi_paise"]
 
-            # PT: flat 200 INR (20000 paise)
-            pt_paise = 200 * 100
+            emp_state = getattr(emp, "state", None) or getattr(emp, "work_location", None) or config.pt_state or "MAHARASHTRA"
+            pt_res = StatutoryService.calculate_pt(
+                gross_monthly_paise=gross_paise,
+                state=emp_state,
+                month=run.period_month,
+            )
+            pt_paise = pt_res["pt_paise"]
 
-            # Simple TDS estimate
-            tds_paise = 0
+            lwf_res = StatutoryService.calculate_lwf(
+                gross_monthly_paise=gross_paise,
+                state=emp_state,
+                month=run.period_month,
+            )
+            employee_lwf_paise = lwf_res["employee_lwf_paise"]
 
-            emp_deductions_paise = employee_pf_paise + employee_esi_paise + pt_paise + tds_paise + variable_deductions_paise
+            # Query tax investment declaration for TDS calculation
+            fy_label = f"{run.period_year}-{run.period_year+1}" if run.period_month >= 4 else f"{run.period_year-1}-{run.period_year}"
+            decl_stmt = select(EmployeeInvestmentDeclaration).where(
+                EmployeeInvestmentDeclaration.employee_id == emp.id,
+                EmployeeInvestmentDeclaration.financial_year == fy_label,
+            )
+            decl = (await session.execute(decl_stmt)).scalar_one_or_none()
+            decl_dict = {
+                "section_80c": float(decl.section_80c) if decl else 0,
+                "section_80d": float(decl.section_80d) if decl else 0,
+                "section_80ccd1b_nps": float(decl.section_80ccd1b_nps) if decl else 0,
+                "home_loan_interest_24b": float(decl.home_loan_interest_24b) if decl else 0,
+                "hra_claimed": float(decl.hra_claimed) if decl else 0,
+                "other_deductions": float(decl.other_deductions) if decl else 0,
+            } if decl else {}
+            emp_regime = (decl.tax_regime if decl else None) or config.default_tax_regime or "NEW"
+            rem_months = 12 - run.period_month + 1 if run.period_month >= 4 else 4 - run.period_month
+            tds_res = StatutoryService.calculate_tds(
+                annual_gross_paise=gross_paise * 12,
+                tax_regime=emp_regime,
+                declarations=decl_dict,
+                remaining_months=rem_months,
+            )
+            tds_paise = tds_res["monthly_tds_paise"]
+
+            grat_res = StatutoryService.calculate_gratuity(emp_basic_paise)
+
+            emp_deductions_paise = (
+                employee_pf_paise
+                + employee_esi_paise
+                + pt_paise
+                + employee_lwf_paise
+                + tds_paise
+                + variable_deductions_paise
+            )
             net_paise = max(0, gross_paise - emp_deductions_paise)
+
+            employer_cost_paise = (
+                gross_paise
+                + pf_res["total_employer_pf_paise"]
+                + pf_res["employer_edli_paise"]
+                + pf_res["employer_admin_paise"]
+                + esi_res["employer_esi_paise"]
+                + lwf_res["employer_lwf_paise"]
+                + grat_res["monthly_gratuity_provision_paise"]
+            )
 
             # 5. Create or Update PayrollRunEmployee
             run_emp_stmt = select(PayrollRunEmployee).where(
@@ -612,12 +672,21 @@ class PayrollRunService:
                 "hra": emp_hra_paise / 100.0,
                 "special": emp_special_paise / 100.0,
                 "variable": variable_earnings_paise / 100.0,
+                "gross": gross_paise / 100.0,
             }
             run_emp.deductions_breakup = {
                 "pf": employee_pf_paise / 100.0,
                 "esi": employee_esi_paise / 100.0,
                 "pt": pt_paise / 100.0,
+                "lwf": employee_lwf_paise / 100.0,
+                "tds": tds_paise / 100.0,
                 "variable": variable_deductions_paise / 100.0,
+                "total_deductions": emp_deductions_paise / 100.0,
+                "employer_pf": pf_res["total_employer_pf_paise"] / 100.0,
+                "employer_esi": esi_res["employer_esi_paise"] / 100.0,
+                "employer_lwf": lwf_res["employer_lwf_paise"] / 100.0,
+                "gratuity_provision": grat_res["monthly_gratuity_provision_paise"] / 100.0,
+                "employer_ctc_monthly": employer_cost_paise / 100.0,
             }
 
             # 6. Create/update Payslip
@@ -646,8 +715,11 @@ class PayrollRunService:
             payslip.special_allowance = Decimal(str(emp_special_paise / 100.0))
             payslip.gross_earnings = Decimal(str(gross_paise / 100.0))
             payslip.employee_pf = Decimal(str(employee_pf_paise / 100.0))
+            payslip.employer_pf = Decimal(str(pf_res["total_employer_pf_paise"] / 100.0))
             payslip.employee_esi = Decimal(str(employee_esi_paise / 100.0))
+            payslip.employer_esi = Decimal(str(esi_res["employer_esi_paise"] / 100.0))
             payslip.professional_tax = Decimal(str(pt_paise / 100.0))
+            payslip.tds = Decimal(str(tds_paise / 100.0))
             payslip.total_deductions = Decimal(str(emp_deductions_paise / 100.0))
             payslip.net_pay = Decimal(str(net_paise / 100.0))
             payslip.payment_status = "PENDING"

@@ -39,6 +39,34 @@ class StatutoryConfigResponse(PayrollBaseModel):
     default_tax_regime: str = "NEW"
 
 
+class StatutoryConfigRequest(PayrollBaseModel):
+    pf_enabled: Optional[bool] = Field(None, alias="pfEnabled")
+    employee_pf_rate: Optional[float] = Field(None, alias="employeePfRate")
+    employer_pf_rate: Optional[float] = Field(None, alias="employerPfRate")
+    pf_wage_ceiling: Optional[float] = Field(None, alias="pfWageCeiling")
+    pf_on_full_basic: Optional[bool] = Field(None, alias="pfOnFullBasic")
+    esi_enabled: Optional[bool] = Field(None, alias="esiEnabled")
+    employee_esi_rate: Optional[float] = Field(None, alias="employeeEsiRate")
+    employer_esi_rate: Optional[float] = Field(None, alias="employerEsiRate")
+    esi_wage_ceiling: Optional[float] = Field(None, alias="esiWageCeiling")
+    pt_state: Optional[str] = Field(None, alias="ptState")
+    default_tax_regime: Optional[str] = Field(None, alias="defaultTaxRegime")
+
+
+class StatutorySimulationRequest(PayrollBaseModel):
+    basic_monthly_paise: int = Field(2500000, alias="basicMonthlyPaise")
+    hra_monthly_paise: int = Field(1000000, alias="hraMonthlyPaise")
+    special_allowance_monthly_paise: int = Field(500000, alias="specialAllowanceMonthlyPaise")
+    other_earnings_paise: int = Field(0, alias="otherEarningsPaise")
+    paid_days: float = Field(30.0, alias="paidDays")
+    total_days: float = Field(30.0, alias="totalDays")
+    state: str = Field("MAHARASHTRA")
+    month: int = Field(3)
+    tax_regime: str = Field("NEW", alias="taxRegime")
+    pf_on_full_basic: bool = Field(False, alias="pfOnFullBasic")
+    declarations: Optional[dict[str, Any]] = None
+
+
 class StatutorySummaryResponse(PayrollBaseModel):
     component: str
     period_id: str

@@ -105,6 +105,56 @@ class CompensationService:
         return comp
 
     @classmethod
+    async def assign_or_update_compensation(
+        cls,
+        session: AsyncSession,
+        employee_id: uuid.UUID,
+        ctc_annual_paise: int,
+        basic_monthly_paise: Optional[int] = None,
+        hra_monthly_paise: Optional[int] = None,
+        special_allowance_monthly_paise: Optional[int] = None,
+        effective_date: Optional[date] = None,
+        remarks: Optional[str] = None,
+    ) -> Compensation:
+        stmt = select(Compensation).where(
+            Compensation.employee_id == employee_id,
+            Compensation.status == "ACTIVE",
+        )
+        comp = (await session.execute(stmt)).scalar_one_or_none()
+        monthly_ctc = ctc_annual_paise // 12
+        basic = basic_monthly_paise if basic_monthly_paise is not None else int(monthly_ctc * 0.50)
+        hra = hra_monthly_paise if hra_monthly_paise is not None else int(basic * 0.40)
+        special = special_allowance_monthly_paise if special_allowance_monthly_paise is not None else max(0, monthly_ctc - (basic + hra))
+        eff_date = effective_date or date.today()
+
+        if not comp:
+            emp = (await session.execute(select(Employee).where(Employee.id == employee_id))).scalar_one_or_none()
+            comp = Compensation(
+                id=uuid.uuid4(),
+                employee_id=employee_id,
+                company_id=emp.company_id if emp else None,
+                ctc_annual_paise=ctc_annual_paise,
+                basic_monthly_paise=basic,
+                hra_monthly_paise=hra,
+                special_allowance_monthly_paise=special,
+                effective_date=eff_date,
+                status="ACTIVE",
+                remarks=remarks,
+            )
+            session.add(comp)
+        else:
+            comp.ctc_annual_paise = ctc_annual_paise
+            comp.basic_monthly_paise = basic
+            comp.hra_monthly_paise = hra
+            comp.special_allowance_monthly_paise = special
+            comp.effective_date = eff_date
+            comp.remarks = remarks
+
+        await session.commit()
+        await session.refresh(comp)
+        return comp
+
+    @classmethod
     async def create_compensation_revision(
         cls,
         session: AsyncSession,
