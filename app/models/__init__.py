@@ -332,6 +332,14 @@ from app.models.payroll_models import (
     CompanyBankAccount,
     PayrollReportExport,
 )
+from app.models.payroll_compliance import (
+    PayrollCompliance,
+    ComplianceDueDate,
+    ComplianceChallan,
+    ComplianceHistory,
+    PayrollComplianceAuditLog,
+    ComplianceAuditLog,
+)
 
 # Timesheet module models
 from app.models.timesheet import Timesheet, TimesheetEntry

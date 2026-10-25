@@ -143,6 +143,9 @@ class Employee(Base):
     uan_number: Mapped[str | None] = mapped_column(String(12), nullable=True)
     pf_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     esi_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_pf_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_international_worker: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    pf_wage_ceiling_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
     # --------------- System / Access ---------------
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="employee", server_default=text("'employee'"))
@@ -226,4 +229,26 @@ class Employee(Base):
         if emp_status_upper in {"EXITED", "TERMINATED"}:
             return True
         return False
+
+    @staticmethod
+    def validate_uan_format(uan: str | None) -> tuple[bool, str]:
+        """Validate 12-digit numeric Universal Account Number (UAN) format.
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        if not uan:
+            return False, "UAN is missing."
+        clean = str(uan).strip()
+        if len(clean) != 12:
+            return False, f"UAN must be exactly 12 numeric digits (got {len(clean)} characters)."
+        if not clean.isdigit():
+            return False, "UAN must contain only numeric digits."
+        return True, ""
+
+    @property
+    def is_uan_valid(self) -> bool:
+        """Return True if the employee has a valid 12-digit numeric UAN."""
+        valid, _ = self.validate_uan_format(self.uan_number)
+        return valid
 

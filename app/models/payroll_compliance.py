@@ -55,35 +55,79 @@ class PayrollCompliance(Base):
 class ComplianceDueDate(Base):
     """Statutory filing due dates calendar."""
     __tablename__ = "payroll_compliance_due_dates"
+    __table_args__ = (
+        Index("ix_payroll_compliance_due_dates_company", "company_id", "period_year", "period_month"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    compliance_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_compliance.id", ondelete="CASCADE"), nullable=False)
+    compliance_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_compliance.id", ondelete="SET NULL"), nullable=True)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    challan_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_compliance_challans.id", ondelete="SET NULL"), nullable=True)
+    period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
 
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     period: Mapped[str] = mapped_column(String(50), nullable=False) # e.g. "July 2026"
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING") # PENDING | FILED | OVERDUE
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False, default=2026)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING") 
+    # PENDING | ECR_GENERATED | CHALLAN_UPLOADED | FILED_ON_TIME | OVERDUE
+
     challan_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    trrn_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    amount_paid: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    is_overdue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    overdue_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    interest_7q_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+    damages_14b_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class ComplianceChallan(Base):
-    """Generated statutory challans and ECR records."""
+    """Generated statutory challans, TRRN records, and ECR returns."""
     __tablename__ = "payroll_compliance_challans"
+    __table_args__ = (
+        Index("ix_payroll_compliance_challans_company", "company_id", "period_year", "period_month"),
+        Index("ix_payroll_compliance_challans_trrn", "trrn_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     compliance_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_compliance.id", ondelete="SET NULL"), nullable=True)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
 
-    challan_type: Mapped[str] = mapped_column(String(50), nullable=False) # EPFO_ECR | ESIC_CHALLAN | PT_CHALLAN | TDS_CHALLAN
-    period_month: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
+    challan_type: Mapped[str] = mapped_column(String(50), nullable=False, default="EPFO_ECR") # EPFO_ECR | ESIC_CHALLAN | PT_CHALLAN | TDS_CHALLAN
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     period_year: Mapped[int] = mapped_column(Integer, nullable=False, default=2026)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     employee_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     trrn_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="GENERATED") # GENERATED | PAID | FILED
-    file_payload: Mapped[str | None] = mapped_column(String, nullable=True) # Text payload for ECR
+    challan_generation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    challan_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    challan_file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    payment_receipt_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    payment_receipt_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    epf_employee_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    epf_employer_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    eps_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    edli_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    admin_charges: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="GENERATED") 
+    # GENERATED | ECR_GENERATED | CHALLAN_UPLOADED | FILED_ON_TIME | OVERDUE | PAID
+    file_payload: Mapped[str | None] = mapped_column(String, nullable=True) # Text payload for ECR (#|~|# delimited)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class ComplianceHistory(Base):

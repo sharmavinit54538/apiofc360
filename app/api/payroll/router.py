@@ -28,6 +28,7 @@ from app.api.payroll.routes.overtime_settings import router as overtime_settings
 from app.api.payroll.routes.compliance_full import router as compliance_full_router
 from app.api.payroll.routes.templates_full import router as templates_full_router
 from app.api.payroll.routes.security_settings import router as security_settings_router
+from app.api.v2.payroll.statutory import router as statutory_router
 
 router = APIRouter(prefix="/payroll", tags=["Payroll"])
 
@@ -57,3 +58,4 @@ router.include_router(overtime_settings_router)
 router.include_router(compliance_full_router)
 router.include_router(templates_full_router)
 router.include_router(security_settings_router)
+router.include_router(statutory_router)

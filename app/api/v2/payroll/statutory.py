@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.statutory import (
+    ChallanRecordRequest,
+    EmployeePfUpdateRequest,
     StatutoryConfigRequest,
     StatutoryReportRequest,
     StatutorySimulationRequest,
@@ -143,3 +145,139 @@ async def get_statutory_summary(
         session=db, period_id=periodId, component=component, company_id=c_uuid
     )
     return _ok(summary, "Statutory summary retrieved successfully")
+
+
+# 6. GET /api/v2/payroll/statutory/pf-ecr
+@router.get("/statutory/pf-ecr", summary="Generate official EPFO ECR v2.0 text file (#|~|# delimiter)")
+async def get_pf_ecr(
+    period_id: uuid.UUID = Query(..., alias="period_id", description="Payroll period UUID"),
+    format: str = Query("txt", description="File format: txt (raw ECR) or json (structured)"),
+    download: bool = Query(False, description="Whether to trigger immediate browser file download"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    ecr_data = await StatutoryService.generate_pf_ecr(
+        session=db, period_id=period_id, company_id=c_uuid
+    )
+
+    if download or format.lower() == "txt":
+        return Response(
+            content=ecr_data["ecr_text"],
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{ecr_data["filename"]}"',
+                "X-Record-Count": str(ecr_data["record_count"]),
+            },
+        )
+
+    return _ok(ecr_data, "EPFO PF ECR v2.0 return generated successfully")
+
+
+# 7. GET /api/v2/payroll/statutory/pf-summary
+@router.get("/statutory/pf-summary", summary="Get detailed PF statutory liability breakup for a period")
+async def get_pf_summary(
+    period_id: uuid.UUID = Query(..., alias="period_id", description="Payroll period UUID"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    summary = await StatutoryService.get_pf_summary(
+        session=db, period_id=period_id, company_id=c_uuid
+    )
+    return _ok(summary, "PF statutory contribution summary retrieved successfully")
+
+
+# 8. GET /api/v2/payroll/statutory/filing-calendar
+@router.get("/statutory/filing-calendar", summary="12-Month Statutory PF Filing Calendar tracking 15th due date")
+async def get_filing_calendar(
+    year: Optional[int] = Query(None, description="Calendar year (default current year)"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    calendar = await StatutoryService.get_filing_calendar(
+        session=db, company_id=c_uuid, year=year
+    )
+    return _ok(calendar, "Monthly statutory filing calendar retrieved successfully")
+
+
+# 9. POST /api/v2/payroll/statutory/challan/record
+@router.post("/statutory/challan/record", summary="Record TRRN, challan date, payment date, and bank reference")
+async def record_challan(
+    payload: ChallanRecordRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    result = await StatutoryService.record_challan(
+        session=db, company_id=c_uuid, payload=payload.model_dump()
+    )
+    return _ok(result, "EPFO Challan TRRN and payment recorded successfully")
+
+
+# 10. POST /api/v2/payroll/statutory/challan/upload
+@router.post("/statutory/challan/upload", summary="Upload Challan PDF or Payment Confirmation PDF receipt")
+async def upload_challan_receipt(
+    period_id: uuid.UUID = Form(..., description="Payroll Period UUID"),
+    file_type: str = Form("CHALLAN", description="CHALLAN or RECEIPT"),
+    file: UploadFile = File(..., description="PDF / Image document"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    result = await StatutoryService.upload_challan_file(
+        session=db,
+        company_id=c_uuid,
+        period_id=period_id,
+        file=file,
+        file_type=file_type,
+    )
+    return _ok(result, f"Challan {file_type} uploaded and attached successfully")
+
+
+# 11. GET /api/v2/payroll/statutory/uan-validation
+@router.get("/statutory/uan-validation", summary="Validate 12-digit UAN format and audit active employee KYC")
+async def get_uan_validation_audit(
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+
+    report = await StatutoryService.get_uan_validation_report(session=db, company_id=c_uuid)
+    return _ok(report, "Employee UAN and PF compliance validation report generated successfully")
+
+
+# 12. PATCH /api/v2/payroll/statutory/employee-pf/{employee_id}
+@router.patch("/statutory/employee-pf/{employee_id}", summary="Update employee UAN, PF opt-in, international worker flag, wage ceiling toggle")
+async def update_employee_pf_settings(
+    employee_id: uuid.UUID,
+    payload: EmployeePfUpdateRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    result = await StatutoryService.update_employee_pf_settings(
+        session=db,
+        employee_id=employee_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
+    return _ok(result, "Employee PF compliance settings updated successfully")
+
