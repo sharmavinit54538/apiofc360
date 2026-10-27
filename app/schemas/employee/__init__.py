@@ -13,7 +13,7 @@ from app.schemas.employee.experience import EmployeeExperienceCreate, EmployeeEx
 from app.schemas.employee.skill import EmployeeSkillCreate, EmployeeSkillResponse
 from app.schemas.employee.asset import EmployeeAssetCreate, EmployeeAssetResponse
 from app.schemas.employee.emergency import EmployeeEmergencyContactCreate, EmployeeEmergencyContactResponse
-from app.schemas.employee.bank import EmployeeBankAccountCreate, EmployeeBankAccountResponse
+from app.schemas.employee.bank import BankAccountResponse, EmployeeBankAccountCreate, EmployeeBankAccountResponse
 from app.schemas.employee.onboarding import (
     EmployeeLeavePolicyResponse, EmployeeOnboardingStepResponse,
     EmployeeOnboardingStatusResponse, ActivateEmployeeRequest,
@@ -35,7 +35,7 @@ __all__ = [
     "EmployeeSkillCreate", "EmployeeSkillResponse",
     "EmployeeAssetCreate", "EmployeeAssetResponse",
     "EmployeeEmergencyContactCreate", "EmployeeEmergencyContactResponse",
-    "EmployeeBankAccountCreate", "EmployeeBankAccountResponse",
+    "EmployeeBankAccountCreate", "EmployeeBankAccountResponse", "BankAccountResponse",
     "EmployeeLeavePolicyResponse", "EmployeeOnboardingStepResponse",
     "EmployeeOnboardingStatusResponse", "ActivateEmployeeRequest",
     "ActivateOnboardingRequest", "ApproveRejectRequest", "DeactivateEmployeeRequest",

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, event, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +14,9 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+
+
+PII_UNMASK_ACCESS = "PII_UNMASK_ACCESS"
 
 
 class AuditLog(Base):
@@ -62,6 +65,10 @@ def create_audit_entry(
     ip_address: str | None = None,
     user_agent: str | None = None,
     details: str | None = None,
+    actor_id: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    metadata_json: str | None = None,
 ) -> AuditLog:
     """Standardized factory to guarantee company_id and required metadata are captured on all security and data events."""
     return AuditLog(
@@ -73,5 +80,21 @@ def create_audit_entry(
         ip_address=ip_address,
         user_agent=user_agent,
         details=details,
+        actor_id=actor_id or (str(user_id) if user_id else None),
+        entity_type=entity_type,
+        entity_id=entity_id,
+        metadata_json=metadata_json,
     )
+
+
+@event.listens_for(AuditLog, "before_update")
+@event.listens_for(AuditLog, "before_delete")
+def _prevent_pii_unmask_audit_tampering(mapper, connection, target: AuditLog) -> None:
+    """PII disclosure events are append-only and cannot be edited or deleted."""
+    from sqlalchemy import inspect
+
+    history = inspect(target).attrs.action.history
+    original_action = history.deleted[0] if history.deleted else target.action
+    if target.action == PII_UNMASK_ACCESS or original_action == PII_UNMASK_ACCESS:
+        raise ValueError("PII_UNMASK_ACCESS audit events are immutable")
 

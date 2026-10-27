@@ -37,6 +37,11 @@ from app.models.employee_onboarding import EmployeeOnboarding
 from app.models.employee_policy_acceptance import EmployeePolicyAcceptance
 from app.models.employee_tax_info import EmployeeTaxInfo
 from app.models.hierarchy_audit import HierarchyAuditLog
+from app.models.dpdp_compliance import (
+    DataConsentLedger,
+    DataRetentionPolicy,
+    DataSubjectRequest,
+)
 
 # Manager module models
 from app.models.manager import Manager
@@ -474,6 +479,9 @@ __all__ = [
     "EmployeeOnboarding",
     "EmployeePolicyAcceptance",
     "EmployeeTaxInfo",
+    "DataConsentLedger",
+    "DataRetentionPolicy",
+    "DataSubjectRequest",
     "Manager",
     "ManagerAddress",
     "ManagerDocument",

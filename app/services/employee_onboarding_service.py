@@ -176,6 +176,10 @@ class EmployeeOnboardingService:
         # Emergency contact
         emergency = employee.emergency_contacts[0] if employee.emergency_contacts else None
 
+        # Standard onboarding responses are prefills, not privileged unmask
+        # endpoints. Never return raw government IDs or bank account numbers.
+        from app.utils.security import mask_bank_account, mask_pan, mask_uan, redact_government_id
+
         # Build combined response
         data = {
             "personal_info": {
@@ -212,11 +216,11 @@ class EmployeeOnboardingService:
                 "preferred_language": employee.preferred_language or "English"
             },
             "identity": {
-                "aadhaar_number": employee.aadhaar_number,
-                "pan_number": employee.pan_number,
-                "passport_number": employee.passport_number,
-                "driving_license": employee.driving_license,
-                "voter_id": employee.voter_id
+                "aadhaar_number": redact_government_id(employee.aadhaar_number),
+                "pan_number": mask_pan(employee.pan_number),
+                "passport_number": redact_government_id(employee.passport_number),
+                "driving_license": redact_government_id(employee.driving_license),
+                "voter_id": redact_government_id(employee.voter_id)
             },
             "employment": {
                 "employee_id": employee.employee_id,
@@ -265,7 +269,7 @@ class EmployeeOnboardingService:
             "bank": {
                 "bank_name": primary_bank.bank_name if primary_bank else None,
                 "account_holder_name": primary_bank.account_holder_name if primary_bank else None,
-                "account_number": primary_bank.account_number if primary_bank else None,
+                "account_number": mask_bank_account(primary_bank.account_number) if primary_bank else None,
                 "ifsc_code": primary_bank.ifsc_code if primary_bank else None,
                 "branch": primary_bank.branch if primary_bank else None,
                 "upi_id": primary_bank.upi_id if primary_bank else None,
@@ -274,13 +278,13 @@ class EmployeeOnboardingService:
             },
             "tax_payroll": {
                 "tax_regime": tax_info.tax_regime if tax_info else "NEW",
-                "uan_number": employee.uan_number,
+                "uan_number": mask_uan(employee.uan_number),
                 "pf_number": employee.pf_number,
                 "esic_number": employee.esic_number,
                 "professional_tax": float(tax_info.professional_tax) if tax_info and tax_info.professional_tax else None,
                 "nominee_name": tax_info.nominee_name if tax_info else None,
                 "nominee_relation": tax_info.nominee_relation if tax_info else None,
-                "nominee_aadhaar": tax_info.nominee_aadhaar if tax_info else None,
+                "nominee_aadhaar": redact_government_id(tax_info.nominee_aadhaar) if tax_info else None,
                 "nominee_dob": tax_info.nominee_dob if tax_info else None
             },
             "documents": [
