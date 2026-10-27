@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -36,6 +36,16 @@ from app.services.payroll.audit_service import PayrollAuditService
 from app.services.payroll.statutory_service import StatutoryService
 
 logger = logging.getLogger(__name__)
+
+#: Maps a VariableInput.type to the pay-component code used by the Labour Codes
+#: "excluded allowances" configuration.
+_VARIABLE_TYPE_TO_COMPONENT = {
+    "overtime": "OVERTIME",
+    "bonus": "STATUTORY_BONUS",
+    "commission": "COMMISSION",
+    "incentive": "INCENTIVE",
+    "reimbursement": "REIMBURSEMENT",
+}
 
 
 class PayrollRunService:
@@ -96,6 +106,7 @@ class PayrollRunService:
             validation_status="PENDING",
             is_locked=False,
             run_by=user_id,
+            created_by=user_id,
             run_at=datetime.now(),
         )
         session.add(run)
@@ -197,35 +208,52 @@ class PayrollRunService:
         return item
 
     @classmethod
-    async def _check_maker_checker(cls, session: AsyncSession, run: PayrollRun, user_id: Optional[uuid.UUID], user_role: Optional[str]) -> tuple[bool, str]:
-        """Check if maker-checker enforcement applies and if the action is allowed.
-        
-        Returns: (allowed, bypass_reason_if_any)
-        """
-        # Fetch company config to check maker-checker setting
-        cfg_stmt = select(StatutoryComplianceConfig).where(
-            or_(
-                StatutoryComplianceConfig.company_id == run.company_id,
-                StatutoryComplianceConfig.company_id.is_(None),
-            ),
-            StatutoryComplianceConfig.is_active == True,
-        )
-        config = (await session.execute(cfg_stmt)).scalar_one_or_none()
-        maker_checker_enforced = getattr(config, "payroll_maker_checker_enforced", True) if config else True
+    @staticmethod
+    def maker_ids_for_run(run: PayrollRun) -> list[uuid.UUID]:
+        """Every user who initiated or processed this run (the "makers")."""
+        makers: list[uuid.UUID] = []
+        for attr in ("created_by", "processed_by", "run_by"):
+            value = getattr(run, attr, None)
+            if value is None:
+                continue
+            try:
+                parsed = value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+            except (ValueError, AttributeError, TypeError):
+                continue
+            if parsed not in makers:
+                makers.append(parsed)
+        return makers
 
-        if not maker_checker_enforced:
-            # Maker-checker disabled - only allow if super_admin/owner, and log bypass
-            is_super_admin = user_role and user_role.lower() in ("super_admin", "owner", "ceo", "cfo")
-            if is_super_admin:
-                return True, "Maker-checker bypassed by super_admin/owner (config disabled)"
-            else:
-                return False, "Maker-checker is disabled but only super_admin/owner can bypass"
-        
-        # Maker-checker enforced: approver must be different from runner
-        if run.run_by and user_id and run.run_by == user_id:
-            return False, "Maker-checker enforced: user who ran payroll cannot approve it"
-        
-        return True, ""
+    @classmethod
+    async def _check_maker_checker(
+        cls,
+        session: AsyncSession,
+        run: PayrollRun,
+        user_id: Optional[uuid.UUID],
+        user_role: Optional[str],
+        action: str = "APPROVE",
+    ) -> bool:
+        """Enforce strict maker-checker (dual control) on a payroll run action.
+
+        Raises ``ForbiddenException`` with code ``MAKER_CHECKER_VIOLATION`` (HTTP
+        403) when the tenant's active ``StatutoryComplianceConfig`` enforces the
+        policy and the acting user is also the user who created/processed the run.
+        Returns ``True`` when dual control was exercised, ``False`` when the
+        tenant has no active policy.
+        """
+        from app.api.payroll.permissions import enforce_maker_checker
+
+        return await enforce_maker_checker(
+            session,
+            entity_type="PayrollRun",
+            entity_id=run.id,
+            company_id=run.company_id,
+            maker_ids=cls.maker_ids_for_run(run),
+            approver_id=user_id,
+            actor_role=user_role,
+            action=action,
+            before_status=run.status,
+        )
 
     @classmethod
     async def approve_run(
@@ -243,13 +271,8 @@ class PayrollRunService:
                 detail=f"Run cannot be approved in '{run.status}' status.",
             )
 
-        # Enforce maker-checker
-        allowed, bypass_reason = await cls._check_maker_checker(session, run, user_id, user_role)
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=bypass_reason or "Maker-checker enforced: separate approver required",
-            )
+        # Enforce strict maker-checker (raises 403 MAKER_CHECKER_VIOLATION).
+        await cls._check_maker_checker(session, run, user_id, user_role, action="APPROVE")
 
         old_status = run.status
         run.status = "APPROVED"
@@ -258,8 +281,6 @@ class PayrollRunService:
         run.comments = comments
 
         audit_reason = comments or "Approved payroll run"
-        if bypass_reason:
-            audit_reason += f" | Maker-checker bypass: {bypass_reason}"
 
         await PayrollAuditService.log_event(
             session=session,
@@ -294,13 +315,8 @@ class PayrollRunService:
                 detail=f"Run in '{run.status}' state cannot be finalized.",
             )
 
-        # Enforce maker-checker for finalization too
-        allowed, bypass_reason = await cls._check_maker_checker(session, run, user_id, user_role)
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=bypass_reason or "Maker-checker enforced: separate finalizer required",
-            )
+        # Enforce strict maker-checker for finalization too.
+        await cls._check_maker_checker(session, run, user_id, user_role, action="FINALIZE")
 
         old_status = run.status
         run.status = "FINALIZED"
@@ -310,8 +326,6 @@ class PayrollRunService:
         run.notes = notes
 
         audit_reason = notes or "Finalized payroll run"
-        if bypass_reason:
-            audit_reason += f" | Maker-checker bypass: {bypass_reason}"
 
         await PayrollAuditService.log_event(
             session=session,
@@ -468,7 +482,7 @@ class PayrollRunService:
         await session.commit()
 
         # Re-execute calculation engine
-        return await cls.execute_run_calculation(session, run_id)
+        return await cls.execute_run_calculation(session, run_id, user_id=user_id, user_role=user_role)
 
     @classmethod
     async def delete_run(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, str]:
@@ -487,8 +501,16 @@ class PayrollRunService:
         """Perform pre-check validations on all eligible employees for this run."""
         run = await cls.get_run(session, run_id)
 
-        # Fetch active employees
-        emp_stmt = select(Employee).where(Employee.is_deleted == False)
+        # Fetch active employees.
+        # `bank_accounts` is eagerly loaded (selectinload) because it is accessed
+        # below for the "Missing primary bank account" pre-check.  Without the
+        # eager load SQLAlchemy would emit an implicit lazy-load inside the async
+        # session and raise `MissingGreenlet` (surfaced as a 500).
+        emp_stmt = (
+            select(Employee)
+            .options(selectinload(Employee.bank_accounts))
+            .where(Employee.is_deleted == False)
+        )
         if run.company_id:
             emp_stmt = emp_stmt.where(Employee.company_id == run.company_id)
         employees = (await session.execute(emp_stmt)).scalars().all()
@@ -539,10 +561,26 @@ class PayrollRunService:
         return await cls.validate_run(session, run_id)
 
     @classmethod
-    async def execute_run_calculation(cls, session: AsyncSession, run_id: uuid.UUID) -> PayrollRun:
-        """Core Payroll Calculation Engine in integer paise."""
+    async def execute_run_calculation(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+    ) -> PayrollRun:
+        """Core Payroll Calculation Engine in integer paise.
+
+        ``user_id`` (when supplied) is recorded as ``processed_by`` so strict
+        maker-checker can prove the approver is not the user who processed the
+        run.  Runs triggered by the async worker keep whatever attribution they
+        already have.
+        """
         run = await cls.get_run(session, run_id)
         run.status = "PROCESSING"
+        if user_id is not None:
+            run.processed_by = user_id
+            if run.created_by is None:
+                run.created_by = user_id
         await session.commit()
 
         # Fetch active config
@@ -556,8 +594,13 @@ class PayrollRunService:
             )
         config = (await session.execute(cfg_stmt)).scalar_one_or_none() or StatutoryComplianceConfig()
 
-        # Fetch all active employees
-        emp_stmt = select(Employee).where(Employee.is_deleted == False)
+        # Fetch all active employees (bank_accounts eagerly loaded so downstream
+        # disbursement / validation code never triggers an async lazy-load).
+        emp_stmt = (
+            select(Employee)
+            .options(selectinload(Employee.bank_accounts))
+            .where(Employee.is_deleted == False)
+        )
         if run.company_id:
             emp_stmt = emp_stmt.where(Employee.company_id == run.company_id)
         employees = (await session.execute(emp_stmt)).scalars().all()
@@ -577,6 +620,7 @@ class PayrollRunService:
             basic_monthly_paise = 0
             hra_monthly_paise = 0
             special_monthly_paise = 0
+            conveyance_monthly_paise = 0
 
             if comp:
                 basic_monthly_paise = comp.basic_monthly_paise or int((comp.ctc_annual_paise // 12) * 0.5)
@@ -591,6 +635,9 @@ class PayrollRunService:
                     basic_monthly_paise = int(sal.basic_monthly * 100)
                     hra_monthly_paise = int(sal.hra_monthly * 100)
                     special_monthly_paise = int(sal.special_allowance_monthly * 100)
+                    conveyance_monthly_paise = int(
+                        Decimal(str(getattr(sal, "conveyance_monthly", 0) or 0)) * 100
+                    )
                 else:
                     # Default minimum wage if no structure set
                     basic_monthly_paise = 25000 * 100
@@ -618,16 +665,52 @@ class PayrollRunService:
             variable_deductions_paise = sum(v.amount_paise for v in var_inputs if v.type in ("deduction", "advance_recovery", "lop"))
 
             # Prorate by paid_days / 30.0
-            day_ratio = float(paid_days) / 30.0
-            emp_basic_paise = int(basic_monthly_paise * day_ratio)
-            emp_hra_paise = int(hra_monthly_paise * day_ratio)
-            emp_special_paise = int(special_monthly_paise * day_ratio)
+            day_ratio = Decimal(str(paid_days)) / Decimal("30")
+            emp_basic_paise = int((Decimal(basic_monthly_paise) * day_ratio).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            emp_hra_paise = int((Decimal(hra_monthly_paise) * day_ratio).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            emp_special_paise = int((Decimal(special_monthly_paise) * day_ratio).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            emp_conveyance_paise = int(
+                (Decimal(conveyance_monthly_paise) * day_ratio).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
 
-            gross_paise = emp_basic_paise + emp_hra_paise + emp_special_paise + variable_earnings_paise
+            # Per-component variable earnings, so the Labour Codes "wages" rule can
+            # tell an excluded allowance (overtime / bonus / commission) from a
+            # component that is always wages.
+            var_component_paise: dict[str, int] = {}
+            for v in var_inputs:
+                if v.type not in ("overtime", "bonus", "incentive", "commission", "reimbursement"):
+                    continue
+                code = _VARIABLE_TYPE_TO_COMPONENT.get(str(v.type), str(v.type).upper())
+                var_component_paise[code] = var_component_paise.get(code, 0) + int(v.amount_paise or 0)
+
+            gross_paise = (
+                emp_basic_paise
+                + emp_hra_paise
+                + emp_special_paise
+                + emp_conveyance_paise
+                + variable_earnings_paise
+            )
+
+            # 3b. Labour Codes (Code on Wages, 2019) — 50% Wage Definition Rule.
+            # If the excluded allowances exceed (1 - min_basic_wage_ratio) of gross
+            # remuneration, the excess is folded back into the statutory wage base
+            # used for PF, ESI and Gratuity.
+            wage_rule = StatutoryService.apply_labour_code_wage_rule(
+                gross_remuneration_paise=gross_paise,
+                basic_paise=emp_basic_paise,
+                allowances={
+                    "HRA": emp_hra_paise,
+                    "CONVEYANCE": emp_conveyance_paise,
+                    "SPECIAL_ALLOWANCE": emp_special_paise,
+                    **var_component_paise,
+                },
+                config=config,
+            )
+            statutory_wages_paise = wage_rule["statutory_wages_paise"]
 
             # 4. Indian Statutory Deductions Engine
             pf_res = StatutoryService.calculate_pf(
-                basic_paise=emp_basic_paise,
+                basic_paise=statutory_wages_paise,
                 config=config,
             )
             employee_pf_paise = pf_res["employee_pf_paise"]
@@ -635,6 +718,7 @@ class PayrollRunService:
             esi_res = StatutoryService.calculate_esi(
                 gross_monthly_paise=gross_paise,
                 config=config,
+                contribution_wage_paise=statutory_wages_paise,
             )
             employee_esi_paise = esi_res["employee_esi_paise"]
 
@@ -678,7 +762,9 @@ class PayrollRunService:
             )
             tds_paise = tds_res["monthly_tds_paise"]
 
-            grat_res = StatutoryService.calculate_gratuity(emp_basic_paise)
+            grat_res = StatutoryService.calculate_gratuity(
+                emp_basic_paise, statutory_wage_paise=statutory_wages_paise
+            )
 
             emp_deductions_paise = (
                 employee_pf_paise

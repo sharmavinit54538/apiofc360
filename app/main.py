@@ -869,6 +869,10 @@ def create_app() -> FastAPI:
                 "data": None,
                 "errors": [{"field": None, "message": message}],
                 "code": code or f"HTTP_{exc.status_code}",
+                # Backwards compatibility: Starlette/FastAPI's default
+                # HTTPException body is ``{"detail": ...}`` and existing clients
+                # read that key directly, so keep it in the envelope.
+                "detail": exc.detail if isinstance(exc.detail, dict) else message,
             },
             headers=cors_headers,
         )

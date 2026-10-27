@@ -100,8 +100,14 @@ class PayrollPeriod(Base):
     runs: Mapped[list["PayrollRun"]] = relationship(
         "PayrollRun", back_populates="period", cascade="all, delete-orphan", lazy="select"
     )
+    # `variable_inputs.period_id` is a soft reference (no DB-level FK), so the
+    # join condition and foreign-key side must be declared explicitly.
     variable_inputs: Mapped[list["VariableInput"]] = relationship(
-        "VariableInput", back_populates="period", cascade="all, delete-orphan", lazy="select"
+        "VariableInput",
+        back_populates="period",
+        primaryjoin="PayrollPeriod.id == foreign(VariableInput.period_id)",
+        cascade="all, delete-orphan",
+        lazy="select",
     )
 
 
@@ -368,10 +374,15 @@ class VariableInput(Base):
         ForeignKey("employees.id", ondelete="CASCADE"),
         nullable=False,
     )
-    period_id: Mapped[uuid.UUID] = mapped_column(
+    # Soft reference to `payroll_periods.id` (no DB-level FK on purpose):
+    # variable pay — overtime, reimbursements, LOP — is routinely captured before
+    # the payroll period for that month has been opened, so the row must be
+    # storable while the period is still absent.  `PayrollRunService` joins on
+    # equality, so an unresolvable reference simply stays out of a run until the
+    # period exists.
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("payroll_periods.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     company_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -418,7 +429,12 @@ class VariableInput(Base):
     )
 
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
-    period: Mapped["PayrollPeriod"] = relationship("PayrollPeriod", back_populates="variable_inputs", lazy="select")
+    period: Mapped["PayrollPeriod"] = relationship(
+        "PayrollPeriod",
+        back_populates="variable_inputs",
+        primaryjoin="PayrollPeriod.id == foreign(VariableInput.period_id)",
+        lazy="select",
+    )
 
 
 class PaymentBatch(Base):
@@ -464,6 +480,19 @@ class PaymentBatch(Base):
     bank_reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     submission_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Maker-checker (dual control) attribution: who created the batch and who
+    # processed/submitted it.  Neither may also approve it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -653,6 +682,19 @@ class FullAndFinalSettlement(Base):
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     statement_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Maker-checker (dual control) attribution: who initiated the settlement and
+    # who processed it.  Neither may also approve it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),

@@ -393,6 +393,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     elif "error" not in err_payload or err_payload["error"] is None:
         err_payload["error"] = {"code": f"HTTP_{status_code}", "message": message}
 
+    # Backwards compatibility: FastAPI/Starlette's default HTTPException body is
+    # ``{"detail": ...}`` and existing clients read that key directly.  Keep it
+    # alongside the canonical envelope instead of dropping it.
+    err_payload["detail"] = exc.detail if isinstance(exc.detail, dict) else message
+
 
     response = JSONResponse(
         status_code=status_code,

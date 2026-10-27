@@ -27,8 +27,8 @@ import logging
 import math
 import re
 import uuid
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
 from fastapi import HTTPException, UploadFile, status
@@ -69,7 +69,10 @@ class StatutoryService:
             )
         cfg = (await session.execute(stmt)).scalar_one_or_none()
         if not cfg:
-            cfg = StatutoryComplianceConfig(is_active=True)
+            # Multi-tenancy: the auto-provisioned row always belongs to the
+            # requesting tenant.  A company_id-less row is a shared template and
+            # must never be created implicitly on a tenant's behalf.
+            cfg = StatutoryComplianceConfig(is_active=True, company_id=company_id)
             session.add(cfg)
             await session.commit()
             await session.refresh(cfg)
@@ -89,6 +92,134 @@ class StatutoryService:
         await session.commit()
         await session.refresh(cfg)
         return cfg
+
+    #: ``needs_ca_validation_*`` scope name -> config attribute.
+    CA_VALIDATION_SCOPE_FIELDS = {
+        "pf_rates": "needs_ca_validation_pf_rates",
+        "esi_rates": "needs_ca_validation_esi_rates",
+        "pt_slabs": "needs_ca_validation_pt_slabs",
+        "tds_slabs": "needs_ca_validation_tds_slabs",
+        "gratuity": "needs_ca_validation_gratuity",
+        "lwf": "needs_ca_validation_lwf",
+        "labour_codes": "needs_ca_validation_labour_codes",
+    }
+
+    @classmethod
+    async def ca_signoff(
+        cls,
+        session: AsyncSession,
+        *,
+        company_id: Optional[uuid.UUID],
+        verified_by: Optional[uuid.UUID],
+        certificate_ref: Optional[str] = None,
+        formula_version: Optional[str] = None,
+        scopes: Optional[list[str]] = None,
+        remarks: Optional[str] = None,
+        actor_role: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Record a CA / payroll-expert validation sign-off on the tenant config.
+
+        Clears the selected ``needs_ca_validation_*`` flags (all of them when no
+        scope list is supplied), stamps the verifying user/timestamp and the
+        certificate + formula version, and writes an immutable payroll audit
+        record.  The configuration row is always the requesting tenant's own
+        active row; a shared template row is never modified.
+        """
+        from app.services.payroll.audit_service import PayrollAuditService
+
+        if company_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Statutory configuration not found for this organization.",
+            )
+
+        stmt = select(StatutoryComplianceConfig).where(
+            StatutoryComplianceConfig.company_id == company_id,
+            StatutoryComplianceConfig.is_active == True,  # noqa: E712
+        )
+        cfg = (await session.execute(stmt)).scalar_one_or_none()
+        if not cfg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Statutory configuration not found for this organization.",
+            )
+
+        requested = [str(s).strip().lower() for s in (scopes or [])] or list(
+            cls.CA_VALIDATION_SCOPE_FIELDS.keys()
+        )
+        unknown = [s for s in requested if s not in cls.CA_VALIDATION_SCOPE_FIELDS]
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Unknown validation scope(s): "
+                    + ", ".join(unknown)
+                    + ". Allowed: "
+                    + ", ".join(cls.CA_VALIDATION_SCOPE_FIELDS.keys())
+                ),
+            )
+
+        before = {
+            scope: bool(getattr(cfg, field, False))
+            for scope, field in cls.CA_VALIDATION_SCOPE_FIELDS.items()
+        }
+        for scope in requested:
+            setattr(cfg, cls.CA_VALIDATION_SCOPE_FIELDS[scope], False)
+
+        signed_at = datetime.now(timezone.utc)
+        if verified_by is not None:
+            cfg.ca_verified_by = verified_by
+        cfg.ca_verified_at = signed_at
+        if certificate_ref:
+            cfg.ca_certificate_ref = str(certificate_ref).strip()
+        if formula_version:
+            cfg.formula_version = str(formula_version).strip()
+
+        note_bits = [
+            f"CA sign-off by {verified_by} on {signed_at.isoformat()}",
+            f"scopes={','.join(requested)}" if requested else None,
+            f"certificate={cfg.ca_certificate_ref}" if cfg.ca_certificate_ref else None,
+            f"formula_version={cfg.formula_version}" if cfg.formula_version else None,
+            remarks,
+        ]
+        cfg.source_note = " | ".join(bit for bit in note_bits if bit)
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="StatutoryComplianceConfig",
+            entity_id=cfg.id,
+            action="CA_SIGNOFF",
+            company_id=cfg.company_id,
+            actor_id=verified_by,
+            actor_role=actor_role,
+            before_status=None,
+            after_status=None,
+            reason=remarks or "CA / payroll expert validation sign-off recorded",
+            extra_data={
+                "scopes": requested,
+                "needs_ca_validation_before": before,
+                "certificate_ref": cfg.ca_certificate_ref,
+                "formula_version": cfg.formula_version,
+            },
+        )
+
+        await session.commit()
+        await session.refresh(cfg)
+
+        return {
+            "config_id": str(cfg.id),
+            "company_id": str(cfg.company_id) if cfg.company_id else None,
+            "ca_verified_by": str(cfg.ca_verified_by) if cfg.ca_verified_by else None,
+            "ca_verified_at": cfg.ca_verified_at.isoformat() if cfg.ca_verified_at else None,
+            "ca_certificate_ref": cfg.ca_certificate_ref,
+            "formula_version": cfg.formula_version,
+            "scopes_signed_off": requested,
+            "needs_ca_validation": {
+                scope: bool(getattr(cfg, field, False))
+                for scope, field in cls.CA_VALIDATION_SCOPE_FIELDS.items()
+            },
+            "source_note": cfg.source_note,
+        }
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2. Provident Fund (PF) Calculation Engine
@@ -203,6 +334,113 @@ class StatutoryService:
         }
 
     # ─────────────────────────────────────────────────────────────────────────
+    # 2b. Labour Codes — "Wages" Definition (50% Rule)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    #: Component codes that are *never* treated as excluded allowances, because
+    #: the Code on Wages explicitly counts them inside "wages".
+    ALWAYS_WAGE_COMPONENTS = frozenset({"BASIC", "DA", "DEARNESS_ALLOWANCE", "RETAINING_ALLOWANCE"})
+
+    DEFAULT_EXCLUDED_ALLOWANCES = (
+        "HRA", "CONVEYANCE", "OVERTIME", "STATUTORY_BONUS", "COMMISSION",
+    )
+
+    @classmethod
+    def _excluded_allowance_codes(cls, config: Optional[StatutoryComplianceConfig]) -> list[str]:
+        """Read the excluded-allowance component codes from config (upper-cased)."""
+        raw = getattr(config, "excluded_allowance_components_json", None) if config else None
+        if not raw:
+            raw = list(cls.DEFAULT_EXCLUDED_ALLOWANCES)
+        if isinstance(raw, str):
+            raw = [raw]
+        codes: list[str] = []
+        for item in raw:
+            code = str(item).strip().upper()
+            if code:
+                codes.append(code)
+        return codes
+
+    @classmethod
+    def apply_labour_code_wage_rule(
+        cls,
+        *,
+        gross_remuneration_paise: int,
+        basic_paise: int,
+        da_paise: int = 0,
+        allowances: Optional[dict[str, int]] = None,
+        config: Optional[StatutoryComplianceConfig] = None,
+    ) -> dict[str, Any]:
+        """Apply the Code on Wages, 2019 definition of "wages" (the 50% rule).
+
+        Under the Code, "wages" means all remuneration **except** the excluded
+        allowances (HRA, conveyance, overtime, statutory bonus, commission, ...),
+        *provided* those exclusions do not exceed 50% (configurable via
+        ``min_basic_wage_ratio``) of the total remuneration.  Any excess must be
+        added back into the wage base used for PF, ESI and Gratuity.
+
+        Everything is integer paise; the ratio arithmetic uses ``Decimal`` with
+        ``ROUND_HALF_UP`` so no float ever touches a money value.
+
+        Returns a breakdown dict.  ``statutory_wages_paise`` is the amount PF /
+        ESI / Gratuity must be computed on.
+        """
+        gross_paise = int(gross_remuneration_paise or 0)
+        base_wages_paise = int(basic_paise or 0) + int(da_paise or 0)
+        excluded_codes = cls._excluded_allowance_codes(config)
+        allowance_map = {
+            str(k).strip().upper(): int(v or 0) for k, v in (allowances or {}).items()
+        }
+
+        enabled = bool(getattr(config, "labour_code_enabled", False)) if config else False
+
+        excluded_paise = sum(
+            amount for code, amount in allowance_map.items()
+            if code in excluded_codes and code not in cls.ALWAYS_WAGE_COMPONENTS
+        )
+
+        if not enabled:
+            return {
+                "labour_code_enabled": False,
+                "applied": False,
+                "min_basic_wage_ratio": None,
+                "excluded_components": excluded_codes,
+                "excluded_allowances_paise": excluded_paise,
+                "max_excluded_paise": None,
+                "excess_paise": 0,
+                "basic_da_paise": base_wages_paise,
+                "statutory_wages_paise": base_wages_paise,
+                "gross_remuneration_paise": gross_paise,
+            }
+
+        ratio_raw = getattr(config, "min_basic_wage_ratio", None)
+        ratio = Decimal(str(ratio_raw)) if ratio_raw is not None else Decimal("0.5")
+        if ratio < Decimal("0"):
+            ratio = Decimal("0")
+        elif ratio > Decimal("1"):
+            ratio = Decimal("1")
+
+        max_excluded = (
+            Decimal(gross_paise) * (Decimal("1") - ratio)
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        max_excluded_paise = int(max_excluded)
+
+        excess_paise = max(0, excluded_paise - max_excluded_paise)
+        statutory_wages_paise = base_wages_paise + excess_paise
+
+        return {
+            "labour_code_enabled": True,
+            "applied": excess_paise > 0,
+            "min_basic_wage_ratio": float(ratio),
+            "excluded_components": excluded_codes,
+            "excluded_allowances_paise": excluded_paise,
+            "max_excluded_paise": max_excluded_paise,
+            "excess_paise": excess_paise,
+            "basic_da_paise": base_wages_paise,
+            "statutory_wages_paise": statutory_wages_paise,
+            "gross_remuneration_paise": gross_paise,
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
     # 3. Employee State Insurance (ESI) Calculation Engine
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -211,6 +449,7 @@ class StatutoryService:
         cls,
         gross_monthly_paise: int,
         config: Optional[StatutoryComplianceConfig] = None,
+        contribution_wage_paise: Optional[int] = None,
     ) -> dict[str, Any]:
         """Calculates ESI for eligible employees.
         
@@ -218,6 +457,10 @@ class StatutoryService:
         - Applicable only if Gross Monthly Salary <= ₹21,000 (2,100,000 paise).
         - Employee share: 0.75% of Gross (rounded UP to the next rupee / 100 paise).
         - Employer share: 3.25% of Gross (rounded UP to the next rupee / 100 paise).
+        - When the Code on Wages "wages" definition is in force, the caller passes
+          ``contribution_wage_paise`` (the statutory wage base after the 50% rule)
+          and contributions are computed on that base instead of gross.  Eligibility
+          itself is still tested against the ₹21,000 *gross* ceiling.
         """
         esi_enabled = config.esi_enabled if config else True
         ceiling_paise = int(
@@ -230,6 +473,7 @@ class StatutoryService:
             return {
                 "is_applicable": False,
                 "gross_paise": gross_monthly_paise,
+                "contribution_wage_paise": int(contribution_wage_paise or gross_monthly_paise),
                 "employee_esi_paise": 0,
                 "employer_esi_paise": 0,
                 "total_esi_liability_paise": 0,
@@ -239,13 +483,19 @@ class StatutoryService:
         emp_rate = float(config.employee_esi_rate) if (config and config.employee_esi_rate is not None) else 0.0075
         empr_rate = float(config.employer_esi_rate) if (config and config.employer_esi_rate is not None) else 0.0325
 
+        wage_base_paise = (
+            int(contribution_wage_paise) if contribution_wage_paise is not None else int(gross_monthly_paise)
+        )
+        wage_base_paise = max(0, wage_base_paise)
+
         # Statutory rule: round UP to next whole rupee (ceiling to nearest 100 paise)
-        employee_esi_paise = int(math.ceil((gross_monthly_paise * emp_rate) / 100.0) * 100)
-        employer_esi_paise = int(math.ceil((gross_monthly_paise * empr_rate) / 100.0) * 100)
+        employee_esi_paise = int(math.ceil((wage_base_paise * emp_rate) / 100.0) * 100)
+        employer_esi_paise = int(math.ceil((wage_base_paise * empr_rate) / 100.0) * 100)
 
         return {
             "is_applicable": True,
             "gross_paise": gross_monthly_paise,
+            "contribution_wage_paise": wage_base_paise,
             "employee_esi_paise": employee_esi_paise,
             "employer_esi_paise": employer_esi_paise,
             "total_esi_liability_paise": employee_esi_paise + employer_esi_paise,
@@ -543,10 +793,27 @@ class StatutoryService:
     # ─────────────────────────────────────────────────────────────────────────
 
     @classmethod
-    def calculate_gratuity(cls, basic_monthly_paise: int) -> dict[str, Any]:
-        """Calculates Gratuity provision: (15 / 26) * monthly_basic / 12 (~4.81% of basic)."""
-        provision_paise = int(round((15.0 / 26.0) * basic_monthly_paise / 12.0))
+    def calculate_gratuity(
+        cls,
+        basic_monthly_paise: int,
+        statutory_wage_paise: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Calculates Gratuity provision: (15 / 26) * monthly_basic / 12 (~4.81% of basic).
+
+        When the Code on Wages "wages" definition is in force the caller passes
+        ``statutory_wage_paise`` (basic + DA plus any excess excluded allowances
+        folded back by the 50% rule) and the provision is computed on that base.
+        """
+        base_paise = (
+            int(statutory_wage_paise) if statutory_wage_paise is not None else int(basic_monthly_paise)
+        )
+        base_paise = max(0, base_paise)
+        provision = (
+            (Decimal("15") / Decimal("26")) * Decimal(base_paise) / Decimal("12")
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        provision_paise = int(provision)
         return {
+            "gratuity_wage_base_paise": base_paise,
             "monthly_gratuity_provision_paise": provision_paise,
             "annual_gratuity_provision_paise": provision_paise * 12,
         }

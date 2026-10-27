@@ -1,4 +1,4 @@
-from sqlalchemy import Date, DateTime, Float, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, Float, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
@@ -26,7 +26,7 @@ class StudentAttendance(Base, TimestampMixin):
     check_out_time: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    marked_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    marked_by: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id"), nullable=True)
 
 
 # Backwards compatibility alias

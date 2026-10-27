@@ -8,11 +8,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin_or_manager
+from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _role, _uid
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.statutory import (
     ChallanRecordRequest,
     EmployeePfUpdateRequest,
+    StatutoryCaSignoffRequest,
     StatutoryConfigRequest,
     StatutoryReportRequest,
     StatutorySimulationRequest,
@@ -45,6 +46,36 @@ def _config_dict(cfg) -> dict[str, Any]:
         "default_tax_regime": cfg.default_tax_regime or "NEW",
         "lop_basis": cfg.lop_basis or "CALENDAR_DAYS",
         "is_active": cfg.is_active,
+        # Labour Codes (Code on Wages, 2019) configuration
+        "labour_code_enabled": bool(getattr(cfg, "labour_code_enabled", False)),
+        "min_basic_wage_ratio": float(cfg.min_basic_wage_ratio)
+        if getattr(cfg, "min_basic_wage_ratio", None) is not None
+        else 0.5,
+        "excluded_allowance_components": list(
+            getattr(cfg, "excluded_allowance_components_json", None)
+            or ["HRA", "CONVEYANCE", "OVERTIME", "STATUTORY_BONUS", "COMMISSION"]
+        ),
+        "fixed_term_pro_rata_gratuity_enabled": bool(
+            getattr(cfg, "fixed_term_pro_rata_gratuity_enabled", True)
+        ),
+        "source_note": getattr(cfg, "source_note", None),
+        # CA / payroll-expert validation sign-off
+        "payroll_maker_checker_enforced": bool(
+            getattr(cfg, "payroll_maker_checker_enforced", True)
+        ),
+        "needs_ca_validation": {
+            "pf_rates": bool(getattr(cfg, "needs_ca_validation_pf_rates", True)),
+            "esi_rates": bool(getattr(cfg, "needs_ca_validation_esi_rates", True)),
+            "pt_slabs": bool(getattr(cfg, "needs_ca_validation_pt_slabs", True)),
+            "tds_slabs": bool(getattr(cfg, "needs_ca_validation_tds_slabs", True)),
+            "gratuity": bool(getattr(cfg, "needs_ca_validation_gratuity", True)),
+            "lwf": bool(getattr(cfg, "needs_ca_validation_lwf", True)),
+            "labour_codes": bool(getattr(cfg, "needs_ca_validation_labour_codes", True)),
+        },
+        "ca_verified_by": str(cfg.ca_verified_by) if getattr(cfg, "ca_verified_by", None) else None,
+        "ca_verified_at": cfg.ca_verified_at.isoformat() if getattr(cfg, "ca_verified_at", None) else None,
+        "ca_certificate_ref": getattr(cfg, "ca_certificate_ref", None),
+        "formula_version": getattr(cfg, "formula_version", None),
     }
 
 
@@ -75,6 +106,51 @@ async def update_statutory_config(
     update_data = payload.model_dump(exclude_unset=True)
     cfg = await StatutoryService.update_config(db, update_data, company_id=c_uuid)
     return _ok(_config_dict(cfg), "Statutory configuration updated successfully")
+
+
+# 2b. POST /api/v2/payroll/statutory/ca-signoff
+@router.post(
+    "/statutory/ca-signoff",
+    summary="Record CA / payroll-expert validation sign-off on statutory configuration",
+)
+async def ca_signoff_statutory_config(
+    payload: StatutoryCaSignoffRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Clear the ``needs_ca_validation_*`` flags once a CA has validated the rates.
+
+    Restricted to admin roles (super_admin / hr_admin / it_admin) of the owning
+    organization; the configuration row is always resolved from the verified JWT
+    ``company_id`` claim, so a sign-off can never touch another tenant's config
+    (an unknown tenant answers 404, never 403).
+    """
+    _require_admin(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    if not company_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Statutory configuration not found for this organization.",
+        )
+    try:
+        c_uuid = uuid.UUID(str(company_id_str))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Statutory configuration not found for this organization.",
+        )
+
+    result = await StatutoryService.ca_signoff(
+        db,
+        company_id=c_uuid,
+        verified_by=_uid(claims),
+        certificate_ref=payload.certificate_ref,
+        formula_version=payload.formula_version,
+        scopes=payload.scopes,
+        remarks=payload.remarks,
+        actor_role=_role(claims),
+    )
+    return _ok(result, "CA / payroll-expert validation sign-off recorded successfully")
 
 
 # 3. POST /api/v2/payroll/statutory/simulate

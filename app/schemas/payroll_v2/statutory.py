@@ -53,6 +53,52 @@ class StatutoryConfigRequest(PayrollBaseModel):
     default_tax_regime: Optional[str] = Field(None, alias="defaultTaxRegime")
 
 
+#: Every ``needs_ca_validation_*`` flag a CA / payroll expert can sign off.
+CA_VALIDATION_SCOPES = (
+    "pf_rates",
+    "esi_rates",
+    "pt_slabs",
+    "tds_slabs",
+    "gratuity",
+    "lwf",
+    "labour_codes",
+)
+
+
+class StatutoryCaSignoffRequest(PayrollBaseModel):
+    """Payload for the CA / payroll-expert validation sign-off."""
+
+    certificate_ref: Optional[str] = Field(None, alias="certificateRef", max_length=100)
+    formula_version: Optional[str] = Field(None, alias="formulaVersion", max_length=50)
+    scopes: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional subset of validation scopes to clear. "
+            "Defaults to every scope (pf_rates, esi_rates, pt_slabs, tds_slabs, "
+            "gratuity, lwf, labour_codes)."
+        ),
+    )
+    remarks: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        cleaned: List[str] = []
+        for item in v:
+            code = str(item).strip().lower()
+            if code not in CA_VALIDATION_SCOPES:
+                raise ValueError(
+                    f"scope must be one of: {', '.join(CA_VALIDATION_SCOPES)}"
+                )
+            if code not in cleaned:
+                cleaned.append(code)
+        if not cleaned:
+            raise ValueError("scopes cannot be an empty list; omit it to clear every scope.")
+        return cleaned
+
+
 class StatutorySimulationRequest(PayrollBaseModel):
     basic_monthly_paise: int = Field(2500000, alias="basicMonthlyPaise")
     hra_monthly_paise: int = Field(1000000, alias="hraMonthlyPaise")

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, UniqueConstraint, JSON, func, text,
+    Numeric, String, Text, UniqueConstraint, JSON, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -111,6 +111,38 @@ class StatutoryComplianceConfig(Base):
     needs_ca_validation_gratuity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     needs_ca_validation_lwf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     needs_ca_validation_labour_codes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    # ── Labour Codes (Code on Wages, 2019) support — config driven ──────────
+    # When enabled, the "wages" definition of the Code on Wages applies:
+    # excluded allowances may not exceed (1 - min_basic_wage_ratio) of gross
+    # remuneration; the excess is folded back into statutory wages for PF, ESI
+    # and Gratuity.  Disabled by default so existing tenants keep their current
+    # behaviour until they opt in.
+    labour_code_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    min_basic_wage_ratio: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=Decimal("0.5000"), server_default=text("0.5000"))
+    excluded_allowance_components_json: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=lambda: ["HRA", "CONVEYANCE", "OVERTIME", "STATUTORY_BONUS", "COMMISSION"],
+        server_default=text(
+            "'[\"HRA\", \"CONVEYANCE\", \"OVERTIME\", \"STATUTORY_BONUS\", \"COMMISSION\"]'::jsonb"
+        ),
+    )
+    # Fixed-term employees accrue gratuity pro-rata without the 5-year minimum
+    # tenure requirement (Section 4(1) proviso, Payment of Gratuity (Amendment)
+    # Act, 2018 / Code on Wages).
+    fixed_term_pro_rata_gratuity_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── CA / Payroll Expert validation sign-off ─────────────────────────────
+    # Filled in by POST /api/v2/payroll/statutory/ca-signoff once a Chartered
+    # Accountant or payroll expert has validated the statutory formulae/rates.
+    ca_verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    ca_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ca_certificate_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    formula_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     settings_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
@@ -237,6 +269,10 @@ class PayrollRun(Base):
 
     run_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Maker-checker (dual control) attribution: who created the run and who
+    # triggered the calculation engine.  Neither may also approve/finalize it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finalized_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

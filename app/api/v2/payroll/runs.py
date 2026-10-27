@@ -325,7 +325,7 @@ async def create_payment_batch_from_run(
     batch = await PaymentBatchService.create_batch_from_run(
         session=db,
         run_id=runId,
-        source_account_id=src_uuid,
+        source_account_id=str(src_uuid),
         payment_mode=payload.payment_mode,
         held_employee_ids=payload.held_employee_ids,
         notes=payload.notes,
@@ -334,7 +334,7 @@ async def create_payment_batch_from_run(
     )
     return _ok({
         "id": str(batch.id),
-        "run_id": str(batch.payroll_run_id),
+        "run_id": str(batch.run_id),
         "batch_number": batch.batch_number,
         "status": batch.status,
         "total_amount_paise": batch.total_amount_paise,
@@ -421,7 +421,9 @@ async def calculate_run_sync_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.execute_run_calculation(db, run_id=runId)
+    run = await PayrollRunService.execute_run_calculation(
+        db, run_id=runId, user_id=_uid(claims), user_role=_role(claims)
+    )
     return _ok(_run_dict(run), "Payroll calculation executed successfully")
 
 
