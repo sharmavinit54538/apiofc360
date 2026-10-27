@@ -509,7 +509,7 @@ async def generate_exit_documents(
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[list[ExitDocumentResponse]]:
     """Trigger generation of Relieving and Experience letters. Admin and HR only."""
-    res = await service.generate_exit_documents(id)
+    res = await service.generate_exit_documents(id, actor_id=uuid.UUID(claims["sub"]))
     return APIResponse[list[ExitDocumentResponse]](
         success=True,
         message="Exit documents generated successfully.",

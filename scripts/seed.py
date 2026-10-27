@@ -9,6 +9,7 @@ environment variables (see .env.example) — never hardcode credentials for
 anything beyond local development.
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -25,16 +26,34 @@ from app.models.user import User  # noqa: E402
 SCHOOL_CODE = "EDU001"
 SCHOOL_NAME = "EduFlow Demo School"
 
+SEED_PASSWORD_VARS = (
+    "SEED_ADMIN_PASSWORD", "SEED_TEACHER_PASSWORD", "SEED_STUDENT_PASSWORD",
+    "SEED_PARENT_PASSWORD", "SEED_ACCOUNTANT_PASSWORD",
+)
+
+
+def _seed_password(name: str) -> str:
+    # Settings from older deployments may not define these optional values.
+    # Never read them unconditionally at module import (before the env guard).
+    return os.getenv(name) or getattr(settings, name, None) or ""
+
+
 SEED_USERS = [
-    ("School Admin", "admin@eduflow.demo", "admin", settings.SEED_ADMIN_PASSWORD),
-    ("Demo Teacher", "teacher@eduflow.demo", "teacher", settings.SEED_TEACHER_PASSWORD),
-    ("Demo Student", "student@eduflow.demo", "student", settings.SEED_STUDENT_PASSWORD),
-    ("Demo Parent", "parent@eduflow.demo", "parent", settings.SEED_PARENT_PASSWORD),
-    ("Demo Accountant", "accountant@eduflow.demo", "accountant", settings.SEED_ACCOUNTANT_PASSWORD),
+    ("School Admin", "admin@eduflow.demo", "admin", _seed_password("SEED_ADMIN_PASSWORD")),
+    ("Demo Teacher", "teacher@eduflow.demo", "teacher", _seed_password("SEED_TEACHER_PASSWORD")),
+    ("Demo Student", "student@eduflow.demo", "student", _seed_password("SEED_STUDENT_PASSWORD")),
+    ("Demo Parent", "parent@eduflow.demo", "parent", _seed_password("SEED_PARENT_PASSWORD")),
+    ("Demo Accountant", "accountant@eduflow.demo", "accountant", _seed_password("SEED_ACCOUNTANT_PASSWORD")),
 ]
 
 
 async def seed():
+    # Demo identities are never implicit startup/reference data.  Both direct
+    # CLI use and programmatic imports must opt in explicitly.
+    if os.getenv("APP_ENV") != "local_seed":
+        raise RuntimeError("Mock seed data is disabled. Set APP_ENV=local_seed explicitly to run this script.")
+    if not all(_seed_password(name) for name in SEED_PASSWORD_VARS):
+        raise RuntimeError("Local seed requires all SEED_*_PASSWORD values to be configured explicitly.")
     async with AsyncSessionLocal() as db:
         school = (await db.execute(select(School).where(School.school_code == SCHOOL_CODE))).scalar_one_or_none()
         if not school:
@@ -51,7 +70,7 @@ async def seed():
                 print(f"  - {role}: {email} (already exists)")
                 continue
             db.add(User(tenant_id=school.id, school_id=school.id, name=name, email=email, role=role, password_hash=hash_password(password), status="active"))
-            print(f"  - {role}: {email} / {password}")
+            print(f"  - {role}: {email} (password not logged)")
 
         await db.commit()
     print("\nSeed complete.")

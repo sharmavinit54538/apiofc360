@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,9 @@ def _fnf_dict(item) -> dict[str, Any]:
         "remarks": item.remarks,
         "notes": item.notes,
         "statement_path": item.statement_path,
+        "settled_at": item.settled_at.isoformat() if item.settled_at else None,
+        "settlement_sheet_hash": item.settlement_sheet_hash,
+        "generated_letters": item.generated_letters_json or [],
         "approved_by": str(item.approved_by) if item.approved_by else None,
         "approved_at": item.approved_at.isoformat() if item.approved_at else None,
         "finalized_by": str(item.finalized_by) if item.finalized_by else None,
@@ -189,6 +192,26 @@ async def reject_full_and_final(
     return _ok(_fnf_dict(settlement), "Full and final settlement rejected")
 
 
+# POST /api/v2/payroll/full-and-final/{fnfId}/settle
+@router.post("/full-and-final/{fnfId}/settle", summary="Settle FnF after 100% clearance and generate exit letters")
+async def settle_full_and_final(
+    fnfId: uuid.UUID, claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    current = await FullAndFinalService.get_settlement(db, fnfId)
+    company_id = claims.get("company_id") if claims else None
+    if _role(claims) != "super_admin" and str(current.company_id) != str(company_id):
+        raise HTTPException(status_code=404, detail="Full and final settlement not found")
+    from app.services.fnf_workflow_service import FnFWorkflowService
+    try:
+        settlement = await FnFWorkflowService(db).settle_payroll_fnf(
+            fnfId, actor_id=_uid(claims), actor_role=_role(claims),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _ok(_fnf_dict(settlement), "Full and final settlement settled; PDF and exit letters generated")
+
+
 # GET /api/v2/payroll/full-and-final/{fnfId}/statement/download
 @router.get("/full-and-final/{fnfId}/statement/download", summary="Download full and final settlement statement")
 async def download_full_and_final_statement(
@@ -199,6 +222,6 @@ async def download_full_and_final_statement(
     content_bytes, filename = await FullAndFinalService.generate_statement(db, fnf_id=fnfId)
     return Response(
         content=content_bytes,
-        media_type="text/plain",
+        media_type="application/pdf" if filename.lower().endswith(".pdf") else "text/plain",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

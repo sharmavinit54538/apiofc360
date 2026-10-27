@@ -14,7 +14,7 @@ from app.models.security_setting import (
     SecurityAuditLog,
 )
 from app.models.department import Department
-from app.models.company import Company
+from app.models.company import Company, LegalEntity, Branch
 from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
@@ -33,7 +33,7 @@ from app.models.asset import Asset, AssetAssignmentHistory, AssetMaintenanceReco
 from app.models.employee_emergency_contact import EmployeeEmergencyContact
 from app.models.employee_bank_account import EmployeeBankAccount
 from app.models.employee_leave_policy import EmployeeLeavePolicy
-from app.models.employee_onboarding import EmployeeOnboarding
+from app.models.employee_onboarding import EmployeeOnboarding, OnboardingTaskChecklist
 from app.models.employee_policy_acceptance import EmployeePolicyAcceptance
 from app.models.employee_tax_info import EmployeeTaxInfo
 from app.models.hierarchy_audit import HierarchyAuditLog
@@ -333,12 +333,15 @@ from app.models.payroll_models import (
     PaymentBatchItem,
     PaymentBatchBankFile,
     FullAndFinalSettlement,
+    EmployeeYTDSalary,
     ProvisionSlip,
     CompanyBankAccount,
     PayrollReportExport,
     ArrearLedger,
     ParallelPayrollComparisonReport,
 )
+from app.models.data_migration import DataMigrationBatch, DataMigrationRecord
+from app.models.leave_balance import LeaveBalance
 from app.models.payroll_compliance import (
     PayrollCompliance,
     StateStatutoryRule,
@@ -465,6 +468,8 @@ __all__ = [
     "ConnectNotification",
     "ConnectUserSoundSettings",
     "Company",
+    "LegalEntity",
+    "Branch",
     "OTP",
     "User",
     "RefreshToken",
@@ -482,6 +487,7 @@ __all__ = [
     "EmployeeBankAccount",
     "EmployeeLeavePolicy",
     "EmployeeOnboarding",
+    "OnboardingTaskChecklist",
     "EmployeePolicyAcceptance",
     "EmployeeTaxInfo",
     "DataConsentLedger",
@@ -672,6 +678,10 @@ __all__ = [
     "PaymentBatchItem",
     "PaymentBatchBankFile",
     "FullAndFinalSettlement",
+    "EmployeeYTDSalary",
+    "DataMigrationBatch",
+    "DataMigrationRecord",
+    "LeaveBalance",
     "ProvisionSlip",
     "CompanyBankAccount",
     "PayrollReportExport",

@@ -931,7 +931,7 @@ class DocumentService:
         body_style = styles["Normal"]
 
         story = [
-            Paragraph(title, title_style),
+            Paragraph(html.escape(title), title_style),
             Spacer(1, 18),
         ]
 
@@ -939,7 +939,7 @@ class DocumentService:
         for line in text_content.split("\n"):
             clean_line = line.strip()
             if clean_line:
-                story.append(Paragraph(clean_line, body_style))
+                story.append(Paragraph(html.escape(clean_line), body_style))
                 story.append(Spacer(1, 8))
             else:
                 story.append(Spacer(1, 12))

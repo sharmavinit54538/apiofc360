@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import uuid
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Integer,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric,
     String, Text, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -62,6 +62,11 @@ class EmployeeDocument(Base):
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ocr_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_STARTED", server_default=text("'NOT_STARTED'"))
+    ocr_extracted_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ocr_confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    ocr_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ocr_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 import os
+import json
 from typing import Any, Dict, List, Optional
 from datetime import date, datetime
 
@@ -217,70 +218,66 @@ async def save_step_7(
 async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form(...),
+    ocr_data: Optional[str] = Form(None),
     emp: Employee = Depends(get_current_employee),
     db: AsyncSession = Depends(get_db_session)
 ):
-    """Step 8 - Upload Onboarding Verification Documents."""
+    """Upload and OCR-validate onboarding proof before replacing a valid prior file."""
     filename = file.filename or "upload"
     _, ext = os.path.splitext(filename.lower())
-    
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format. Supported: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
-    
+        raise HTTPException(status_code=400, detail=f"Unsupported file format. Supported: {', '.join(ALLOWED_EXTENSIONS)}")
     file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded document is empty.")
     if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File size exceeds maximum allowed limit of 10MB."
-        )
-    
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    unique_id = uuid.uuid4().hex
-    stored_name = f"{emp.id}_{document_type}_{unique_id}{ext}"
-    file_path = os.path.join(UPLOAD_DIR, stored_name)
-    
-    with open(file_path, "wb") as f:
-        f.write(file_bytes)
-        
-    # Check if there are existing active docs of same type
-    existing_result = await db.execute(
-        select(EmployeeDocument)
-        .where(EmployeeDocument.employee_id == emp.id)
-        .where(EmployeeDocument.document_type == document_type)
-        .where(EmployeeDocument.is_deleted == False)
-    )
-    existing_docs = existing_result.scalars().all()
-    for existing_doc in existing_docs:
-        existing_doc.is_deleted = True
-        db.add(existing_doc)
-        
-    safe_title = f"Doc: {document_type}"[:30]
-    safe_type = document_type[:30]
+        raise HTTPException(status_code=413, detail="File size exceeds maximum allowed limit of 10MB.")
+    try:
+        extracted = json.loads(ocr_data) if ocr_data else None
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="ocr_data must be a JSON object.") from exc
+    if extracted is not None and not isinstance(extracted, dict):
+        raise HTTPException(status_code=400, detail="ocr_data must be a JSON object.")
 
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    stored_name = f"{emp.id}_{document_type}_{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(UPLOAD_DIR, stored_name)
+    with open(file_path, "wb") as handle:
+        handle.write(file_bytes)
+    safe_type = document_type[:30]
     doc = EmployeeDocument(
-        employee_id=emp.id,
-        title=safe_title,
-        document_type=safe_type,
+        employee_id=emp.id, title=f"Doc: {safe_type}"[:30], document_type=safe_type,
         document_url=f"/uploads/onboarding_documents/{stored_name}",
-        file_path=os.path.abspath(file_path),
-        file_name=filename[:255] if filename else "upload",
-        file_size=len(file_bytes),
-        status="PENDING",
-        visibility="PRIVATE"
+        file_path=os.path.abspath(file_path), file_name=filename[:255], file_size=len(file_bytes),
+        status="PENDING", visibility="PRIVATE",
     )
     db.add(doc)
+    svc = EmployeeOnboardingService(db)
+    result = await svc.process_onboarding_document(doc, file_bytes=file_bytes, ocr_data=extracted, mime_type=file.content_type)
+    if result.get("required") and not result["valid"]:
+        await db.rollback()
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=422, detail={"message": "Document OCR validation failed.", "validation": result})
+
+    existing_result = await db.execute(select(EmployeeDocument).where(
+        EmployeeDocument.employee_id == emp.id,
+        EmployeeDocument.document_type == safe_type,
+        EmployeeDocument.id != doc.id,
+        EmployeeDocument.is_deleted == False,  # noqa: E712
+    ))
+    for existing_doc in existing_result.scalars().all():
+        existing_doc.is_deleted = True
+        db.add(existing_doc)
     await db.commit()
     await db.refresh(doc)
-    
     return EmployeeOnboardingAPIResponse(
-        success=True,
-        message="Document uploaded successfully.",
-        current_step=emp.employee_onboarding_step,
-        onboarding_completed=emp.employee_onboarding_completed,
-        data={"document_id": str(doc.id), "url": doc.document_url}
+        success=True, message="Document uploaded and OCR-validated successfully.",
+        current_step=emp.employee_onboarding_step, onboarding_completed=emp.employee_onboarding_completed,
+        data={"document_id": str(doc.id), "url": doc.document_url,
+              "ocr_status": doc.ocr_status, "validation": result},
     )
 
 

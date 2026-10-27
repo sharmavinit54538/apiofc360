@@ -59,6 +59,10 @@ from app.api.v2.interview_agent import router as interview_agent_router
 from app.api.v2.analytics import router as analytics_v2_router
 from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
 from app.api.v2.dpdp_api import router as dpdp_router, employee_pii_router as dpdp_employee_pii_router
+from app.api.v2.employee_bulk_api import router as employee_bulk_router
+from app.api.v2.document_esign_api import router as document_esign_router
+from app.api.v2.fnf_workflow_api import router as fnf_workflow_router
+from app.api.v2.data_migration_api import router as data_migration_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -116,6 +120,10 @@ def get_v2_router() -> APIRouter:
         resume_ats_checker_router,
         dpdp_router,
         dpdp_employee_pii_router,
+        employee_bulk_router,
+        document_esign_router,
+        fnf_workflow_router,
+        data_migration_router,
     ):
         router.include_router(r)
     

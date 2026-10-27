@@ -105,7 +105,8 @@ class FullAndFinalService:
             Compensation.employee_id == employee_id, Compensation.status == "ACTIVE"
         )
         comp = (await session.execute(comp_stmt)).scalar_one_or_none()
-        monthly_ctc_paise = (comp.ctc_annual_paise // 12) if comp else (50000 * 100)
+        # Missing compensation is zero, never a fabricated demo salary.
+        monthly_ctc_paise = (comp.ctc_annual_paise // 12) if comp else 0
 
         daily_rate_paise = monthly_ctc_paise // 30
         notice_shortfall_deduction = exit_details.shortfall_days * daily_rate_paise
@@ -272,7 +273,11 @@ class FullAndFinalService:
 
     @classmethod
     async def generate_statement(cls, session: AsyncSession, fnf_id: uuid.UUID) -> tuple[bytes, str]:
+        import os
         settlement = await cls.get_settlement(session, fnf_id)
+        if settlement.statement_path and os.path.isfile(settlement.statement_path):
+            with open(settlement.statement_path, "rb") as handle:
+                return handle.read(), f"FnF_Settlement_{settlement.id}.pdf"
         emp_stmt = select(Employee).where(Employee.id == settlement.employee_id)
         emp = (await session.execute(emp_stmt)).scalar_one_or_none()
 
@@ -292,5 +297,8 @@ class FullAndFinalService:
             f"Net Payable: Rs. {settlement.net_payable_paise / 100.0:,.2f}\n"
             f"===================================\n"
         )
+        # Preserve the legacy pre-settlement text contract.  Once the new
+        # clearance-guarded workflow has generated a settlement sheet, the
+        # branch above serves that real PDF instead.
         filename = f"FnF_Statement_{settlement.id}.txt"
         return statement_text.encode("utf-8"), filename
