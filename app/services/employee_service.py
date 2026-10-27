@@ -1026,7 +1026,7 @@ class EmployeeService:
                     if employee.company_id:
                         from app.middleware.auth import invalidate_auth_active_cache
                         await invalidate_auth_active_cache(employee.user_id, employee.company_id)
-            elif new_is_active is True and new_status == "ACTIVE":
+                elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
                             is_active=True,
