@@ -19,7 +19,7 @@ from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress
-from app.models.shift import Shift
+from app.models.shift import Shift, ShiftAllowancePolicy
 from app.models.employee_invitation import EmployeeInvitation
 
 # Employee module models
@@ -251,7 +251,7 @@ from app.models.skill_gap import SkillGapAnalysis
 
 # AI Shift Planner
 from app.models.shift_plan import ShiftPlan, ShiftPlanEntry
-from app.models.shift import Shift, EmployeeShiftAssignment, ShiftChangeRequest
+from app.models.shift import Shift, ShiftAllowancePolicy, EmployeeShiftAssignment, ShiftChangeRequest
 
 # AI Employee Digital Twin
 from app.models.digital_twin import EmployeeDigitalTwin
@@ -336,6 +336,8 @@ from app.models.payroll_models import (
     ProvisionSlip,
     CompanyBankAccount,
     PayrollReportExport,
+    ArrearLedger,
+    ParallelPayrollComparisonReport,
 )
 from app.models.payroll_compliance import (
     PayrollCompliance,
@@ -364,7 +366,7 @@ from app.models.core_modules import (
 )
 
 # Leave module models
-from app.models.leave import LeaveRequest
+from app.models.leave import LeaveRequest, CompOffLedger
 
 # Travel module models
 from app.models.travel import TravelRequest
@@ -614,6 +616,10 @@ __all__ = [
     "Payslip",
     "EmployeeInvestmentDeclaration",
     "PayCycle",
+    "ParallelPayrollComparisonReport",
+    "ArrearLedger",
+    "CompOffLedger",
+    "ShiftAllowancePolicy",
     "PayrollAuditLog",
     "OvertimePolicy",
     "OvertimeEntry",

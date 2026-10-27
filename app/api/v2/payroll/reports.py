@@ -6,12 +6,15 @@ import uuid
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
 
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.reports import PayrollReportExportRequest
 from app.services.payroll.report_service import PayrollReportService
+from app.services.payroll.parallel_comparison_service import ParallelPayrollComparisonService
+from app.models.payroll_models import ParallelPayrollComparisonReport
 from app.workers.payroll_tasks import dispatch_report_export
 
 router = APIRouter(tags=["Payroll v2 - Reports"])
@@ -19,6 +22,49 @@ router = APIRouter(tags=["Payroll v2 - Reports"])
 
 def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message}
+
+
+
+
+def _comparison_dict(report: ParallelPayrollComparisonReport) -> dict[str, Any]:
+    return {
+        "id": str(report.id), "report_id": str(report.id), "run_id": str(report.run_id),
+        "company_id": str(report.company_id) if report.company_id else None,
+        "legacy_file_name": report.legacy_file_name,
+        "legacy_file_sha256": report.legacy_file_sha256,
+        "status": report.status, "summary": report.summary or {},
+        "employee_variances": report.employee_variances or [],
+        "employees": report.employee_variances or [],
+        "head_variances": report.head_variances or {},
+        "heads": report.head_variances or {},
+        "diagnoses": report.diagnoses or [],
+        "created_at": report.created_at.isoformat() if report.created_at else None,
+    }
+
+
+@router.get("/reports/comparison", summary="Fetch a persisted parallel payroll comparison")
+async def get_parallel_payroll_comparison(
+    runId: Optional[uuid.UUID] = Query(None),
+    reportId: Optional[uuid.UUID] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id = uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None
+    if reportId:
+        report = await ParallelPayrollComparisonService.get_report(db, reportId, company_id)
+        return _ok(_comparison_dict(report), "Parallel payroll comparison retrieved successfully")
+    stmt = select(ParallelPayrollComparisonReport).order_by(desc(ParallelPayrollComparisonReport.created_at))
+    if company_id:
+        stmt = stmt.where(ParallelPayrollComparisonReport.company_id == company_id)
+    if runId:
+        stmt = stmt.where(ParallelPayrollComparisonReport.run_id == runId)
+        report = (await db.execute(stmt.limit(1))).scalars().first()
+        if report is None:
+            return _ok({"run_id": str(runId), "status": "NOT_GENERATED", "employee_variances": [], "head_variances": {}, "diagnoses": []}, "No parallel comparison has been generated for this run")
+        return _ok(_comparison_dict(report), "Parallel payroll comparison retrieved successfully")
+    reports = list((await db.execute(stmt.limit(100))).scalars().all())
+    return _ok({"items": [_comparison_dict(r) for r in reports], "total": len(reports)}, "Parallel payroll comparisons retrieved successfully")
 
 
 # 1. GET /api/v2/payroll/reports/{reportKey}

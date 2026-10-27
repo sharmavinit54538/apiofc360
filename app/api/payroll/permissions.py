@@ -18,6 +18,40 @@ logger = logging.getLogger(__name__)
 #: Error code emitted (and audited) whenever a maker tries to approve their own work.
 MAKER_CHECKER_VIOLATION = "MAKER_CHECKER_VIOLATION"
 
+# Granular attendance-close permissions.  They are also seeded by the Step 3
+# migration; the role fallback preserves compatibility with existing JWTs that
+# pre-date granular permission claims.
+PAYROLL_LOCK_ATTENDANCE = "payroll:lock_attendance"
+PAYROLL_UNLOCK_ATTENDANCE = "payroll:unlock_attendance"
+
+
+def _require_payroll_permission(claims: dict | None, permission: str) -> None:
+    """Require a granular permission, with a legacy admin/manager fallback.
+
+    If a token contains an explicit permission collection it is authoritative;
+    otherwise the established payroll admin/manager roles retain access.  An
+    employee token with only one of the new permissions can therefore be given
+    a narrowly scoped lock or unlock capability without becoming a payroll
+    administrator.
+    """
+    if not claims or not isinstance(claims, dict):
+        return
+    raw_permissions = claims.get("permissions")
+    if raw_permissions is None:
+        raw_permissions = claims.get("permission_codes")
+    if raw_permissions is not None:
+        if isinstance(raw_permissions, str):
+            permissions = {raw_permissions}
+        else:
+            try:
+                permissions = {str(p) for p in raw_permissions}
+            except TypeError:
+                permissions = set()
+        if permission not in permissions and "*" not in permissions and "payroll:*" not in permissions:
+            raise ForbiddenException(f"Permission '{permission}' required.")
+        return
+    _require_admin_or_manager(claims)
+
 
 def _uid(claims: dict) -> Optional[uuid.UUID]:
     """Extract user UUID from JWT claims sub."""

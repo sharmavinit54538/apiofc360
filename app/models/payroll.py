@@ -17,7 +17,7 @@ from sqlalchemy import (
     Numeric, String, Text, UniqueConstraint, JSON, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.db.base import Base
 
@@ -449,6 +449,12 @@ class PayCycle(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    regularisation_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    unlock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     disbursed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -525,11 +531,16 @@ class OvertimePolicy(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     applicable_role: Mapped[str | None] = mapped_column(String(100), nullable=True)   # null = applies to all
     applicable_grade: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    rate_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"))  # e.g. 1.5x
+    rate_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"))  # e.g. 1.5x or 2.0x
+    rate_base: Mapped[str] = mapped_column(String(20), nullable=False, default="BASIC", server_default=text("'BASIC'"))  # BASIC | GROSS
     max_ot_hours_per_month: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # Compatibility names used by policy configuration integrations.
+    base = synonym("rate_base")
+    calculation_base = synonym("rate_base")
 
 
 class OvertimeEntry(Base):
@@ -799,3 +810,9 @@ class TaxDeclarationProof(Base):
     amount_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     verified_by_hr: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# Step 3 models live with the canonical payroll-period models.  Re-exporting
+# them here keeps the legacy ``app.models.payroll`` import path backwards
+# compatible without registering duplicate SQLAlchemy tables.
+from app.models.payroll_models import ArrearLedger, ParallelPayrollComparisonReport  # noqa: E402,F401

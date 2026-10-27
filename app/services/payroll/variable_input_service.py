@@ -166,6 +166,8 @@ class VariableInputService:
         user_role: Optional[str] = None,
     ) -> VariableInput:
         item = await cls.get_input(session, input_id)
+        if getattr(item, "is_locked", False):
+            raise HTTPException(status_code=409, detail="Attendance-generated variable inputs are locked; unlock attendance and synchronise again.")
         old_status = item.status
         item.status = "APPROVED"
         item.approved_by = user_id
@@ -198,6 +200,8 @@ class VariableInputService:
         user_role: Optional[str] = None,
     ) -> VariableInput:
         item = await cls.get_input(session, input_id)
+        if getattr(item, "is_locked", False):
+            raise HTTPException(status_code=409, detail="Attendance-generated variable inputs are locked; unlock attendance and synchronise again.")
         old_status = item.status
         item.status = "REJECTED"
         item.rejected_by = user_id
