@@ -5,11 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _role, _uid
+from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
+from app.workers.payroll_tasks import dispatch_payslip_delivery
 from app.db.database import get_db_session
 from app.models.employee import Employee
 from app.services.payroll.payslip_service import PayslipService
@@ -33,6 +35,73 @@ async def _resolve_current_employee_id(session: AsyncSession, claims: Claims) ->
     if not emp:
         emp = (await session.execute(select(Employee).limit(1))).scalar_one_or_none()
     return emp.id if emp else None
+
+
+class PayslipDeliveryRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    employee_ids: list[uuid.UUID] | None = None
+    employee_id: uuid.UUID | None = None
+    channels: list[str] = Field(default_factory=lambda: ["email", "whatsapp"])
+    is_password_protected: bool = True
+    password_rule: str | None = None
+
+
+@router.post("/runs/{run_id}/deliver-payslips", status_code=status.HTTP_202_ACCEPTED, summary="Queue single or bulk payslip delivery")
+async def deliver_payslips_v2(
+    run_id: uuid.UUID, payload: PayslipDeliveryRequest | None = None,
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    payload = payload or PayslipDeliveryRequest()
+    employee_ids = [str(x) for x in (payload.employee_ids or ([] if payload.employee_id is None else [payload.employee_id]))]
+    channels = payload.channels or ["email", "whatsapp"]
+    if any(str(c).lower() not in {"email", "whatsapp"} for c in channels):
+        raise HTTPException(status_code=422, detail="channels may contain only email and whatsapp")
+    # Mark rows queued before dispatch so a polling client never sees a stale
+    # NOT_SENT state while the worker is starting.
+    from app.models.payroll import Payslip
+    stmt = select(Payslip).where(Payslip.payroll_run_id == run_id)
+    if employee_ids:
+        stmt = stmt.where(Payslip.employee_id.in_([uuid.UUID(x) for x in employee_ids]))
+    rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No payslips found for this run")
+    for row in rows:
+        if "email" in [c.lower() for c in channels]:
+            row.email_status = "QUEUED"
+        if "whatsapp" in [c.lower() for c in channels]:
+            row.whatsapp_status = "QUEUED"
+        row.delivery_error = None
+    await db.commit()
+    job_id = await dispatch_payslip_delivery(
+        run_id, employee_ids or None, channels, payload.password_rule, payload.is_password_protected
+    )
+    return _ok({"job_id": job_id, "run_id": str(run_id), "status": "QUEUED", "total": len(rows)}, "Payslip delivery queued")
+
+
+@router.get("/payslips/me/ytd", summary="Get the authenticated employee's April-March YTD summary")
+@router.get("/me/ytd", include_in_schema=False)
+async def get_my_ytd_v2(
+    financial_year: str | None = Query(None), claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    emp_id = await _resolve_current_employee_id(db, claims)
+    if not emp_id:
+        raise HTTPException(status_code=404, detail="Employee not identified")
+    company_id = claims.get("company_id") if isinstance(claims, dict) else None
+    result = await PayslipService.get_ytd_summary(db, emp_id, financial_year, uuid.UUID(company_id) if company_id else None)
+    return _ok(result, "YTD payslip summary retrieved")
+
+
+@router.get("/payslips/ytd/{employee_id}", summary="Get an employee's April-March YTD summary")
+async def get_employee_ytd_v2(
+    employee_id: uuid.UUID, financial_year: str | None = Query(None),
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id = claims.get("company_id") if isinstance(claims, dict) else None
+    result = await PayslipService.get_ytd_summary(db, employee_id, financial_year, uuid.UUID(company_id) if company_id else None)
+    return _ok(result, "YTD payslip summary retrieved")
 
 
 # 1. GET /api/v2/payroll/my-payslips

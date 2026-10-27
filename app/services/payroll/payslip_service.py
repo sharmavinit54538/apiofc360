@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import calendar
 import io
 import logging
+import os
+import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, List, Optional
 
 from fastapi import HTTPException, status
@@ -15,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.employee import Employee
 from app.models.payroll import PayrollRun, Payslip
 from app.models.payroll_models import PayrollRunEmployee, ProvisionSlip
+from app.services.email_service import send_email
+from app.services.whatsapp_service import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +178,73 @@ class PayslipService:
         document.build(story)
         return output.getvalue()
 
+    @staticmethod
+    def derive_payslip_password(
+        employee: Employee,
+        payslip: Payslip | None = None,
+        rule: str | None = None,
+    ) -> str:
+        """Derive a password without persisting it in the database.
+
+        The default rule is ``FIRST4_NAME_UPPER_DDMM_DOB``.  Additional token
+        forms are accepted for tenants that already use a different convention.
+        A missing DOB uses ``0000`` as a compatibility fallback; tenants should
+        supply DOB data for meaningful password entropy.
+        """
+        rule = rule or os.getenv("PAYSLIP_PASSWORD_RULE", "FIRST4_NAME_UPPER_DDMM_DOB")
+        full_name = f"{getattr(employee, 'first_name', '') or ''} {getattr(employee, 'last_name', '') or ''}".strip()
+        letters = re.sub(r"[^A-Za-z]", "", full_name).upper()
+        first4 = (letters or "USER")[:4].ljust(4, "X")
+        dob = getattr(employee, "date_of_birth", None)
+        ddmm = dob.strftime("%d%m") if dob else "0000"
+        ddmmyyyy = dob.strftime("%d%m%Y") if dob else "00000000"
+        employee_code = str(getattr(employee, "employee_id", None) or getattr(employee, "id", ""))
+        replacements = {
+            "FIRST4_NAME_UPPER": first4,
+            "FIRST4_NAME": first4,
+            "NAME_FIRST4": first4,
+            "DDMMYYYY_DOB": ddmmyyyy,
+            "DDMM_DOB": ddmm,
+            "DOB_DDMM": ddmm,
+            "DOB": ddmmyyyy,
+            "EMPLOYEE_ID": employee_code,
+        }
+        # Longest tokens first prevents DDMM_DOB being partially replaced by
+        # a custom token containing the same prefix.
+        password = rule
+        for token in sorted(replacements, key=len, reverse=True):
+            password = password.replace(token, replacements[token])
+        return password
+
+    @staticmethod
+    def encrypt_pdf(content: bytes, password: str) -> bytes:
+        """Return an encrypted PDF using the installed pypdf version."""
+        from pypdf import PdfReader, PdfWriter
+
+        reader = PdfReader(io.BytesIO(content))
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        try:
+            writer.encrypt(user_password=password, owner_password=password, algorithm="AES-256")
+        except TypeError:  # pypdf versions before the algorithm keyword
+            writer.encrypt(password)
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    @classmethod
+    def protect_pdf(
+        cls, content: bytes, employee: Employee, payslip: Payslip | None = None,
+        password_rule: str | None = None,
+    ) -> tuple[bytes, str]:
+        password = cls.derive_payslip_password(employee, payslip, password_rule)
+        return cls.encrypt_pdf(content, password), password
+
     @classmethod
     async def get_payslip_file(
-        cls, session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID
+        cls, session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID,
+        password_protect: bool | None = None, password_rule: str | None = None,
     ) -> tuple[bytes, str]:
         detail = await cls.get_payslip_detail(session, run_id, employee_id)
         money = lambda key: f"Rs. {detail[key]:,.2f}"
@@ -183,24 +253,182 @@ class PayslipService:
             ("Employee", detail["employee_name"]),
             ("Period", f"{detail['period_month']:02d}/{detail['period_year']}"),
             ("Paid days / LOP days", f"{detail['paid_days']} / {detail['lop_days']}"),
-            ("Basic", money("basic")),
-            ("HRA", money("hra")),
+            ("Basic", money("basic")), ("HRA", money("hra")),
             ("Conveyance", money("conveyance")),
             ("Special allowance", money("special_allowance")),
             ("Other allowances / reimbursements", money("other_allowances_total")),
-            ("Arrears", money("arrears")),
-            ("Statutory bonus", money("bonus")),
+            ("Arrears", money("arrears")), ("Statutory bonus", money("bonus")),
             ("PF / ESI / PT / TDS", f"{money('employee_pf')} / {money('employee_esi')} / {money('professional_tax')} / {money('tds')}"),
             ("Other deductions", money("other_deductions")),
         ]
-        totals = [
-            ("Gross earnings", money("gross_earnings")),
-            ("Total deductions", money("total_deductions")),
-            ("NET PAY", money("net_pay")),
-        ]
+        totals = [("Gross earnings", money("gross_earnings")),
+                  ("Total deductions", money("total_deductions")), ("NET PAY", money("net_pay"))]
         content = cls._render_pdf("OFC360 PAYSLIP", lines, totals)
+        ps = (await session.execute(select(Payslip).where(
+            Payslip.payroll_run_id == run_id, Payslip.employee_id == employee_id
+        ))).scalar_one_or_none()
+        emp = await session.get(Employee, employee_id)
+        should_protect = bool(ps and ps.is_password_protected) if password_protect is None else password_protect
+        if should_protect and emp is not None:
+            content, _ = cls.protect_pdf(content, emp, ps, password_rule or (ps.password_rule if ps else None))
         filename = f"Payslip_{detail['period_year']}_{detail['period_month']:02d}_{detail['payslip_number']}.pdf"
         return content, filename
+
+    @staticmethod
+    def _financial_year_start(financial_year: str | int | None) -> int:
+        if financial_year is None:
+            today = date.today()
+            return today.year if today.month >= 4 else today.year - 1
+        if isinstance(financial_year, int):
+            return financial_year
+        value = str(financial_year).strip()
+        match = re.match(r"^(\d{4})(?:\s*[-/]\s*(\d{2,4}))?$", value)
+        if not match:
+            raise ValueError("financial_year must be YYYY, YYYY-YY or YYYY-YYYY")
+        return int(match.group(1))
+
+    @classmethod
+    async def get_ytd_summary(
+        cls, session: AsyncSession, employee_id: uuid.UUID,
+        financial_year: str | int | None = None, company_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Build a complete April-March financial-year payslip summary."""
+        start_year = cls._financial_year_start(financial_year)
+        month_numbers = list(range(4, 13)) + list(range(1, 4))
+        stmt = select(Payslip).where(Payslip.employee_id == employee_id)
+        if company_id is not None:
+            stmt = stmt.where(Payslip.company_id == company_id)
+        payslips = (await session.execute(stmt)).scalars().all()
+        by_period = {(p.period_year, p.period_month): p for p in payslips}
+        run_ids = [p.payroll_run_id for p in payslips]
+        breakups: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
+        if run_ids:
+            run_emps = (await session.execute(select(PayrollRunEmployee).where(
+                PayrollRunEmployee.run_id.in_(run_ids),
+                PayrollRunEmployee.employee_id == employee_id,
+            ))).scalars().all()
+            breakups = {(r.run_id, r.employee_id): (r.deductions_breakup or {}) for r in run_emps}
+
+        def amount(row: Payslip | None, field: str) -> float:
+            return float(getattr(row, field, 0) or 0) if row is not None else 0.0
+
+        rows: list[dict[str, Any]] = []
+        for month in month_numbers:
+            year = start_year if month >= 4 else start_year + 1
+            ps = by_period.get((year, month))
+            breakup = breakups.get((ps.payroll_run_id, ps.employee_id), {}) if ps else {}
+            lwf = float(breakup.get("lwf", 0) or 0)
+            if not lwf and breakup.get("lwf_paise") is not None:
+                lwf = float(breakup["lwf_paise"] or 0) / 100
+            if not lwf and ps is not None:
+                lwf = float(getattr(ps, "lwf", 0) or 0)
+            row = {
+                "month": month, "month_number": month, "month_name": calendar.month_name[month],
+                "period_month": month, "period_year": year, "period": f"{year}-{month:02d}",
+                "gross_earnings": amount(ps, "gross_earnings"), "arrears": amount(ps, "arrears"),
+                "pf": amount(ps, "employee_pf"), "employee_pf": amount(ps, "employee_pf"),
+                "esi": amount(ps, "employee_esi"), "employee_esi": amount(ps, "employee_esi"),
+                "pt": amount(ps, "professional_tax"), "professional_tax": amount(ps, "professional_tax"),
+                "lwf": lwf, "tds": amount(ps, "tds"), "net_pay": amount(ps, "net_pay"),
+                "payslip_id": str(ps.id) if ps else None,
+            }
+            for key in ("gross_earnings", "arrears", "pf", "employee_pf", "esi", "employee_esi", "pt", "professional_tax", "lwf", "tds", "net_pay"):
+                row[f"{key}_paise"] = int(round(row[key] * 100))
+            rows.append(row)
+        totals = {key: round(sum(row[key] for row in rows), 2) for key in (
+            "gross_earnings", "arrears", "pf", "employee_pf", "esi", "employee_esi",
+            "pt", "professional_tax", "lwf", "tds", "net_pay",
+        )}
+        for key, value in list(totals.items()):
+            totals[f"{key}_paise"] = int(round(value * 100))
+        fy_label = f"{start_year}-{str(start_year + 1)[-2:]}"
+        return {
+            "employee_id": str(employee_id), "financial_year": fy_label,
+            "financial_year_start_year": start_year, "months": rows,
+            "month_breakdown": rows, "totals": totals, "ytd_totals": totals,
+        }
+
+    @classmethod
+    async def deliver_payslips(
+        cls, session: AsyncSession, run_id: uuid.UUID,
+        employee_ids: list[str] | None = None, channels: list[str] | None = None,
+        password_rule: str | None = None, is_password_protected: bool = True,
+    ) -> dict[str, Any]:
+        """Generate and deliver selected payslips, recording each channel result."""
+        selected_channels = [c.lower() for c in (channels or ["email", "whatsapp"])]
+        selected_channels = [c for c in selected_channels if c in {"email", "whatsapp"}]
+        if not selected_channels:
+            raise ValueError("At least one of email or whatsapp must be selected")
+        stmt = select(Payslip).where(Payslip.payroll_run_id == run_id)
+        if employee_ids:
+            stmt = stmt.where(Payslip.employee_id.in_([uuid.UUID(str(x)) for x in employee_ids]))
+        payslips = list((await session.execute(stmt)).scalars().all())
+        results: list[dict[str, Any]] = []
+        for ps in payslips:
+            emp = await session.get(Employee, ps.employee_id)
+            if emp is None:
+                ps.delivery_error = "Employee not found"
+                ps.email_status = "FAILED" if "email" in selected_channels else ps.email_status
+                ps.whatsapp_status = "FAILED" if "whatsapp" in selected_channels else ps.whatsapp_status
+                results.append({"payslip_id": str(ps.id), "status": "FAILED", "error": ps.delivery_error})
+                continue
+            errors: list[str] = []
+            try:
+                content, filename = await cls.get_payslip_file(
+                    session, run_id, ps.employee_id,
+                    password_protect=is_password_protected, password_rule=password_rule,
+                )
+                ps.is_password_protected = is_password_protected
+                ps.password_rule = password_rule or os.getenv("PAYSLIP_PASSWORD_RULE", "FIRST4_NAME_UPPER_DDMM_DOB")
+                attachment = (filename, content, "application/pdf")
+            except Exception as exc:
+                content, filename, attachment = None, "", None
+                errors.append(f"PDF: {exc}")
+            now = datetime.utcnow()
+            if "email" in selected_channels:
+                try:
+                    if attachment is None:
+                        raise RuntimeError("PDF generation failed")
+                    recipient = emp.company_email or emp.personal_email
+                    if not recipient:
+                        raise RuntimeError("Employee email is missing")
+                    await send_email(
+                        recipient, f"Your payslip for {ps.period_month:02d}/{ps.period_year}",
+                        f"<p>Hello {emp.first_name},</p><p>Your payslip is attached.</p>",
+                        attachments=[attachment],
+                    )
+                    ps.email_status, ps.email_sent_at = "SENT", now
+                except Exception as exc:
+                    ps.email_status = "FAILED"
+                    errors.append(f"Email: {exc}")
+            if "whatsapp" in selected_channels:
+                try:
+                    if attachment is None:
+                        raise RuntimeError("PDF generation failed")
+                    if not emp.phone:
+                        raise RuntimeError("Employee phone is missing")
+                    await send_whatsapp_message(
+                        emp.phone, f"Your payslip for {ps.period_month:02d}/{ps.period_year} is attached.",
+                        attachment=attachment,
+                    )
+                    ps.whatsapp_status, ps.whatsapp_sent_at = "SENT", now
+                except Exception as exc:
+                    ps.whatsapp_status = "FAILED"
+                    errors.append(f"WhatsApp: {exc}")
+            ps.delivery_error = "; ".join(errors) or None
+            if (ps.email_status == "SENT" or ps.whatsapp_status == "SENT") and not errors:
+                ps.sent_at = now
+            elif ps.email_status == "SENT" or ps.whatsapp_status == "SENT":
+                ps.sent_at = now
+            results.append({
+                "payslip_id": str(ps.id), "employee_id": str(ps.employee_id),
+                "email_status": ps.email_status, "whatsapp_status": ps.whatsapp_status,
+                "sent_at": ps.sent_at.isoformat() if ps.sent_at else None,
+                "delivery_error": ps.delivery_error,
+            })
+        await session.commit()
+        return {"run_id": str(run_id), "total": len(results), "items": results,
+                "failed": sum(1 for r in results if r.get("delivery_error"))}
 
     @classmethod
     async def list_provision_slips(

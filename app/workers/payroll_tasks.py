@@ -128,6 +128,10 @@ try:
         def generate_payslips_batch_task(run_id_str: str, employee_ids: list[str], force: bool, format_type: str, job_id: str):
             asyncio.run(_async_generate_payslips_batch(run_id_str, employee_ids, force, format_type, job_id))
 
+        @celery_app.task(name="app.workers.payroll_tasks.deliver_payslips_task")
+        def deliver_payslips_task(run_id_str: str, employee_ids: list[str], channels: list[str], password_rule: str | None, is_password_protected: bool, job_id: str):
+            asyncio.run(_async_deliver_payslips(run_id_str, employee_ids, channels, password_rule, is_password_protected, job_id))
+
         @celery_app.task(name="app.workers.payroll_tasks.generate_bank_file_task")
         def generate_bank_file_task(batch_id_str: str, file_format: str, job_id: str):
             asyncio.run(_async_generate_bank_file(batch_id_str, file_format, job_id))
@@ -187,6 +191,29 @@ async def _async_generate_payslips_batch(
             )
     except Exception as e:
         logger.exception("Error generating payslips for run %s: %s", run_id_str, e)
+        await PayrollJobTracker.update_job(job_id, "FAILED", error=str(e))
+
+
+async def _async_deliver_payslips(
+    run_id_str: str, employee_ids: list[str], channels: list[str],
+    password_rule: str | None, is_password_protected: bool, job_id: str,
+):
+    """Deliver payslips and persist per-channel delivery outcomes."""
+    await PayrollJobTracker.update_job(job_id, "PROCESSING", progress=10)
+    try:
+        from app.db.database import AsyncSessionLocal
+        from app.services.payroll.payslip_service import PayslipService
+        async with AsyncSessionLocal() as session:
+            result = await PayslipService.deliver_payslips(
+                session, uuid.UUID(run_id_str), employee_ids, channels,
+                password_rule, is_password_protected,
+            )
+            await PayrollJobTracker.update_job(
+                job_id, "COMPLETED", progress=100, total=result["total"],
+                processed=result["total"] - result["failed"], failed=result["failed"], result=result,
+            )
+    except Exception as e:
+        logger.exception("Error delivering payslips for run %s: %s", run_id_str, e)
         await PayrollJobTracker.update_job(job_id, "FAILED", error=str(e))
 
 
@@ -298,6 +325,36 @@ async def dispatch_payslip_generation(
             logger.warning("Celery dispatch failed, running asyncio background task: %s", e)
     asyncio.create_task(_async_generate_payslips_batch(str(run_id), emp_ids, force, format_type, job_id))
     return job_id
+
+
+async def dispatch_payslip_delivery(
+    run_id: uuid.UUID, employee_ids: list[str] | None = None,
+    channels: list[str] | None = None, password_rule: str | None = None,
+    is_password_protected: bool = True,
+) -> str:
+    emp_ids = employee_ids or []
+    selected_channels = channels or ["email", "whatsapp"]
+    job_id = await PayrollJobTracker.create_job(
+        "payslip_delivery", {"run_id": str(run_id), "channels": selected_channels}
+    )
+    if settings.USE_CELERY:
+        try:
+            from app.workers.celery_app import celery_app
+            celery_app.send_task(
+                "app.workers.payroll_tasks.deliver_payslips_task",
+                args=[str(run_id), emp_ids, selected_channels, password_rule, is_password_protected, job_id],
+            )
+            return job_id
+        except Exception as e:
+            logger.warning("Celery delivery dispatch failed, using asyncio: %s", e)
+    asyncio.create_task(_async_deliver_payslips(
+        str(run_id), emp_ids, selected_channels, password_rule, is_password_protected, job_id
+    ))
+    return job_id
+
+
+# Explicit alias for callers that use the feature name.
+dispatch_payslip_deliveries = dispatch_payslip_delivery
 
 
 async def dispatch_bank_file_generation(
