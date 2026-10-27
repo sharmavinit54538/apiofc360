@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import String, DateTime, func, Boolean, Integer, JSON, text
+from sqlalchemy import String, DateTime, ForeignKey, Text, UniqueConstraint, func, Boolean, Integer, JSON, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, TenantMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.employee import Employee
 
 
 class Company(Base):
@@ -81,5 +85,65 @@ class Company(Base):
         nullable=True,
         default="INR",
         server_default=text("'INR'"),
+    )
+
+
+class LegalEntity(TenantMixin, TimestampMixin, Base):
+    """A real registered legal entity belonging to a tenant."""
+
+    __tablename__ = "legal_entities"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_legal_entities_company_code"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+    manager_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    pan: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    tan: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    pf_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    esi_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pt_reg_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    lwf_reg_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    state_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    branches: Mapped[list[Branch]] = relationship("Branch", back_populates="legal_entity", lazy="select")
+    manager: Mapped[Employee | None] = relationship("Employee", foreign_keys=[manager_id], lazy="select")
+
+
+class Branch(TenantMixin, TimestampMixin, Base):
+    """A physical branch with optional statutory registration overrides."""
+
+    __tablename__ = "branches"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_branches_company_code"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=False
+    )
+    branch_manager_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+    gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    pan: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    tan: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    pf_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    esi_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pt_reg_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    lwf_reg_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    state_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    legal_entity: Mapped[LegalEntity] = relationship("LegalEntity", back_populates="branches", lazy="select")
+    branch_manager: Mapped[Employee | None] = relationship(
+        "Employee", foreign_keys=[branch_manager_id], lazy="select"
     )
 

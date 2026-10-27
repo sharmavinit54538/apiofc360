@@ -9,7 +9,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, Text, func, text,
+    Numeric, String, Text, JSON, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,6 +44,13 @@ class EmployeeExit(Base):
 
     personal_email: Mapped[str] = mapped_column(String(255), nullable=False)
     personal_phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    notice_period_days_required: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
+    notice_period_days_served: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    notice_shortfall_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    notice_buyout: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    notice_waived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    unpaid_salary_days: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    fnf_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING", server_default=text("'PENDING'"))
 
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="SUBMITTED", server_default=text("'SUBMITTED'"))
 
@@ -167,6 +174,12 @@ class FnfSettlement(Base):
     net_payable_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     payment_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING/PAID
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
+    settlement_breakup: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    statement_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    statement_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    generated_letters_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     exit_rel: Mapped[EmployeeExit] = relationship("EmployeeExit", back_populates="fnf_settlements")
 

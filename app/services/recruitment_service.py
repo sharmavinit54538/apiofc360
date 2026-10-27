@@ -1070,6 +1070,14 @@ Generate realistic content under each heading. Make the tone professional, encou
             app_status = f"OFFER_{new_status}"
             await self.repo.update_application_status(offer.application_id, app_status)
 
+            preboarding_employee = None
+            if new_status == "ACCEPTED":
+                from app.services.employee_onboarding_service import EmployeeOnboardingService
+                try:
+                    preboarding_employee = await EmployeeOnboardingService(self.session).create_preboarding_from_offer(offer_uuid)
+                except ValueError as exc:
+                    raise AppException(message=str(exc), status_code=status.HTTP_400_BAD_REQUEST) from exc
+
             try:
                 from app.services import notification_service
                 app_obj = await self.repo.get_application_by_id(offer.application_id)
@@ -1094,6 +1102,8 @@ Generate realistic content under each heading. Make the tone professional, encou
                 logger.warning("Failed to emit offer status notification: %s", e)
 
             await self.session.commit()
+            if preboarding_employee is not None:
+                await EmployeeOnboardingService(self.session).send_onboarding_invite(preboarding_employee)
             full_offer = await self.repo.get_offer_by_id(offer_uuid)
             return OfferResponse.model_validate(full_offer)
 

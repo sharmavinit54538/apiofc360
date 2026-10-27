@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -94,6 +94,8 @@ class FnfCalculationService:
         min_years_required: int = 5,
         employment_type: Optional[str] = None,
         fixed_term_pro_rata: bool = True,
+        da_monthly: Decimal = Decimal("0.00"),
+        gratuity_ceiling: Decimal = Decimal("2000000.00"),
     ) -> Decimal:
         """Compute Gratuity per Payment of Gratuity Act 1972:
         Gratuity = (last_drawn_basic / 26) * 15 * completed_years_of_service.
@@ -103,6 +105,8 @@ class FnfCalculationService:
         """
         if not joining_date or not last_working_date or last_working_date <= joining_date:
             return Decimal("0.00")
+        basic_da_monthly = Decimal(str(basic_monthly)) + Decimal(str(da_monthly or 0))
+        ceiling = Decimal(str(gratuity_ceiling)) if gratuity_ceiling is not None else None
 
         days_of_service = (last_working_date - joining_date).days
         years_raw = days_of_service / 365.25
@@ -112,13 +116,15 @@ class FnfCalculationService:
         # earns gratuity on a pro-rata basis for the period actually served, with
         # NO five-year minimum tenure requirement.
         if FnfCalculationService.is_fixed_term(employment_type) and fixed_term_pro_rata:
-            if years_raw <= 0 or basic_monthly <= 0:
+            if years_raw <= 0 or basic_da_monthly <= 0:
                 return Decimal("0.00")
             pro_rata = (
                 (Decimal("15.0") / Decimal("26.0"))
-                * basic_monthly
+                * basic_da_monthly
                 * Decimal(str(years_raw))
             )
+            if ceiling is not None:
+                pro_rata = min(pro_rata, ceiling)
             return pro_rata.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         if years_raw < min_years_required:
@@ -129,161 +135,214 @@ class FnfCalculationService:
         if fractional_months >= 6:
             completed_years += 1
 
-        gratuity = (Decimal("15.0") / Decimal("26.0")) * basic_monthly * Decimal(str(completed_years))
+        gratuity = (Decimal("15.0") / Decimal("26.0")) * basic_da_monthly * Decimal(str(completed_years))
+        if ceiling is not None:
+            gratuity = min(gratuity, ceiling)
         return gratuity.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @staticmethod
     def compute_leave_encashment(
         unused_leave_days: Decimal,
         basic_monthly: Decimal,
+        basis: str = "BASIC",
+        gross_monthly: Decimal | None = None,
+        divisor: int = 30,
     ) -> Decimal:
-        """Compute leave encashment:
-        Encashment = unused_leave_days * (basic_monthly / 30).
-        """
-        if unused_leave_days <= 0 or basic_monthly <= 0:
+        """Encash using selectable Basic/Gross and a 26/30-day divisor."""
+        normalized_basis = str(basis or "BASIC").upper()
+        if normalized_basis not in {"BASIC", "GROSS"}:
+            raise ValueError("Leave encashment basis must be BASIC or GROSS.")
+        if divisor not in {26, 30}:
+            raise ValueError("Leave encashment divisor must be 26 or 30.")
+        monthly = Decimal(str(gross_monthly if normalized_basis == "GROSS" and gross_monthly is not None else basic_monthly))
+        if unused_leave_days <= 0 or monthly <= 0:
             return Decimal("0.00")
-        encashment = unused_leave_days * (basic_monthly / Decimal("30.0"))
-        return encashment.quantize(Decimal("0.01"))
+        encashment = Decimal(str(unused_leave_days)) * (monthly / Decimal(str(divisor)))
+        return encashment.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @staticmethod
     def compute_notice_recovery(
         required_notice_days: int,
         actual_notice_days: int,
         basic_monthly: Decimal,
+        waived: bool = False,
+        buyout: bool = False,
+        divisor: int = 30,
     ) -> tuple[Decimal, Decimal]:
-        """Compute notice shortfall recovery or surplus payout.
-        
-        Returns:
-            (notice_recovery_deduction, notice_payout)
+        """Compute notice recovery/payout; waiver clears only shortfall recovery.
+
+        Buyout keeps the shortfall recovery (the employee buys out unserved
+        notice), while the explicit ``buyout`` argument documents that choice.
         """
         shortfall_days = max(0, required_notice_days - actual_notice_days)
         surplus_days = max(0, actual_notice_days - required_notice_days)
-        per_day_salary = basic_monthly / Decimal("30.0")
+        if divisor not in {26, 30}:
+            raise ValueError("Notice divisor must be 26 or 30.")
+        per_day_salary = basic_monthly / Decimal(str(divisor))
 
-        recovery = (Decimal(str(shortfall_days)) * per_day_salary).quantize(Decimal("0.01"))
+        recovery = Decimal("0.00") if waived else (Decimal(str(shortfall_days)) * per_day_salary).quantize(Decimal("0.01"))
         payout = (Decimal(str(surplus_days)) * per_day_salary).quantize(Decimal("0.01"))
         return recovery, payout
 
-    async def calculate_fnf_preview(self, exit_id: uuid.UUID) -> dict:
-        """Calculate complete FNF settlement numbers for an employee exit request."""
-        exit_stmt = (
-            select(EmployeeExit)
-            .where(EmployeeExit.id == exit_id)
-            .options(selectinload(EmployeeExit.employee))
-        )
-        exit_res = await self.db.execute(exit_stmt)
-        exit_obj = exit_res.scalar_one_or_none()
-        if not exit_obj:
-            raise ValueError("Exit request not found.")
+    async def calculate_fnf_preview(
+        self,
+        exit_id: uuid.UUID,
+        *,
+        leave_basis: str | None = None,
+        leave_divisor: int | None = None,
+        da_monthly: Decimal | None = None,
+        notice_waived: bool | None = None,
+        notice_buyout: bool | None = None,
+        unpaid_salary: Decimal | None = None,
+        arrears: Decimal | None = None,
+        variable_bonus: Decimal | None = None,
+    ) -> dict:
+        """Calculate a complete, reproducible FnF breakup from real ledgers."""
+        from app.models.leave_balance import LeaveBalance
+        from app.models.payroll import PayrollAttendanceInput
 
+        exit_obj = (await self.db.execute(
+            select(EmployeeExit).where(EmployeeExit.id == exit_id).options(selectinload(EmployeeExit.employee))
+        )).scalar_one_or_none()
+        if not exit_obj or not exit_obj.employee:
+            raise ValueError("Exit request or employee not found.")
         emp = exit_obj.employee
-        if not emp:
-            raise ValueError("Employee not found for exit request.")
-
-        # 1. Fetch Salary Structure
-        sal_stmt = (
-            select(SalaryStructure)
-            .where(
-                SalaryStructure.employee_id == emp.id,
-                SalaryStructure.is_active == True,  # noqa: E712
-            )
-            .order_by(SalaryStructure.effective_from.desc())
-        )
-        sal_struct = (await self.db.execute(sal_stmt)).scalar_one_or_none()
-        basic_monthly = sal_struct.basic_monthly if sal_struct else (Decimal(str(emp.basic_salary or "0.00")))
-        hra_monthly = sal_struct.hra_monthly if sal_struct else (Decimal(str(emp.hra or "0.00")))
+        sal_struct = (await self.db.execute(
+            select(SalaryStructure).where(
+                SalaryStructure.employee_id == emp.id, SalaryStructure.is_active == True,  # noqa: E712
+            ).order_by(SalaryStructure.effective_from.desc())
+        )).scalars().first()
+        basic_monthly = Decimal(str(sal_struct.basic_monthly if sal_struct else (emp.basic_salary or 0)))
+        hra_monthly = Decimal(str(sal_struct.hra_monthly if sal_struct else (emp.hra or 0)))
+        allowances = (sal_struct.other_allowances or {}) if sal_struct else {}
+        detected_da = Decimal("0.00")
+        other_allowances_total = Decimal("0.00")
+        for key, value in allowances.items():
+            normalized_key = str(key).strip().lower().replace(" ", "_")
+            if normalized_key in {"da", "dearness_allowance"}:
+                detected_da += Decimal(str(value or 0))
+            else:
+                other_allowances_total += Decimal(str(value or 0))
+        da = Decimal(str(da_monthly)) if da_monthly is not None else detected_da
         gross_monthly = (
-            sal_struct.basic_monthly + sal_struct.hra_monthly + sal_struct.conveyance_monthly + sal_struct.special_allowance_monthly
+            Decimal(str(sal_struct.basic_monthly + sal_struct.hra_monthly + sal_struct.conveyance_monthly + sal_struct.special_allowance_monthly))
             if sal_struct else basic_monthly + hra_monthly
-        )
+        ) + other_allowances_total + da
 
-        # 2. Compute Gratuity.
-        # Fixed-term employees accrue pro-rata gratuity without the 5-year minimum
-        # tenure when the tenant's statutory config enables it (Code on Wages).
         fixed_term_pro_rata = True
-        company_id = getattr(emp, "company_id", None) or getattr(exit_obj, "company_id", None)
+        company_id = emp.company_id or exit_obj.company_id
         if company_id is not None:
-            cfg_stmt = select(StatutoryComplianceConfig).where(
+            cfg = (await self.db.execute(select(StatutoryComplianceConfig).where(
                 StatutoryComplianceConfig.company_id == company_id,
                 StatutoryComplianceConfig.is_active == True,  # noqa: E712
-            )
-            cfg = (await self.db.execute(cfg_stmt)).scalar_one_or_none()
+            ))).scalars().first()
             if cfg is not None:
-                fixed_term_pro_rata = bool(
-                    getattr(cfg, "fixed_term_pro_rata_gratuity_enabled", True)
-                )
-
+                fixed_term_pro_rata = bool(getattr(cfg, "fixed_term_pro_rata_gratuity_enabled", True))
         gratuity = self.compute_gratuity(
-            basic_monthly=basic_monthly,
-            joining_date=emp.joining_date,
+            basic_monthly=basic_monthly, joining_date=emp.joining_date,
             last_working_date=exit_obj.last_working_date,
-            employment_type=getattr(emp, "employment_type", None),
-            fixed_term_pro_rata=fixed_term_pro_rata,
+            employment_type=emp.employment_type, fixed_term_pro_rata=fixed_term_pro_rata,
+            da_monthly=da, gratuity_ceiling=Decimal("2000000.00"),
         )
 
-        # 3. Compute Unused Leave Balance & Leave Encashment
-        leave_stmt = select(EmployeeLeavePolicy).where(EmployeeLeavePolicy.employee_id == emp.id)
-        leave_policies = (await self.db.execute(leave_stmt)).scalars().all()
-        unused_leave_days = sum(
-            max(Decimal("0.0"), Decimal(str(p.total_days)) - Decimal(str(p.used_days)))
-            for p in leave_policies
-        )
-        leave_encashment = self.compute_leave_encashment(unused_leave_days, basic_monthly)
+        leave_breakup: list[dict] = []
+        fy_start = exit_obj.last_working_date.year if exit_obj.last_working_date.month >= 4 else exit_obj.last_working_date.year - 1
+        balances = (await self.db.execute(select(LeaveBalance).where(
+            LeaveBalance.employee_id == emp.id,
+            or_(LeaveBalance.year.is_(None), LeaveBalance.year == fy_start),
+        ))).scalars().all()
+        if balances:
+            for balance in balances:
+                leave_name = balance.leave_type or ""
+                inferred = any(token in leave_name.lower() for token in ("earned", "privilege")) or leave_name.strip().lower() == "el" or Decimal(str(balance.carried_forward_days or 0)) > 0
+                if balance.encashable is False or (balance.encashable is None and not inferred):
+                    continue
+                days = balance.remaining_days
+                if balance.encashable_days is not None:
+                    days = min(days, Decimal(str(balance.encashable_days)))
+                basis = (leave_basis or balance.encashment_base or "BASIC").upper()
+                divisor = leave_divisor or balance.encashment_divisor or 30
+                amount = self.compute_leave_encashment(days, basic_monthly, basis, gross_monthly, divisor)
+                if days > 0:
+                    leave_breakup.append({"leave_type": leave_name, "days": days, "basis": basis, "divisor": divisor, "amount": amount})
+        else:
+            # Compatibility for tenants not yet moved to the canonical balance ledger.
+            leave_policies = (await self.db.execute(select(EmployeeLeavePolicy).where(
+                EmployeeLeavePolicy.employee_id == emp.id
+            ))).scalars().all()
+            for policy in leave_policies:
+                inferred = any(token in (policy.leave_type or "").lower() for token in ("earned", "privilege")) or (policy.leave_type or "").strip().lower() == "el" or policy.carry_forward
+                if policy.encashable is False or (policy.encashable is None and not inferred):
+                    continue
+                days = max(Decimal("0"), Decimal(str(policy.total_days or 0)) - Decimal(str(policy.used_days or 0)))
+                if policy.encashable_days is not None:
+                    days = min(days, Decimal(str(policy.encashable_days)))
+                basis = (leave_basis or policy.encashment_base or "BASIC").upper()
+                divisor = leave_divisor or policy.encashment_divisor or 30
+                amount = self.compute_leave_encashment(days, basic_monthly, basis, gross_monthly, divisor)
+                if days > 0:
+                    leave_breakup.append({"leave_type": policy.leave_type, "days": days, "basis": basis, "divisor": divisor, "amount": amount})
+        unused_leave_days = sum((item["days"] for item in leave_breakup), Decimal("0.00"))
+        leave_encashment = sum((item["amount"] for item in leave_breakup), Decimal("0.00")).quantize(Decimal("0.01"))
 
-        # 4. Notice Period Shortfall Recovery
-        required_notice_days = getattr(emp, "notice_period_days", 30) or 30
-        resignation_date = exit_obj.created_at.date() if hasattr(exit_obj.created_at, "date") else date.today()
-        actual_notice_days = max(0, (exit_obj.last_working_date - resignation_date).days)
+        required_notice_days = exit_obj.notice_period_days_required
+        if required_notice_days is None:
+            required_notice_days = getattr(emp, "notice_period_days", 30) or 30
+        actual_notice_days = exit_obj.notice_period_days_served
+        if actual_notice_days is None:
+            resignation_date = exit_obj.created_at.date() if hasattr(exit_obj.created_at, "date") else date.today()
+            actual_notice_days = max(0, (exit_obj.last_working_date - resignation_date).days)
+        waived = exit_obj.notice_waived if notice_waived is None else notice_waived
+        buyout = exit_obj.notice_buyout if notice_buyout is None else notice_buyout
         notice_recovery, notice_payout = self.compute_notice_recovery(
-            required_notice_days=required_notice_days,
-            actual_notice_days=actual_notice_days,
-            basic_monthly=basic_monthly,
+            required_notice_days=required_notice_days, actual_notice_days=actual_notice_days,
+            basic_monthly=basic_monthly, waived=bool(waived), buyout=bool(buyout),
         )
+        shortfall_days = max(0, required_notice_days - actual_notice_days)
 
-        # 5. Pending Active Loans Recovery
-        loan_stmt = select(AdvanceLoan).where(
-            AdvanceLoan.employee_id == emp.id,
-            AdvanceLoan.status == "ACTIVE",
-        )
-        loans = (await self.db.execute(loan_stmt)).scalars().all()
-        loan_recovery = sum(Decimal(str(l.outstanding_balance)) for l in loans)
+        loans = (await self.db.execute(select(AdvanceLoan).where(
+            AdvanceLoan.employee_id == emp.id, AdvanceLoan.status == "ACTIVE",
+        ))).scalars().all()
+        loan_recovery = sum((Decimal(str(loan.outstanding_balance or 0)) for loan in loans), Decimal("0.00"))
+        attendance = (await self.db.execute(select(PayrollAttendanceInput).where(
+            PayrollAttendanceInput.employee_id == emp.id,
+            PayrollAttendanceInput.period_month == exit_obj.last_working_date.month,
+            PayrollAttendanceInput.period_year == exit_obj.last_working_date.year,
+        ))).scalar_one_or_none()
+        if unpaid_salary is not None:
+            base_pending_salary = Decimal(str(unpaid_salary))
+        elif exit_obj.unpaid_salary_days is not None:
+            unpaid_days = max(Decimal("0"), Decimal(str(exit_obj.unpaid_salary_days)))
+            base_pending_salary = (gross_monthly * unpaid_days / Decimal("30")).quantize(Decimal("0.01"))
+        else:
+            base_pending_salary = (gross_monthly * Decimal(str(exit_obj.last_working_date.day)) / Decimal("30")).quantize(Decimal("0.01"))
+        arrears_amount = Decimal(str(attendance.arrears if attendance else 0)) + Decimal(str(arrears or 0))
+        pending_salary = (base_pending_salary + arrears_amount).quantize(Decimal("0.01"))
+        bonus = (
+            (Decimal(str(sal_struct.annual_bonus or 0)) / Decimal("12") if sal_struct else Decimal("0"))
+            + Decimal(str(attendance.one_time_bonus if attendance else 0)) + Decimal(str(variable_bonus or 0))
+        ).quantize(Decimal("0.01"))
 
-        # 6. Pending Salary for Final Working Month (Prorated)
-        last_day = exit_obj.last_working_date.day
-        total_days_in_final_month = 30
-        pending_salary = (basic_monthly * Decimal(str(last_day)) / Decimal(str(total_days_in_final_month))).quantize(Decimal("0.01"))
-
-        # Calculate Total Earnings and Total Deductions
-        total_earnings = (pending_salary + leave_encashment + gratuity + notice_payout).quantize(Decimal("0.01"))
+        total_earnings = (pending_salary + leave_encashment + gratuity + bonus + notice_payout).quantize(Decimal("0.01"))
         total_deductions = (notice_recovery + loan_recovery).quantize(Decimal("0.01"))
         net_payable = (total_earnings - total_deductions).quantize(Decimal("0.01"))
-
         tenure_years = round((exit_obj.last_working_date - emp.joining_date).days / 365.25, 1) if emp.joining_date else 0.0
-
         return {
-            "exit_id": str(exit_id),
-            "employee_id": str(emp.id),
+            "exit_id": str(exit_id), "employee_id": str(emp.id),
             "employee_name": f"{emp.first_name} {emp.last_name}",
             "joining_date": emp.joining_date.isoformat() if emp.joining_date else None,
-            "last_working_date": exit_obj.last_working_date.isoformat(),
-            "tenure_years": tenure_years,
-            "basic_monthly": float(basic_monthly),
-            "last_salary": float(gross_monthly),
-            "pending_salary": float(pending_salary),
-            "leave_encashment": float(leave_encashment),
-            "unused_leave_days": float(unused_leave_days),
-            "gratuity": float(gratuity),
-            "bonus": float(notice_payout),
-            "incentives": 0.0,
-            "recoveries": 0.0,
-            "notice_recovery": float(notice_recovery),
-            "required_notice_days": required_notice_days,
-            "actual_notice_days": actual_notice_days,
-            "asset_recovery": 0.0,
-            "loan_recovery": float(loan_recovery),
-            "other_deductions": 0.0,
-            "total_earnings": float(total_earnings),
-            "total_deductions": float(total_deductions),
-            "net_payable_amount": float(net_payable),
-            "payment_status": "PENDING",
+            "last_working_date": exit_obj.last_working_date.isoformat(), "tenure_years": tenure_years,
+            "basic_monthly": float(basic_monthly), "da_monthly": float(da), "gross_monthly": float(gross_monthly),
+            "last_salary": float(gross_monthly), "base_pending_salary": float(base_pending_salary),
+            "arrears": float(arrears_amount), "pending_salary": float(pending_salary),
+            "leave_encashment": float(leave_encashment), "unused_leave_days": float(unused_leave_days),
+            "leave_breakup": [{**item, "days": float(item["days"]), "amount": float(item["amount"])} for item in leave_breakup],
+            "gratuity": float(gratuity), "gratuity_ceiling": 2000000.0,
+            "bonus": float(bonus), "incentives": float(notice_payout), "recoveries": 0.0,
+            "notice_recovery": float(notice_recovery), "notice_payout": float(notice_payout),
+            "required_notice_days": required_notice_days, "actual_notice_days": actual_notice_days,
+            "notice_shortfall_days": shortfall_days, "notice_waived": bool(waived), "notice_buyout": bool(buyout),
+            "asset_recovery": 0.0, "loan_recovery": float(loan_recovery), "other_deductions": 0.0,
+            "total_earnings": float(total_earnings), "total_deductions": float(total_deductions),
+            "net_payable_amount": float(net_payable), "payment_status": "PENDING",
         }

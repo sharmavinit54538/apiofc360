@@ -277,8 +277,9 @@ class ExitRepository:
         existing = await self.get_fnf_by_exit_id(exit_uuid)
         
         # Calculate net payable
+        # ``last_salary`` is the historical monthly reference, not an additional
+        # earning; only unpaid/pending salary belongs in this settlement.
         earnings = (
-            Decimal(str(data.get("last_salary", 0.0))) +
             Decimal(str(data.get("pending_salary", 0.0))) +
             Decimal(str(data.get("leave_encashment", 0.0))) +
             Decimal(str(data.get("gratuity", 0.0))) +

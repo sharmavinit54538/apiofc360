@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
 from app.models.payroll import PayrollRun, Payslip
-from app.models.payroll_models import PayrollRunEmployee, ProvisionSlip
+from app.models.payroll_models import EmployeeYTDSalary, PayrollRunEmployee, ProvisionSlip
 from app.services.email_service import send_email
 from app.services.whatsapp_service import send_whatsapp_message
 
@@ -300,6 +300,14 @@ class PayslipService:
             stmt = stmt.where(Payslip.company_id == company_id)
         payslips = (await session.execute(stmt)).scalars().all()
         by_period = {(p.period_year, p.period_month): p for p in payslips}
+        imported_stmt = select(EmployeeYTDSalary).where(
+            EmployeeYTDSalary.employee_id == employee_id,
+            EmployeeYTDSalary.financial_year == f"{start_year}-{start_year + 1}",
+        )
+        if company_id is not None:
+            imported_stmt = imported_stmt.where(EmployeeYTDSalary.company_id == company_id)
+        imported_rows = (await session.execute(imported_stmt)).scalars().all()
+        imported_by_period = {(row.period_year, row.period_month): row for row in imported_rows}
         run_ids = [p.payroll_run_id for p in payslips]
         breakups: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
         if run_ids:
@@ -312,32 +320,51 @@ class PayslipService:
         def amount(row: Payslip | None, field: str) -> float:
             return float(getattr(row, field, 0) or 0) if row is not None else 0.0
 
+        def period_amount(ps: Payslip | None, imported: EmployeeYTDSalary | None, field: str, imported_field: str) -> float:
+            if ps is not None:
+                return amount(ps, field)
+            if imported is not None:
+                return int(getattr(imported, imported_field, 0) or 0) / 100.0
+            return 0.0
+
         rows: list[dict[str, Any]] = []
         for month in month_numbers:
             year = start_year if month >= 4 else start_year + 1
             ps = by_period.get((year, month))
+            # A canonical payslip always wins; imported history fills only gaps.
+            imported = imported_by_period.get((year, month)) if ps is None else None
             breakup = breakups.get((ps.payroll_run_id, ps.employee_id), {}) if ps else {}
             lwf = float(breakup.get("lwf", 0) or 0)
             if not lwf and breakup.get("lwf_paise") is not None:
                 lwf = float(breakup["lwf_paise"] or 0) / 100
             if not lwf and ps is not None:
                 lwf = float(getattr(ps, "lwf", 0) or 0)
+            if imported is not None:
+                lwf = int(imported.lwf_paise or 0) / 100.0
             row = {
                 "month": month, "month_number": month, "month_name": calendar.month_name[month],
                 "period_month": month, "period_year": year, "period": f"{year}-{month:02d}",
-                "gross_earnings": amount(ps, "gross_earnings"), "arrears": amount(ps, "arrears"),
-                "pf": amount(ps, "employee_pf"), "employee_pf": amount(ps, "employee_pf"),
-                "esi": amount(ps, "employee_esi"), "employee_esi": amount(ps, "employee_esi"),
-                "pt": amount(ps, "professional_tax"), "professional_tax": amount(ps, "professional_tax"),
-                "lwf": lwf, "tds": amount(ps, "tds"), "net_pay": amount(ps, "net_pay"),
+                "gross_earnings": period_amount(ps, imported, "gross_earnings", "gross_earnings_paise"),
+                "arrears": period_amount(ps, imported, "arrears", "arrears_paise"),
+                "pf": period_amount(ps, imported, "employee_pf", "pf_paise"),
+                "employee_pf": period_amount(ps, imported, "employee_pf", "pf_paise"),
+                "esi": period_amount(ps, imported, "employee_esi", "esi_paise"),
+                "employee_esi": period_amount(ps, imported, "employee_esi", "esi_paise"),
+                "pt": period_amount(ps, imported, "professional_tax", "pt_paise"),
+                "professional_tax": period_amount(ps, imported, "professional_tax", "pt_paise"),
+                "lwf": lwf, "tds": period_amount(ps, imported, "tds", "tds_paise"),
+                "total_deductions": period_amount(ps, imported, "total_deductions", "total_deductions_paise"),
+                "net_pay": period_amount(ps, imported, "net_pay", "net_pay_paise"),
                 "payslip_id": str(ps.id) if ps else None,
+                "source": "PAYSLIP" if ps else "MIGRATION" if imported else "EMPTY",
+                "migration_batch_id": str(imported.migration_batch_id) if imported and imported.migration_batch_id else None,
             }
-            for key in ("gross_earnings", "arrears", "pf", "employee_pf", "esi", "employee_esi", "pt", "professional_tax", "lwf", "tds", "net_pay"):
+            for key in ("gross_earnings", "arrears", "pf", "employee_pf", "esi", "employee_esi", "pt", "professional_tax", "lwf", "tds", "total_deductions", "net_pay"):
                 row[f"{key}_paise"] = int(round(row[key] * 100))
             rows.append(row)
         totals = {key: round(sum(row[key] for row in rows), 2) for key in (
             "gross_earnings", "arrears", "pf", "employee_pf", "esi", "employee_esi",
-            "pt", "professional_tax", "lwf", "tds", "net_pay",
+            "pt", "professional_tax", "lwf", "tds", "total_deductions", "net_pay",
         )}
         for key, value in list(totals.items()):
             totals[f"{key}_paise"] = int(round(value * 100))

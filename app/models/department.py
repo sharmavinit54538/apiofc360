@@ -55,7 +55,9 @@ class Department(Base):
         PG_UUID(as_uuid=True), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
     )
 
-    branch_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True
+    )
     location: Mapped[str] = mapped_column(String(100), nullable=False)
     cost_center: Mapped[str | None] = mapped_column(String(50), nullable=True)
     budget: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True, default=0.0, server_default=text("0.0"))

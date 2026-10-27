@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from app.models.employee_leave_policy import EmployeeLeavePolicy
     from app.models.employee_onboarding import EmployeeOnboarding
     from app.models.department import Department
-    from app.models.company import Company
+    from app.models.company import Company, Branch, LegalEntity
 from app.models.shift import Shift
 
 
@@ -135,6 +135,12 @@ class Employee(Base):
         PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True,
     )
     branch: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True
+    )
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="SET NULL"), nullable=True
+    )
     work_location: Mapped[str | None] = mapped_column(String(100), nullable=True)
     employment_type: Mapped[str] = mapped_column(String(30), nullable=False, default="FULL_TIME", server_default=text("'FULL_TIME'"))
     employment_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PROBATION", server_default=text("'PROBATION'"))
@@ -241,6 +247,12 @@ class Employee(Base):
     )
     department_rel: Mapped[Department | None] = relationship(
         "Department", back_populates="employees", foreign_keys=[department_id], lazy="select"
+    )
+    branch_rel: Mapped[Branch | None] = relationship(
+        "Branch", foreign_keys=[branch_id], lazy="select"
+    )
+    legal_entity: Mapped[LegalEntity | None] = relationship(
+        "LegalEntity", foreign_keys=[legal_entity_id], lazy="select"
     )
     shift_rel: Mapped[Shift | None] = relationship(
         "Shift", foreign_keys=[shift_id], lazy="select"

@@ -683,6 +683,14 @@ class FullAndFinalSettlement(Base):
     shortfall_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    exit_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employee_exits.id", ondelete="SET NULL"), nullable=True
+    )
+    notice_buyout: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    notice_waived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settlement_sheet_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generated_letters_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'")
@@ -741,6 +749,42 @@ class FullAndFinalSettlement(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    employee: Mapped["Employee"] = relationship("Employee", lazy="select")
+
+
+class EmployeeYTDSalary(Base):
+    """Imported employee payroll history for one April-March FY month.
+
+    This is used only when no canonical Payslip exists for the same period, so
+    migration data and newly processed payroll are never double counted.
+    """
+
+    __tablename__ = "employee_ytd_salaries"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "period_month", "period_year", name="uq_employee_ytd_salary_period"),
+        Index("ix_employee_ytd_company_fy", "company_id", "financial_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    financial_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    gross_earnings_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    arrears_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    pf_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    esi_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    pt_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    lwf_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    tds_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_pay_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="MIGRATION", server_default=text("'MIGRATION'"))
+    migration_batch_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
 

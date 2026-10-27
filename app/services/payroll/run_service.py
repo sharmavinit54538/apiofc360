@@ -32,6 +32,7 @@ from app.models.payroll import (
 from app.models.payroll_models import (
     ArrearLedger,
     Compensation,
+    EmployeeYTDSalary,
     PayComponent,
     PayrollPeriod,
     PayrollRunEmployee,
@@ -1071,7 +1072,9 @@ class PayrollRunService:
                 "other_deductions": float(decl.other_deductions) if decl else 0,
             } if decl else {"professional_tax": float(getattr(emp, "professional_tax", 0) or 0) * 12}
             emp_regime = (decl.tax_regime if decl else None) or config.default_tax_regime or "NEW"
-            rem_months = 12 - run.period_month + 1 if run.period_month >= 4 else 4 - run.period_month
+            # April–March FY: April has 12 remaining months, May 11, …,
+            # December 4, and January–March have 3/2/1 respectively.
+            rem_months = 16 - run.period_month if run.period_month >= 4 else 4 - run.period_month
             verified_declarations = (decl.verified_details_json if decl else None) or None
             cutoff_passed = bool(decl and decl.proof_cutoff_date and decl.proof_cutoff_date <= (getattr(run, "end_date", None) or date.today()))
             current_one_time_variable_paise = sum(
@@ -1079,17 +1082,53 @@ class PayrollRunService:
                 if str(v.type).lower() in {"bonus", "one_time_bonus", "incentive", "commission"}
             )
             current_one_time_paise = one_time_bonus_paise + current_one_time_variable_paise
-            recurring_annual_gross_paise = max(0, gross_paise - current_one_time_paise) * 12
+            current_recurring_monthly_paise = max(0, gross_paise - current_one_time_paise)
             fy_start_year = run.period_year if run.period_month >= 4 else run.period_year - 1
             fy_pairs = [(m, fy_start_year if m >= 4 else fy_start_year + 1) for m in range(4, 13)] + [(m, fy_start_year + 1) for m in range(1, 4)]
-            prior_tds_stmt = select(func.coalesce(func.sum(Payslip.tds), 0)).where(
-                Payslip.employee_id == emp.id,
-                Payslip.company_id == run.company_id,
-                or_(*[and_(Payslip.period_month == month, Payslip.period_year == year) for month, year in fy_pairs]),
-                or_(Payslip.period_month != run.period_month, Payslip.period_year != run.period_year),
+            current_fy_index = run.period_month - 4 if run.period_month >= 4 else run.period_month + 8
+            elapsed_pairs = fy_pairs[:current_fy_index]
+            prior_tds_paise = 0
+            prior_actual_gross_paise = 0
+            has_prior_history = False
+            if elapsed_pairs:
+                period_filter = or_(*[and_(Payslip.period_month == month, Payslip.period_year == year) for month, year in elapsed_pairs])
+                prior_row = (await session.execute(select(
+                    func.coalesce(func.sum(Payslip.tds), 0),
+                    func.coalesce(func.sum(Payslip.gross_earnings), 0),
+                    func.count(Payslip.id),
+                ).where(
+                    Payslip.employee_id == emp.id, Payslip.company_id == run.company_id, period_filter,
+                ))).one()
+                prior_tds_paise = int(as_decimal(prior_row[0]) * 100)
+                prior_actual_gross_paise = int(as_decimal(prior_row[1]) * 100)
+                has_prior_history = has_prior_history or int(prior_row[2] or 0) > 0
+                imported_filter = or_(*[
+                    and_(EmployeeYTDSalary.period_month == month, EmployeeYTDSalary.period_year == year)
+                    for month, year in elapsed_pairs
+                ])
+                imported_stmt = select(
+                    func.coalesce(func.sum(EmployeeYTDSalary.tds_paise), 0),
+                    func.coalesce(func.sum(EmployeeYTDSalary.gross_earnings_paise), 0),
+                    func.count(EmployeeYTDSalary.id),
+                ).where(EmployeeYTDSalary.employee_id == emp.id, imported_filter)
+                if run.company_id is not None:
+                    imported_stmt = imported_stmt.where(EmployeeYTDSalary.company_id == run.company_id)
+                payslip_for_import = select(Payslip.id).where(
+                    Payslip.employee_id == EmployeeYTDSalary.employee_id,
+                    Payslip.period_month == EmployeeYTDSalary.period_month,
+                    Payslip.period_year == EmployeeYTDSalary.period_year,
+                ).exists()
+                imported_stmt = imported_stmt.where(~payslip_for_import)
+                imported_row = (await session.execute(imported_stmt)).one()
+                # Canonical payslips win if both ledgers contain a period, so
+                # migration history and payroll output are never double counted.
+                prior_tds_paise += int(imported_row[0] or 0)
+                prior_actual_gross_paise += int(imported_row[1] or 0)
+                has_prior_history = has_prior_history or int(imported_row[2] or 0) > 0
+            recurring_annual_gross_paise = (
+                current_recurring_monthly_paise * rem_months + prior_actual_gross_paise
+                if has_prior_history else current_recurring_monthly_paise * 12
             )
-            prior_tds_rupees = (await session.execute(prior_tds_stmt)).scalar() or 0
-            prior_tds_paise = int(as_decimal(prior_tds_rupees) * 100)
             declared_ytd_paise = int(getattr(decl, "ytd_tds_paise", 0) or 0) if decl else 0
             ytd_for_projection = max(declared_ytd_paise, prior_tds_paise)
             tds_res = StatutoryService.calculate_tds(
