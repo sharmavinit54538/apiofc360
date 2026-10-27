@@ -418,11 +418,18 @@ async def lifespan(app: FastAPI):
 
 
 def configure_logging() -> None:
-    """Configure process logging."""
+    """Configure process logging with mandatory credential/PII redaction."""
     logging.basicConfig(
         level=settings.LOG_LEVEL,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    from app.core.structured_logging import PIIRedactionFilter
+
+    # basicConfig is a no-op when an embedding server installed handlers first;
+    # attach the filter to every root handler in either case.
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(existing, PIIRedactionFilter) for existing in handler.filters):
+            handler.addFilter(PIIRedactionFilter())
 
     class CancelledErrorFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:

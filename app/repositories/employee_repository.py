@@ -348,6 +348,23 @@ class EmployeeRepository:
 
     async def update_employee(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None, **kwargs: Any) -> None:
         """Partial update of employee fields strictly scoped to company_id when provided."""
+        pii_fields = {"aadhaar_number", "pan_number", "uan_number", "passport_number", "voter_id"}
+        changed_pii = pii_fields.intersection(kwargs)
+        if changed_pii:
+            from app.core.field_encryption import hmac_sha256_blind_index
+
+            if company_id is None:
+                company_result = await self.session.execute(
+                    select(Employee.company_id)
+                    .where(Employee.id == employee_uuid)
+                    .execution_options(bypass_tenant=True)
+                )
+                company_id = company_result.scalar_one_or_none()
+            for field_name in changed_pii:
+                kwargs[f"{field_name}_blind_idx"] = hmac_sha256_blind_index(
+                    kwargs[field_name], company_id
+                )
+
         stmt = update(Employee).where(Employee.id == employee_uuid)
         if company_id is not None:
             stmt = stmt.where(Employee.company_id == company_id)

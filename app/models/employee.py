@@ -9,11 +9,12 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, func, text, CheckConstraint, JSON,
+    Numeric, String, func, text, CheckConstraint, JSON, event,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.field_encryption import EncryptedString, hmac_sha256_blind_index
 from app.db.base import Base
 
 if TYPE_CHECKING:
@@ -33,6 +34,15 @@ if TYPE_CHECKING:
 from app.models.shift import Shift
 
 
+ENCRYPTED_EMPLOYEE_PII_FIELDS = (
+    "aadhaar_number",
+    "pan_number",
+    "uan_number",
+    "passport_number",
+    "voter_id",
+)
+
+
 class Employee(Base):
     """Core employee record linked to a User account."""
 
@@ -50,6 +60,11 @@ class Employee(Base):
         Index("ix_employees_department", "department"),
         Index("ix_employees_is_deleted", "is_deleted"),
         Index("ix_employees_manager_id", "manager_id"),
+        Index("ix_employees_company_aadhaar_blind_idx", "company_id", "aadhaar_number_blind_idx"),
+        Index("ix_employees_company_pan_blind_idx", "company_id", "pan_number_blind_idx"),
+        Index("ix_employees_company_uan_blind_idx", "company_id", "uan_number_blind_idx"),
+        Index("ix_employees_company_passport_blind_idx", "company_id", "passport_number_blind_idx"),
+        Index("ix_employees_company_voter_blind_idx", "company_id", "voter_id_blind_idx"),
         CheckConstraint("id != manager_id", name="ck_employees_manager_self_report"),
     )
 
@@ -85,10 +100,13 @@ class Employee(Base):
     spouse_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     nationality: Mapped[str | None] = mapped_column(String(100), nullable=True)
     preferred_language: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    aadhaar_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    passport_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    aadhaar_number: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    aadhaar_number_blind_idx: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    passport_number: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    passport_number_blind_idx: Mapped[str | None] = mapped_column(String(64), nullable=True)
     driving_license: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    voter_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    voter_id: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    voter_id_blind_idx: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tax_regime: Mapped[str | None] = mapped_column(String(20), nullable=True)
     upi_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     esic_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -139,8 +157,10 @@ class Employee(Base):
     professional_tax: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     # --------------- Statutory Identity ---------------
-    pan_number: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    uan_number: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    pan_number: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    pan_number_blind_idx: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    uan_number: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    uan_number_blind_idx: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pf_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     esi_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_pf_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
@@ -217,6 +237,15 @@ class Employee(Base):
         "Shift", foreign_keys=[shift_id], lazy="select"
     )
 
+    def refresh_pii_blind_indexes(self) -> None:
+        """Synchronize deterministic exact-match indexes with decrypted values."""
+        for field_name in ENCRYPTED_EMPLOYEE_PII_FIELDS:
+            setattr(
+                self,
+                f"{field_name}_blind_idx",
+                hmac_sha256_blind_index(getattr(self, field_name), self.company_id),
+            )
+
     @property
     def is_deactivated(self) -> bool:
         """Return True if the employee record is inactive, deactivated, archived, terminated, or deleted."""
@@ -252,3 +281,9 @@ class Employee(Base):
         valid, _ = self.validate_uan_format(self.uan_number)
         return valid
 
+
+@event.listens_for(Employee, "before_insert")
+@event.listens_for(Employee, "before_update")
+def _sync_employee_pii_blind_indexes(mapper, connection, target: Employee) -> None:
+    """Keep blind indexes consistent for normal ORM inserts and updates."""
+    target.refresh_pii_blind_indexes()

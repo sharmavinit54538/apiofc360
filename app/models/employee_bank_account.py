@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.core.field_encryption import EncryptedString
 from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.employee import Employee
@@ -19,8 +20,8 @@ class EmployeeBankAccount(Base):
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     bank_name: Mapped[str] = mapped_column(String(150), nullable=False)
     account_holder_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    account_number: Mapped[str] = mapped_column(String(30), nullable=False)
-    ifsc_code: Mapped[str] = mapped_column(String(15), nullable=False)
+    account_number: Mapped[str] = mapped_column(EncryptedString(), nullable=False)
+    ifsc_code: Mapped[str] = mapped_column(EncryptedString(), nullable=False)
     account_type: Mapped[str] = mapped_column(String(20), nullable=False, default="SAVINGS", server_default=text("'SAVINGS'"))
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

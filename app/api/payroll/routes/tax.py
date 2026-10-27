@@ -12,6 +12,7 @@ from app.api.payroll.responses import success_response
 from app.schemas.auth import APIResponse
 from app.models.employee import Employee
 from app.models.payroll import EmployeeInvestmentDeclaration, SalaryStructure, Payslip
+from app.utils.security import mask_pan
 
 router = APIRouter()
 
@@ -44,17 +45,25 @@ async def get_tax_management_records(
         stmt = stmt.where(Employee.company_id == claims.get("company_id"))
 
     if search and search.strip():
-        s = f"%{search.strip().lower()}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(Employee.first_name).like(s),
-                func.lower(Employee.last_name).like(s),
-                func.lower(Employee.employee_id).like(s),
-                func.lower(Employee.pan_number).like(s),
-                func.lower(Employee.company_email).like(s),
-                func.lower(Employee.personal_email).like(s),
+        from app.core.field_encryption import hmac_sha256_blind_index
+
+        clean_search = search.strip()
+        s = f"%{clean_search.lower()}%"
+        search_filters = [
+            func.lower(Employee.first_name).like(s),
+            func.lower(Employee.last_name).like(s),
+            func.lower(Employee.employee_id).like(s),
+            func.lower(Employee.company_email).like(s),
+            func.lower(Employee.personal_email).like(s),
+        ]
+        company_id = claims.get("company_id") if claims and isinstance(claims, dict) else None
+        if company_id:
+            # Exact PAN matches use the deterministic tenant-bound index;
+            # ciphertext must never be queried with LIKE or lower().
+            search_filters.append(
+                Employee.pan_number_blind_idx == hmac_sha256_blind_index(clean_search, company_id)
             )
-        )
+        stmt = stmt.where(or_(*search_filters))
 
     if department and department != "all":
         stmt = stmt.where(func.lower(Employee.department) == department.lower())

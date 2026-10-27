@@ -48,14 +48,16 @@ class ComplianceMonitorRepository:
         if company_id:
             emp_filter.append(Employee.company_id == company_id)
 
+        # Encrypted empty strings have no blind index; use the index for
+        # completeness checks instead of comparing ciphertext with plaintext.
+        pan_missing = or_(Employee.pan_number.is_(None), Employee.pan_number_blind_idx.is_(None))
+        aadhaar_missing = or_(
+            Employee.aadhaar_number.is_(None), Employee.aadhaar_number_blind_idx.is_(None)
+        )
         emp_stmt = select(
             func.count(Employee.id).label("total"),
-            func.count(
-                case((or_(Employee.pan_number == None, Employee.pan_number == ""), 1))
-            ).label("missing_pan"),
-            func.count(
-                case((or_(Employee.aadhaar_number == None, Employee.aadhaar_number == ""), 1))
-            ).label("missing_aadhaar"),
+            func.count(case((pan_missing, 1))).label("missing_pan"),
+            func.count(case((aadhaar_missing, 1))).label("missing_aadhaar"),
             func.count(
                 case((Employee.verification_status != "VERIFIED", 1))
             ).label("unverified"),
@@ -436,10 +438,10 @@ class ComplianceMonitorRepository:
             emp_stmt = select(Employee).where(
                 Employee.is_deleted == False,
                 or_(
-                    Employee.pan_number == None,
-                    Employee.pan_number == "",
-                    Employee.aadhaar_number == None,
-                    Employee.aadhaar_number == "",
+                    Employee.pan_number.is_(None),
+                    Employee.pan_number_blind_idx.is_(None),
+                    Employee.aadhaar_number.is_(None),
+                    Employee.aadhaar_number_blind_idx.is_(None),
                 ),
             )
             if company_id:
@@ -635,10 +637,10 @@ class ComplianceMonitorRepository:
                     case(
                         (
                             and_(
-                                Employee.pan_number != None,
-                                Employee.pan_number != "",
-                                Employee.aadhaar_number != None,
-                                Employee.aadhaar_number != "",
+                                Employee.pan_number.is_not(None),
+                                Employee.pan_number_blind_idx.is_not(None),
+                                Employee.aadhaar_number.is_not(None),
+                                Employee.aadhaar_number_blind_idx.is_not(None),
                             ),
                             1,
                         )
