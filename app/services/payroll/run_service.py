@@ -13,8 +13,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
@@ -740,6 +741,7 @@ class PayrollRunService:
                 )
             )
         config = (await session.execute(cfg_stmt)).scalar_one_or_none() or StatutoryComplianceConfig()
+        period_record = await session.get(PayrollPeriod, run.period_id) if run.period_id else None
 
         # Fetch all active employees (bank_accounts eagerly loaded so downstream
         # disbursement / validation code never triggers an async lazy-load).
@@ -987,24 +989,58 @@ class PayrollRunService:
             statutory_wages_paise = wage_rule["statutory_wages_paise"]
 
             # 4. Indian Statutory Deductions Engine
+            employee_age = None
+            if getattr(emp, "date_of_birth", None):
+                on_date = getattr(run, "end_date", None) or date(run.period_year, run.period_month, 1)
+                employee_age = on_date.year - emp.date_of_birth.year - ((on_date.month, on_date.day) < (emp.date_of_birth.month, emp.date_of_birth.day))
             pf_res = StatutoryService.calculate_pf(
                 basic_paise=statutory_wages_paise,
                 config=config,
+                is_pf_eligible=bool(getattr(emp, "is_pf_eligible", True)),
+                pf_membership_active=bool(getattr(emp, "pf_membership_active", True)),
+                is_international_worker=bool(getattr(emp, "is_international_worker", False)),
+                pf_wage_ceiling_applicable=bool(getattr(emp, "pf_wage_ceiling_applicable", True)),
+                pf_higher_wage_opted=bool(getattr(emp, "pf_higher_wage_opted", False)),
+                vpf_rate=getattr(emp, "vpf_rate", 0),
+                age=employee_age,
             )
             employee_pf_paise = pf_res["employee_pf_paise"]
 
+            coverage = None
+            if period_record is not None:
+                coverage = await StatutoryService.get_esi_coverage_at_period_start(
+                    session, emp, period_record, config, run.company_id,
+                )
+            current_esi_ceiling = int(coverage["ceiling_paise"]) if coverage else int(as_decimal(getattr(config, "esi_pwd_wage_ceiling", 25000) if getattr(emp, "is_pwd", False) else getattr(config, "esi_wage_ceiling", 21000)) * 100)
             esi_res = StatutoryService.calculate_esi(
                 gross_monthly_paise=gross_paise,
                 config=config,
                 contribution_wage_paise=statutory_wages_paise,
+                is_pwd=bool(getattr(emp, "is_pwd", False)),
+                covered_at_period_start=(coverage["covered"] if coverage else bool(getattr(emp, "esi_covered_at_period_start", False))) or gross_paise <= current_esi_ceiling,
+                contribution_period_start=coverage["contribution_period_start"] if coverage else None,
+                as_of_date=getattr(run, "start_date", None) or date(run.period_year, run.period_month, 1),
             )
             employee_esi_paise = esi_res["employee_esi_paise"]
 
-            emp_state = getattr(emp, "state", None) or getattr(emp, "work_location", None) or config.pt_state or "MAHARASHTRA"
+            emp_state = getattr(emp, "state_code", None) or getattr(emp, "state", None) or getattr(emp, "branch", None) or getattr(emp, "work_location", None) or config.pt_state or "MAHARASHTRA"
+            try:
+                state_rule = await StatutoryService.get_state_statutory_rule(
+                    session, emp_state, run.company_id,
+                    (period_record.start_date if period_record is not None and period_record.start_date else date(run.period_year, run.period_month, 1)),
+                )
+            except OperationalError as exc:
+                # Older SQLite test/embedded schemas may predate this additive
+                # table. PostgreSQL migration/schema errors remain fatal.
+                if session.bind is None or session.bind.dialect.name != "sqlite" or "no such table" not in str(exc).lower():
+                    raise
+                state_rule = None
             pt_res = StatutoryService.calculate_pt(
                 gross_monthly_paise=gross_paise,
                 state=emp_state,
                 month=run.period_month,
+                gender=getattr(emp, "gender", "MALE") or "MALE",
+                rule=state_rule,
             )
             pt_paise = pt_res["pt_paise"]
 
@@ -1012,6 +1048,7 @@ class PayrollRunService:
                 gross_monthly_paise=gross_paise,
                 state=emp_state,
                 month=run.period_month,
+                rule=state_rule,
             )
             employee_lwf_paise = lwf_res["employee_lwf_paise"]
 
@@ -1027,18 +1064,55 @@ class PayrollRunService:
                 "section_80d": float(decl.section_80d) if decl else 0,
                 "section_80ccd1b_nps": float(decl.section_80ccd1b_nps) if decl else 0,
                 "home_loan_interest_24b": float(decl.home_loan_interest_24b) if decl else 0,
+                "section_80g": float(getattr(decl, "section_80g", 0) or 0) if decl else 0,
                 "hra_claimed": float(decl.hra_claimed) if decl else 0,
+                "lta_claimed": float(getattr(decl, "lta_claimed", 0) or 0) if decl else 0,
+                "professional_tax": float(getattr(emp, "professional_tax", 0) or 0) * 12,
                 "other_deductions": float(decl.other_deductions) if decl else 0,
-            } if decl else {}
+            } if decl else {"professional_tax": float(getattr(emp, "professional_tax", 0) or 0) * 12}
             emp_regime = (decl.tax_regime if decl else None) or config.default_tax_regime or "NEW"
             rem_months = 12 - run.period_month + 1 if run.period_month >= 4 else 4 - run.period_month
+            verified_declarations = (decl.verified_details_json if decl else None) or None
+            cutoff_passed = bool(decl and decl.proof_cutoff_date and decl.proof_cutoff_date <= (getattr(run, "end_date", None) or date.today()))
+            current_one_time_variable_paise = sum(
+                int(v.amount_paise or 0) for v in var_inputs
+                if str(v.type).lower() in {"bonus", "one_time_bonus", "incentive", "commission"}
+            )
+            current_one_time_paise = one_time_bonus_paise + current_one_time_variable_paise
+            recurring_annual_gross_paise = max(0, gross_paise - current_one_time_paise) * 12
+            fy_start_year = run.period_year if run.period_month >= 4 else run.period_year - 1
+            fy_pairs = [(m, fy_start_year if m >= 4 else fy_start_year + 1) for m in range(4, 13)] + [(m, fy_start_year + 1) for m in range(1, 4)]
+            prior_tds_stmt = select(func.coalesce(func.sum(Payslip.tds), 0)).where(
+                Payslip.employee_id == emp.id,
+                Payslip.company_id == run.company_id,
+                or_(*[and_(Payslip.period_month == month, Payslip.period_year == year) for month, year in fy_pairs]),
+                or_(Payslip.period_month != run.period_month, Payslip.period_year != run.period_year),
+            )
+            prior_tds_rupees = (await session.execute(prior_tds_stmt)).scalar() or 0
+            prior_tds_paise = int(as_decimal(prior_tds_rupees) * 100)
+            declared_ytd_paise = int(getattr(decl, "ytd_tds_paise", 0) or 0) if decl else 0
+            ytd_for_projection = max(declared_ytd_paise, prior_tds_paise)
             tds_res = StatutoryService.calculate_tds(
-                annual_gross_paise=gross_paise * 12,
+                annual_gross_paise=recurring_annual_gross_paise,
                 tax_regime=emp_regime,
                 declarations=decl_dict,
+                verified_declarations=verified_declarations,
+                use_verified_declarations=bool(decl and decl.use_verified_amounts and cutoff_passed),
+                proof_cutoff_passed=cutoff_passed,
+                financial_year=fy_label,
+                current_month=run.period_month,
                 remaining_months=rem_months,
+                ytd_tds_paise=ytd_for_projection,
+                previous_employer_tds_paise=int(getattr(decl, "previous_employer_tds_paise", 0) or 0) if decl else 0,
+                previous_employer_income_paise=int(getattr(decl, "previous_employer_income_paise", 0) or 0) if decl else 0,
+                one_time_bonus_paise=current_one_time_paise + (int(getattr(decl, "one_time_bonus_paise", 0) or 0) if decl else 0),
+                variable_pay_paise=int(getattr(decl, "variable_pay_paise", 0) or 0) if decl else 0,
+                basic_annual_paise=emp_basic_paise * 12,
+                hra_annual_paise=emp_hra_paise * 12,
             )
-            tds_paise = tds_res["monthly_tds_paise"]
+            tds_paise = tds_res["current_month_tds_paise"]
+            if decl is not None:
+                decl.ytd_tds_paise = max(declared_ytd_paise, prior_tds_paise + tds_paise)
 
             grat_res = StatutoryService.calculate_gratuity(
                 emp_basic_paise, statutory_wage_paise=statutory_wages_paise

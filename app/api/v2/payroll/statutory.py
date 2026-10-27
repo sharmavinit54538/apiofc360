@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
@@ -36,6 +37,10 @@ def _config_dict(cfg) -> dict[str, Any]:
         "pf_enabled": cfg.pf_enabled,
         "employee_pf_rate": float(cfg.employee_pf_rate) if cfg.employee_pf_rate is not None else 0.12,
         "employer_pf_rate": float(cfg.employer_pf_rate) if cfg.employer_pf_rate is not None else 0.12,
+        "employer_eps_rate": float(getattr(cfg, "employer_eps_rate", 0.0833)),
+        "employer_edli_rate": float(getattr(cfg, "employer_edli_rate", 0.005)),
+        "pf_admin_rate": float(getattr(cfg, "pf_admin_rate", 0.005)),
+        "esi_pwd_wage_ceiling": float(getattr(cfg, "esi_pwd_wage_ceiling", 25000.0)),
         "pf_wage_ceiling": float(cfg.pf_wage_ceiling) if cfg.pf_wage_ceiling is not None else 15000.0,
         "pf_on_full_basic": cfg.pf_on_full_basic,
         "esi_enabled": cfg.esi_enabled,
@@ -237,7 +242,8 @@ async def get_pf_ecr(
     c_uuid = uuid.UUID(company_id_str) if company_id_str else None
 
     ecr_data = await StatutoryService.generate_pf_ecr(
-        session=db, period_id=period_id, company_id=c_uuid
+        session=db, period_id=period_id, company_id=c_uuid,
+        delimiter="#|~|#", include_invalid=True, apply_admin_minimum=True,
     )
 
     if download or format.lower() == "txt":
@@ -350,10 +356,349 @@ async def update_employee_pf_settings(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
     result = await StatutoryService.update_employee_pf_settings(
         session=db,
         employee_id=employee_id,
         payload=payload.model_dump(exclude_unset=True),
+        company_id=c_uuid,
     )
     return _ok(result, "Employee PF compliance settings updated successfully")
 
+
+
+# 13. GET /api/v2/payroll/statutory/pf-ecr/download
+@router.get("/statutory/pf-ecr/download", summary="Download EPFO ECR v2 using the #~# delimiter")
+async def download_pf_ecr(
+    period_id: uuid.UUID = Query(..., description="Payroll period UUID"),
+    strict: bool = Query(False, description="Reject the download when member validation fails"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_pf_ecr(
+        session=db, period_id=period_id, company_id=c_uuid,
+        delimiter="#~#", include_invalid=False, apply_admin_minimum=False, strict=strict,
+    )
+    return Response(
+        content=result["ecr_text"], media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{result["filename"]}"',
+            "X-Record-Count": str(result["record_count"]),
+            "X-Validation-Errors": str(len(result["validation_errors"])),
+        },
+    )
+
+
+@router.get("/statutory/esi-return", summary="Generate the monthly ESIC contribution return")
+@router.get("/statutory/esi-return/download", include_in_schema=False)
+async def get_esi_return(
+    period_id: uuid.UUID = Query(...),
+    format: str = Query("csv", description="csv/txt download or json metadata"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_esi_return(db, period_id, c_uuid, format.lower())
+    if format.lower() == "json":
+        result.pop("content", None)
+        result.pop("csv_text", None)
+        return _ok(result, "ESI return generated successfully")
+    return Response(
+        content=result["content"], media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"', "X-Record-Count": str(result["record_count"])},
+    )
+
+
+@router.get("/statutory/esi-challan", summary="Generate and persist the monthly ESIC challan")
+async def generate_esi_challan(
+    period_id: uuid.UUID = Query(...),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_esi_challan(db, period_id, c_uuid)
+    result.pop("content", None)
+    result.pop("csv_text", None)
+    return _ok(result, "ESI challan generated successfully")
+
+
+@router.get("/statutory/esi-challan/download", summary="Download the monthly ESIC challan return")
+async def download_esi_challan(
+    period_id: uuid.UUID = Query(...),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_esi_challan(db, period_id, c_uuid)
+    return Response(
+        content=result["csv_text"], media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="ESIC_Challan_{result["period_year"]}_{result["period_month"]:02d}.csv"', "X-Challan-Id": result["challan_id"]},
+    )
+
+
+@router.get("/statutory/lwf-summary", summary="Get state-wise employee and employer LWF liabilities")
+async def get_lwf_summary(
+    period_id: uuid.UUID = Query(...),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.get_lwf_summary(db, period_id, c_uuid)
+    return _ok(result, "LWF summary generated successfully")
+
+
+def _form_payload_ids(payload: dict[str, Any]) -> tuple[uuid.UUID, Optional[str], Optional[int], dict[str, Any]]:
+    raw_period = payload.get("period_id") or payload.get("periodId")
+    if not raw_period:
+        raise HTTPException(status_code=422, detail="period_id is required")
+    try:
+        period_id = uuid.UUID(str(raw_period))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid period_id")
+    details = payload.get("challan_details") or payload.get("challanDetails") or payload.get("challan") or {}
+    return period_id, payload.get("financial_year") or payload.get("financialYear"), payload.get("quarter"), details
+
+
+@router.post("/statutory/form-138/draft", summary="Generate a validated quarterly Form 138 draft")
+async def create_form138_draft(
+    payload: dict[str, Any] = Body(default={}),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    period_id, fy, quarter, details = _form_payload_ids(payload)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_form138_draft(
+        db, period_id=period_id, company_id=c_uuid, quarter=quarter,
+        financial_year=fy, challan_details=details, generated_by=_uid(claims),
+    )
+    return _ok(result, "Form 138 draft generated successfully")
+
+
+@router.get("/statutory/form-138/download", summary="Download a quarterly Form 138 CSV draft")
+async def download_form138(
+    period_id: uuid.UUID = Query(...),
+    quarter: Optional[int] = Query(None),
+    financial_year: Optional[str] = Query(None),
+    bsr_code: Optional[str] = Query(None),
+    challan_serial_number: Optional[str] = Query(None),
+    challan_date: Optional[date] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+    format: str = Query("csv", description="csv or pdf"),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    details = {"bsr_code": bsr_code, "challan_serial_number": challan_serial_number, "challan_date": challan_date}
+    result = await StatutoryService.generate_form138_draft(
+        db, period_id=period_id, company_id=c_uuid, quarter=quarter,
+        financial_year=financial_year, challan_details=details, generated_by=_uid(claims),
+    )
+    if format.lower() == "json":
+        result.pop("content", None)
+        result.pop("csv_text", None)
+        return _ok(result, "Form 138 draft generated successfully")
+    if format.lower() == "pdf":
+        challan_rows = [["BSR", "Serial", "Date"], [str(result["challan"].get("bsr_code") or ""), str(result["challan"].get("challan_serial_number") or ""), str(result["challan"].get("challan_date") or "")]]
+        employee_rows = [["PAN", "Employee", "Month", "Gross", "TDS"]] + [[row["pan"], row["employee_name"], f"{row['period_month']:02d}/{row['period_year']}", row["gross_salary"], row["tds"]] for row in result["rows"]]
+        pdf = StatutoryService._pdf_document(f"Form 138 - {result['financial_year']} Q{result['quarter']}", [("Challan Details", challan_rows), ("Employee Rows", employee_rows)])
+        return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="Form138_{result["financial_year"]}_Q{result["quarter"]}.pdf"', "X-Form-Valid": str(result["is_valid"]).lower()})
+    return Response(
+        content=result["content"], media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"', "X-Form-Valid": str(result["is_valid"]).lower()},
+    )
+
+
+@router.get("/statutory/form-130/download", summary="Download annual Form 130 PDF")
+async def download_form130(
+    employee_id: uuid.UUID = Query(...),
+    financial_year: Optional[str] = Query(None),
+    period_id: Optional[uuid.UUID] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    today = date.today()
+    start_year = today.year if today.month >= 4 else today.year - 1
+    fy = financial_year or f"{start_year}-{start_year + 1}"
+    result = await StatutoryService.generate_form130(
+        db, employee_id=employee_id, financial_year=financial_year or fy, company_id=c_uuid,
+        generated_by=_uid(claims), period_id=period_id,
+    )
+    return Response(
+        content=result["pdf_bytes"], media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"', "X-Form-Id": result["form_id"]},
+    )
+
+
+@router.post("/statutory/form-130/generate", summary="Generate annual Form 130 PDF")
+async def generate_form130(
+    payload: dict[str, Any] = Body(default={}),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    raw_employee = payload.get("employee_id") or payload.get("employeeId")
+    if not raw_employee:
+        raise HTTPException(status_code=422, detail="employee_id is required")
+    try:
+        employee_id = uuid.UUID(str(raw_employee))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid employee_id")
+    today = date.today()
+    start_year = today.year if today.month >= 4 else today.year - 1
+    fy = payload.get("financial_year") or payload.get("financialYear") or f"{start_year}-{start_year + 1}"
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    result = await StatutoryService.generate_form130(
+        db, employee_id=employee_id, financial_year=fy, company_id=c_uuid,
+        generated_by=_uid(claims), declarations=payload.get("declarations"),
+        period_id=uuid.UUID(str(payload["period_id"])) if payload.get("period_id") else (uuid.UUID(str(payload["periodId"])) if payload.get("periodId") else None),
+    )
+    # Metadata endpoint; use the download route for the binary document.
+    result.pop("pdf_bytes", None)
+    result.pop("content", None)
+    return _ok(result, "Form 130 PDF generated successfully")
+
+
+# Non-hyphenated aliases used by a few statutory filing integrations.
+@router.post("/statutory/form138/draft", include_in_schema=False)
+async def create_form138_draft_alias(payload: dict[str, Any] = Body(default={}), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    return await create_form138_draft(payload, claims, db)
+
+
+@router.get("/statutory/form138/download", include_in_schema=False)
+async def download_form138_alias(period_id: uuid.UUID = Query(...), quarter: Optional[int] = Query(None), financial_year: Optional[str] = Query(None), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    return await download_form138(period_id, quarter, financial_year, None, None, None, claims, db)
+
+
+@router.get("/statutory/form130/download", include_in_schema=False)
+async def download_form130_alias(employee_id: uuid.UUID = Query(...), financial_year: Optional[str] = Query(None), period_id: Optional[uuid.UUID] = Query(None), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    return await download_form130(employee_id=employee_id, financial_year=financial_year, period_id=period_id, claims=claims, db=db)
+
+
+@router.post("/statutory/tds/calculate", summary="Calculate FY old/new-regime TDS in integer paise")
+async def calculate_statutory_tds(
+    payload: dict[str, Any] = Body(default={}),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    fy = payload.get("financial_year") or payload.get("financialYear") or "2024-2025"
+    regime = payload.get("tax_regime") or payload.get("taxRegime") or "NEW"
+    gross_paise = payload.get("annual_gross_paise") or payload.get("annualGrossPaise")
+    if gross_paise is None:
+        gross_paise = StatutoryService._amount_paise(payload.get("annual_gross", payload.get("annualGross", 0)))
+    rule = payload.get("tax_rules") or payload.get("taxRules")
+    if rule is None:
+        rule = await StatutoryService.get_financial_year_tax_rule(db, fy, regime, c_uuid)
+    result = StatutoryService.calculate_tds(
+        annual_gross_paise=int(gross_paise), tax_regime=regime,
+        declarations=payload.get("declarations"), verified_declarations=payload.get("verified_declarations") or payload.get("verifiedDeclarations"),
+        proof_cutoff_passed=bool(payload.get("proof_cutoff_passed", payload.get("proofCutoffPassed", False))),
+        use_verified_declarations=payload.get("use_verified_declarations", payload.get("useVerifiedDeclarations")),
+        remaining_months=int(payload.get("remaining_months", payload.get("remainingMonths", 12))),
+        current_month=payload.get("current_month", payload.get("currentMonth")),
+        financial_year=fy, tax_rules=rule,
+        ytd_tds_paise=int(payload.get("ytd_tds_paise", payload.get("ytdTdsPaise", 0)) or 0),
+        previous_employer_tds_paise=int(payload.get("previous_employer_tds_paise", payload.get("previousEmployerTdsPaise", 0)) or 0),
+        previous_employer_income_paise=int(payload.get("previous_employer_income_paise", payload.get("previousEmployerIncomePaise", 0)) or 0),
+        one_time_bonus_paise=int(payload.get("one_time_bonus_paise", payload.get("oneTimeBonusPaise", 0)) or 0),
+        variable_pay_paise=int(payload.get("variable_pay_paise", payload.get("variablePayPaise", 0)) or 0),
+        basic_annual_paise=int(payload.get("basic_annual_paise", payload.get("basicAnnualPaise", 0)) or 0),
+        hra_annual_paise=int(payload.get("hra_annual_paise", payload.get("hraAnnualPaise", 0)) or 0),
+        rent_paid_annual_paise=int(payload.get("rent_paid_annual_paise", payload.get("rentPaidAnnualPaise", 0)) or 0),
+        metro=bool(payload.get("metro", False)),
+        slabs=payload.get("slabs"), standard_deduction_paise=payload.get("standard_deduction_paise"),
+        standard_deduction=payload.get("standard_deduction"),
+        rebate_87a_limit_paise=payload.get("rebate_87a_limit_paise"),
+        rebate_87a_max_paise=payload.get("rebate_87a_max_paise"),
+        cess_rate=payload.get("cess_rate"), chapter_via_limits=payload.get("chapter_via_limits"),
+        chapter_via_limits_paise=payload.get("chapter_via_limits_paise"),
+        surcharge_slabs=payload.get("surcharge_slabs"),
+    )
+    return _ok(result, "TDS calculated successfully")
+
+
+@router.get("/statutory/tax-rules/{financial_year}/{regime}", summary="Get configurable FY tax slabs")
+async def get_fy_tax_rule(financial_year: str, regime: str, claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    rule = await StatutoryService.get_financial_year_tax_rule(db, financial_year, regime, c_uuid)
+    if rule is None:
+        data = StatutoryService._default_tax_rule(financial_year, "OLD" if regime.upper().startswith("OLD") else "NEW")
+        data = StatutoryService._json_safe(data)
+        data.update({"financial_year": financial_year, "regime": regime.upper(), "is_default": True})
+    else:
+        data = {column: getattr(rule, column) for column in ("financial_year", "regime", "slabs_json", "standard_deduction_paise", "rebate_87a_limit_paise", "rebate_87a_max_paise", "chapter_via_limits_json", "surcharge_slabs_json", "cess_rate", "proof_cutoff_date", "needs_ca_validation")}
+        data["is_default"] = False
+    return _ok(data, "FY tax rule retrieved successfully")
+
+
+@router.put("/statutory/tax-rules/{financial_year}/{regime}", summary="Configure FY tax slabs and deduction limits")
+async def put_fy_tax_rule(financial_year: str, regime: str, payload: dict[str, Any] = Body(default={}), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    rule = await StatutoryService.upsert_financial_year_tax_rule(db, financial_year, regime, payload, c_uuid)
+    return _ok({"id": str(rule.id), "financial_year": rule.financial_year, "regime": rule.regime, "slabs_json": rule.slabs_json, "standard_deduction_paise": rule.standard_deduction_paise, "needs_ca_validation": rule.needs_ca_validation}, "FY tax rule saved successfully")
+
+
+@router.get("/statutory/state-rules/{state}", summary="Get effective state PT/LWF rules")
+async def get_state_rule(state: str, as_of: Optional[date] = Query(None), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin_or_manager(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    rule = await StatutoryService.get_state_statutory_rule(db, state, c_uuid, as_of)
+    source = rule or StatutoryService._default_rule(StatutoryService._state_code(state))
+    data = {
+        "state_code": StatutoryService._state_code(state),
+        "state_name": StatutoryService._rule_value(source, "state_name", default=StatutoryService._state_code(state)),
+        "effective_from": StatutoryService._rule_value(source, "effective_from", default=None),
+        "effective_to": StatutoryService._rule_value(source, "effective_to", default=None),
+        "pt_slabs_json": StatutoryService._rule_value(source, "pt_slabs_json", "pt_slabs", default=[]),
+        "lwf_employee_paise": StatutoryService._rule_value(source, "lwf_employee_paise", default=0),
+        "lwf_employer_paise": StatutoryService._rule_value(source, "lwf_employer_paise", default=0),
+        "lwf_frequency": StatutoryService._rule_value(source, "lwf_frequency", default="MONTHLY"),
+        "lwf_applicable_months": StatutoryService._rule_value(source, "lwf_applicable_months", default=[]),
+        "needs_ca_validation": StatutoryService._rule_value(source, "needs_ca_validation", default=True),
+        "is_default": rule is None,
+    }
+    return _ok(data, "State statutory rule retrieved successfully")
+
+
+@router.put("/statutory/state-rules/{state}", summary="Configure versioned state PT/LWF rules")
+async def put_state_rule(state: str, payload: dict[str, Any] = Body(default={}), claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    rule = await StatutoryService.upsert_state_statutory_rule(db, state, payload, c_uuid)
+    return _ok({"id": str(rule.id), "state_code": rule.state_code, "effective_from": rule.effective_from, "pt_slabs_json": rule.pt_slabs_json, "lwf_employee_paise": rule.lwf_employee_paise, "lwf_employer_paise": rule.lwf_employer_paise, "needs_ca_validation": rule.needs_ca_validation}, "State statutory rule saved successfully")
+
+
+@router.post("/statutory/state-rules/seed", summary="Idempotently seed default state PT/LWF rules")
+async def seed_state_rules(claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin(claims)
+    company_id_str = claims.get("company_id") if claims else None
+    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    created = await StatutoryService.seed_state_statutory_rules(db, c_uuid)
+    return _ok({"created": created, "states": list(StatutoryService.DEFAULT_STATE_RULES)}, "State statutory rules seeded successfully")

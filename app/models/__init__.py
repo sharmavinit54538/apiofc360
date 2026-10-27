@@ -341,6 +341,9 @@ from app.models.payroll_models import (
 )
 from app.models.payroll_compliance import (
     PayrollCompliance,
+    StateStatutoryRule,
+    FinancialYearTaxRule,
+    StatutoryForm,
     ComplianceDueDate,
     ComplianceChallan,
     ComplianceHistory,
@@ -610,6 +613,9 @@ __all__ = [
     "EmployeeRiskAssessment",
     "CopilotQueryLog",
     "StatutoryComplianceConfig",
+    "StateStatutoryRule",
+    "FinancialYearTaxRule",
+    "StatutoryForm",
     "SalaryStructure",
     "PayrollAttendanceInput",
     "PayrollRun",

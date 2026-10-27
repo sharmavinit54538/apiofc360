@@ -29,6 +29,10 @@ class StatutoryConfigResponse(PayrollBaseModel):
     pf_enabled: bool = True
     employee_pf_rate: float = 0.12
     employer_pf_rate: float = 0.12
+    employer_eps_rate: float = 0.0833
+    employer_edli_rate: float = 0.005
+    pf_admin_rate: float = 0.005
+    esi_pwd_wage_ceiling: float = 25000.00
     pf_wage_ceiling: float = 15000.00
     pf_on_full_basic: bool = False
     esi_enabled: bool = True
@@ -43,6 +47,10 @@ class StatutoryConfigRequest(PayrollBaseModel):
     pf_enabled: Optional[bool] = Field(None, alias="pfEnabled")
     employee_pf_rate: Optional[float] = Field(None, alias="employeePfRate")
     employer_pf_rate: Optional[float] = Field(None, alias="employerPfRate")
+    employer_eps_rate: Optional[float] = Field(None, alias="employerEpsRate")
+    employer_edli_rate: Optional[float] = Field(None, alias="employerEdliRate")
+    pf_admin_rate: Optional[float] = Field(None, alias="pfAdminRate")
+    esi_pwd_wage_ceiling: Optional[float] = Field(None, alias="esiPwdWageCeiling")
     pf_wage_ceiling: Optional[float] = Field(None, alias="pfWageCeiling")
     pf_on_full_basic: Optional[bool] = Field(None, alias="pfOnFullBasic")
     esi_enabled: Optional[bool] = Field(None, alias="esiEnabled")
@@ -126,6 +134,10 @@ class StatutorySummaryResponse(PayrollBaseModel):
 class ChallanRecordRequest(PayrollBaseModel):
     period_id: str = Field(..., alias="periodId")
     trrn_number: str = Field(..., alias="trrnNumber")
+    crn_number: Optional[str] = Field(None, alias="crnNumber")
+    bank_reference: Optional[str] = Field(None, alias="bankReference")
+    bsr_code: Optional[str] = Field(None, alias="bsrCode")
+    challan_serial_number: Optional[str] = Field(None, alias="challanSerialNumber")
     challan_generation_date: Optional[str] = Field(None, alias="challanGenerationDate")
     payment_date: Optional[str] = Field(None, alias="paymentDate")
     utr_number: Optional[str] = Field(None, alias="utrNumber")
@@ -140,8 +152,13 @@ class ChallanRecordRequest(PayrollBaseModel):
 class EmployeePfUpdateRequest(PayrollBaseModel):
     uan_number: Optional[str] = Field(None, alias="uanNumber")
     is_pf_eligible: Optional[bool] = Field(None, alias="isPfEligible")
+    pf_membership_active: Optional[bool] = Field(None, alias="pfMembershipActive")
     is_international_worker: Optional[bool] = Field(None, alias="isInternationalWorker")
     pf_wage_ceiling_applicable: Optional[bool] = Field(None, alias="pfWageCeilingApplicable")
+    pf_higher_wage_opted: Optional[bool] = Field(None, alias="pfHigherWageOpted")
+    vpf_rate: Optional[float] = Field(None, alias="vpfRate")
+    is_pwd: Optional[bool] = Field(None, alias="isPwd")
+    state_code: Optional[str] = Field(None, alias="stateCode")
 
 
 class UanValidationItem(PayrollBaseModel):

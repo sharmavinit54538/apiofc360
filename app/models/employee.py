@@ -12,7 +12,7 @@ from sqlalchemy import (
     Numeric, String, func, text, CheckConstraint, JSON, event,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.core.field_encryption import EncryptedString, hmac_sha256_blind_index
 from app.db.base import Base
@@ -164,8 +164,17 @@ class Employee(Base):
     pf_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     esi_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_pf_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    pf_membership_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     is_international_worker: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     pf_wage_ceiling_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    pf_higher_wage_opted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    vpf_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False, default=Decimal("0"), server_default=text("0"))
+    is_pwd: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    state_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    esi_covered_at_period_start: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    active_pf_membership = synonym("pf_membership_active")
+    is_person_with_disability = synonym("is_pwd")
+    higher_wage_eps_opted = synonym("pf_higher_wage_opted")
 
     # --------------- System / Access ---------------
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="employee", server_default=text("'employee'"))
