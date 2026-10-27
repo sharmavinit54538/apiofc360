@@ -197,6 +197,37 @@ class PayrollRunService:
         return item
 
     @classmethod
+    async def _check_maker_checker(cls, session: AsyncSession, run: PayrollRun, user_id: Optional[uuid.UUID], user_role: Optional[str]) -> tuple[bool, str]:
+        """Check if maker-checker enforcement applies and if the action is allowed.
+        
+        Returns: (allowed, bypass_reason_if_any)
+        """
+        # Fetch company config to check maker-checker setting
+        cfg_stmt = select(StatutoryComplianceConfig).where(
+            or_(
+                StatutoryComplianceConfig.company_id == run.company_id,
+                StatutoryComplianceConfig.company_id.is_(None),
+            ),
+            StatutoryComplianceConfig.is_active == True,
+        )
+        config = (await session.execute(cfg_stmt)).scalar_one_or_none()
+        maker_checker_enforced = getattr(config, "payroll_maker_checker_enforced", True) if config else True
+
+        if not maker_checker_enforced:
+            # Maker-checker disabled - only allow if super_admin/owner, and log bypass
+            is_super_admin = user_role and user_role.lower() in ("super_admin", "owner", "ceo", "cfo")
+            if is_super_admin:
+                return True, "Maker-checker bypassed by super_admin/owner (config disabled)"
+            else:
+                return False, "Maker-checker is disabled but only super_admin/owner can bypass"
+        
+        # Maker-checker enforced: approver must be different from runner
+        if run.run_by and user_id and run.run_by == user_id:
+            return False, "Maker-checker enforced: user who ran payroll cannot approve it"
+        
+        return True, ""
+
+    @classmethod
     async def approve_run(
         cls,
         session: AsyncSession,
@@ -212,11 +243,23 @@ class PayrollRunService:
                 detail=f"Run cannot be approved in '{run.status}' status.",
             )
 
+        # Enforce maker-checker
+        allowed, bypass_reason = await cls._check_maker_checker(session, run, user_id, user_role)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=bypass_reason or "Maker-checker enforced: separate approver required",
+            )
+
         old_status = run.status
         run.status = "APPROVED"
         run.approved_by = user_id
         run.approved_at = datetime.now()
         run.comments = comments
+
+        audit_reason = comments or "Approved payroll run"
+        if bypass_reason:
+            audit_reason += f" | Maker-checker bypass: {bypass_reason}"
 
         await PayrollAuditService.log_event(
             session=session,
@@ -228,7 +271,7 @@ class PayrollRunService:
             actor_role=user_role,
             before_status=old_status,
             after_status="APPROVED",
-            reason=comments or "Approved payroll run",
+            reason=audit_reason,
         )
         await session.commit()
         await session.refresh(run)
@@ -251,12 +294,24 @@ class PayrollRunService:
                 detail=f"Run in '{run.status}' state cannot be finalized.",
             )
 
+        # Enforce maker-checker for finalization too
+        allowed, bypass_reason = await cls._check_maker_checker(session, run, user_id, user_role)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=bypass_reason or "Maker-checker enforced: separate finalizer required",
+            )
+
         old_status = run.status
         run.status = "FINALIZED"
         run.is_locked = lock
         run.finalized_by = user_id
         run.finalized_at = datetime.now()
         run.notes = notes
+
+        audit_reason = notes or "Finalized payroll run"
+        if bypass_reason:
+            audit_reason += f" | Maker-checker bypass: {bypass_reason}"
 
         await PayrollAuditService.log_event(
             session=session,
@@ -268,7 +323,7 @@ class PayrollRunService:
             actor_role=user_role,
             before_status=old_status,
             after_status="FINALIZED",
-            reason=notes or "Finalized payroll run",
+            reason=audit_reason,
         )
         await session.commit()
         await session.refresh(run)

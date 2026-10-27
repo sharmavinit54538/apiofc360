@@ -100,6 +100,18 @@ class StatutoryComplianceConfig(Base):
     auto_email_payslips: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     auto_backup_payroll: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
+    # Governance & Compliance
+    payroll_maker_checker_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    # CA Validation flags (set true when formula/rate needs CA/payroll expert validation)
+    needs_ca_validation_pf_rates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_esi_rates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_pt_slabs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_tds_slabs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_gratuity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_lwf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_labour_codes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
     settings_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     effective_from: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
