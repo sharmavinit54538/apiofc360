@@ -249,7 +249,8 @@ async def v1_approve_run(
 ):
     _require_admin_or_manager(claims)
     run = await PayrollRunService.approve_run(
-        db, runId, comments=payload.comments, user_id=_uid(claims), user_role=_role(claims)
+        db, runId, comments=payload.comments, user_id=_uid(claims), user_role=_role(claims), allow_legacy=True,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(run, "Payroll run approved successfully")
 
@@ -312,7 +313,7 @@ async def v1_download_payslip(
     content, filename = await PayslipService.get_payslip_file(db, runId, employeeId)
     return Response(
         content=content,
-        media_type="text/plain",
+        media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
@@ -327,7 +328,8 @@ async def v1_finalize_run(
 ):
     _require_admin(claims)
     run = await PayrollRunService.finalize_run(
-        db, runId, notes=payload.notes, lock=payload.lock, user_id=_uid(claims), user_role=_role(claims)
+        db, runId, notes=payload.notes, lock=payload.lock, user_id=_uid(claims), user_role=_role(claims), legacy=True,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(run, "Payroll run finalized successfully")
 

@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.attendance.models.attendance import Attendance
 from app.models.core_modules import AttendanceRegularizationRequest
 from app.models.employee import Employee
+from app.attendance.services.validation_service import (
+    assert_attendance_period_editable, attendance_period_block_reason,
+)
 from app.schemas.core_modules.attendance import (
     AttendanceCheckInRequest,
     AttendanceCheckOutRequest,
@@ -255,6 +258,9 @@ class AttendanceCoreService:
         record = res.scalar_one_or_none()
         if not record:
             raise ValueError("Attendance record not found")
+        await assert_attendance_period_editable(
+            self.session, record.company_id, record.date, action="modify locked attendance"
+        )
 
         if payload.check_in_time is not None:
             record.check_in_time = payload.check_in_time
@@ -278,6 +284,9 @@ class AttendanceCoreService:
         record = res.scalar_one_or_none()
         if not record:
             return False
+        await assert_attendance_period_editable(
+            self.session, record.company_id, record.date, action="delete locked attendance"
+        )
         await self.session.delete(record)
         await self.session.commit()
         return True
@@ -358,6 +367,9 @@ class AttendanceCoreService:
         company_id: uuid.UUID | None,
         payload: AttendanceRegularizationCreateRequest,
     ) -> AttendanceRegularizationRequest:
+        await assert_attendance_period_editable(
+            self.session, company_id, payload.request_date, action="submit attendance regularisation"
+        )
         req = AttendanceRegularizationRequest(
             id=uuid.uuid4(),
             attendance_id=payload.attendance_id,
@@ -370,6 +382,63 @@ class AttendanceCoreService:
             status="PENDING",
         )
         self.session.add(req)
+        await self.session.commit()
+        await self.session.refresh(req)
+        return req
+
+    async def review_regularization(
+        self,
+        regularization_id: uuid.UUID,
+        *,
+        decision: str,
+        reviewer_id: uuid.UUID | None = None,
+        reviewer_role: str = "hr_admin",
+        reviewer_company_id: uuid.UUID | None = None,
+        remarks: str | None = None,
+        delta_days=1,
+        amount_paise: int | None = None,
+    ) -> AttendanceRegularizationRequest:
+        """Approve/reject a correction, creating arrears for a closed period."""
+        from app.models.payroll_models import PayrollPeriod
+        from app.services.payroll.arrear_service import ArrearService
+
+        req = await self.session.get(AttendanceRegularizationRequest, regularization_id)
+        if req is None:
+            raise ValueError("Regularisation request not found")
+        if reviewer_company_id is not None and req.company_id != reviewer_company_id:
+            raise ValueError("Regularisation request not found")
+        if req.status != "PENDING":
+            raise ValueError("Regularisation request is not pending")
+        decision = decision.upper()
+        if decision not in {"APPROVED", "REJECTED"}:
+            raise ValueError("Decision must be APPROVED or REJECTED")
+        period = await assert_attendance_period_editable(
+            self.session, req.company_id, req.request_date,
+            action="review retroactive attendance regularisation",
+            allow_retroactive=True, actor_role=reviewer_role,
+        )
+        was_closed = attendance_period_block_reason(period) is not None
+        req.status = decision
+        req.approver_id = reviewer_id
+        req.approved_at = datetime.now(UTC)
+        req.remarks = remarks
+        if decision == "APPROVED":
+            if req.attendance_id:
+                record = await self.session.get(Attendance, req.attendance_id)
+                if record is not None:
+                    if req.requested_check_in is not None:
+                        record.check_in_time = req.requested_check_in
+                    if req.requested_check_out is not None:
+                        record.check_out_time = req.requested_check_out
+            if was_closed:
+                source_id = period.id if isinstance(period, PayrollPeriod) else None
+                await ArrearService.create_arrear(
+                    self.session, employee_id=req.employee_id, company_id=req.company_id,
+                    source_period_id=source_id, arrear_type="ATTENDANCE_RETRO",
+                    delta_days=delta_days, amount_paise=amount_paise,
+                    calculation_json={"regularisation_id": str(req.id), "request_date": req.request_date.isoformat()},
+                    created_by=reviewer_id,
+                )
         await self.session.commit()
         await self.session.refresh(req)
         return req

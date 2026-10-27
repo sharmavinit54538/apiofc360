@@ -90,7 +90,7 @@ async def download_my_payslip_v2(
     content_bytes, filename = await PayslipService.get_payslip_file(db, run_id=runId, employee_id=emp_id)
     return Response(
         content=content_bytes,
-        media_type="text/plain",
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -148,6 +148,6 @@ async def download_provision_slip_pdf(
     content_bytes, filename = await PayslipService.get_provision_slip_pdf(db, slip_id=provisionSlipId)
     return Response(
         content=content_bytes,
-        media_type="text/plain",
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from app.schemas.payroll_v2.runs import (
 )
 from app.services.payroll.payment_batch_service import PaymentBatchService
 from app.services.payroll.payslip_service import PayslipService
+from app.services.payroll.parallel_comparison_service import ParallelPayrollComparisonService
 from app.services.payroll.run_service import PayrollRunService
 from app.workers.payroll_tasks import (
     PayrollJobTracker,
@@ -66,6 +67,21 @@ def _run_dict(r: PayrollRun) -> dict[str, Any]:
         "rejected_at": r.rejected_at.isoformat() if r.rejected_at else None,
         "rejection_reason": r.rejection_reason,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+
+
+def _parallel_comparison_dict(report) -> dict[str, Any]:
+    return {
+        "id": str(report.id), "report_id": str(report.id), "run_id": str(report.run_id),
+        "status": report.status, "summary": report.summary or {},
+        "employee_variances": report.employee_variances or [],
+        "employees": report.employee_variances or [],
+        "head_variances": report.head_variances or {},
+        "heads": report.head_variances or {}, "diagnoses": report.diagnoses or [],
+        "legacy_file_name": report.legacy_file_name,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
     }
 
 
@@ -167,6 +183,7 @@ async def approve_run_v2(
         comments=comments,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(_run_dict(run), "Payroll run approved successfully")
 
@@ -237,7 +254,7 @@ async def download_run_employee_payslip_v2(
     content_bytes, filename = await PayslipService.get_payslip_file(db, run_id=runId, employee_id=employeeId)
     return Response(
         content=content_bytes,
-        media_type="text/plain",
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -283,6 +300,7 @@ async def finalize_run_v2(
         lock=lock,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(_run_dict(run), "Payroll run finalized successfully")
 
@@ -400,6 +418,25 @@ async def preview_run_v2(
     return _ok(preview, "Payroll run preview retrieved successfully")
 
 
+@router.post("/runs/{run_id}/parallel-compare", summary="Compare a payroll run with legacy CSV/XLSX output")
+async def parallel_compare_run_v2(
+    run_id: uuid.UUID,
+    file: Optional[UploadFile] = File(None),
+    legacy_file: Optional[UploadFile] = File(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    upload = file or legacy_file
+    if upload is None:
+        raise HTTPException(status_code=422, detail="A legacy CSV or XLSX file is required (field 'file').")
+    company_id = uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None
+    report = await ParallelPayrollComparisonService.compare_file(
+        db, run_id=run_id, file=upload, company_id=company_id, created_by=_uid(claims)
+    )
+    return _ok(_parallel_comparison_dict(report), "Parallel payroll comparison generated and persisted")
+
+
 # 15. POST /api/v2/payroll/runs/{runId}/process
 @router.post("/runs/{runId}/process", summary="Trigger payroll calculation engine processing")
 async def process_run_v2(
@@ -422,9 +459,56 @@ async def calculate_run_sync_v2(
 ):
     _require_admin_or_manager(claims)
     run = await PayrollRunService.execute_run_calculation(
-        db, run_id=runId, user_id=_uid(claims), user_role=_role(claims)
+        db, run_id=runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(_run_dict(run), "Payroll calculation executed successfully")
+
+
+@router.post("/runs/{runId}/submit-for-approval", summary="Submit a processed run for approval")
+@router.post("/runs/{runId}/submit", summary="Submit a processed run for approval (alias)")
+async def submit_run_for_approval_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.submit_for_approval(
+        db, runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run submitted for approval")
+
+
+@router.post("/runs/{runId}/lock", summary="Lock an approved payroll run")
+async def lock_run_v2(
+    runId: uuid.UUID,
+    payload: Optional[PayrollRunFinalizeRequest] = None,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.finalize_run(
+        db, runId, notes=payload.notes if payload else None, lock=True,
+        user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run locked successfully")
+
+
+@router.post("/runs/{runId}/mark-paid", summary="Mark a locked payroll run as paid")
+@router.post("/runs/{runId}/pay", summary="Mark a locked payroll run as paid (alias)")
+async def mark_run_paid_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.mark_paid(
+        db, runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run marked as paid")
 
 
 # 16. POST /api/v2/payroll/runs/{runId}/reject

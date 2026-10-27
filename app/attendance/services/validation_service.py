@@ -215,3 +215,119 @@ class AttendanceValidationService:
             )
 
         return distance
+
+
+# ---------------------------------------------------------------------------
+# Payroll attendance cut-off guards (Step 3)
+# ---------------------------------------------------------------------------
+
+RETROACTIVE_ATTENDANCE_ROLES = frozenset({"admin", "hr_admin", "super_admin", "cfo", "ceo"})
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+async def get_payroll_period_for_attendance_date(
+    session,
+    company_id: uuid.UUID | None,
+    attendance_date: date,
+):
+    """Resolve the canonical period for an attendance/leave date.
+
+    ``PayrollPeriod`` is authoritative.  The legacy ``PayCycle`` lookup is a
+    fallback for tenants that have not yet opened a canonical period.
+    """
+    from sqlalchemy import select
+    from app.models.payroll_models import PayrollPeriod
+
+    stmt = select(PayrollPeriod).where(
+        PayrollPeriod.start_date <= attendance_date,
+        PayrollPeriod.end_date >= attendance_date,
+    )
+    if company_id is not None:
+        stmt = stmt.where(PayrollPeriod.company_id == company_id)
+    stmt = stmt.order_by(PayrollPeriod.period_year.desc(), PayrollPeriod.period_month.desc()).limit(1)
+    period = (await session.execute(stmt)).scalars().first()
+    if period is not None:
+        return period
+
+    from app.models.payroll import PayCycle
+
+    legacy_stmt = select(PayCycle).where(
+        PayCycle.period_month == attendance_date.month,
+        PayCycle.period_year == attendance_date.year,
+    )
+    if company_id is not None:
+        legacy_stmt = legacy_stmt.where(PayCycle.company_id == company_id)
+    if hasattr(PayCycle, "start_date"):
+        legacy_stmt = legacy_stmt.where(
+            (PayCycle.start_date.is_(None)) | (PayCycle.start_date <= attendance_date),
+            (PayCycle.end_date.is_(None)) | (PayCycle.end_date >= attendance_date),
+        )
+    legacy_stmt = legacy_stmt.order_by(PayCycle.created_at.desc()).limit(1)
+    return (await session.execute(legacy_stmt)).scalars().first()
+
+
+def attendance_period_block_reason(period, at: datetime | None = None) -> str | None:
+    """Return a stable reason code when a period is closed for corrections."""
+    if period is None:
+        return None
+    if getattr(period, "attendance_locked_at", None) is not None:
+        return "ATTENDANCE_PERIOD_LOCKED"
+    # Older rows only have the general payroll lock.  Treat terminal states as
+    # locked too, but do not let an ordinary OPEN period block attendance.
+    if bool(getattr(period, "is_locked", False)) or str(getattr(period, "status", "")).upper() in {
+        "LOCKED", "CLOSED", "PAID", "FINALIZED"
+    }:
+        return "ATTENDANCE_PERIOD_LOCKED"
+    deadline = _as_utc(getattr(period, "regularisation_deadline", None))
+    if deadline is not None and _as_utc(at or _utc_now()) > deadline:
+        return "REGULARISATION_DEADLINE_PASSED"
+    return None
+
+
+async def assert_attendance_period_editable(
+    session,
+    company_id: uuid.UUID | None,
+    attendance_date: date,
+    *,
+    action: str = "attendance regularisation",
+    allow_retroactive: bool = False,
+    actor_role: str | None = None,
+    at: datetime | None = None,
+):
+    """Block attendance/leave changes after cut-off or attendance lock.
+
+    Authorized HR/finance reviewers may explicitly use ``allow_retroactive``;
+    callers must then create an :class:`ArrearLedger` entry.  The function
+    returns the resolved period so callers can record its ID in that entry.
+    """
+    period = await get_payroll_period_for_attendance_date(session, company_id, attendance_date)
+    reason = attendance_period_block_reason(period, at=at)
+    if reason is None:
+        return period
+    if allow_retroactive and (actor_role or "").lower() in RETROACTIVE_ATTENDANCE_ROLES:
+        return period
+    message = (
+        f"Cannot {action}: attendance is locked for this payroll period."
+        if reason == "ATTENDANCE_PERIOD_LOCKED"
+        else f"Cannot {action}: the regularisation deadline has passed."
+    )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": reason, "message": message, "period_id": str(period.id)},
+    )
+
+
+# Short aliases used by older attendance integrations.
+assert_regularisation_allowed = assert_attendance_period_editable
+validate_payroll_attendance_lock = assert_attendance_period_editable

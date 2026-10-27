@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
+from app.api.payroll.permissions import (
+    PAYROLL_LOCK_ATTENDANCE, PAYROLL_UNLOCK_ATTENDANCE,
+    _require_admin_or_manager, _require_payroll_permission, _role, _uid,
+)
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest, PayrollCycleCreateRequest
 from app.schemas.payroll_v2.periods import PayrollPeriodResponse
@@ -37,6 +40,10 @@ def _period_dict(p) -> dict[str, Any]:
         "payment_date": str(p.payment_date) if p.payment_date else None,
         "pay_date": str(p.pay_date) if p.pay_date else None,
         "is_locked": p.is_locked,
+        "regularisation_deadline": p.regularisation_deadline.isoformat() if getattr(p, "regularisation_deadline", None) else None,
+        "attendance_locked_at": p.attendance_locked_at.isoformat() if getattr(p, "attendance_locked_at", None) else None,
+        "attendance_locked_by": str(p.attendance_locked_by) if getattr(p, "attendance_locked_by", None) else None,
+        "unlock_reason": getattr(p, "unlock_reason", None),
         "remarks": p.remarks,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
@@ -86,6 +93,7 @@ async def create_payroll_cycle(
         end_date=payload.end_date,
         processing_date=payload.processing_date,
         payment_date=payload.payment_date,
+        regularisation_deadline=payload.regularisation_deadline,
         user_id=user_id,
         user_role=user_role,
     )
@@ -102,6 +110,37 @@ async def get_payroll_cycle(
     _require_admin_or_manager(claims)
     cycle = await PayrollCycleService.get_cycle(db, cycleId)
     return _ok(_period_dict(cycle), "Payroll period retrieved successfully")
+
+
+@router.post("/cycles/{cycleId}/lock-attendance", summary="Lock attendance for a payroll period")
+@router.post("/cycles/{cycleId}/attendance-lock", summary="Lock attendance for a payroll period (alias)")
+async def lock_attendance_v2(
+    cycleId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_payroll_permission(claims, PAYROLL_LOCK_ATTENDANCE)
+    cycle = await PayrollCycleService.lock_attendance(
+        db, cycleId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_period_dict(cycle), "Attendance locked and payroll inputs synchronised successfully")
+
+
+@router.post("/cycles/{cycleId}/unlock-attendance", summary="Unlock attendance with an audit reason")
+@router.post("/cycles/{cycleId}/attendance-unlock", summary="Unlock attendance with an audit reason (alias)")
+async def unlock_attendance_v2(
+    cycleId: uuid.UUID,
+    payload: PayrollCycleActionRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_payroll_permission(claims, PAYROLL_UNLOCK_ATTENDANCE)
+    cycle = await PayrollCycleService.unlock_attendance(
+        db, cycleId, reason=payload.reason, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_period_dict(cycle), "Attendance unlocked and reason recorded in payroll audit")
 
 
 # POST /api/v2/payroll/cycles/{cycleId}/lock

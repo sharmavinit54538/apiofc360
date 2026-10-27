@@ -7,8 +7,8 @@ Implements deterministic calculations for:
    - Configurable toggle for "Wage Ceiling (₹15,000)" vs "Actual Basic".
 2. ESI (Employee State Insurance):
    - Applicable only if Gross Monthly Salary <= ₹21,000.
-   - Employee: 0.75% of Gross (rounded up to next rupee).
-   - Employer: 3.25% of Gross (rounded up to next rupee).
+   - Employee: 0.75% of Gross (ROUND_HALF_UP to nearest rupee).
+   - Employer: 3.25% of Gross (ROUND_HALF_UP to nearest rupee).
 3. PT (Professional Tax):
    - State-wise slab engine (Maharashtra, Karnataka, Gujarat, Andhra Pradesh, Telangana, Tamil Nadu, West Bengal, MP, Rajasthan, Delhi, etc.)
 4. LWF (Labour Welfare Fund):
@@ -44,6 +44,7 @@ from app.models.payroll_compliance import (
 )
 from app.models.payroll_models import PayrollPeriod
 from app.services.storage_service import StorageService
+from app.services.payroll.money import as_decimal, round_to_rupee_paise
 
 logger = logging.getLogger(__name__)
 
@@ -294,27 +295,27 @@ class StatutoryService:
             edli_wage_paise = pf_wage_paise
             ceiling_applied = wages_paise > wage_ceiling_paise
 
-        emp_rate = float(config.employee_pf_rate) if (config and config.employee_pf_rate is not None) else 0.12
-        employee_pf_paise = round(pf_wage_paise * emp_rate)
+        emp_rate = as_decimal(config.employee_pf_rate) if (config and config.employee_pf_rate is not None) else Decimal("0.12")
+        employee_pf_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * emp_rate)
 
         # EPS (Pension): 8.33% capped at ₹1,250/month (125,000 paise).
         # Under EPFO rules, EPS contributions cease at age 58; full 12% goes to EPF.
         if age is not None and age >= 58:
             employer_eps_paise = 0
         elif is_international_worker:
-            employer_eps_paise = round(eps_wage_paise * 0.0833)
+            employer_eps_paise = round_to_rupee_paise(Decimal(eps_wage_paise) * Decimal("0.0833"))
         else:
-            employer_eps_paise = min(125000, round(eps_wage_paise * 0.0833))
+            employer_eps_paise = min(125000, round_to_rupee_paise(Decimal(eps_wage_paise) * Decimal("0.0833")))
 
         # EPF: Remaining portion of employer's 12% share
-        total_employer_12_paise = round(pf_wage_paise * 0.12)
+        total_employer_12_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * Decimal("0.12"))
         employer_epf_paise = max(0, total_employer_12_paise - employer_eps_paise)
 
         # EDLI: 0.5% on EDLI wage (capped at ₹75/mo = 7,500 paise)
-        employer_edli_paise = min(7500, round(edli_wage_paise * 0.005))
+        employer_edli_paise = min(7500, round_to_rupee_paise(Decimal(edli_wage_paise) * Decimal("0.005")))
 
         # Admin charges: 0.5% of PF wage
-        employer_admin_paise = round(pf_wage_paise * 0.005)
+        employer_admin_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * Decimal("0.005"))
 
         total_employer_pf_paise = employer_epf_paise + employer_eps_paise
         total_pf_liability_paise = (
@@ -455,8 +456,8 @@ class StatutoryService:
         
         Rules:
         - Applicable only if Gross Monthly Salary <= ₹21,000 (2,100,000 paise).
-        - Employee share: 0.75% of Gross (rounded UP to the next rupee / 100 paise).
-        - Employer share: 3.25% of Gross (rounded UP to the next rupee / 100 paise).
+        - Employee share: 0.75% of Gross (rounded HALF_UP to the nearest rupee / 100 paise).
+        - Employer share: 3.25% of Gross (rounded HALF_UP to the nearest rupee / 100 paise).
         - When the Code on Wages "wages" definition is in force, the caller passes
           ``contribution_wage_paise`` (the statutory wage base after the 50% rule)
           and contributions are computed on that base instead of gross.  Eligibility
@@ -480,17 +481,18 @@ class StatutoryService:
                 "reason": "Exceeds ₹21,000 ceiling" if gross_monthly_paise > ceiling_paise else "ESI disabled or zero gross",
             }
 
-        emp_rate = float(config.employee_esi_rate) if (config and config.employee_esi_rate is not None) else 0.0075
-        empr_rate = float(config.employer_esi_rate) if (config and config.employer_esi_rate is not None) else 0.0325
+        emp_rate = as_decimal(config.employee_esi_rate) if (config and config.employee_esi_rate is not None) else Decimal("0.0075")
+        empr_rate = as_decimal(config.employer_esi_rate) if (config and config.employer_esi_rate is not None) else Decimal("0.0325")
 
         wage_base_paise = (
             int(contribution_wage_paise) if contribution_wage_paise is not None else int(gross_monthly_paise)
         )
         wage_base_paise = max(0, wage_base_paise)
 
-        # Statutory rule: round UP to next whole rupee (ceiling to nearest 100 paise)
-        employee_esi_paise = int(math.ceil((wage_base_paise * emp_rate) / 100.0) * 100)
-        employer_esi_paise = int(math.ceil((wage_base_paise * empr_rate) / 100.0) * 100)
+        # Payroll statutory rounding contract: ROUND_HALF_UP to the nearest
+        # whole rupee (a multiple of 100 paise), including exact half-rupees.
+        employee_esi_paise = round_to_rupee_paise(Decimal(wage_base_paise) * emp_rate)
+        employer_esi_paise = round_to_rupee_paise(Decimal(wage_base_paise) * empr_rate)
 
         return {
             "is_applicable": True,
@@ -772,7 +774,7 @@ class StatutoryService:
             exemptions_total = total_deductions
 
         rem_months = max(1, min(12, remaining_months))
-        monthly_tds_paise = int(round((total_annual_tax / rem_months) * 100))
+        monthly_tds_paise = round_to_rupee_paise(as_decimal(total_annual_tax / rem_months) * 100)
 
         return {
             "tax_regime": regime,
