@@ -402,6 +402,34 @@ from app.models.ai_hub import (
     GeneratedDocument,
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Model modules that were historically only imported lazily by their own
+# routers/services.  Alembic autogenerate (and the
+# ``tests/test_migrations_match_models.py`` gate) inspects ``Base.metadata``,
+# which is only complete once *every* mapped class has been imported.  Leaving
+# these out makes the registered table set depend on import order: a test run
+# that happens to touch one of them registers 29 extra tables and the
+# migrations-vs-models comparison then reports phantom drift.  Import them all
+# eagerly so ``Base.metadata`` is deterministic and matches the migration chain.
+# ─────────────────────────────────────────────────────────────────────────────
+from app.models import school  # noqa: F401  (schools)
+from app.models import student  # noqa: F401  (students)
+from app.models import teacher  # noqa: F401  (teachers)
+from app.models import admission  # noqa: F401  (admissions)
+from app.models import fee  # noqa: F401  (fees)
+from app.models import attendance  # noqa: F401  (attendance)
+from app.models import misc  # noqa: F401  (cctv_cameras, documents, face_profiles, notifications, recognition_logs)
+from app.models import allowance  # noqa: F401  (allowances, allowance_history, allowance_audit_logs)
+from app.models import salary_component  # noqa: F401  (salary_components, salary_component_history, salary_component_audit_logs)
+from app.models import payroll_template  # noqa: F401  (payroll_templates, versions, history, audit logs)
+from app.models import tax_setting  # noqa: F401  (payroll_tax_settings, slabs, history, audit logs)
+from app.models import overtime_setting  # noqa: F401  (overtime_rules, payroll_overtime_settings, history, audit logs)
+
+# Geo-fencing model for the attendance module lives outside ``app/models`` but is
+# mapped on the same ``Base``; import it so its table is part of the metadata.
+from app.attendance.models import office_location  # noqa: F401  (office_locations)
+
+
 __all__ = [
     "AgentRun",
     "AgentFeedback",

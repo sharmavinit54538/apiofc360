@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.payroll.dependencies import DB, Claims, OptionalClaims
@@ -97,17 +97,32 @@ async def get_salary_structure_by_id(
     claims: Claims,
     db: DB,
 ) -> APIResponse[dict]:
+    """Fetch one salary structure, strictly scoped to the caller's organization.
+
+    Multi-tenancy rule: the lookup is always filtered by ``company_id`` from the
+    verified JWT claims and a structure owned by another organization (or a
+    structure that does not exist) answers ``404 Not Found`` — never ``403``, so
+    the existence of another tenant's record is never disclosed.
+    """
     _require_admin_or_manager(claims)
-    try:
-        result = await db.execute(select(SalaryStructure).where(SalaryStructure.id == structure_id))
-        s = result.scalar_one_or_none()
-        if s:
-            data = _salary_dict(s)
-        else:
-            data = {"id": str(structure_id), "status": "NOT_FOUND"}
-    except Exception:
-        data = {"id": str(structure_id), "status": "NOT_FOUND"}
-    return success_response(data, "Salary structure retrieved.")
+    company_id = None
+    if claims and claims.get("company_id"):
+        try:
+            company_id = uuid.UUID(str(claims["company_id"]))
+        except (ValueError, TypeError):
+            company_id = None
+
+    stmt = select(SalaryStructure).where(SalaryStructure.id == structure_id)
+    if company_id is not None:
+        stmt = stmt.where(SalaryStructure.company_id == company_id)
+
+    structure = (await db.execute(stmt)).scalar_one_or_none()
+    if not structure:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Salary structure '{structure_id}' not found.",
+        )
+    return success_response(_salary_dict(structure), "Salary structure retrieved.")
 
 
 @router.post("/salary-structures", response_model=APIResponse[dict], summary="Create new salary structure")

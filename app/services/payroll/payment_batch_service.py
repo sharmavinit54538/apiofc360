@@ -36,6 +36,22 @@ class PaymentBatchService:
 
     BANK_RESP_PREFIX = "payroll:bank_resp:"
 
+    @staticmethod
+    def maker_ids_for_batch(batch: PaymentBatch) -> list[uuid.UUID]:
+        """Every user who initiated or processed this batch (the "makers")."""
+        makers: list[uuid.UUID] = []
+        for attr in ("created_by", "processed_by"):
+            value = getattr(batch, attr, None)
+            if value is None:
+                continue
+            try:
+                parsed = value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+            except (ValueError, AttributeError, TypeError):
+                continue
+            if parsed not in makers:
+                makers.append(parsed)
+        return makers
+
     @classmethod
     async def get_batch(
         cls, session: AsyncSession, batch_id: uuid.UUID
@@ -168,10 +184,13 @@ class PaymentBatchService:
             company_id=run.company_id,
             run_id=run.id,
             batch_number=batch_number,
-            source_account_id=source_account_id,
+            # `source_account_id` is a VARCHAR column: always coerce to str so an
+            # upstream UUID never reaches asyncpg as the wrong type.
+            source_account_id=str(source_account_id),
             payment_mode=payment_mode,
             status="DRAFT",
             notes=notes,
+            created_by=user_id,
         )
         session.add(batch)
 
@@ -240,6 +259,24 @@ class PaymentBatchService:
     ) -> PaymentBatch:
         batch = await cls.get_batch(session, batch_id)
         old_status = batch.status
+
+        # Strict maker-checker: the user who created/processed the batch may not
+        # approve it.  Raises HTTP 403 with code MAKER_CHECKER_VIOLATION and writes
+        # an immutable audit record when the tenant enforces the policy.
+        from app.api.payroll.permissions import enforce_maker_checker
+
+        await enforce_maker_checker(
+            session,
+            entity_type="PaymentBatch",
+            entity_id=batch.id,
+            company_id=batch.company_id,
+            maker_ids=cls.maker_ids_for_batch(batch),
+            approver_id=user_id,
+            actor_role=user_role,
+            action="APPROVE",
+            before_status=old_status,
+        )
+
         batch.status = "APPROVED"
         batch.approved_by = user_id
         batch.approved_at = datetime.now()
@@ -310,6 +347,9 @@ class PaymentBatchService:
         batch.bank_reference_number = bank_reference_number
         batch.submission_date = submission_date
         batch.notes = notes
+        # Submitting a batch to the bank is "processing" it for maker-checker.
+        if user_id is not None:
+            batch.processed_by = user_id
 
         # Update non-held items to SUCCESS / PROCESSING
         item_stmt = select(PaymentBatchItem).where(

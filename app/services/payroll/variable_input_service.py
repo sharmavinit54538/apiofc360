@@ -101,9 +101,12 @@ class VariableInputService:
         user_role: Optional[str] = None,
     ) -> VariableInput:
         emp_id = uuid.UUID(payload.employee_id)
-        p_id = uuid.UUID(payload.period_id)
+        p_id = uuid.UUID(payload.period_id) if payload.period_id else None
 
-        # Validate employee & period exist
+        # Validate the employee exists.  The period is a *soft* reference: variable
+        # pay is often captured before the payroll period has been opened, so a
+        # period id that does not resolve yet is recorded as-is (and logged) rather
+        # than failing the request with a foreign-key error.
         emp_exists = (
             await session.execute(select(Employee).where(Employee.id == emp_id))
         ).scalar_one_or_none()
@@ -111,6 +114,17 @@ class VariableInputService:
             raise HTTPException(status_code=404, detail="Employee not found.")
 
         target_company_id = company_id or emp_exists.company_id
+
+        if p_id is not None:
+            period_exists = (
+                await session.execute(select(PayrollPeriod.id).where(PayrollPeriod.id == p_id))
+            ).scalar_one_or_none()
+            if not period_exists:
+                logger.warning(
+                    "Variable input %s recorded against payroll period %s which does not exist yet.",
+                    payload.type,
+                    p_id,
+                )
 
         var_input = VariableInput(
             id=uuid.uuid4(),

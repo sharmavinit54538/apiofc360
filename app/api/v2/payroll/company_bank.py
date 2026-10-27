@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
@@ -27,6 +27,20 @@ async def get_company_bank_accounts(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    # Multi-tenancy rule: the path parameter may never widen the caller's tenant.
+    # A request for another organization's bank accounts answers 404 (not 403) so
+    # the existence of another tenant's records is not disclosed.
+    tenant_id = None
+    if claims and claims.get("company_id"):
+        try:
+            tenant_id = uuid.UUID(str(claims["company_id"]))
+        except (ValueError, TypeError):
+            tenant_id = None
+    if tenant_id is None or tenant_id != companyId:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company '{companyId}' not found.",
+        )
     accounts = await CompanyBankService.get_company_bank_accounts(db, company_id=companyId)
     data = [
         {

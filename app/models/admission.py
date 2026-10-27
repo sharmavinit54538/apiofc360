@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Date, ForeignKey, String
+from sqlalchemy import Boolean, Date, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
@@ -35,6 +35,6 @@ class Admission(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     # pending -> verified -> approved | rejected
 
-    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    verified_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
-    approved_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    verified_by: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id"), nullable=True)

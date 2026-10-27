@@ -24,7 +24,7 @@ Uses mock-based approach (like root tests/conftest.py) to avoid JSONB/SQLite iss
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -607,18 +607,13 @@ async def test_salary_structure_cross_tenant_isolation(client, mock_db_session, 
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([struct_a])
-        r = await client.get(f"/api/v2/payroll/compensation/structures/{struct_a_id}")
-        # Endpoint might be different - check if 404 is route not found vs not found
-        if r.status_code == 404:
-            # Check if it's route not found vs resource not found
-            # If route exists but resource not found, that's correct for cross-tenant
-            pass
-        assert r.status_code != 404 or "route" in r.text.lower()
+        r = await client.get(f"/api/v1/payroll/salary-structures/{struct_a_id}")
+        assert r.status_code != 404, "Same-tenant access should not return 404"
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v2/payroll/compensation/structures/{struct_a_id}")
-        assert r2.status_code == 404
+        r2 = await client.get(f"/api/v1/payroll/salary-structures/{struct_a_id}")
+        assert r2.status_code == 404, f"Cross-tenant access must return 404, got {r2.status_code}"
 
 
 # ==============================================================================
@@ -653,12 +648,12 @@ async def test_leave_request_cross_tenant_isolation(client, mock_db_session, com
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([leave_a])
-        r = await client.get(f"/api/v1/leaves/requests/{leave_a_id}")
+        r = await client.post(f"/api/v1/leaves/{leave_a_id}/cancel")
         assert r.status_code != 404
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v1/leaves/requests/{leave_a_id}")
+        r2 = await client.post(f"/api/v1/leaves/{leave_a_id}/cancel")
         assert r2.status_code == 404
 
 
@@ -717,7 +712,7 @@ async def test_document_template_cross_tenant_isolation(client, mock_db_session,
         mock_template_a = _mock_document_template(template_a_id, company_a["company_id"], "Company A Offer Letter")
         mock_template_global = _mock_document_template(template_global_id, None, "Global NDA")
         mock_db_session.execute.return_value = _create_mock_result([mock_template_a, mock_template_global])
-        r = await client.get("/api/v2/ai-hub/document-generator/templates")
+        r = await client.get("/api/v1/ai-hub/document-generator/templates")
         if r.status_code == 404:
             # Endpoint might not exist or have different path
             pytest.skip("Endpoint not found - may have different path")
@@ -726,7 +721,7 @@ async def test_document_template_cross_tenant_isolation(client, mock_db_session,
     async with _mock_auth(company_b["company_id"]):
         mock_template_global = _mock_document_template(template_global_id, None, "Global NDA")
         mock_db_session.execute.return_value = _create_mock_result([mock_template_global])
-        r2 = await client.get("/api/v2/ai-hub/document-generator/templates")
+        r2 = await client.get("/api/v1/ai-hub/document-generator/templates")
         if r2.status_code == 404:
             pytest.skip("Endpoint not found - may have different path")
         data = r2.json()
@@ -744,7 +739,7 @@ async def test_document_template_preview_cross_tenant_blocked(client, mock_db_se
             template_body="Private content for {{name}}")
         mock_db_session.execute.return_value = _create_mock_result([mock_template_a])
         r = await client.post(
-            "/api/v2/ai-hub/document-generator/preview",
+            "/api/v1/ai-hub/document-generator/preview",
             json={"templateId": str(template_a_id), "variables": {"name": "Test"}},
         )
         if r.status_code == 404:
@@ -754,12 +749,12 @@ async def test_document_template_preview_cross_tenant_blocked(client, mock_db_se
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
         r2 = await client.post(
-            "/api/v2/ai-hub/document-generator/preview",
+            "/api/v1/ai-hub/document-generator/preview",
             json={"templateId": str(template_a_id), "variables": {"name": "Test"}},
         )
-        if r2.status_code == 404:
-            pytest.skip("Endpoint not found - may have different path")
-        assert r2.status_code == 404
+        assert r2.status_code == 404, (
+            f"Cross-tenant preview must return 404, got {r2.status_code}"
+        )
 
 
 # ==============================================================================
@@ -771,14 +766,14 @@ async def test_generated_document_cross_tenant_isolation(client, mock_db_session
     async with _mock_auth(company_a["company_id"]):
         mock_doc = _mock_generated_document(uuid.uuid4(), company_a["company_id"])
         mock_db_session.execute.return_value = _create_mock_result([mock_doc])
-        r = await client.get("/api/v2/ai-hub/document-generator/overview")
+        r = await client.get("/api/v1/ai-hub/document-generator")
         if r.status_code == 404:
             pytest.skip("Endpoint not found - may have different path")
         assert r.status_code != 404
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get("/api/v2/ai-hub/document-generator/overview")
+        r2 = await client.get("/api/v1/ai-hub/document-generator")
         if r2.status_code == 404:
             pytest.skip("Endpoint not found - may have different path")
         data = r2.json().get("data", {})
@@ -832,13 +827,13 @@ async def test_pay_component_cross_tenant_isolation(client, mock_db_session, com
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([comp_a])
-        r = await client.get(f"/api/v2/payroll/pay-components/{comp_a_id}")
-        assert r.status_code != 404
+        r = await client.delete(f"/api/v2/payroll/pay-components/{comp_a_id}")
+        assert r.status_code != 404, "Same-tenant access should not return 404"
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v2/payroll/pay-components/{comp_a_id}")
-        assert r2.status_code == 404
+        r2 = await client.delete(f"/api/v2/payroll/pay-components/{comp_a_id}")
+        assert r2.status_code == 404, f"Cross-tenant access must return 404, got {r2.status_code}"
 
 
 # ==============================================================================
@@ -853,13 +848,13 @@ async def test_variable_input_cross_tenant_isolation(client, mock_db_session, co
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([var_a])
-        r = await client.get(f"/api/v2/payroll/variable-inputs/{var_a_id}")
-        assert r.status_code != 404
+        r = await client.post(f"/api/v2/payroll/variable-inputs/{var_a_id}/approve")
+        assert r.status_code != 404, "Same-tenant access should not return 404"
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v2/payroll/variable-inputs/{var_a_id}")
-        assert r2.status_code == 404
+        r2 = await client.post(f"/api/v2/payroll/variable-inputs/{var_a_id}/approve")
+        assert r2.status_code == 404, f"Cross-tenant access must return 404, got {r2.status_code}"
 
 
 # ==============================================================================
@@ -873,13 +868,13 @@ async def test_compensation_cross_tenant_isolation(client, mock_db_session, comp
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([comp_a])
-        r = await client.get(f"/api/v2/payroll/compensation/{comp_a_id}")
-        assert r.status_code != 404
+        r = await client.get(f"/api/v2/payroll/compensations/{employee_a.id}")
+        assert r.status_code != 404, "Same-tenant access should not return 404"
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v2/payroll/compensation/{comp_a_id}")
-        assert r2.status_code == 404
+        r2 = await client.get(f"/api/v2/payroll/compensations/{employee_a.id}")
+        assert r2.status_code == 404, f"Cross-tenant access must return 404, got {r2.status_code}"
 
 
 # ==============================================================================
@@ -893,13 +888,13 @@ async def test_company_bank_account_cross_tenant_isolation(client, mock_db_sessi
 
     async with _mock_auth(company_a["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([bank_a])
-        r = await client.get(f"/api/v2/payroll/company-bank-accounts/{bank_a_id}")
-        assert r.status_code != 404
+        r = await client.get(f"/api/v2/payroll/companies/{company_a['company_id']}/bank-accounts")
+        assert r.status_code != 404, "Same-tenant access should not return 404"
 
     async with _mock_auth(company_b["company_id"]):
         mock_db_session.execute.return_value = _create_mock_result([])
-        r2 = await client.get(f"/api/v2/payroll/company-bank-accounts/{bank_a_id}")
-        assert r2.status_code == 404
+        r2 = await client.get(f"/api/v2/payroll/companies/{company_a['company_id']}/bank-accounts")
+        assert r2.status_code == 404, f"Cross-tenant access must return 404, got {r2.status_code}"
 
 
 # ==============================================================================
