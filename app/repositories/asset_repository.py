@@ -28,7 +28,7 @@ class AssetRepository:
         self.session.add(asset)
         return asset
 
-    async def get_asset_by_id(self, asset_id: uuid.UUID) -> Asset | None:
+    async def get_asset_by_id(self, asset_id: uuid.UUID, company_id: uuid.UUID | None = None) -> Asset | None:
         """Retrieve asset with loaded relationships."""
         stmt = (
             select(Asset)
@@ -39,10 +39,12 @@ class AssetRepository:
                 selectinload(Asset.maintenance_history),
             )
         )
+        if company_id is not None:
+            stmt = stmt.where(Asset.company_id == company_id)
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def get_asset_by_tag(self, tag: str) -> Asset | None:
+    async def get_asset_by_tag(self, tag: str, company_id: uuid.UUID | None = None) -> Asset | None:
         """Retrieve asset by tag with loaded relationships."""
         stmt = (
             select(Asset)
@@ -53,11 +55,14 @@ class AssetRepository:
                 selectinload(Asset.maintenance_history),
             )
         )
+        if company_id is not None:
+            stmt = stmt.where(Asset.company_id == company_id)
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
     async def list_assets(
         self,
+        company_id: uuid.UUID | None = None,
         category: str | None = None,
         status: str | None = None,
         search: str | None = None,
@@ -83,6 +88,12 @@ class AssetRepository:
             count_stmt = count_stmt.outerjoin(Asset.employee)
             
         filters = []
+        if company_id is not None:
+            filters.append(Asset.company_id == company_id)
+        else:
+            # Enforce tenant isolation: if no company_id provided, return no assets
+            filters.append(Asset.company_id.is_(None))
+
         if category and category != "all":
             filters.append(Asset.category == category)
         if status and status != "all":
@@ -168,20 +179,28 @@ class AssetRepository:
         self.session.add(record)
         return record
 
-    async def get_analytics_data(self) -> dict[str, Any]:
+    async def get_analytics_data(self, company_id: uuid.UUID | None = None) -> dict[str, Any]:
         """Aggregate statistics for asset inventory, value, categories, and maintenance."""
+        cid_filter = [Asset.company_id == company_id] if company_id is not None else []
+
         # 1. Total valuation
         val_stmt = select(func.sum(Asset.purchase_cost))
+        if cid_filter:
+            val_stmt = val_stmt.where(*cid_filter)
         val_res = await self.session.execute(val_stmt)
         total_valuation = val_res.scalar_one() or Decimal("0.0")
 
         # 2. Status counts
         status_stmt = select(Asset.status, func.count(Asset.id)).group_by(Asset.status)
+        if cid_filter:
+            status_stmt = status_stmt.where(*cid_filter)
         status_res = await self.session.execute(status_stmt)
         status_counts = dict(status_res.all())
 
         # 3. Category counts
         cat_stmt = select(Asset.category, func.count(Asset.id)).group_by(Asset.category)
+        if cid_filter:
+            cat_stmt = cat_stmt.where(*cid_filter)
         cat_res = await self.session.execute(cat_stmt)
         category_counts = dict(cat_res.all())
 
@@ -189,8 +208,10 @@ class AssetRepository:
         repair_stmt = (
             select(Asset.category, func.coalesce(func.sum(AssetMaintenanceRecord.cost), 0))
             .join(AssetMaintenanceRecord, AssetMaintenanceRecord.asset_id == Asset.id, isouter=True)
-            .group_by(Asset.category)
         )
+        if cid_filter:
+            repair_stmt = repair_stmt.where(*cid_filter)
+        repair_stmt = repair_stmt.group_by(Asset.category)
         repair_res = await self.session.execute(repair_stmt)
         repair_costs = dict(repair_res.all())
 
@@ -199,9 +220,10 @@ class AssetRepository:
         today = date.today()
         thirty_days_later = today + timedelta(days=30)
         
-        exp_stmt = select(func.count(Asset.id)).where(
-            and_(Asset.warranty_until.isnot(None), Asset.warranty_until <= thirty_days_later)
-        )
+        exp_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until <= thirty_days_later]
+        if company_id is not None:
+            exp_conditions.append(Asset.company_id == company_id)
+        exp_stmt = select(func.count(Asset.id)).where(and_(*exp_conditions))
         exp_res = await self.session.execute(exp_stmt)
         expiring_count = exp_res.scalar_one()
 
@@ -213,15 +235,17 @@ class AssetRepository:
             "expiring_warranty_count": expiring_count,
         }
 
-    async def get_filter_options(self) -> tuple[list[str], list[str], list[str]]:
+    async def get_filter_options(self, company_id: uuid.UUID | None = None) -> tuple[list[str], list[str], list[str]]:
         """Retrieve distinct vendors, locations, and departments excluding NULLs, sorted alphabetically."""
+        cid_filter = [Asset.company_id == company_id] if company_id is not None else []
+
         # 1. Distinct Vendors
-        vendor_stmt = select(Asset.vendor).distinct().where(Asset.vendor.isnot(None)).order_by(Asset.vendor)
+        vendor_stmt = select(Asset.vendor).distinct().where(Asset.vendor.isnot(None), *cid_filter).order_by(Asset.vendor)
         vendor_res = await self.session.execute(vendor_stmt)
         vendors = list(vendor_res.scalars().all())
 
         # 2. Distinct Locations
-        location_stmt = select(Asset.location).distinct().where(Asset.location.isnot(None)).order_by(Asset.location)
+        location_stmt = select(Asset.location).distinct().where(Asset.location.isnot(None), *cid_filter).order_by(Asset.location)
         location_res = await self.session.execute(location_stmt)
         locations = list(location_res.scalars().all())
 
@@ -230,7 +254,7 @@ class AssetRepository:
             select(Employee.department)
             .distinct()
             .join(Asset, Asset.employee_id == Employee.id)
-            .where(Employee.department.isnot(None))
+            .where(Employee.department.isnot(None), *cid_filter)
             .order_by(Employee.department)
         )
         dept_res = await self.session.execute(dept_stmt)

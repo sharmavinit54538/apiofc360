@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import permission_denied
+from app.core.exceptions import ForbiddenException as permission_denied
 from app.db.dependencies import CurrentUser, get_current_user, require_permission
 from app.db.session import get_db
 from app.models.attendance import Attendance

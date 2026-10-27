@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 try:
     from starlette.middleware.sessions import SessionMiddleware
@@ -16,152 +17,31 @@ except ImportError:
 
 from sqlalchemy import text
 
-# Routers Import
-from app.api.auth import router as auth_router
-from app.api.hr_admin import router as hr_admin_router
-from app.api.employees import router as employees_router
-from app.api.managers import router as managers_router
-from app.api.exports import router as exports_router
-from app.api.departments import router as departments_router
-from app.api.jobs import router as jobs_router
-from app.api.assets import router as assets_router
-from app.api.timesheets import router as timesheets_router
-from app.attendance.routers import router as attendance_router
-from app.api.leaves import router as leaves_router
+# Performance instrumentation
+from app.core.perf_instrumentation import (
+    install_db_instrumentation,
+    wrap_redis_client,
+    start_lag_detector,
+    stop_lag_detector,
+    PerfHeadersMiddleware,
+)
+
+# Unified Routers - Single import for all v1 and v2 endpoints
+from app.api.v1.router import v1_router
+from app.api.v2.router import v2_router
+
+# Legacy public/unprefixed routers (keep separate for backward compatibility)
 from app.api.careers import router as careers_router
-from app.api.applications import router as applications_router
-from app.api.interviews import router as interviews_router
-from app.api.offers import router as offers_router
-from app.api.exits import router as exits_router
-from app.api.calendar import router as calendar_router
-from app.api.documents import router as documents_router
-from app.api.templates import router as templates_router
-from app.api.announcements import router as announcements_router
-from app.api.news import router as news_router
-from app.api.events import router as events_router
-from app.api.polls import router as polls_router
-from app.api.internal_dashboard import router as internal_dashboard_router
-from app.api.ai_copilot import router as ai_copilot_router
-from app.api.v1.ai_recruiter import router as ai_recruiter_router
-from app.api.v1.ai_attendance import router as ai_attendance_router
-from app.api.v1.ai_performance import router as ai_performance_router
-from app.api.v1.ai_leave import router as ai_leave_router
-from app.api.v1.ai_payroll import router as ai_payroll_router
-from app.api.v1.payroll.router import router as v1_payroll_router
-from app.api.payroll.router import router as full_payroll_router
-from app.api.v1.ai_workforce import router as ai_workforce_router, ai_workforce_direct_router
-from app.api.v1.employee_health import router as employee_health_router
-from app.api.v1.policy_ai import router as policy_ai_router
-from app.api.v1.meeting_ai import router as meeting_ai_router
-from app.api.v1.compliance_monitor import router as compliance_monitor_router
-from app.api.v1.reports import router as reports_v1_router
-from app.api.v1.chat_assistant import router as chat_assistant_router
-from app.api.v1.analytics_center import router as analytics_center_router
-from app.api.v1.ai_brain import router as ai_brain_router
+from app.api.generate_api import router as generate_router
 from app.api.v1.intelligence import router as intelligence_router
-from app.api.ai_insights import router as ai_insights_router, ai_analytics_router
 from app.api.settings import router as settings_api_router
 from app.api.billing import router as billing_router
 from app.api.payments import router as payments_router
-from app.api.sidebar import router as sidebar_router
-from app.api.cto.dashboard import router as cto_dashboard_router
-from app.api.super_admin import router as super_admin_router
 from app.api.onboarding import router as onboarding_router
-from app.api.employee_onboarding_api import router as employee_onboarding_api_router
-from app.api.employee_onboarding_admin_api import router as employee_onboarding_admin_api_router
 from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
-from app.api.hierarchy import router as hierarchy_router
-from app.api.talent_pool import router as talent_pool_router
-from app.api.requisitions import router as requisitions_router
-from app.api.vendors import router as vendors_router
-from app.api.crm import router as crm_router
-from app.api.referrals import router as referrals_router
-from app.api.automation import router as automation_router
-from app.api.scorecards import router as scorecards_router
-from app.api.recruitment_analytics import router as recruitment_analytics_router
-from app.api.recruitment import router as recruitment_router
-from app.api.ats import router as ats_router
-from app.api.v2.document_intelligence import router as doc_intel_router
-from app.api.v2.employee_support import router as emp_support_router
-from app.api.v2.interview_bot import router as interview_bot_router
-from app.api.v2.hr_analytics_api import router as hr_analytics_router
-from app.api.v2.hr_workflow_api import router as hr_workflow_router
-from app.api.v2.payroll_api import router as payroll_router
-from app.api.v2.tax_api import router as tax_router
-from app.api.v2.performance_api import router as performance_router
-from app.api.v2.policy_api import router as policy_router
-from app.api.v2.wellness_api import router as wellness_router
-from app.api.v2.travel_api import router as travel_router
-from app.api.v2.reports_api import router as reports_router
-from app.api.v2.productivity_api import router as productivity_router
-from app.api.v2.goal_generator_api import router as goals_router
-from app.api.v2.compensation_api import router as compensation_router
-from app.api.v2.behavioural_api import router as behavioural_router
-from app.api.v2.email_generator_api import router as email_router
-from app.api.v2.emotion_chatbot_api import router as emotions_router
-from app.api.v2.org_intelligence_apis import org_map_router, skill_gap_router, shift_router, digital_twin_router
-from app.api.v2.employee_intelligence_apis import voice_router, mood_router, career_router, learning_router
-from app.api.v2.enterprise_intelligence_apis import workforce_router, talent_router, meetings_router, compliance_router, risk_router, copilot_router
-from app.api.v2.hr_copilot import router as hr_copilot_router
-from app.api.v2.candidate_matching import router as candidate_matching_router
-from app.api.v2.coding_assessment import router as coding_assessment_router
-from app.api.v2.ranking import router as ranking_router
-from app.api.v2.resume_parser import router as resume_parser_router
-from app.api.v2.screening import router as screening_router
-from app.api.v2.offer_letters import router as offer_letters_router
-from app.api.v2.interview_agent import router as interview_agent_router
-from app.api.v2.analytics import router as analytics_v2_router
-from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
-from app.api.global_notifications import router as global_notifications_router
-from app.api.generate_api import router as generate_router
-from app.api.connect import router as connect_router
-from app.api.helpdesk import router as helpdesk_router
-
-# AI Hub Gateway routers
-from app.api.v1.ai_hub.root import router as ai_hub_root_router
-from app.api.v1.ai_hub.agents import router as ai_hub_agents_router
-from app.api.v1.ai_hub.analytics_center import router as ai_hub_analytics_router
-from app.api.v1.ai_hub.attendance_monitor import router as ai_hub_attendance_router
-from app.api.v1.ai_hub.chat_assistant import router as ai_hub_chat_router
-from app.api.v1.ai_hub.compliance_monitor import router as ai_hub_compliance_router
-from app.api.v1.ai_hub.document_generator import router as ai_hub_docgen_router
-from app.api.v1.ai_hub.employee_health import router as ai_hub_health_router
-from app.api.v1.ai_hub.leave_assistant import router as ai_hub_leave_router
-from app.api.v1.ai_hub.meeting_intelligence import router as ai_hub_meeting_router
-from app.api.v1.ai_hub.payroll_insights import router as ai_hub_payroll_router
-from app.api.v1.ai_hub.performance_coach import router as ai_hub_performance_router
-from app.api.v1.ai_hub.policy_assistant import router as ai_hub_policy_router
-from app.api.v1.ai_hub.recruiter import router as ai_hub_recruiter_router
-from app.api.v1.ai_hub.workforce import (
-    insights_router as ai_hub_workforce_insights_router,
-    planning_router as ai_hub_workforce_planning_router,
-)
-
-# HRMS Core Modules (/api/v1/*)
-from app.routers import (
-    attendance as core_attendance_router,
-    analytics as core_analytics_router,
-    settings as core_settings_router,
-    performance as core_performance_router,
-    users as core_users_router,
-    profile as core_profile_router,
-    departments as core_departments_router,
-    compliance as core_compliance_router,
-    employee_health as core_employee_health_router,
-    leave_assistant as core_leave_assistant_router,
-    meeting_intelligence as core_meeting_intelligence_router,
-    performance_coach as core_performance_coach_router,
-    recruiter as core_recruiter_router,
-    workforce_insights as core_workforce_insights_router,
-    managers as core_managers_router,
-    policy_assistant as core_policy_assistant_router,
-    reports as core_reports_router,
-    notifications as core_notifications_router,
-    documents as core_documents_router,
-    assets as core_assets_router,
-    holidays as core_holidays_router,
-    dashboard as core_dashboard_router,
-)
+from app.api.sidebar import router as sidebar_router
+from app.routers.notifications import router as core_notifications_router
+from app.api.departments import router as departments_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -322,6 +202,10 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
 async def ensure_superadmin_provisioned():
     """Guarantee that exactly ONE Super Admin (superadmin@ofc360.com) exists, active and verified.
     
+    Password behavior:
+    - New user: password is set from SUPER_ADMIN_PASSWORD env var.
+    - Existing user: password is NOT changed unless RESET_SUPER_ADMIN_PASSWORD=true.
+    
     Safe Migration: Any other users in the DB previously assigned SUPER_ADMIN are safely
     migrated to HR_ADMIN without deleting any user or organization data.
     """
@@ -336,12 +220,9 @@ async def ensure_superadmin_provisioned():
     logger.info("Verifying Single Fixed Super Admin security lock and provisioning...")
 
     super_admin_email = "superadmin@ofc360.com"
-    raw_password = (
-        settings.SUPER_ADMIN_PASSWORD.get_secret_value()
-        if hasattr(settings, "SUPER_ADMIN_PASSWORD") and settings.SUPER_ADMIN_PASSWORD
-        else "SuperAdmin@2026"
-    )
-    pwd_hash = hash_password(raw_password)
+    raw_password = settings.SUPER_ADMIN_PASSWORD.get_secret_value() if settings.SUPER_ADMIN_PASSWORD else ""
+    if not raw_password:
+        logger.warning("SUPER_ADMIN_PASSWORD not set. Super admin provisioning will skip password setting for existing users.")
 
     try:
         async with AsyncSessionLocal() as session:
@@ -369,27 +250,32 @@ async def ensure_superadmin_provisioned():
             sa_user = sa_res.scalars().first()
 
             if sa_user:
-                sa_user.password_hash = pwd_hash
+                # Only reset password if explicitly requested via env var
+                if settings.RESET_SUPER_ADMIN_PASSWORD and raw_password:
+                    sa_user.password_hash = hash_password(raw_password)
+                    logger.info("Super Admin password force-reset via RESET_SUPER_ADMIN_PASSWORD=true.")
                 sa_user.role = UserRole.SUPER_ADMIN
                 sa_user.is_active = True
                 sa_user.is_verified = True
                 sa_user.account_status = UserAccountStatus.ACTIVE.value
-                sa_user.must_change_password = False
                 sa_user.is_deleted = False
                 session.add(sa_user)
                 logger.info("Verified official Super Admin account: %s", super_admin_email)
             else:
+                if not raw_password:
+                    logger.error("Cannot create Super Admin: SUPER_ADMIN_PASSWORD env var is not set.")
+                    return
                 new_sa = User(
                     id=uuid.uuid4(),
                     name="Platform Super Admin",
                     email=super_admin_email,
                     phone="9999900000",
-                    password_hash=pwd_hash,
+                    password_hash=hash_password(raw_password),
                     role=UserRole.SUPER_ADMIN,
                     account_status=UserAccountStatus.ACTIVE.value,
                     is_active=True,
                     is_verified=True,
-                    must_change_password=False,
+                    must_change_password=True,
                     company_id=None,
                 )
                 session.add(new_sa)
@@ -409,12 +295,25 @@ async def lifespan(app: FastAPI):
     
     db_connected = await init_db_with_retry(max_retries=5, initial_delay=1.0, backoff_factor=2.0)
     if db_connected:
+        # Install DB query instrumentation
+        try:
+            install_db_instrumentation(engine.sync_engine)
+        except Exception as e:
+            logger.warning("DB instrumentation install failed: %s", e)
+
         try:
             from app.db.database import _get_tenant_classes
             _get_tenant_classes()
             logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
+
+        # Schema healing - auto-heal database schema drift
+        try:
+            from app.db.database import heal_database_schema
+            await heal_database_schema(engine)
+        except Exception as heal_err:
+            logger.warning("Schema healing notice: %s", str(heal_err))
 
         # Automatically provision/verify Super Admin accounts
         await ensure_superadmin_provisioned()
@@ -437,6 +336,56 @@ async def lifespan(app: FastAPI):
         except Exception as sched_err:
             logger.warning("Expiry scheduler notice: %s", str(sched_err))
 
+        # Connect to Redis and wrap with instrumentation
+        try:
+            from app.core.redis_client import redis_client
+            await redis_client.connect()
+            # Wrap Redis client with instrumentation for dev/staging
+            app.state.redis_client = wrap_redis_client(redis_client)
+        except Exception as redis_err:
+            logger.warning("Redis connection notice: %s", str(redis_err))
+
+        # Start event-loop lag detector
+        start_lag_detector()
+
+        # AI Preflight Check (non-blocking, logs actionable guidance)
+        try:
+            from app.llm.client import get_llm_client
+            llm_client = get_llm_client()
+            health = await llm_client.check_health()
+            base_url = settings.OLLAMA_BASE_URL
+            host_only = base_url.replace("http://", "").replace("https://", "").split(":")[0] if base_url else "unknown"
+            
+            if health.get("healthy"):
+                logger.info("AI Preflight: Ollama reachable at %s", base_url)
+                installed = health.get("models", [])
+                logger.info("AI Preflight: Installed models: %s", installed if installed else "none")
+                configured_sql = getattr(settings, "AI_SQL_MODEL", settings.OLLAMA_MODEL)
+                configured_answer = getattr(settings, "AI_ANSWER_MODEL", settings.OLLAMA_MODEL)
+                logger.info("AI Preflight: Configured models - SQL: %s, Answer: %s", configured_sql, configured_answer)
+                
+                missing = []
+                for model in (configured_sql, configured_answer):
+                    if model and model not in installed:
+                        # Check base name match
+                        model_base = model.split(":")[0]
+                        if not any(m.split(":")[0] == model_base for m in installed):
+                            missing.append(model)
+                
+                if missing:
+                    logger.warning("AI Preflight: Models missing: %s. Run: ollama pull <model>", missing)
+                else:
+                    logger.info("AI Preflight: All configured models available")
+            else:
+                logger.warning(
+                    "AI Preflight: Ollama not reachable at %s. "
+                    "Local run? set OLLAMA_BASE_URL=http://127.0.0.1:11434 and run `ollama serve`. "
+                    "Docker? ensure ollama service is healthy and OLLAMA_BASE_URL=http://ollama:11434",
+                    base_url
+                )
+        except Exception as preflight_err:
+            logger.warning("AI Preflight check failed (non-blocking): %s", preflight_err)
+
         logger.info("Server Running at: http://127.0.0.1:8000")
         if settings.should_enable_docs:
             logger.info(" Swagger API Docs: http://127.0.0.1:8000/docs")
@@ -449,6 +398,9 @@ async def lifespan(app: FastAPI):
         
     yield
     
+    # Graceful shutdown
+    stop_lag_detector()
+
     # Graceful shutdown of database pool
     try:
         logger.info("Shutting down database engine connection pool...")
@@ -456,6 +408,13 @@ async def lifespan(app: FastAPI):
         logger.info("Database engine shut down cleanly.")
     except Exception as e:
         logger.error("Error shutting down database engine: %s", str(e))
+
+    # Graceful shutdown of Redis connection
+    try:
+        from app.core.redis_client import redis_client
+        await redis_client.disconnect()
+    except Exception as e:
+        logger.error("Error shutting down Redis connection: %s", str(e))
 
 
 def configure_logging() -> None:
@@ -481,8 +440,13 @@ def configure_logging() -> None:
     logging.getLogger("sqlalchemy.pool").addFilter(db_filter)
 
 
-from fastapi.responses import JSONResponse
-DefaultResponse = JSONResponse
+# Try to use ORJSONResponse for faster JSON serialization
+try:
+    from fastapi.responses import ORJSONResponse
+    DefaultResponse = ORJSONResponse
+except ImportError:
+    from fastapi.responses import JSONResponse
+    DefaultResponse = JSONResponse
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -577,6 +541,9 @@ def create_app() -> FastAPI:
             max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # Match refresh token expiry
         )
 
+    # Performance headers middleware (for dev/staging only) - add early to capture all middleware
+    app.add_middleware(PerfHeadersMiddleware)
+
     # Global rate limiting middleware
     from app.core.rate_limiter import RateLimitMiddleware
     app.add_middleware(RateLimitMiddleware)
@@ -603,174 +570,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+        max_age=86400,
     )
 
     install_exception_handlers(app)
-    # ── API v1 routers ─────────────────────────────────────────────────────────
-    app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hr_admin_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employees_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(managers_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(departments_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(announcements_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(jobs_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(assets_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(applications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(interviews_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(offers_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(exits_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(calendar_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(documents_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(timesheets_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(attendance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(leaves_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(templates_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(news_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(events_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(polls_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(internal_dashboard_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_copilot_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(chat_assistant_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_recruiter_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_attendance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_performance_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_leave_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(v1_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(full_payroll_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_workforce_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_workforce_direct_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_health_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(policy_ai_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(meeting_ai_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(compliance_monitor_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(analytics_center_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_brain_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_insights_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ai_analytics_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(settings_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(billing_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(payments_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(sidebar_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(cto_dashboard_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(super_admin_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(onboarding_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_onboarding_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(employee_onboarding_admin_api_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hr_admin_onboarding_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(hierarchy_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(exports_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(talent_pool_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(requisitions_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(vendors_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(crm_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(referrals_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(automation_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(scorecards_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(recruitment_analytics_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(recruitment_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(ats_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(global_notifications_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(connect_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(helpdesk_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(reports_v1_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(intelligence_router, prefix=settings.API_V1_PREFIX)
 
-    # AI Hub Gateway (/api/v1/ai-hub/*)
-    for r in (
-        ai_hub_root_router,
-        ai_hub_agents_router,
-        ai_hub_analytics_router,
-        ai_hub_attendance_router,
-        ai_hub_chat_router,
-        ai_hub_compliance_router,
-        ai_hub_docgen_router,
-        ai_hub_health_router,
-        ai_hub_leave_router,
-        ai_hub_meeting_router,
-        ai_hub_payroll_router,
-        ai_hub_performance_router,
-        ai_hub_policy_router,
-        ai_hub_recruiter_router,
-        ai_hub_workforce_insights_router,
-        ai_hub_workforce_planning_router,
-    ):
-        app.include_router(r, prefix=settings.API_V1_PREFIX)
+    # ── Unified API v1 Router (all endpoints under /api/v1) ───────────────────────
+    app.include_router(v1_router)
 
-    # ── HRMS Core Modules (/api/v1/*) ──────────────────────────────────────────
-    for r in (
-        core_attendance_router.router,
-        core_analytics_router.router,
-        core_settings_router.router,
-        core_performance_router.router,
-        core_users_router.router,
-        core_profile_router.router,
-        core_departments_router.router,
-        core_compliance_router.router,
-        core_employee_health_router.router,
-        core_leave_assistant_router.router,
-        core_meeting_intelligence_router.router,
-        core_performance_coach_router.router,
-        core_recruiter_router.router,
-        core_workforce_insights_router.router,
-        core_managers_router.router,
-        core_policy_assistant_router.router,
-        core_reports_router.router,
-        core_notifications_router.router,
-        core_documents_router.router,
-        core_assets_router.router,
-        core_holidays_router.router,
-        core_dashboard_router.router,
-    ):
-        app.include_router(r, prefix=settings.API_V1_PREFIX)
-
-    # ── API v2 routers ─────────────────────────────────────────────────────────
-    app.include_router(doc_intel_router, prefix="/api/v2")
-    app.include_router(emp_support_router, prefix="/api/v2")
-    app.include_router(interview_bot_router, prefix="/api/v2")
-    app.include_router(hr_analytics_router, prefix="/api/v2")
-    app.include_router(hr_workflow_router, prefix="/api/v2")
-    app.include_router(payroll_router, prefix="/api/v2")
-    app.include_router(payroll_router, prefix="/v2")
-    app.include_router(tax_router, prefix="/api/v2")
-    app.include_router(performance_router, prefix="/api/v2")
-    app.include_router(policy_router, prefix="/api/v2")
-    app.include_router(wellness_router, prefix="/api/v2")
-    app.include_router(travel_router, prefix="/api/v2")
-    app.include_router(reports_router, prefix="/api/v2")
-    app.include_router(productivity_router, prefix="/api/v2")
-    app.include_router(goals_router, prefix="/api/v2")
-    app.include_router(compensation_router, prefix="/api/v2")
-    app.include_router(behavioural_router, prefix="/api/v2")
-    app.include_router(email_router, prefix="/api/v2")
-    app.include_router(emotions_router, prefix="/api/v2")
-    app.include_router(org_map_router, prefix="/api/v2")
-    app.include_router(skill_gap_router, prefix="/api/v2")
-    app.include_router(shift_router, prefix="/api/v2")
-    app.include_router(digital_twin_router, prefix="/api/v2")
-    app.include_router(voice_router, prefix="/api/v2")
-    app.include_router(mood_router, prefix="/api/v2")
-    app.include_router(career_router, prefix="/api/v2")
-    app.include_router(learning_router, prefix="/api/v2")
-    app.include_router(workforce_router, prefix="/api/v2")
-    app.include_router(talent_router, prefix="/api/v2")
-    app.include_router(meetings_router, prefix="/api/v2")
-    app.include_router(compliance_router, prefix="/api/v2")
-    app.include_router(risk_router, prefix="/api/v2")
-    app.include_router(copilot_router, prefix="/api/v2")
-    app.include_router(hr_copilot_router, prefix="/api/v2")
-    app.include_router(candidate_matching_router, prefix="/api/v2")
-    app.include_router(coding_assessment_router, prefix="/api/v2")
-    app.include_router(ranking_router, prefix="/api/v2")
-    app.include_router(resume_parser_router, prefix="/api/v2")
-    app.include_router(screening_router, prefix="/api/v2")
-    app.include_router(offer_letters_router, prefix="/api/v2")
-    app.include_router(interview_agent_router, prefix="/api/v2")
-    app.include_router(analytics_v2_router, prefix="/api/v2")
-    app.include_router(resume_ats_checker_router, prefix="/api/v2")
-    app.include_router(resume_ats_checker_router, prefix="/v2")
-    app.include_router(resume_ats_checker_router, prefix=settings.API_V1_PREFIX)
-    app.include_router(resume_ats_checker_router)
+    # ── Unified API v2 Router (all endpoints under /api/v2) ───────────────────────
+    app.include_router(v2_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")
@@ -781,6 +590,9 @@ def create_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
+    app.include_router(core_notifications_router)
+    app.include_router(sidebar_router, prefix="/api")
+    app.include_router(sidebar_router)
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])
@@ -814,19 +626,38 @@ def create_app() -> FastAPI:
         }
 
     @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health Checks"])
-    async def health_check():
-        """Liveness & health probe verifying backend and database status."""
+    async def health_check(deep: bool = False):
+        """Liveness & health probe verifying backend and database status.
+        
+        Args:
+            deep: If True, also checks Redis connectivity and runs a quick query.
+                  Use sparingly as it adds latency.
+        """
         db_status = "disconnected"
+        redis_status = "not_checked"
+        
         try:
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             db_status = "connected"
         except Exception as e:
             logger.error("Health check DB connection error: %s", e)
+        
+        if deep:
+            try:
+                from app.core.redis_client import redis_client
+                if redis_client.is_connected:
+                    redis_status = "connected"
+                else:
+                    redis_status = "disconnected"
+            except Exception as e:
+                logger.error("Health check Redis error: %s", e)
+                redis_status = "error"
 
         return {
             "status": "healthy" if db_status == "connected" else "degraded",
             "database": db_status,
+            "redis": redis_status if deep else "not_checked",
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
@@ -834,7 +665,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health/ready", tags=["Health Checks"])
     async def health_ready():
-        """Readiness probe checking DB and LLM connectivity."""
+        """Readiness probe checking DB and Ollama connectivity."""
         db_healthy = False
         try:
             async with engine.connect() as conn:
@@ -846,6 +677,20 @@ def create_app() -> FastAPI:
         from app.llm.client import get_llm_client
         llm_health = await get_llm_client().check_health()
 
+        # Get detailed provider status for monitoring
+        from app.llm.router import get_llm_router
+        router = get_llm_router()
+        provider_health = await router.health_check()
+
+        # Check Ollama model availability
+        ollama_model_available = False
+        ollama_details = provider_health.get("providers", {}).get("ollama", {})
+        if isinstance(ollama_details, dict):
+            ollama_model_available = ollama_details.get("model_available", False)
+        elif provider_health.get("providers", {}).get("ollama") is True:
+            # Simple boolean health check passed - try to verify model
+            ollama_model_available = True
+
         ready = db_healthy and llm_health.get("healthy", False)
         status_code = 200 if ready else 503
 
@@ -854,7 +699,15 @@ def create_app() -> FastAPI:
             content={
                 "ready": ready,
                 "database": "connected" if db_healthy else "disconnected",
-                "llm": llm_health,
+                "llm": {
+                    "healthy": llm_health.get("healthy", False),
+                    "provider": "ollama",
+                    "model_available": ollama_model_available,
+                    "configured_model": settings.OLLAMA_MODEL,
+                    "base_url": settings.OLLAMA_BASE_URL,
+                    "healthy_count": provider_health.get("healthy_count", 0),
+                    "total_count": provider_health.get("total_count", 0),
+                },
             }
         )
 
@@ -897,11 +750,128 @@ def create_app() -> FastAPI:
     from fastapi.staticfiles import StaticFiles
     import os
     # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos"]
+    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
-        os.makedirs(dir_path, exist_ok=True)
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+        except PermissionError as err:
+            current_uid = os.getuid() if hasattr(os, "getuid") else "N/A"
+            logger.warning(
+                "Permission notice while ensuring uploads directory '%s' (UID %s): %s",
+                dir_path,
+                current_uid,
+                err,
+            )
+            if not os.path.isdir(dir_path):
+                raise
         app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
+
+    # ---------------------------------------------------------------------------
+    # Global Exception Handlers with Explicit CORS Headers
+    # ---------------------------------------------------------------------------
+    
+    def _get_cors_headers(request: Request) -> dict:
+        """Generate CORS headers for exception responses."""
+        origin = request.headers.get("origin")
+        if not origin:
+            return {}
+        
+        cleaned_origin = str(origin).strip().strip("'\"").rstrip("/")
+        
+        # Check if origin is allowed
+        allowed_origins = set()
+        if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.CORS_ORIGINS if o)
+        if getattr(settings, "ALLOWED_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.ALLOWED_ORIGINS if o)
+        if getattr(settings, "BACKEND_CORS_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.BACKEND_CORS_ORIGINS if o)
+        if getattr(settings, "DEV_CORS_ORIGINS", None):
+            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.DEV_CORS_ORIGINS if o)
+        
+        # Default allowed origins
+        default_origins = {
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "https://ofc360.com",
+            "https://www.ofc360.com",
+            "https://api.ofc360.com",
+            "https://app.ofc360.com",
+            "https://ofc360.vercel.app",
+        }
+        allowed_origins.update(default_origins)
+        
+        # Also allow local network origins in development
+        import re
+        allowed_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
+        
+        is_allowed = cleaned_origin in allowed_origins or bool(re.match(allowed_regex, cleaned_origin))
+        
+        if is_allowed:
+            return {
+                "Access-Control-Allow-Origin": cleaned_origin,
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Expose-Headers": "Authorization, Content-Type, Content-Disposition, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining",
+                "Vary": "Origin",
+            }
+        return {}
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Global exception handler that logs traceback and returns JSON with CORS headers."""
+        import traceback
+        logger.error(
+            "Unhandled exception on %s %s: %s\n%s",
+            request.method,
+            request.url.path,
+            str(exc),
+            traceback.format_exc()
+        )
+        cors_headers = _get_cors_headers(request)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Internal server error.",
+                "data": None,
+                "errors": [{"field": None, "message": "Internal server error."}],
+                "code": "INTERNAL_SERVER_ERROR",
+            },
+            headers=cors_headers,
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """Starlette HTTP exception handler with CORS headers."""
+        logger.warning(
+            "HTTP exception on %s %s: %d - %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+        cors_headers = _get_cors_headers(request)
+        
+        message = str(exc.detail) if exc.detail else "Request failed."
+        code = None
+        if isinstance(exc.detail, dict):
+            message = exc.detail.get("message", message)
+            code = exc.detail.get("code")
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "errors": [{"field": None, "message": message}],
+                "code": code or f"HTTP_{exc.status_code}",
+            },
+            headers=cors_headers,
+        )
 
     return app
 

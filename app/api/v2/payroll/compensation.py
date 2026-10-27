@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
@@ -46,6 +48,69 @@ async def list_compensations(
         search=search,
     )
     return _ok(res, "Compensations retrieved successfully")
+
+
+def _comp_detail(c) -> dict[str, Any]:
+    return {
+        "id": str(c.id),
+        "employee_id": str(c.employee_id),
+        "company_id": str(c.company_id) if c.company_id else None,
+        "ctc_annual_paise": c.ctc_annual_paise,
+        "ctc_annual_inr": c.ctc_annual_paise / 100.0,
+        "basic_monthly_paise": c.basic_monthly_paise,
+        "basic_monthly_inr": c.basic_monthly_paise / 100.0,
+        "hra_monthly_paise": c.hra_monthly_paise,
+        "hra_monthly_inr": c.hra_monthly_paise / 100.0,
+        "special_allowance_monthly_paise": c.special_allowance_monthly_paise,
+        "special_allowance_monthly_inr": c.special_allowance_monthly_paise / 100.0,
+        "effective_date": str(c.effective_date),
+        "status": c.status,
+        "remarks": c.remarks,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+# GET /api/v2/payroll/compensations/{employeeId}
+@router.get("/compensations/{employeeId}", summary="Get active compensation for an employee")
+async def get_employee_compensation(
+    employeeId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    comp = await CompensationService.get_employee_compensation(db, employee_id=employeeId)
+    return _ok(_comp_detail(comp), "Employee compensation retrieved successfully")
+
+
+class AssignCompensationRequest(BaseModel):
+    ctc_annual_paise: int
+    basic_monthly_paise: Optional[int] = None
+    hra_monthly_paise: Optional[int] = None
+    special_allowance_monthly_paise: Optional[int] = None
+    effective_date: Optional[date] = None
+    remarks: Optional[str] = None
+
+
+# PUT /api/v2/payroll/compensations/{employeeId}
+@router.put("/compensations/{employeeId}", summary="Assign or update employee CTC structure")
+async def update_employee_compensation(
+    employeeId: uuid.UUID,
+    payload: AssignCompensationRequest,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    comp = await CompensationService.assign_or_update_compensation(
+        session=db,
+        employee_id=employeeId,
+        ctc_annual_paise=payload.ctc_annual_paise,
+        basic_monthly_paise=payload.basic_monthly_paise,
+        hra_monthly_paise=payload.hra_monthly_paise,
+        special_allowance_monthly_paise=payload.special_allowance_monthly_paise,
+        effective_date=payload.effective_date,
+        remarks=payload.remarks,
+    )
+    return _ok(_comp_detail(comp), "Employee compensation updated successfully")
 
 
 # POST /api/v2/payroll/compensation/bulk-import/preview
@@ -96,7 +161,7 @@ async def approve_compensation_revision(
     user_id = _uid(claims)
     user_role = _role(claims)
     remarks = payload.remarks if payload else None
-    rev = await CompensationService.approve_revision(
+    rev = await CompensationService.approve_compensation_revision(
         session=db,
         revision_id=revisionId,
         user_id=user_id,
@@ -125,7 +190,7 @@ async def reject_compensation_revision(
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
-    rev = await CompensationService.reject_revision(
+    rev = await CompensationService.reject_compensation_revision(
         session=db,
         revision_id=revisionId,
         user_id=user_id,

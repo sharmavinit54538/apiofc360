@@ -20,7 +20,7 @@ from app.schemas.employee.onboarding import (
     ActivateOnboardingRequest, ApproveRejectRequest, DeactivateEmployeeRequest
 )
 from app.schemas.employee.create import EmployeeCreate
-from app.schemas.employee.update import EmployeeUpdate, EmployeeListItem
+from app.schemas.employee.update import EmployeeUpdate, EmployeeListItem, EmployeeListItemFull
 from app.schemas.employee.profile import EmployeeResponse, EmployeeListResponse
 
 __all__ = [
@@ -39,6 +39,6 @@ __all__ = [
     "EmployeeLeavePolicyResponse", "EmployeeOnboardingStepResponse",
     "EmployeeOnboardingStatusResponse", "ActivateEmployeeRequest",
     "ActivateOnboardingRequest", "ApproveRejectRequest", "DeactivateEmployeeRequest",
-    "EmployeeCreate", "EmployeeUpdate", "EmployeeListItem",
+    "EmployeeCreate", "EmployeeUpdate", "EmployeeListItem", "EmployeeListItemFull",
     "EmployeeResponse", "EmployeeListResponse",
 ]

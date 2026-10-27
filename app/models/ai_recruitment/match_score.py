@@ -17,11 +17,13 @@ class CandidateMatchScore(Base):
 
     __tablename__ = "candidate_match_scores"
     __table_args__ = (
+        Index("ix_candidate_match_scores_company_id", "company_id"),
         Index("ix_match_score_resume_doc", "resume_document_id"),
         Index("ix_match_score_job", "job_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     resume_document_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("ai_resume_documents.id", ondelete="CASCADE"), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     candidate_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)

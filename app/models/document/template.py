@@ -27,9 +27,9 @@ class DocumentTemplate(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_body: Mapped[str] = mapped_column(Text, nullable=False)
 
-    created_by: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     # Relations
-    creator: Mapped[User] = relationship("User", foreign_keys=[created_by], lazy="select")
+    creator: Mapped[User | None] = relationship("User", foreign_keys=[created_by], lazy="select")

@@ -1,27 +1,32 @@
-"""Department service implementing hierarchical department management and employee associations."""
+"""Department core module service: delegates all business logic to canonical DepartmentService and DepartmentRepository."""
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.department import Department
-from app.models.employee import Employee
+from app.repositories.department_repository import DepartmentRepository
 from app.schemas.core_modules.departments import DepartmentCreateRequest, DepartmentUpdateRequest
+from app.services.department_service import DepartmentService
 
 logger = logging.getLogger(__name__)
 
 
 class DepartmentCoreService:
-    """Service handling hierarchical departments, soft deletes, and employee lookups."""
+    """Consolidated wrapper for hierarchical departments, soft deletes, and employee lookups.
+    
+    Delegates all operations to canonical DepartmentRepository and DepartmentService to maintain
+    single source of truth and DRY business logic.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+        self.repo = DepartmentRepository(session)
+        self.service = DepartmentService(session=session, department_repository=self.repo)
 
     async def list_departments(
         self,
@@ -30,15 +35,18 @@ class DepartmentCoreService:
         page: int = 1,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        stmt = select(Department).where(Department.is_deleted == False)
-        if company_id:
-            stmt = stmt.where(Department.company_id == company_id)
-        if parent_id is not None:
-            stmt = stmt.where(Department.parent_department_id == parent_id)
-
-        total = (await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
-        stmt = stmt.order_by(Department.department_name).offset((page - 1) * limit).limit(limit)
-        items = (await self.session.execute(stmt)).scalars().all()
+        """List active departments scoped to company and parent."""
+        offset = max(0, (page - 1) * limit)
+        items = await self.repo.list_departments(
+            company_id=company_id,
+            parent_id=parent_id,
+            limit=limit,
+            offset=offset,
+        )
+        total = await self.repo.count_departments(
+            company_id=company_id,
+            parent_id=parent_id,
+        )
 
         return {
             "total": total,
@@ -49,7 +57,7 @@ class DepartmentCoreService:
                     "id": str(d.id),
                     "department_name": d.department_name,
                     "department_code": d.department_code,
-                    "description": d.description,
+                    "description": d.description or "",
                     "manager_id": str(d.manager_id) if d.manager_id else None,
                     "parent_department_id": str(d.parent_department_id) if d.parent_department_id else None,
                     "location": d.location,
@@ -62,70 +70,40 @@ class DepartmentCoreService:
         }
 
     async def get_department(self, department_id: uuid.UUID) -> Optional[Department]:
-        stmt = select(Department).where(Department.id == department_id, Department.is_deleted == False)
-        res = await self.session.execute(stmt)
-        return res.scalar_one_or_none()
+        """Retrieve department by ID."""
+        return await self.repo.get_by_id(department_id)
 
     async def create_department(
         self, company_id: Optional[uuid.UUID], payload: DepartmentCreateRequest
     ) -> Department:
-        dept = Department(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            department_name=payload.department_name,
-            department_code=payload.department_code,
-            description=payload.description,
-            manager_id=payload.manager_id,
-            parent_department_id=payload.parent_department_id,
-            location=payload.location,
-            cost_center=payload.cost_center,
-            budget=payload.budget,
-            status="Active",
-            is_deleted=False,
-        )
-        self.session.add(dept)
-        await self.session.commit()
-        await self.session.refresh(dept)
+        """Create department via canonical service."""
+        system_user_id = uuid.uuid4()
+        resp = await self.service.create_department(user_id=system_user_id, payload=payload, company_id=company_id)
+        dept = await self.repo.get_by_id(resp.id, company_id=company_id)
+        if not dept:
+            raise RuntimeError("Failed to retrieve created department.")
         return dept
 
     async def update_department(
         self, department_id: uuid.UUID, payload: DepartmentUpdateRequest
     ) -> Department:
-        dept = await self.get_department(department_id)
+        """Update department via canonical service."""
+        system_user_id = uuid.uuid4()
+        resp = await self.service.update_department(user_id=system_user_id, department_uuid=department_id, payload=payload)
+        dept = await self.repo.get_by_id(resp.id)
         if not dept:
-            raise ValueError("Department not found")
-
-        if payload.department_name is not None:
-            dept.department_name = payload.department_name
-        if payload.department_code is not None:
-            dept.department_code = payload.department_code
-        if payload.description is not None:
-            dept.description = payload.description
-        if payload.manager_id is not None:
-            dept.manager_id = payload.manager_id
-        if payload.parent_department_id is not None:
-            dept.parent_department_id = payload.parent_department_id
-        if payload.location is not None:
-            dept.location = payload.location
-        if payload.cost_center is not None:
-            dept.cost_center = payload.cost_center
-        if payload.budget is not None:
-            dept.budget = payload.budget
-        if payload.status is not None:
-            dept.status = payload.status
-
-        await self.session.commit()
-        await self.session.refresh(dept)
+            raise RuntimeError("Failed to retrieve updated department.")
         return dept
 
     async def delete_department(self, department_id: uuid.UUID) -> bool:
-        dept = await self.get_department(department_id)
-        if not dept:
+        """Soft delete department via canonical service."""
+        system_user_id = uuid.uuid4()
+        try:
+            await self.service.delete_department(user_id=system_user_id, department_uuid=department_id)
+            return True
+        except Exception as exc:
+            logger.warning("delete_department failed for %s: %s", department_id, exc)
             return False
-        dept.is_deleted = True
-        dept.deleted_at = datetime.now(timezone.utc)
-        await self.session.commit()
-        return True
 
     async def get_department_employees(
         self,
@@ -134,24 +112,13 @@ class DepartmentCoreService:
         page: int = 1,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        dept_ids = [department_id]
-
-        if include_sub_departments:
-            sub_stmt = select(Department.id).where(
-                Department.parent_department_id == department_id,
-                Department.is_deleted == False,
-            )
-            sub_res = await self.session.execute(sub_stmt)
-            dept_ids.extend(sub_res.scalars().all())
-
-        stmt = select(Employee).where(
-            Employee.department_id.in_(dept_ids),
-            Employee.is_deleted == False,
+        """Retrieve paginated department employees, optionally including sub-departments."""
+        employees, total = await self.repo.get_department_employees_paginated(
+            department_uuid=department_id,
+            include_sub_departments=include_sub_departments,
+            page=page,
+            limit=limit,
         )
-
-        total = (await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
-        stmt = stmt.offset((page - 1) * limit).limit(limit)
-        employees = (await self.session.execute(stmt)).scalars().all()
 
         return {
             "department_id": str(department_id),

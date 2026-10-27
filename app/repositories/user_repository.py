@@ -1,5 +1,6 @@
 """User repository for database access."""
 
+import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,18 @@ class UserRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
+        """Return a user by ID, if one exists."""
+
+        if not user_id:
+            return None
+        result = await self.session.execute(
+            select(User)
+            .where(User.id == user_id)
+            .execution_options(bypass_tenant=True)
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> User | None:
         """Return a user by email, if one exists."""

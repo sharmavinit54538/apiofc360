@@ -1,8 +1,8 @@
 
-"""Shared LLM Service Abstraction for HRMS AI Assistants.
+"""Shared LLM Service Abstraction for HRMS AI Assistants (Ollama-only).
 
 Provides:
-- Model selection (Gemini / Anthropic / OpenAI / Ollama fallback)
+- Model selection (Ollama exclusive provider)
 - Prompt templating with prompt injection protection & sanitization
 - RAG retrieval grounded in company policy and HR documents
 - Persistence to `AIInteraction` table for conversation auditing & history
@@ -131,7 +131,7 @@ class LLMService:
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute LLM call, audit log the interaction, and return formatted response."""
-        chosen_model = model or getattr(settings, "DEFAULT_LLM_MODEL", "gemini-1.5-pro")
+        chosen_model = model or getattr(settings, "OLLAMA_MODEL", "qwen3:30b")
 
         # 1. RAG retrieval
         rag_context = await self.retrieve_rag_context(

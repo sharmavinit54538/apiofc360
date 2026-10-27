@@ -19,7 +19,9 @@ from typing import Annotated, Any, Dict, List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
 from app.core.rbac import require_hr_admin
@@ -52,6 +54,7 @@ from app.schemas.onboarding import (
     OnboardingReviewResponse,
     OnboardingStatusResponse,
     OrganizationInput,
+    OrganizationStructureInput,
     OrganizationResponse,
     WorkScheduleInput,
     WorkScheduleResponse,
@@ -77,20 +80,25 @@ async def _resolve_hr_admin_context(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID missing from credentials.")
     user_id = uuid.UUID(str(user_id_str))
 
-    company_id: uuid.UUID | None = None
-    cid_claim = claims.get("company_id")
-    if cid_claim and str(cid_claim).lower() not in {"default", "none", ""}:
-        try:
-            company_id = uuid.UUID(str(cid_claim))
-        except (ValueError, TypeError):
-            company_id = None
+    user_res = await session.execute(select(User).where(User.id == user_id, User.is_deleted.is_(False)))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account no longer exists.")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive or disabled.")
 
-    if not company_id:
-        from sqlalchemy import select
-        user_res = await session.execute(select(User).where(User.id == user_id))
-        user = user_res.scalar_one_or_none()
-        if user and user.company_id:
-            company_id = user.company_id
+    # Database membership wins over JWT claims so a signed but stale token
+    # cannot access a tenant after the account has been reassigned.
+    company_id = user.company_id
+    cid_claim = claims.get("company_id")
+    if cid_claim and company_id and str(cid_claim) != str(company_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token organization claim is stale. Please sign in again.")
+    if company_id:
+        company = await session.get(Company, company_id)
+        if not company:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Organization no longer exists.")
+        if str(company.status).upper() in {"INACTIVE", "SUSPENDED", "DEACTIVATED"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization is inactive.")
 
     return user_id, company_id
 
@@ -135,7 +143,7 @@ async def update_admin_profile(
             onboarding_step=1,
             company_profile={},
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user.company_id = new_comp.id
@@ -614,7 +622,7 @@ async def get_onboarding_progress(
             onboarding_step=1,
             company_profile={},
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user.company_id = new_comp.id
@@ -758,7 +766,7 @@ async def save_wizard_data(
             onboarding_step=1,
             company_profile=payload,
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user = await service.get_user(user_id)
@@ -805,7 +813,7 @@ async def save_step_by_index(
             onboarding_step=step_index + 1,
             company_profile=payload,
         )
-        setattr(new_comp, "status", "PENDING")
+        new_comp.status = "PENDING"
         session.add(new_comp)
         await session.flush()
         user = await service.get_user(user_id)

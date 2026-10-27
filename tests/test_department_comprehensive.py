@@ -334,6 +334,7 @@ async def test_service_update_department_partial_preservation():
 
     mock_repo.update_department.assert_awaited_once_with(
         dept_id,
+        company_id=None,
         description="Product Engineering",
     )
     mock_session.commit.assert_awaited_once()
@@ -374,7 +375,7 @@ async def test_service_delete_department_success_soft_delete():
 
     await service.delete_department(user_id=uuid.uuid4(), department_uuid=dept_id)
 
-    mock_repo.soft_delete.assert_awaited_once_with(dept_id)
+    mock_repo.soft_delete.assert_awaited_once_with(dept_id, company_id=None)
     mock_session.commit.assert_awaited_once()
 
 
@@ -394,12 +395,12 @@ async def test_service_assign_and_remove_employees():
     # 1. Assign employees
     assign_payload = AssignEmployeesRequest(employee_ids=[emp_id_1, emp_id_2])
     await service.assign_employees(user_id=uuid.uuid4(), department_uuid=dept_id, payload=assign_payload)
-    mock_repo.assign_employees.assert_awaited_once_with(dept_id, [emp_id_1, emp_id_2])
+    mock_repo.assign_employees.assert_awaited_once_with(dept_id, [emp_id_1, emp_id_2], company_id=None)
     mock_session.commit.assert_awaited()
 
     # 2. Remove single employee
     await service.remove_employee(user_id=uuid.uuid4(), department_uuid=dept_id, employee_id=emp_id_1)
-    mock_repo.remove_employee_from_department.assert_awaited_once_with(emp_id_1)
+    mock_repo.remove_employee_from_department.assert_awaited_once_with(emp_id_1, company_id=None)
 
 
 @pytest.mark.asyncio

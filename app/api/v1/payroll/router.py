@@ -125,6 +125,108 @@ async def v1_create_run(
     return _ok(run, "Payroll run created successfully")
 
 
+# 6b. GET /api/v1/payroll/runs
+@router.get("/runs", summary="List payroll runs (v1)")
+async def v1_list_runs(
+    year: Optional[int] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    from sqlalchemy import select
+    company_id_str = claims.get("company_id") if claims else None
+    stmt = select(PayrollRun)
+    if company_id_str:
+        try:
+            stmt = stmt.where(PayrollRun.company_id == uuid.UUID(company_id_str))
+        except (ValueError, TypeError):
+            pass
+    if year:
+        stmt = stmt.where(PayrollRun.period_year == year)
+    stmt = stmt.order_by(PayrollRun.created_at.desc())
+    runs = (await db.execute(stmt)).scalars().all()
+    
+    def _run_item(r: PayrollRun) -> dict[str, Any]:
+        return {
+            "id": str(r.id),
+            "company_id": str(r.company_id) if r.company_id else None,
+            "period_id": str(r.period_id) if r.period_id else None,
+            "run_number": r.run_number or f"RUN-{r.period_year}-{r.period_month:02d}",
+            "period_month": r.period_month,
+            "period_year": r.period_year,
+            "month": r.period_month,
+            "year": r.period_year,
+            "status": r.status,
+            "totalEmployees": r.total_employees or 0,
+            "total_employees": r.total_employees or 0,
+            "grossAmount": float(r.total_gross or 0),
+            "totalGross": float(r.total_gross or 0),
+            "total_gross": float(r.total_gross or 0),
+            "totalDeductions": float(r.total_deductions or 0),
+            "total_deductions": float(r.total_deductions or 0),
+            "netPayable": float(r.total_net or 0),
+            "totalNet": float(r.total_net or 0),
+            "total_net": float(r.total_net or 0),
+            "validation_status": r.validation_status or "VALID",
+            "is_locked": r.is_locked or False,
+            "notes": r.notes,
+            "comments": r.comments,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        
+    return _ok([_run_item(r) for r in runs], "Payroll runs retrieved successfully")
+
+
+# 6c. GET /api/v1/payroll/stats
+@router.get("/stats", summary="Get monthly payroll stats (v1)")
+async def v1_get_payroll_stats(
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    from datetime import datetime
+    from sqlalchemy import select
+    now = datetime.now()
+    m = month or now.month
+    y = year or now.year
+    company_id_str = claims.get("company_id") if claims else None
+    
+    stmt = select(PayrollRun).where(
+        PayrollRun.period_month == m,
+        PayrollRun.period_year == y,
+    )
+    if company_id_str:
+        try:
+            stmt = stmt.where(PayrollRun.company_id == uuid.UUID(company_id_str))
+        except (ValueError, TypeError):
+            pass
+    runs = (await db.execute(stmt)).scalars().all()
+    
+    total_gross = sum(float(r.total_gross or 0) for r in runs)
+    total_net = sum(float(r.total_net or 0) for r in runs)
+    total_emp = sum(r.total_employees or 0 for r in runs)
+    status_val = runs[0].status if runs else "NOT_STARTED"
+    
+    return _ok({
+        "month": m,
+        "year": y,
+        "totalGrossPayroll": total_gross,
+        "totalNetPayable": total_net,
+        "employeesProcessed": total_emp,
+        "onHoldCount": 0,
+        "currentRunStatus": status_val,
+        "payDate": runs[0].created_at.isoformat() if runs and runs[0].created_at else None,
+        "statutoryBreakdown": {
+            "pfTotal": total_gross * 0.12 if total_gross else 0.0,
+            "esiTotal": total_gross * 0.0075 if total_gross else 0.0,
+            "ptTotal": min(200.0 * total_emp, 2500.0) if total_emp else 0.0,
+            "tdsTotal": 0.0,
+        }
+    }, "Payroll stats retrieved successfully")
+
+
 # 7. GET /api/v1/payroll/runs/{runId}
 @router.get("/runs/{runId}", summary="Get payroll run by ID (v1)")
 async def v1_get_run(

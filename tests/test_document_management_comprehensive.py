@@ -529,13 +529,13 @@ async def test_verification_workflow_and_consistency(transport):
         assert data_ver["verified_by"] is not None
         assert data_ver["verified_at"] is not None
 
-        # 5. Generic PUT cannot transition status to VERIFIED -> returns 400
+        # 5. Generic PUT cannot transition status to VERIFIED -> returns 422 (validation error)
         r_put_illegal = await client.put(
             f"/api/v1/documents/employees/{doc_id}",
             data={"status_field": "VERIFIED"},
             headers=hr["headers"],
         )
-        assert r_put_illegal.status_code == 400
+        assert r_put_illegal.status_code == 422
 
         # 6. Uploading revised file via PUT resets status to PENDING and is_verified to False
         new_pdf = io.BytesIO(b"%PDF-1.4 revised clean version")

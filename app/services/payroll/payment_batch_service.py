@@ -55,10 +55,49 @@ class PaymentBatchService:
         return batch
 
     @classmethod
+    async def get_batch_details(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        page: int = 1,
+        limit: int = 50,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> dict[str, Any]:
+        batch = await cls.get_batch(session, batch_id)
+        
+        stmt = select(PaymentBatchItem).where(PaymentBatchItem.batch_id == batch_id)
+        if status_filter:
+            stmt = stmt.where(func.upper(PaymentBatchItem.status) == status_filter.upper())
+        if search:
+            stmt = stmt.where(
+                PaymentBatchItem.account_number.ilike(f"%{search}%") |
+                PaymentBatchItem.account_holder_name.ilike(f"%{search}%")
+            )
+        
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = (await session.execute(count_stmt)).scalar() or 0
+        
+        offset = max(0, (page - 1) * limit)
+        stmt = stmt.order_by(PaymentBatchItem.created_at).offset(offset).limit(limit)
+        items = (await session.execute(stmt)).scalars().all()
+        
+        return {
+            "batch": batch,
+            "items": {
+                "items": items,
+                "total": total,
+                "page": page,
+                "limit": limit,
+            }
+        }
+
+    @classmethod
     async def list_batches(
         cls,
         session: AsyncSession,
         company_id: Optional[uuid.UUID] = None,
+        run_id: Optional[uuid.UUID] = None,
         page: int = 1,
         limit: int = 20,
         status_filter: Optional[str] = None,
@@ -68,6 +107,8 @@ class PaymentBatchService:
         stmt = select(PaymentBatch)
         if company_id:
             stmt = stmt.where(PaymentBatch.company_id == company_id)
+        if run_id:
+            stmt = stmt.where(PaymentBatch.run_id == run_id)
         if status_filter:
             stmt = stmt.where(func.upper(PaymentBatch.status) == status_filter.upper())
         if search:
@@ -105,6 +146,7 @@ class PaymentBatchService:
         held_employee_ids: Optional[List[HeldEmployeeItem]] = None,
         notes: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> PaymentBatch:
         run_stmt = select(PayrollRun).where(PayrollRun.id == run_id)
         run = (await session.execute(run_stmt)).scalar_one_or_none()
@@ -180,6 +222,7 @@ class PaymentBatchService:
             action="CREATE",
             company_id=batch.company_id,
             actor_id=user_id,
+            actor_role=user_role,
             before_status=None,
             after_status="DRAFT",
             reason=f"Created payment batch from run {run_id}",
@@ -315,7 +358,9 @@ class PaymentBatchService:
         }
 
     @classmethod
-    async def reconcile_batch(cls, session: AsyncSession, batch_id: uuid.UUID) -> PaymentBatch:
+    async def reconcile_batch(
+        cls, session: AsyncSession, batch_id: uuid.UUID, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
+    ) -> PaymentBatch:
         batch = await cls.get_batch(session, batch_id)
         old_status = batch.status
         batch.status = "RECONCILED"
@@ -326,6 +371,8 @@ class PaymentBatchService:
             entity_id=batch.id,
             action="RECONCILE",
             company_id=batch.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
             before_status=old_status,
             after_status="RECONCILED",
         )
@@ -335,7 +382,7 @@ class PaymentBatchService:
 
     @classmethod
     async def hold_item(
-        cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, reason: str, user_id: Optional[uuid.UUID] = None
+        cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, reason: str, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> PaymentBatchItem:
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
@@ -352,7 +399,7 @@ class PaymentBatchService:
 
     @classmethod
     async def release_item(
-        cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, remarks: Optional[str] = None, user_id: Optional[uuid.UUID] = None
+        cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, remarks: Optional[str] = None, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> PaymentBatchItem:
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
@@ -374,8 +421,9 @@ class PaymentBatchService:
         batch_id: uuid.UUID,
         item_id: uuid.UUID,
         reason: str,
-        updated_details: Optional[UpdatedBankDetails] = None,
+        updated_bank_details: Optional[UpdatedBankDetails] = None,
         user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
     ) -> PaymentBatchItem:
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
@@ -384,13 +432,13 @@ class PaymentBatchService:
         if not item:
             raise HTTPException(status_code=404, detail="Batch item not found.")
 
-        if updated_details:
-            if updated_details.account_number:
-                item.account_number = updated_details.account_number
-            if updated_details.ifsc_code:
-                item.ifsc_code = updated_details.ifsc_code
-            if updated_details.account_holder_name:
-                item.account_holder_name = updated_details.account_holder_name
+        if updated_bank_details:
+            if updated_bank_details.account_number:
+                item.account_number = updated_bank_details.account_number
+            if updated_bank_details.ifsc_code:
+                item.ifsc_code = updated_bank_details.ifsc_code
+            if updated_bank_details.account_holder_name:
+                item.account_holder_name = updated_bank_details.account_holder_name
 
         item.status = "RETRIED"
         item.retry_count += 1
@@ -459,7 +507,7 @@ class PaymentBatchService:
     @classmethod
     async def get_latest_bank_file(
         cls, session: AsyncSession, batch_id: uuid.UUID
-    ) -> PaymentBatchBankFile:
+    ) -> tuple[bytes, str, str]:
         stmt = (
             select(PaymentBatchBankFile)
             .where(PaymentBatchBankFile.batch_id == batch_id)
@@ -468,8 +516,22 @@ class PaymentBatchService:
         bf = (await session.execute(stmt)).scalars().first()
         if not bf:
             # Auto-generate a generic NEFT file
-            return await cls.generate_bank_file(session, batch_id, "GENERIC_NEFT_CSV")
-        return bf
+            bf = await cls.generate_bank_file(session, batch_id, "GENERIC_NEFT_CSV")
+        
+        content_bytes = bf.file_content.encode("utf-8") if bf.file_content else b""
+        
+        # Determine media type and correct extension based on format
+        if bf.file_format == "SBI_TXT":
+            media_type = "text/plain"
+            filename = f"{bf.file_name}.txt" if not bf.file_name.endswith(".txt") else bf.file_name
+        elif bf.file_format in ("HDFC_CSV", "GENERIC_NEFT_CSV", "ICICI_EXCEL"):
+            media_type = "text/csv"
+            filename = f"{bf.file_name}.csv" if not bf.file_name.endswith(".csv") else bf.file_name
+        else:
+            media_type = "text/csv"
+            filename = f"{bf.file_name}.csv"
+        
+        return content_bytes, filename, media_type
 
     @classmethod
     async def preview_bank_response(
@@ -508,7 +570,7 @@ class PaymentBatchService:
 
     @classmethod
     async def apply_bank_response(
-        cls, session: AsyncSession, batch_id: uuid.UUID, preview_token: str, allow_partial: bool
+        cls, session: AsyncSession, batch_id: uuid.UUID, preview_token: str, allow_partial: bool, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> dict[str, Any]:
         cached = await redis_client.get(f"{cls.BANK_RESP_PREFIX}{preview_token}")
         if not cached:
@@ -534,7 +596,22 @@ class PaymentBatchService:
                 updated += 1
 
         batch = await cls.get_batch(session, batch_id)
+        old_status = batch.status
         batch.status = "RECONCILED"
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PaymentBatch",
+            entity_id=batch.id,
+            action="APPLY_BANK_RESPONSE",
+            company_id=batch.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=old_status,
+            after_status="RECONCILED",
+            reason=f"Applied bank response, {updated} items updated",
+        )
+
         await session.commit()
         await redis_client.delete(f"{cls.BANK_RESP_PREFIX}{preview_token}")
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import not_found, permission_denied, validation_error
+from app.core.exceptions import NotFoundException as not_found, ForbiddenException as permission_denied, ValidationException as validation_error
 from app.db.dependencies import CurrentUser, get_current_user, require_permission
 from app.db.session import get_db
 from app.models.fee import Fee

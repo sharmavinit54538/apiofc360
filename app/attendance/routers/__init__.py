@@ -12,6 +12,8 @@ from app.attendance.routers.company import router as company_router
 from app.attendance.routers.analytics import router as analytics_router
 from app.attendance.routers.breaks import router as breaks_router
 from app.attendance.routers.geofence import router as geofence_router
+from app.attendance.routers.shifts import router as shifts_router
+from app.attendance.routers.rosters import router as rosters_router
 
 router = APIRouter(prefix="/attendance", tags=["Face Attendance"])
 
@@ -26,3 +28,5 @@ router.include_router(company_router)
 router.include_router(analytics_router)
 router.include_router(breaks_router)
 router.include_router(geofence_router)
+router.include_router(shifts_router)
+router.include_router(rosters_router)

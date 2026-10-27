@@ -54,6 +54,12 @@ class Company(Base):
         JSON,
         nullable=True,
     )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="PENDING",
+        server_default=text("'PENDING'"),
+    )
     office_latitude: Mapped[float | None] = mapped_column(
         nullable=True,
     )
@@ -63,12 +69,17 @@ class Company(Base):
     geofence_radius_meters: Mapped[float | None] = mapped_column(
         nullable=True,
         default=200.0,
-        server_default=text("200.0"),
     )
     timezone: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
         default="Asia/Kolkata",
         server_default=text("'Asia/Kolkata'"),
+    )
+    currency: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+        default="INR",
+        server_default=text("'INR'"),
     )
 

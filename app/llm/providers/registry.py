@@ -1,7 +1,7 @@
-"""Provider registry — manages the exclusive Ollama LLM provider.
+"""Provider registry — manages Ollama as the exclusive LLM provider.
 
-Only Ollama is supported as the production LLM provider.
-Cloud LLM providers (OpenAI, Anthropic, Google, OpenRouter) are DISABLED.
+Ollama is registered when OLLAMA_ENABLED=true (default).
+No cloud providers are registered or supported.
 """
 
 from __future__ import annotations
@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 class ProviderRegistry:
-    """Manages the exclusive Ollama LLM provider.
+    """Manages Ollama as the exclusive LLM provider.
 
-    Only Ollama is supported. No cloud LLM providers are registered.
+    Ollama is registered when OLLAMA_ENABLED=true (default).
+    Priority is configurable via env vars (lower = higher priority).
     """
 
     def __init__(self) -> None:
@@ -31,56 +32,73 @@ class ProviderRegistry:
         self._initialised = False
 
     def _build_configs(self) -> list[ProviderConfig]:
-        """Build provider configuration from application settings (Ollama ONLY)."""
+        """Build provider configurations from application settings."""
         configs: list[ProviderConfig] = []
 
-        # Ollama — exclusive LLM provider
-        configs.append(ProviderConfig(
-            name="ollama",
-            base_url=getattr(settings, "OLLAMA_BASE_URL", getattr(settings, "OLLAMA_HOST", "http://127.0.0.1:11434")),
-            default_model=getattr(settings, "OLLAMA_MODEL", getattr(settings, "OLLAMA_DEFAULT_MODEL", "llama3.1")),
-            embedding_model=getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
-            max_retries=3,
-            timeout_seconds=getattr(settings, "OLLAMA_TIMEOUT", getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60)),
-            rate_limit_rpm=999,
-            enabled=getattr(settings, "OLLAMA_ENABLED", True),
-            priority=getattr(settings, "OLLAMA_PRIORITY", 1),
-            extra={
-                "keep_alive": getattr(settings, "OLLAMA_KEEP_ALIVE", "30m"),
-                "top_p": getattr(settings, "OLLAMA_TOP_P", 0.9),
-                "num_predict": getattr(settings, "OLLAMA_NUM_PREDICT", 2048),
-                "max_connections": getattr(settings, "OLLAMA_MAX_CONNECTIONS", 50),
-            },
-        ))
+        # Ollama — exclusive provider, only when enabled
+        if getattr(settings, "OLLAMA_ENABLED", True):
+            configs.append(ProviderConfig(
+                name="ollama",
+                base_url=getattr(settings, "OLLAMA_BASE_URL", getattr(settings, "OLLAMA_HOST", "http://127.0.0.1:11434")),
+                default_model=getattr(settings, "OLLAMA_MODEL", getattr(settings, "OLLAMA_DEFAULT_MODEL", "qwen3:30b")),
+                embedding_model=getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
+                max_retries=3,
+                timeout_seconds=getattr(settings, "OLLAMA_TIMEOUT", getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60)),
+                rate_limit_rpm=999,
+                enabled=True,
+                priority=getattr(settings, "OLLAMA_PRIORITY", 1),
+                extra={
+                    "keep_alive": getattr(settings, "OLLAMA_KEEP_ALIVE", "30m"),
+                    "top_p": getattr(settings, "OLLAMA_TOP_P", 0.9),
+                    "num_predict": getattr(settings, "OLLAMA_NUM_PREDICT", 2048),
+                    "max_connections": getattr(settings, "OLLAMA_MAX_CONNECTIONS", 50),
+                },
+            ))
 
         return configs
 
     def _create_provider(self, config: ProviderConfig) -> LLMProviderBase:
-        """Factory: instantiate the Ollama provider."""
-        if config.name != "ollama":
-            raise ValueError(f"Only Ollama provider is supported. Got: {config.name}")
-        return OllamaProvider(config)
+        """Factory: instantiate the appropriate provider based on config name."""
+        if config.name == "ollama":
+            return OllamaProvider(config)
+        else:
+            raise ValueError(f"Unknown provider: {config.name}. Only 'ollama' is supported.")
 
     def initialise(self) -> None:
-        """Build and register the Ollama provider from settings."""
+        """Build and register all configured providers from settings."""
         if self._initialised:
             return
 
         configs = self._build_configs()
+        registered_count = 0
+
         for cfg in configs:
             if not cfg.enabled:
-                logger.warning("Ollama provider is disabled via OLLAMA_ENABLED=false")
+                logger.warning("Provider '%s' is disabled via settings", cfg.name)
                 continue
             try:
                 provider = self._create_provider(cfg)
                 self._providers[cfg.name] = provider
+                registered_count += 1
                 logger.info("Registered LLM provider: %s (priority=%d, model=%s)", cfg.name, cfg.priority, cfg.default_model)
             except Exception as exc:
-                logger.error("Failed to initialise Ollama provider: %s", exc)
-                raise
+                logger.error("Failed to initialise provider '%s': %s", cfg.name, exc)
+                # Don't raise — allow other providers to initialise
 
         self._initialised = True
-        logger.info("Provider registry initialised with %d providers: %s", len(self._providers), list(self._providers.keys()))
+
+        # Start background health ping for Ollama providers (auto-recovery)
+        for provider in self._providers.values():
+            if hasattr(provider, 'start_health_ping'):
+                provider.start_health_ping()
+
+        if registered_count == 0:
+            logger.warning(
+                "No LLM providers registered! Enable OLLAMA_ENABLED=true. "
+                "Check OLLAMA_BASE_URL if using Ollama."
+            )
+        else:
+            logger.info("Provider registry initialised with %d providers: %s", registered_count, list(self._providers.keys()))
 
     def get(self, name: str) -> LLMProviderBase | None:
         """Get a specific provider by name."""
@@ -124,6 +142,8 @@ class ProviderRegistry:
         """Close all provider HTTP clients."""
         for provider in self._providers.values():
             try:
+                if hasattr(provider, 'stop_health_ping'):
+                    provider.stop_health_ping()
                 await provider.close()
             except Exception as exc:
                 logger.warning("Error closing provider %s: %s", provider.name, exc)

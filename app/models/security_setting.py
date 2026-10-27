@@ -25,8 +25,8 @@ class SecurityRole(Base):
     role_name: Mapped[str] = mapped_column(String(100), nullable=False)
     role_code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    is_system_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_system_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -59,19 +59,19 @@ class SecurityPolicy(Base):
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
 
-    session_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
-    idle_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
-    max_concurrent_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    session_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
+    idle_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default=text("15"))
+    max_concurrent_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default=text("3"))
 
-    min_password_length: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
-    require_uppercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    require_lowercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    require_numbers: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    require_special_chars: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    min_password_length: Mapped[int] = mapped_column(Integer, nullable=False, default=12, server_default=text("12"))
+    require_uppercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    require_lowercase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    require_numbers: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    require_special_chars: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
-    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    aes_256_encryption_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    mask_salary_non_payroll: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    aes_256_encryption_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    mask_salary_non_payroll: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -85,7 +85,7 @@ class UserSession(Base):
     device_info: Mapped[str] = mapped_column(String(255), nullable=False)
     browser: Mapped[str] = mapped_column(String(100), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(50), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     login_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

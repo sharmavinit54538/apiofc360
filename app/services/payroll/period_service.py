@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 from sqlalchemy import desc, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -77,16 +78,27 @@ class PayrollPeriodService:
         payload: PayrollPeriodCreateRequest,
         company_id: Optional[uuid.UUID] = None,
     ) -> PayrollPeriod:
-        # Determine month and year from pay_date or start_date if not provided
-        p_month = payload.period_month or payload.start_date.month
-        p_year = payload.period_year or payload.start_date.year
-
+        # Use company_id from claims (multi-tenant), override payload if provided
         target_company_id = company_id
         if payload.company_id:
             try:
                 target_company_id = uuid.UUID(str(payload.company_id))
             except ValueError:
                 pass
+
+        # Derive period_month/period_year from start_date if not provided
+        p_month = payload.period_month or (payload.start_date.month if payload.start_date else None)
+        p_year = payload.period_year or (payload.start_date.year if payload.start_date else None)
+
+        if not p_month or not p_year:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="period_month and period_year are required (provide or derive from start_date)",
+            )
+
+        # Defaults: processing_date = end_date, payment_date = pay_date
+        processing_date = payload.processing_date or payload.end_date
+        payment_date = payload.payment_date or payload.pay_date
 
         period = PayrollPeriod(
             id=uuid.uuid4(),
@@ -95,12 +107,22 @@ class PayrollPeriodService:
             start_date=payload.start_date,
             end_date=payload.end_date,
             pay_date=payload.pay_date,
+            processing_date=processing_date,
+            payment_date=payment_date,
             period_month=p_month,
             period_year=p_year,
             status="OPEN",
+            is_locked=False,
             remarks=payload.remarks,
         )
         session.add(period)
-        await session.commit()
-        await session.refresh(period)
+        try:
+            await session.commit()
+            await session.refresh(period)
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Payroll period for {p_month}/{p_year} already exists for this company.",
+            )
         return period

@@ -1,12 +1,11 @@
-"""Security Headers Middleware for OFC360."""
+"""Security Headers Middleware for OFC360.
+ASGI middleware for lower overhead."""
 
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import settings
@@ -14,11 +13,11 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware:
     """Add security headers to all responses."""
 
     def __init__(self, app, *, csp_policy: Optional[str] = None):
-        super().__init__(app)
+        self.app = app
         self.csp_policy = csp_policy or self._default_csp_policy()
 
     def _default_csp_policy(self) -> str:
@@ -37,42 +36,42 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "object-src 'none';"
         )
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # Do not override or interfere with CORS preflight responses
-        if request.method == "OPTIONS":
-            return response
+        method = scope.get("method", "")
 
-        # Content Security Policy
-        response.headers["Content-Security-Policy"] = self.csp_policy
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                # Do not override or interfere with CORS preflight responses
+                if method != "OPTIONS":
+                    headers = list(message.get("headers", []))
 
-        # HSTS - only in production with HTTPS
-        if settings.ENVIRONMENT.lower() in {"production", "prod", "staging"}:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+                    # Content Security Policy
+                    headers.append((b"content-security-policy", self.csp_policy.encode()))
 
-        # Prevent clickjacking
-        response.headers["X-Frame-Options"] = "DENY"
+                    # HSTS - only in production with HTTPS
+                    if settings.ENVIRONMENT.lower() in {"production", "prod", "staging"}:
+                        headers.append((b"strict-transport-security", b"max-age=31536000; includeSubDomains; preload"))
 
-        # Prevent MIME type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
+                    # Prevent clickjacking
+                    headers.append((b"x-frame-options", b"DENY"))
 
-        # Referrer Policy
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                    # Prevent MIME type sniffing
+                    headers.append((b"x-content-type-options", b"nosniff"))
 
-        # Permissions Policy
-        response.headers["Permissions-Policy"] = (
-            "geolocation=(), "
-            "microphone=(), "
-            "camera=(), "
-            "payment=(), "
-            "usb=(), "
-            "magnetometer=(), "
-            "gyroscope=(), "
-            "accelerometer=()"
-        )
+                    # Referrer Policy
+                    headers.append((b"referrer-policy", b"strict-origin-when-cross-origin"))
 
-        # Cross-Origin policies (allow cross-origin API resource sharing)
-        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+                    # Permissions Policy
+                    headers.append((b"permissions-policy", b"geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"))
 
-        return response
+                    # Cross-Origin policies
+                    headers.append((b"cross-origin-resource-policy", b"cross-origin"))
+
+                    message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)

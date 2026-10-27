@@ -1,19 +1,19 @@
 """Authentication service layer containing business logic for registration, verification, login, logout, and recovery."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import logging
 import hashlib
 import httpx
 import secrets
 
 from fastapi import Depends, status
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password, verify_password, hash_password_async, verify_password_async
 from app.db.database import get_db_session
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
@@ -71,6 +71,7 @@ class AuthService:
         from app.models.employee_leave_policy import EmployeeLeavePolicy
         from app.models.user.role import UserRole, UserAccountStatus
         from app.utils.employee import generate_employee_id
+        from app.services.leave_service import DEFAULT_LEAVE_ALLOCATIONS
 
         log_context = _registration_log_context(str(payload.email), payload.phone)
         try:
@@ -136,7 +137,7 @@ class AuthService:
             otp_code = generate_otp()
 
             # 2. Create the HR Admin user (FORCED to HR_ADMIN)
-            password_hash = hash_password(payload.password)
+            password_hash = await hash_password_async(payload.password)
             user = User(
                 id=uuid.uuid4(),
                 company_id=company.id,
@@ -180,67 +181,22 @@ class AuthService:
             self.session.add(employee)
             await self.session.flush()
 
-            # 4. Create default departments
-            mgmt_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="MGMT",
-                department_name="Management",
-                description="Executive leadership and administrative department",
-                location="Headquarters",
-                status="ACTIVE",
-                manager_id=user.id,
-            )
-            self.session.add(mgmt_dept)
-
-            eng_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="ENG",
-                department_name="Engineering",
-                description="Software development and product engineering",
-                location="Tech Hub",
-                status="ACTIVE",
-            )
-            self.session.add(eng_dept)
-
-            hr_dept = Department(
-                id=uuid.uuid4(),
-                company_id=company.id,
-                department_code="HR",
-                department_name="Human Resources",
-                description="People management, recruiting and onboarding",
-                location="Headquarters",
-                status="ACTIVE",
-            )
-            self.session.add(hr_dept)
+            # Seed default leave policies for the HR Admin employee using the single source of truth
+            now_year = datetime.now(timezone.utc).year
+            for alloc in DEFAULT_LEAVE_ALLOCATIONS:
+                policy = EmployeeLeavePolicy(
+                    id=uuid.uuid4(),
+                    employee_id=employee.id,
+                    leave_type=alloc["leave_type"],
+                    total_days=alloc["total_days"],
+                    used_days=Decimal("0.0"),
+                    carry_forward=False,
+                    effective_from=date(now_year, 1, 1),
+                    effective_to=date(now_year, 12, 31),
+                )
+                self.session.add(policy)
             await self.session.flush()
 
-            # Link employee to default department
-            employee.department_id = hr_dept.id
-
-            # 5. Create default leave policies
-            sick_leave = EmployeeLeavePolicy(
-                id=uuid.uuid4(),
-                employee_id=employee.id,
-                leave_type="Sick Leave",
-                total_days=Decimal("12.0"),
-                used_days=Decimal("0.0"),
-                carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date(),
-            )
-            self.session.add(sick_leave)
-
-            casual_leave = EmployeeLeavePolicy(
-                id=uuid.uuid4(),
-                employee_id=employee.id,
-                leave_type="Casual Leave",
-                total_days=Decimal("12.0"),
-                used_days=Decimal("0.0"),
-                carry_forward=False,
-                effective_from=datetime.now(timezone.utc).date(),
-            )
-            self.session.add(casual_leave)
 
             # Store verification OTP
             hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose="email_verification")
@@ -602,7 +558,7 @@ class AuthService:
         payload: LoginRequest,
         ip_address: str | None = None,
         device: str | None = None,
-    ) -> tuple[User, str, str, int]:
+    ) -> tuple[User, str, str | None, int | None, bool]:
         """Verify user credentials and return a user model with access + refresh token set."""
 
         # 1. Check Redis lockout for identifier and IP
@@ -622,11 +578,17 @@ class AuthService:
             user = await self.auth_repository.get_user_by_identifier(payload.identifier)
         except AppException:
             raise
-        except Exception as exc:
-            logger.exception("Authentication failed: database lookup exception | identifier=%s", payload.identifier)
+        except (ProgrammingError, DBAPIError, SQLAlchemyError) as exc:
+            logger.exception("Authentication failed: database error during user lookup | identifier=%s", payload.identifier)
             raise AppException(
-                message="Invalid email or password.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                message="Internal database error occurred during login.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as exc:
+            logger.exception("Authentication failed: unexpected error during user lookup | identifier=%s", payload.identifier)
+            raise AppException(
+                message="Internal server error occurred during login.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # Check DB locked_until fallback persistence
@@ -645,7 +607,7 @@ class AuthService:
         # Security: constant-time password verification to mitigate timing attacks if user does not exist
         timing_mitigation_hash = "$2b$12$eImiTXuWVxfM37uY4JANjO7f.6.O1Nn6W71.u8M0bN71dJkZ5p6d6"
         if not user:
-            verify_password(payload.password, timing_mitigation_hash)
+            await verify_password_async(payload.password, timing_mitigation_hash)
             logger.warning("Authentication failed: user not found | identifier=%s", payload.identifier)
             attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
             if now_locked:
@@ -660,7 +622,7 @@ class AuthService:
             )
 
         # Validate password
-        is_password_valid = verify_password(payload.password, user.password_hash)
+        is_password_valid = await verify_password_async(payload.password, user.password_hash)
         if not is_password_valid:
             logger.warning("Authentication failed: password mismatch | user_id=%s | email=%s", user.id, user.email)
             attempts, now_locked, lock_sec = await redis_client.record_failed_login(payload.identifier, ip_address or "")
@@ -844,7 +806,29 @@ class AuthService:
             )
 
         # Success - log audit details
+        prev_device = getattr(user, "last_login_device", None)
         await self.auth_repository.update_login_audit(user.id, ip_address, device)
+
+        if device and prev_device and device != prev_device and getattr(user, "company_id", None):
+            try:
+                from app.services import notification_service
+                await notification_service.notify(
+                    self.session,
+                    company_id=user.company_id,
+                    recipient_ids=[user.id],
+                    type="security.new_device_login",
+                    category="security",
+                    module="security",
+                    title="New Device Login Detected",
+                    body=f"Your account was accessed from a new device '{device}' (IP: {ip_address or 'Unknown'}).",
+                    link="/dashboard/settings",
+                    priority="high",
+                    entity={"type": "user", "id": str(user.id)},
+                    dedupe_key=f"security:{user.id}:new_device:{device}",
+                    mandatory=True,
+                )
+            except Exception as notif_err:
+                logger.warning("Failed to emit new device login notification: %s", notif_err)
 
         # Enforce that only superadmin@ofc360.com can ever hold the SUPER_ADMIN role
         user_role_str = (user.role.value if hasattr(user.role, "value") else str(user.role)).lower()
@@ -1257,10 +1241,14 @@ class AuthService:
             raise AppException(message="Either reset_token or OTP is required.", status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         # Update credentials
-        new_password_hash = hash_password(payload.new_password)
+        new_password_hash = await hash_password_async(payload.new_password)
         await self.auth_repository.update_user_password(user.id, new_password_hash)
         await self.auth_repository.revoke_all_user_refresh_tokens(user.id, reason="PASSWORD_RESET")
         await redis_client.revoke_user_tokens(user.id)
+        # Invalidate auth active cache
+        if user.company_id:
+            from app.middleware.auth import invalidate_auth_active_cache
+            await invalidate_auth_active_cache(user.id, user.company_id)
         
         # Invalidate all other pending password reset tokens and OTPs for the user
         await self.auth_repository.invalidate_all_user_password_resets(user.id)

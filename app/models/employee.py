@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from app.models.employee_onboarding import EmployeeOnboarding
     from app.models.department import Department
     from app.models.company import Company
+from app.models.shift import Shift
 
 
 class Employee(Base):
@@ -43,6 +44,7 @@ class Employee(Base):
         Index("ix_employees_company_id", "company_id"),
         Index("ix_employees_company_status", "company_id", "status", "is_deleted"),
         Index("ix_employees_company_department", "company_id", "department", "is_deleted"),
+        Index("ix_employees_company_joining", "company_id", "joining_date"),
         Index("ix_employees_user_id", "user_id"),
         Index("ix_employees_status", "status"),
         Index("ix_employees_department", "department"),
@@ -121,6 +123,9 @@ class Employee(Base):
     joining_date: Mapped[date] = mapped_column(Date, nullable=False)
     probation_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     shift: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True,
+    )
     employee_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True, default=100, server_default=text("100"))
     cost_center_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -138,6 +143,9 @@ class Employee(Base):
     uan_number: Mapped[str | None] = mapped_column(String(12), nullable=True)
     pf_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     esi_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_pf_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_international_worker: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    pf_wage_ceiling_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
     # --------------- System / Access ---------------
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="employee", server_default=text("'employee'"))
@@ -205,6 +213,9 @@ class Employee(Base):
     department_rel: Mapped[Department | None] = relationship(
         "Department", back_populates="employees", foreign_keys=[department_id], lazy="select"
     )
+    shift_rel: Mapped[Shift | None] = relationship(
+        "Shift", foreign_keys=[shift_id], lazy="select"
+    )
 
     @property
     def is_deactivated(self) -> bool:
@@ -218,4 +229,26 @@ class Employee(Base):
         if emp_status_upper in {"EXITED", "TERMINATED"}:
             return True
         return False
+
+    @staticmethod
+    def validate_uan_format(uan: str | None) -> tuple[bool, str]:
+        """Validate 12-digit numeric Universal Account Number (UAN) format.
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        if not uan:
+            return False, "UAN is missing."
+        clean = str(uan).strip()
+        if len(clean) != 12:
+            return False, f"UAN must be exactly 12 numeric digits (got {len(clean)} characters)."
+        if not clean.isdigit():
+            return False, "UAN must contain only numeric digits."
+        return True, ""
+
+    @property
+    def is_uan_valid(self) -> bool:
+        """Return True if the employee has a valid 12-digit numeric UAN."""
+        valid, _ = self.validate_uan_format(self.uan_number)
+        return valid
 

@@ -3,8 +3,7 @@
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, status
 
 from app.schemas.auth import APIResponse
 from app.middleware.auth import get_current_user_claims
@@ -13,15 +12,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sidebar", tags=["Sidebar Permissions"])
 
-security = HTTPBearer(auto_error=False)
-
 
 def _get_permissions_for_role(role: str) -> dict[str, Any]:
-    from app.models.user.role import RoleEnum
-    role_lower = (role or "super_admin").lower().strip()
-    normalized_role = RoleEnum.from_str(role_lower).value
+    role_lower = (role or "employee").lower().strip()
 
-    if role_lower in {"super_admin", "hr_admin", "executive", "it_admin", "admin", "system_admin", "ceo", "cto", "cfo", "coo", "cmo", "clo", "ciso", "cio", "cxo"} or normalized_role in {"super_admin", "hr_admin", "executive", "it_admin"}:
+    if role_lower in {"super_admin"}:
         perms = [
             "all",
             "dashboard:read",
@@ -34,16 +29,54 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
             "recruitment:read", "recruitment:write",
             "documents:read", "documents:write",
             "settings:read", "settings:write",
-            "reports:read", "exports:read"
+            "reports:read", "exports:read",
+            "analytics:read",
         ]
         modules = {
             "dashboard": True, "employees": True, "departments": True,
             "managers": True, "recruitment": True, "attendance": True,
             "leaves": True, "payroll": True, "documents": True,
-            "settings": True, "exports": True, "analytics": True
+            "settings": True, "exports": True, "analytics": True,
+        }
+    elif role_lower in {"it_admin", "admin", "system_admin", "sysadmin"}:
+        perms = [
+            "dashboard:read",
+            "employees:read", "employees:write",
+            "departments:read", "departments:write",
+            "managers:read",
+            "attendance:read",
+            "documents:read", "documents:write",
+            "settings:read", "settings:write",
+            "reports:read", "exports:read",
+            "analytics:read",
+        ]
+        modules = {
+            "dashboard": True, "employees": True, "departments": True,
+            "managers": True, "recruitment": False, "attendance": True,
+            "leaves": False, "payroll": False, "documents": True,
+            "settings": True, "exports": True, "analytics": True,
+        }
+    elif role_lower in {"executive", "ceo", "cto", "cfo", "coo", "cmo", "clo", "ciso", "cio", "cxo"}:
+        perms = [
+            "dashboard:read",
+            "employees:read",
+            "departments:read",
+            "managers:read",
+            "attendance:read",
+            "leaves:read",
+            "payroll:read",
+            "recruitment:read",
+            "documents:read",
+            "reports:read", "exports:read",
+            "analytics:read",
+        ]
+        modules = {
+            "dashboard": True, "employees": True, "departments": True,
+            "managers": True, "recruitment": True, "attendance": True,
+            "leaves": True, "payroll": True, "documents": True,
+            "settings": False, "exports": True, "analytics": True,
         }
     elif role_lower in {"hr_admin", "hr", "hr_manager", "hr_head"}:
-
         perms = [
             "dashboard:read",
             "employees:read", "employees:write", "employees:create",
@@ -54,13 +87,14 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
             "payroll:read",
             "recruitment:read", "recruitment:write",
             "documents:read", "documents:write",
-            "reports:read", "exports:read"
+            "reports:read", "exports:read",
+            "analytics:read",
         ]
         modules = {
             "dashboard": True, "employees": True, "departments": True,
             "managers": True, "recruitment": True, "attendance": True,
             "leaves": True, "payroll": True, "documents": True,
-            "settings": False, "exports": True, "analytics": True
+            "settings": False, "exports": True, "analytics": True,
         }
     elif role_lower in {"manager", "dept_manager", "team_lead"}:
         perms = [
@@ -71,13 +105,13 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
             "leaves:read", "leaves:approve",
             "timesheets:read", "timesheets:approve",
             "documents:read",
-            "reports:read"
+            "reports:read",
         ]
         modules = {
             "dashboard": True, "employees": True, "departments": True,
             "managers": False, "recruitment": False, "attendance": True,
             "leaves": True, "payroll": False, "documents": True,
-            "settings": False, "exports": False, "analytics": False
+            "settings": False, "exports": False, "analytics": False,
         }
     else:
         # Standard employee
@@ -87,13 +121,13 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
             "checkin:create",
             "leaves:request",
             "attendance:read",
-            "payslip:read"
+            "payslip:read",
         ]
         modules = {
             "dashboard": True, "employees": False, "departments": False,
             "managers": False, "recruitment": False, "attendance": True,
             "leaves": True, "payroll": True, "documents": True,
-            "settings": False, "exports": False, "analytics": False
+            "settings": False, "exports": False, "analytics": False,
         }
 
     sidebar_items = [
@@ -134,30 +168,16 @@ def _get_permissions_for_role(role: str) -> dict[str, Any]:
     include_in_schema=False,
 )
 async def get_sidebar_permissions(
-    request: Request,
-    auth_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
 ) -> APIResponse[dict]:
     """Return permissions, enabled modules, and sidebar navigation menu items for the current user."""
     from app.core.cache import cache_get, cache_set
 
-    role = "employee"
-    try:
-        claims = await get_current_user_claims(request=request, credentials=auth_credentials)
-        if claims and isinstance(claims, dict):
-            raw_role = (claims.get("role") or "").lower().strip()
-            raw_email = (claims.get("email") or "").lower().strip()
-            if raw_role == "super_admin":
-                if raw_email == "superadmin@ofc360.com":
-                    role = "super_admin"
-                else:
-                    role = "employee"
-            else:
-                role = raw_role or "employee"
-    except Exception as exc:
-        logger.debug("Unauthenticated sidebar permissions call, returning default employee permissions: %s", exc)
-        role = "employee"
+    raw_role = (claims.get("role") or "").lower().strip()
+    company_id = claims.get("company_id") or "global"
+    role = raw_role or "employee"
 
-    cache_key = f"sidebar_perms:{role}"
+    cache_key = f"sidebar_perms:{company_id}:{role}"
     cached_data = cache_get(cache_key)
     if cached_data is None:
         cached_data = _get_permissions_for_role(role)

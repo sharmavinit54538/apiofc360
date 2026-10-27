@@ -514,6 +514,203 @@ class RecruitmentRepository:
         }
 
     # ------------------------------------------------------------------
+    # Recruitment Analytics Aggregations
+    # ------------------------------------------------------------------
+
+    async def get_recruitment_analytics_data(
+        self,
+        company_id: uuid.UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        department: str | None = None,
+        job_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Aggregate recruitment funnel, job volume, pipeline, and department metrics efficiently."""
+        from sqlalchemy import case, cast, Date
+        from app.models.user import User
+
+        today = date.today()
+        first_of_month = today.replace(day=1)
+
+        # 1. Job metrics
+        job_filters = [self._active_job_filter()]
+        if company_id:
+            job_filters.append(Job.company_id == company_id)
+        if department:
+            job_filters.append(Job.department.ilike(f"%{department}%"))
+        if job_id:
+            job_filters.append(Job.id == job_id)
+        if start_date:
+            job_filters.append(cast(Job.created_at, Date) >= start_date)
+        if end_date:
+            job_filters.append(cast(Job.created_at, Date) <= end_date)
+
+        stmt_jobs = select(
+            func.count(Job.id).label("total_jobs"),
+            func.count(case((Job.status.in_(["PUBLISHED", "ACTIVE"]), 1))).label("active_jobs"),
+            func.count(case((Job.status == "DRAFT", 1))).label("draft_jobs"),
+            func.count(case((Job.status == "CLOSED", 1))).label("closed_jobs"),
+            func.coalesce(func.sum(Job.vacancies), 0).label("total_vacancies"),
+        ).where(and_(*job_filters))
+
+        # 2. Requisition metrics
+        req_filters = []
+        if company_id:
+            req_filters.append(
+                JobRequisition.requested_by.in_(
+                    select(User.id).where(User.company_id == company_id)
+                )
+            )
+        if department:
+            req_filters.append(JobRequisition.department.ilike(f"%{department}%"))
+        if start_date:
+            req_filters.append(cast(JobRequisition.created_at, Date) >= start_date)
+        if end_date:
+            req_filters.append(cast(JobRequisition.created_at, Date) <= end_date)
+
+        stmt_reqs = select(
+            func.count(JobRequisition.id).label("total_requisitions"),
+            func.count(case((JobRequisition.status == "APPROVED", 1))).label("active_requisitions"),
+            func.count(case((JobRequisition.status == "PENDING", 1))).label("pending_requisitions"),
+            func.count(case((JobRequisition.status.in_(["REJECTED", "CLOSED"]), 1))).label("closed_requisitions"),
+        )
+        if req_filters:
+            stmt_reqs = stmt_reqs.where(and_(*req_filters))
+
+        # 3. Application metrics & filters
+        app_filters = []
+        if company_id:
+            app_filters.append(
+                or_(
+                    Application.company_id == company_id,
+                    Application.job_id.in_(select(Job.id).where(Job.company_id == company_id)),
+                )
+            )
+        if job_id:
+            app_filters.append(Application.job_id == job_id)
+        if department:
+            app_filters.append(
+                Application.job_id.in_(
+                    select(Job.id).where(
+                        and_(Job.department.ilike(f"%{department}%"), self._active_job_filter())
+                    )
+                )
+            )
+        if start_date:
+            app_filters.append(cast(Application.created_at, Date) >= start_date)
+        if end_date:
+            app_filters.append(cast(Application.created_at, Date) <= end_date)
+
+        # 3a. Application status grouping for pipeline breakdown
+        stmt_app_status = select(
+            Application.status,
+            func.count(Application.id).label("status_count"),
+        )
+        if app_filters:
+            stmt_app_status = stmt_app_status.where(and_(*app_filters))
+        stmt_app_status = stmt_app_status.group_by(Application.status)
+
+        # 3b. Temporal application summary
+        stmt_app_summary = select(
+            func.count(Application.id).label("total_applications"),
+            func.count(case((cast(Application.created_at, Date) == today, 1))).label("applications_today"),
+            func.count(case((cast(Application.created_at, Date) >= first_of_month, 1))).label("applications_this_month"),
+            func.count(func.distinct(Application.email)).label("unique_applicants"),
+        )
+        if app_filters:
+            stmt_app_summary = stmt_app_summary.where(and_(*app_filters))
+
+        # 4. Candidate metrics
+        cand_filters = []
+        if company_id:
+            cand_filters.append(
+                or_(
+                    Candidate.applications.any(Application.company_id == company_id),
+                    Candidate.applications.any(
+                        Application.job_id.in_(select(Job.id).where(Job.company_id == company_id))
+                    ),
+                )
+            )
+        if start_date:
+            cand_filters.append(cast(Candidate.created_at, Date) >= start_date)
+        if end_date:
+            cand_filters.append(cast(Candidate.created_at, Date) <= end_date)
+
+        stmt_cand = select(
+            func.count(Candidate.id).label("total_candidates"),
+            func.count(case((Candidate.is_talent_pool == True, 1))).label("talent_pool_candidates"),  # noqa: E712
+        )
+        if cand_filters:
+            stmt_cand = stmt_cand.where(and_(*cand_filters))
+
+        # 5. Candidate Source distribution
+        stmt_sources = select(
+            Candidate.source,
+            func.count(Candidate.id).label("source_count"),
+        )
+        if cand_filters:
+            stmt_sources = stmt_sources.where(and_(*cand_filters))
+        stmt_sources = stmt_sources.group_by(Candidate.source).order_by(func.count(Candidate.id).desc())
+
+        # 6. Department breakdown
+        dept_job_filters = [self._active_job_filter()]
+        if company_id:
+            dept_job_filters.append(Job.company_id == company_id)
+        if department:
+            dept_job_filters.append(Job.department.ilike(f"%{department}%"))
+
+        stmt_dept = (
+            select(
+                Job.department,
+                func.count(func.distinct(Job.id)).label("total_jobs"),
+                func.count(func.distinct(case((Job.status.in_(["PUBLISHED", "ACTIVE"]), Job.id)))).label("active_jobs"),
+                func.count(Application.id).label("total_applications"),
+                func.count(case((Application.status.in_(["OFFER_ACCEPTED", "EMPLOYEE_CREATED"]), 1))).label("hired_count"),
+            )
+            .outerjoin(Application, Application.job_id == Job.id)
+            .where(and_(*dept_job_filters))
+            .group_by(Job.department)
+            .order_by(func.count(Application.id).desc())
+            .limit(10)
+        )
+
+        # 7. Timestamps for hired candidates (time-to-hire)
+        stmt_hired = select(Application.created_at, Application.updated_at).where(
+            and_(
+                Application.status.in_(["OFFER_ACCEPTED", "EMPLOYEE_CREATED"]),
+                *app_filters,
+            )
+        )
+
+        # Execute all queries sequentially on the session
+        job_res = await self.session.execute(stmt_jobs)
+        req_res = await self.session.execute(stmt_reqs)
+        app_status_res = await self.session.execute(stmt_app_status)
+        app_sum_res = await self.session.execute(stmt_app_summary)
+        cand_res = await self.session.execute(stmt_cand)
+        sources_res = await self.session.execute(stmt_sources)
+        dept_res = await self.session.execute(stmt_dept)
+        hired_res = await self.session.execute(stmt_hired)
+
+        status_counts = {
+            str(row[0]).upper(): row[1]
+            for row in app_status_res.all()
+            if row[0] is not None
+        }
+
+        return {
+            "job_row": job_res.one(),
+            "req_row": req_res.one(),
+            "status_counts": status_counts,
+            "app_summary_row": app_sum_res.one(),
+            "cand_row": cand_res.one(),
+            "source_rows": sources_res.all(),
+            "dept_rows": dept_res.all(),
+            "hired_rows": hired_res.all(),
+        }
+
+
+    # ------------------------------------------------------------------
     # Candidate CRUD
     # ------------------------------------------------------------------
 
@@ -867,6 +1064,32 @@ class RecruitmentRepository:
         obj = RecruitmentNotification(**kwargs)
         self.session.add(obj)
         await self.session.flush()
+
+        try:
+            from app.models.user import User
+            from app.services import notification_service
+            user_id = kwargs.get("user_id")
+            if user_id:
+                user = await self.session.get(User, user_id)
+                company_id = getattr(user, "company_id", None)
+                if company_id:
+                    await notification_service.notify(
+                        self.session,
+                        company_id=company_id,
+                        recipient_ids=[user_id],
+                        type=str(kwargs.get("type") or "recruitment.alert"),
+                        category="recruitment",
+                        module="recruitment",
+                        title=str(kwargs.get("title") or "Recruitment Notification")[:200],
+                        body=str(kwargs.get("message") or kwargs.get("body") or "Recruitment update")[:1000],
+                        link=str(kwargs.get("link") or "/dashboard/recruitment"),
+                        priority=str(kwargs.get("priority") or "normal"),
+                        entity={"type": "recruitment", "id": str(kwargs.get("entity_id") or obj.id)},
+                        dedupe_key=kwargs.get("dedupe_key") or f"recruitment:{obj.id}",
+                    )
+        except Exception as e:
+            logger.warning("Failed to emit unified notification from create_recruitment_notification: %s", e)
+
         return obj
 
     async def list_recruitment_notifications(self, user_uuid: uuid.UUID, limit: int = 50) -> list[RecruitmentNotification]:

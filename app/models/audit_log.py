@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,10 +37,14 @@ class AuditLog(Base):
         nullable=True,
     )
     action: Mapped[str] = mapped_column(String(100), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
