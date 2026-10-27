@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    BigInteger, Date, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
+    BigInteger, Boolean, Date, DateTime, ForeignKey, Index, JSON, Numeric, String, Text, func, text
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
@@ -47,6 +47,10 @@ class LeaveRequest(Base):
     # Review fields (new)
     reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    exception_reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    policy_trace_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    approval_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

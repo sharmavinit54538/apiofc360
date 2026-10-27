@@ -355,6 +355,12 @@ class Payslip(Base):
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     email_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))  # NOT_SENT/SENT/DELIVERED/OPENED/FAILED
     email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    whatsapp_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))
+    whatsapp_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_password_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    password_rule: Mapped[str | None] = mapped_column(String(100), nullable=True)
     download_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 
