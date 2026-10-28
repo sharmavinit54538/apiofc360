@@ -1,7 +1,7 @@
 """sync_drift_payroll_compliance_and_pf_flags
 
 Revision ID: 902a_sync_drift
-Revises: 901a_mc_ca_flags
+Revises: a3_1_labour_codes_config
 Create Date: 2026-10-27 02:27:34.059438
 
 """
@@ -13,7 +13,8 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '902a_sync_drift'
-down_revision: Union[str, None] = '901a_mc_ca_flags'
+# Keep the formerly independent labour-codes migration in the main linear chain.
+down_revision: Union[str, None] = 'a3_1_labour_codes_config'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
