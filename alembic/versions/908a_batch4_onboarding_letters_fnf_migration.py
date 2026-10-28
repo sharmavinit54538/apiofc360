@@ -1,7 +1,7 @@
 """Batch 4: real tenants, onboarding, e-sign, FnF and E5 migration.
 
 Revision ID: 908a_batch4_onboarding_fnf
-Revises: 907a_step4_statutory_rules_forms
+Revises: 907a_step4_statutory_forms
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "908a_batch4_onboarding_fnf"
-down_revision = "907a_step4_statutory_rules_forms"
+down_revision = "907a_step4_statutory_forms"
 branch_labels = None
 depends_on = None
 
