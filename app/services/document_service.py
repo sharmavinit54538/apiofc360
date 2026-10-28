@@ -917,8 +917,14 @@ class DocumentService:
         return result
 
     @staticmethod
-    def _render_text_to_pdf(title: str, text_content: str) -> bytes:
-        """Render plain text / template output to a clean PDF using reportlab."""
+    def _render_text_to_pdf(title: str, text_content: str, branding: dict | None = None) -> bytes:
+        """Render plain text / template output with an optional tenant header.
+
+        Branding contains display text and colours only.  Remote logo URLs are
+        deliberately not fetched during PDF generation, avoiding SSRF and making
+        document rendering deterministic and offline-safe.
+        """
+        from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -929,11 +935,24 @@ class DocumentService:
 
         title_style = styles["Heading1"]
         body_style = styles["Normal"]
-
-        story = [
+        story = []
+        if branding:
+            primary = str(branding.get("pdf_header", {}).get("primary_color") or "#17365D")
+            try:
+                brand_color = colors.HexColor(primary)
+            except ValueError:
+                brand_color = colors.HexColor("#17365D")
+            brand_title = ParagraphStyle("TenantBrandTitle", parent=styles["Heading1"], textColor=brand_color)
+            brand_subtitle = ParagraphStyle("TenantBrandSubtitle", parent=styles["Normal"], textColor=brand_color, spaceAfter=10)
+            story.append(Paragraph(html.escape(str(branding.get("display_name") or title)), brand_title))
+            header_text = branding.get("pdf_header", {}).get("text")
+            if header_text:
+                story.append(Paragraph(html.escape(str(header_text)), brand_subtitle))
+            story.append(Spacer(1, 8))
+        story.extend([
             Paragraph(html.escape(title), title_style),
             Spacer(1, 18),
-        ]
+        ])
 
         # Split content into paragraphs
         for line in text_content.split("\n"):

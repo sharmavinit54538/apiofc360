@@ -111,10 +111,15 @@ class LetterService:
             raise ValueError(f"Canonical template '{template_name}' is not seeded.")
         merged_fields = await self.employee_fields(employee, fields)
         content = self.substitute(template.template_body, merged_fields)
+        company = await self.session.get(Company, employee.company_id) if employee.company_id else None
+        branding = None
+        if company is not None:
+            from app.services.whitelabel_service import WhiteLabelService
+            branding = WhiteLabelService.branding_for(company)
         return {
             "letter_type": key, "template_name": template.name, "employee_id": str(employee.id),
             "content": content, "fields": merged_fields,
-            "pdf_bytes": self.render_pdf(template.name, content) if render_pdf else None,
+            "pdf_bytes": DocumentService._render_text_to_pdf(template.name, content, branding=branding) if render_pdf else None,
         }
 
     async def save_employee_pdf(

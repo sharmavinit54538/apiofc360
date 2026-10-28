@@ -8,6 +8,7 @@ import json
 import logging
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, List, Optional
 
 from fastapi import HTTPException, UploadFile, status
@@ -115,12 +116,30 @@ class CompensationService:
         special_allowance_monthly_paise: Optional[int] = None,
         effective_date: Optional[date] = None,
         remarks: Optional[str] = None,
+        currency: Optional[str] = None,
+        fx_rate_to_inr: Optional[Decimal | str | float] = None,
     ) -> Compensation:
+        from app.services.payroll.global_payroll import normalize_currency, positive_fx_rate
         stmt = select(Compensation).where(
             Compensation.employee_id == employee_id,
             Compensation.status == "ACTIVE",
         )
         comp = (await session.execute(stmt)).scalar_one_or_none()
+        try:
+            previous_currency = getattr(comp, "currency", "INR") if comp else "INR"
+            target_currency = normalize_currency(currency or previous_currency)
+            if fx_rate_to_inr is not None:
+                target_fx = positive_fx_rate(fx_rate_to_inr)
+            elif comp is not None and target_currency == previous_currency:
+                target_fx = positive_fx_rate(getattr(comp, "fx_rate_to_inr", 1))
+            elif target_currency == "INR":
+                target_fx = Decimal("1")
+            else:
+                raise ValueError("An explicit FX rate to INR is required when assigning non-INR compensation.")
+            if target_currency == "INR" and target_fx != Decimal("1"):
+                raise ValueError("INR compensation must use an FX rate of 1.")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         monthly_ctc = ctc_annual_paise // 12
         basic = basic_monthly_paise if basic_monthly_paise is not None else int(monthly_ctc * 0.50)
         hra = hra_monthly_paise if hra_monthly_paise is not None else int(basic * 0.40)
@@ -137,6 +156,8 @@ class CompensationService:
                 basic_monthly_paise=basic,
                 hra_monthly_paise=hra,
                 special_allowance_monthly_paise=special,
+                currency=target_currency,
+                fx_rate_to_inr=target_fx,
                 effective_date=eff_date,
                 status="ACTIVE",
                 remarks=remarks,
@@ -147,6 +168,8 @@ class CompensationService:
             comp.basic_monthly_paise = basic
             comp.hra_monthly_paise = hra
             comp.special_allowance_monthly_paise = special
+            comp.currency = target_currency
+            comp.fx_rate_to_inr = target_fx
             comp.effective_date = eff_date
             comp.remarks = remarks
 

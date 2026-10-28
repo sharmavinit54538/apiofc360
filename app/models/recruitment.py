@@ -126,6 +126,10 @@ class Application(Base):
     portfolio_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cover_letter: Mapped[str | None] = mapped_column(Text, nullable=True)
     declaration_checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Optional candidate self-identification, used only after explicit consent.
+    # Analytics never infers diversity attributes from a name or resume.
+    voluntary_demographics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    diversity_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="APPLIED", server_default=text("'APPLIED'"))
 

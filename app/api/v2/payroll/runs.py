@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -41,12 +42,27 @@ def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
 
 
 def _run_dict(r: PayrollRun) -> dict[str, Any]:
+    # __dict__ defaults keep legacy MagicMock-based API tests and old rows
+    # compatible while real ORM runs expose the Batch 7 global-payroll fields.
+    fx_rate = r.__dict__.get("fx_rate_to_base", Decimal("1"))
+    fx_locked = r.__dict__.get("fx_rate_locked_at")
     return {
         "id": str(r.id),
         "company_id": str(r.company_id) if r.company_id else None,
         "legal_entity_id": str(r.legal_entity_id) if r.legal_entity_id else None,
         "period_id": str(r.period_id) if r.period_id else None,
         "run_number": r.run_number,
+        "currency": r.__dict__.get("currency", "INR"),
+        "base_currency": r.__dict__.get("base_currency", "INR"),
+        "country_code": r.__dict__.get("country_code", "IN"),
+        "fx_rate_to_base": str(fx_rate),
+        "fx_rate_snapshot": r.__dict__.get("fx_rate_snapshot"),
+        "fx_rate_locked_at": fx_locked.isoformat() if fx_locked else None,
+        "statutory_rules_snapshot": r.__dict__.get("statutory_rules_snapshot"),
+        "statutory_rule_version": r.__dict__.get("statutory_rule_version", "IN_LEGACY_STATUTORY_SERVICE"),
+        "total_gross_base_paise": r.__dict__.get("total_gross_base_paise", 0),
+        "total_deductions_base_paise": r.__dict__.get("total_deductions_base_paise", 0),
+        "total_net_base_paise": r.__dict__.get("total_net_base_paise", 0),
         "period_month": r.period_month,
         "period_year": r.period_year,
         "status": r.status,
@@ -121,6 +137,12 @@ async def create_run_v2(
         company_id=c_uuid,
         user_id=user_id,
         user_role=user_role,
+        currency=payload.currency,
+        country_code=payload.country_code,
+        fx_rate_to_base=payload.fx_rate_to_base,
+        fx_rate_source=payload.fx_rate_source,
+        fx_rate_as_of=payload.fx_rate_as_of,
+        statutory_rules=payload.statutory_rules,
     )
     return _ok(_run_dict(run), f"Payroll run created for period {p_uuid}")
 

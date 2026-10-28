@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 import uuid
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
@@ -24,5 +24,13 @@ class EmployeeRiskAssessment(Base):
     overall_risk_level: Mapped[str] = mapped_column(String(20), nullable=False, default="LOW")  # LOW, MEDIUM, HIGH, CRITICAL
     risk_narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommended_actions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    flight_risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    risk_factors_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    retention_playbook_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    compa_ratio: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    tenure_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    months_since_promotion: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    manager_attrition_pct: Mapped[float | None] = mapped_column(Numeric(7, 2), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     employee: Mapped[Employee] = relationship("Employee", lazy="select")

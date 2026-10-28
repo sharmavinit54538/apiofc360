@@ -86,6 +86,19 @@ class Company(Base):
         default="INR",
         server_default=text("'INR'"),
     )
+    # Batch 7 tenant branding.  A custom domain is globally unique; all other
+    # brand settings remain on the tenant row and are never shared across companies.
+    custom_domain: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    whitelabel_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    brand_display_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    brand_primary_color: Mapped[str] = mapped_column(String(7), nullable=False, default="#17365D", server_default=text("'#17365D'"))
+    brand_secondary_color: Mapped[str] = mapped_column(String(7), nullable=False, default="#EAF2F8", server_default=text("'#EAF2F8'"))
+    brand_logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    brand_favicon_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    email_sender_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    email_sender_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_reply_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    branded_pdf_header_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
 class LegalEntity(TenantMixin, TimestampMixin, Base):

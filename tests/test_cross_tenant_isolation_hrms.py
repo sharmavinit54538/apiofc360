@@ -376,6 +376,10 @@ def _mock_compensation(comp_id: uuid.UUID, company_id: uuid.UUID, emp_id: uuid.U
     comp.employee_id = emp_id
     comp.ctc_annual_paise = kwargs.get("ctc_annual_paise", 120000000)
     comp.basic_monthly_paise = kwargs.get("basic_monthly_paise", 5000000)
+    comp.hra_monthly_paise = kwargs.get("hra_monthly_paise", 2000000)
+    comp.special_allowance_monthly_paise = kwargs.get("special_allowance_monthly_paise", 3000000)
+    comp.currency = kwargs.get("currency", "INR")
+    comp.fx_rate_to_inr = kwargs.get("fx_rate_to_inr", 1)
     comp.effective_date = date(2026, 1, 1)
     comp.status = "ACTIVE"
     return comp

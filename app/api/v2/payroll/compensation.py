@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
@@ -51,18 +52,31 @@ async def list_compensations(
 
 
 def _comp_detail(c) -> dict[str, Any]:
+    currency = c.__dict__.get("currency", "INR")
+    fx_rate = Decimal(str(c.__dict__.get("fx_rate_to_inr", Decimal("1"))))
+    from app.services.payroll.global_payroll import convert_minor_units
     return {
         "id": str(c.id),
         "employee_id": str(c.employee_id),
         "company_id": str(c.company_id) if c.company_id else None,
         "ctc_annual_paise": c.ctc_annual_paise,
-        "ctc_annual_inr": c.ctc_annual_paise / 100.0,
+        "ctc_annual_inr": float(Decimal(c.ctc_annual_paise) / 100 * fx_rate),
+        "ctc_annual_inr_paise": convert_minor_units(c.ctc_annual_paise, fx_rate),
         "basic_monthly_paise": c.basic_monthly_paise,
-        "basic_monthly_inr": c.basic_monthly_paise / 100.0,
+        "basic_monthly_inr": float(Decimal(c.basic_monthly_paise) / 100 * fx_rate),
+        "basic_monthly_inr_paise": convert_minor_units(c.basic_monthly_paise, fx_rate),
         "hra_monthly_paise": c.hra_monthly_paise,
-        "hra_monthly_inr": c.hra_monthly_paise / 100.0,
+        "hra_monthly_inr": float(Decimal(c.hra_monthly_paise) / 100 * fx_rate),
+        "hra_monthly_inr_paise": convert_minor_units(c.hra_monthly_paise, fx_rate),
         "special_allowance_monthly_paise": c.special_allowance_monthly_paise,
-        "special_allowance_monthly_inr": c.special_allowance_monthly_paise / 100.0,
+        "special_allowance_monthly_inr": float(Decimal(c.special_allowance_monthly_paise) / 100 * fx_rate),
+        "special_allowance_monthly_inr_paise": convert_minor_units(c.special_allowance_monthly_paise, fx_rate),
+        "currency": currency,
+        "fx_rate_to_inr": str(fx_rate),
+        "ctc_annual_major": c.ctc_annual_paise / 100.0,
+        "basic_monthly_major": c.basic_monthly_paise / 100.0,
+        "hra_monthly_major": c.hra_monthly_paise / 100.0,
+        "special_allowance_monthly_major": c.special_allowance_monthly_paise / 100.0,
         "effective_date": str(c.effective_date),
         "status": c.status,
         "remarks": c.remarks,
@@ -89,6 +103,8 @@ class AssignCompensationRequest(BaseModel):
     special_allowance_monthly_paise: Optional[int] = None
     effective_date: Optional[date] = None
     remarks: Optional[str] = None
+    currency: Optional[str] = None
+    fx_rate_to_inr: Optional[Decimal] = None
 
 
 # PUT /api/v2/payroll/compensations/{employeeId}
@@ -109,6 +125,8 @@ async def update_employee_compensation(
         special_allowance_monthly_paise=payload.special_allowance_monthly_paise,
         effective_date=payload.effective_date,
         remarks=payload.remarks,
+        currency=payload.currency,
+        fx_rate_to_inr=payload.fx_rate_to_inr,
     )
     return _ok(_comp_detail(comp), "Employee compensation updated successfully")
 

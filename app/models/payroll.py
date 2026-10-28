@@ -192,6 +192,8 @@ class SalaryStructure(Base):
     special_allowance_monthly: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     other_allowances: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"Meal Allowance": 1500}
     annual_bonus: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    fx_rate_to_inr: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
 
     is_metro_city: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     rent_paid_monthly: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # HRA exemption input (old regime)
@@ -250,6 +252,14 @@ class PayrollRun(Base):
 
     period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
     run_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, default="IN", server_default=text("'IN'"))
+    fx_rate_to_base: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
+    fx_rate_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    fx_rate_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    statutory_rules_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    statutory_rule_version: Mapped[str] = mapped_column(String(100), nullable=False, default="IN_LEGACY_STATUTORY_SERVICE", server_default=text("'IN_LEGACY_STATUTORY_SERVICE'"))
 
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -263,6 +273,9 @@ class PayrollRun(Base):
     total_gross_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     total_deductions_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     total_net_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     validation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING", server_default=text("'PENDING'"))
     validation_errors: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
@@ -317,6 +330,10 @@ class Payslip(Base):
     payroll_run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_runs.id", ondelete="CASCADE"), nullable=False)
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     salary_structure_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("salary_structures.id", ondelete="SET NULL"), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     payslip_number: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # e.g. PAY-202607-00042
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)

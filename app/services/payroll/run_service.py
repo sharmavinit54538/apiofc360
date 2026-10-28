@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
@@ -19,7 +19,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
-from app.models.company import Branch, EmployeeEntityTransfer, EntityPayrollCalendar, LegalEntity
+from app.models.company import Branch, Company, EmployeeEntityTransfer, EntityPayrollCalendar, LegalEntity
 from app.models.payroll import (
     AdvanceLoan,
     AdvanceLoanInstallment,
@@ -44,6 +44,16 @@ from app.services.payroll.arrear_service import ArrearService
 from app.services.payroll.formula_evaluator import SafeFormulaEvaluator
 from app.services.payroll.money import as_decimal, paise_to_rupees, round_paise, round_to_rupee_paise
 from app.services.payroll.statutory_service import StatutoryService
+from app.services.payroll.global_payroll import (
+    CountryStatutoryInput,
+    build_fx_snapshot,
+    convert_minor_units,
+    convert_via_inr_minor_units,
+    get_country_statutory_calculator,
+    normalize_country,
+    normalize_currency,
+    positive_fx_rate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +105,12 @@ class PayrollRunService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
         legal_entity_id: Optional[uuid.UUID] = None,
+        currency: Optional[str] = None,
+        country_code: Optional[str] = None,
+        fx_rate_to_base: Optional[Decimal | str | float] = None,
+        fx_rate_source: str = "MANUAL",
+        fx_rate_as_of: Optional[datetime] = None,
+        statutory_rules: Optional[dict[str, Any]] = None,
     ) -> PayrollRun:
         # Verify period exists
         period_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
@@ -113,6 +129,29 @@ class PayrollRunService:
             entity = await session.get(LegalEntity, target_entity_id)
             if entity is None or entity.company_id != target_company_id or not entity.is_active:
                 raise HTTPException(status_code=404, detail="Legal entity not found for this tenant.")
+
+        company = await session.get(Company, target_company_id) if target_company_id else None
+        if currency is None and (company.currency if company else "INR") != "INR" and fx_rate_to_base is None:
+            raise HTTPException(status_code=422, detail="An explicit FX rate to INR is required for non-INR payroll runs.")
+        try:
+            run_currency = normalize_currency(currency or (company.currency if company else "INR"))
+            run_country = normalize_country(country_code, run_currency)
+            if run_currency != "INR" and fx_rate_to_base is None:
+                raise ValueError("An explicit FX rate to INR is required for non-INR payroll runs.")
+            fx_rate = positive_fx_rate(fx_rate_to_base if fx_rate_to_base is not None else Decimal("1"))
+            locked_at = datetime.now(UTC)
+            fx_snapshot = build_fx_snapshot(
+                currency=run_currency, base_currency="INR", rate_to_base=fx_rate,
+                source=fx_rate_source, rate_as_of=fx_rate_as_of, locked_at=locked_at,
+            )
+            rules_snapshot = dict(statutory_rules or {})
+            country_result = get_country_statutory_calculator(run_country).calculate(CountryStatutoryInput(
+                country_code=run_country, currency=run_currency, gross_paise=0,
+                basic_paise=0, period_month=period.period_month,
+                period_year=period.period_year, rules=rules_snapshot,
+            ))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         run_number = f"PR-{period.period_year}{period.period_month:02d}-{uuid.uuid4().hex[:4].upper()}"
 
         run = PayrollRun(
@@ -123,6 +162,14 @@ class PayrollRunService:
             period_month=period.period_month,
             period_year=period.period_year,
             run_number=run_number,
+            currency=run_currency,
+            base_currency="INR",
+            country_code=run_country,
+            fx_rate_to_base=fx_rate,
+            fx_rate_snapshot=fx_snapshot,
+            fx_rate_locked_at=locked_at,
+            statutory_rules_snapshot=rules_snapshot,
+            statutory_rule_version=country_result.rule_version,
             status="DRAFT",
             total_employees=0,
             total_gross=Decimal("0.00"),
@@ -131,6 +178,9 @@ class PayrollRunService:
             total_gross_paise=0,
             total_deductions_paise=0,
             total_net_paise=0,
+            total_gross_base_paise=0,
+            total_deductions_base_paise=0,
+            total_net_base_paise=0,
             validation_status="PENDING",
             is_locked=False,
             run_by=user_id,
@@ -813,6 +863,12 @@ class PayrollRunService:
         total_deductions_paise = 0
         total_net_paise = 0
         processed_count = 0
+        run_currency = normalize_currency(getattr(run, "currency", "INR"))
+        run_country = normalize_country(getattr(run, "country_code", "IN"), run_currency)
+        run_fx_rate = positive_fx_rate(getattr(run, "fx_rate_to_base", 1))
+        country_calculator = get_country_statutory_calculator(run_country)
+        country_review_required = False
+        country_rule_warnings: list[str] = []
 
         for emp in employees:
             # 1. Fetch compensation and the versioned salary structure.  The
@@ -878,6 +934,28 @@ class PayrollRunService:
                 normalized = str(key).strip().lower().replace(" ", "_").replace("-", "_")
                 if normalized not in known_allowance_names:
                     other_fixed_allowances_paise[str(key)] = _allowance_paise(value)
+
+            # Convert the fixed compensation source into the run currency before
+            # proration.  Variable inputs and arrears are already run-currency
+            # minor units and must not be converted a second time.
+            source_currency = normalize_currency(
+                getattr(comp, "currency", "INR") if comp else getattr(sal, "currency", "INR") if sal else "INR"
+            )
+            source_fx_to_inr = positive_fx_rate(
+                getattr(comp, "fx_rate_to_inr", 1) if comp else getattr(sal, "fx_rate_to_inr", 1) if sal else 1
+            )
+            if source_currency != run_currency:
+                basic_monthly_paise = convert_via_inr_minor_units(basic_monthly_paise, source_fx_to_inr, run_fx_rate)
+                hra_monthly_paise = convert_via_inr_minor_units(hra_monthly_paise, source_fx_to_inr, run_fx_rate)
+                special_monthly_paise = convert_via_inr_minor_units(special_monthly_paise, source_fx_to_inr, run_fx_rate)
+                conveyance_monthly_paise = convert_via_inr_minor_units(conveyance_monthly_paise, source_fx_to_inr, run_fx_rate)
+                lta_monthly_paise = convert_via_inr_minor_units(lta_monthly_paise, source_fx_to_inr, run_fx_rate)
+                statutory_bonus_monthly_paise = convert_via_inr_minor_units(statutory_bonus_monthly_paise, source_fx_to_inr, run_fx_rate)
+                reimbursement_monthly_paise = convert_via_inr_minor_units(reimbursement_monthly_paise, source_fx_to_inr, run_fx_rate)
+                other_fixed_allowances_paise = {
+                    key: convert_via_inr_minor_units(value, source_fx_to_inr, run_fx_rate)
+                    for key, value in other_fixed_allowances_paise.items()
+                }
 
             # 2. Check LOP & Attendance
             att_stmt = select(PayrollAttendanceInput).where(
@@ -951,6 +1029,8 @@ class PayrollRunService:
             annual_ctc_paise = (
                 int(comp.ctc_annual_paise or 0) if comp else round_paise(as_decimal(sal.annual_ctc) * 100) if sal else 0
             )
+            if source_currency != run_currency and annual_ctc_paise:
+                annual_ctc_paise = convert_via_inr_minor_units(annual_ctc_paise, source_fx_to_inr, run_fx_rate)
             monthly_ctc_paise = round_paise(Decimal(annual_ctc_paise) / 12) if annual_ctc_paise else (
                 basic_monthly_paise + hra_monthly_paise + special_monthly_paise + conveyance_monthly_paise
             )
@@ -1195,12 +1275,44 @@ class PayrollRunService:
                 hra_annual_paise=emp_hra_paise * 12,
             )
             tds_paise = tds_res["current_month_tds_paise"]
-            if decl is not None:
+            if decl is not None and run_country == "IN":
                 decl.ytd_tds_paise = max(declared_ytd_paise, prior_tds_paise + tds_paise)
 
             grat_res = StatutoryService.calculate_gratuity(
                 emp_basic_paise, statutory_wage_paise=statutory_wages_paise
             )
+
+            country_employee_deductions_paise = 0
+            country_employer_contributions_paise = 0
+            country_statutory_components: dict[str, int] = {}
+            employee_country_review_required = False
+            employee_country_warnings: list[str] = []
+            if run_country != "IN":
+                try:
+                    country_result = country_calculator.calculate(CountryStatutoryInput(
+                        country_code=run_country, currency=run_currency,
+                        gross_paise=gross_paise, basic_paise=emp_basic_paise,
+                        period_month=run.period_month, period_year=run.period_year,
+                        rules=getattr(run, "statutory_rules_snapshot", None) or {},
+                    ))
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=f"Invalid {run_country} statutory rules: {exc}") from exc
+                # Indian deductions are never applied to a non-India run.  The
+                # configured country adapter supplies itemized replacements.
+                employee_pf_paise = employee_esi_paise = pt_paise = employee_lwf_paise = tds_paise = 0
+                pf_res = {"total_employer_pf_paise": 0, "employer_edli_paise": 0, "employer_admin_paise": 0}
+                esi_res = {"employer_esi_paise": 0}
+                lwf_res = {"employer_lwf_paise": 0}
+                grat_res = {"monthly_gratuity_provision_paise": 0}
+                emp_regime = run_country
+                country_employee_deductions_paise = country_result.employee_deductions_paise
+                country_employer_contributions_paise = country_result.employer_contributions_paise
+                country_statutory_components = country_result.components
+                employee_country_review_required = country_result.review_required
+                employee_country_warnings = list(country_result.warnings)
+                country_review_required = country_review_required or country_result.review_required
+                country_rule_warnings.extend(country_result.warnings)
+                run.statutory_rule_version = country_result.rule_version
 
             emp_deductions_paise = (
                 employee_pf_paise
@@ -1208,6 +1320,7 @@ class PayrollRunService:
                 + pt_paise
                 + employee_lwf_paise
                 + tds_paise
+                + country_employee_deductions_paise
                 + variable_deductions_paise
                 + advance_deduction_paise
                 + custom_deductions_paise
@@ -1224,6 +1337,7 @@ class PayrollRunService:
                 + esi_res["employer_esi_paise"]
                 + lwf_res["employer_lwf_paise"]
                 + grat_res["monthly_gratuity_provision_paise"]
+                + country_employer_contributions_paise
                 + custom_employer_paise
             )
 
@@ -1245,6 +1359,9 @@ class PayrollRunService:
             run_emp.gross_earnings_paise = gross_paise
             run_emp.total_deductions_paise = emp_deductions_paise
             run_emp.net_pay_paise = net_paise
+            run_emp.gross_base_paise = convert_minor_units(gross_paise, run_fx_rate)
+            run_emp.total_deductions_base_paise = convert_minor_units(emp_deductions_paise, run_fx_rate)
+            run_emp.net_base_paise = convert_minor_units(net_paise, run_fx_rate)
             run_emp.paid_days = paid_days
             run_emp.lop_days = lop_days
             run_emp.status = "PROCESSED"
@@ -1304,6 +1421,14 @@ class PayrollRunService:
                 "variable_deductions_paise": variable_deductions_paise,
                 "custom_deductions_paise": custom_deductions_paise,
                 "tax_regime": emp_regime,
+                "country_code": run_country,
+                "currency": run_currency,
+                "statutory_rule_version": run.statutory_rule_version,
+                "country_statutory_components_paise": country_statutory_components,
+                "country_employee_deductions_paise": country_employee_deductions_paise,
+                "country_employer_contributions_paise": country_employer_contributions_paise,
+                "statutory_review_required": employee_country_review_required,
+                "statutory_warnings": employee_country_warnings,
                 "total_deductions_paise": emp_deductions_paise,
             }
 
@@ -1336,7 +1461,7 @@ class PayrollRunService:
             payslip.arrears = paise_to_rupees(total_arrear_paise)
             payslip.bonus = paise_to_rupees(emp_statutory_bonus_paise + one_time_bonus_paise)
             payslip.lop_deduction = paise_to_rupees(max(0, (basic_monthly_paise + hra_monthly_paise + special_monthly_paise + conveyance_monthly_paise) - (emp_basic_paise + emp_hra_paise + emp_special_paise + emp_conveyance_paise)))
-            payslip.other_deductions = paise_to_rupees(variable_deductions_paise + advance_deduction_paise + custom_deductions_paise)
+            payslip.other_deductions = paise_to_rupees(variable_deductions_paise + advance_deduction_paise + custom_deductions_paise + country_employee_deductions_paise)
             if sal:
                 payslip.salary_structure_id = sal.id
             payslip.gross_earnings = paise_to_rupees(gross_paise)
@@ -1348,6 +1473,10 @@ class PayrollRunService:
             payslip.tds = paise_to_rupees(tds_paise)
             payslip.total_deductions = paise_to_rupees(emp_deductions_paise)
             payslip.net_pay = paise_to_rupees(net_paise)
+            payslip.currency = run_currency
+            payslip.gross_base_paise = convert_minor_units(gross_paise, run_fx_rate)
+            payslip.total_deductions_base_paise = convert_minor_units(emp_deductions_paise, run_fx_rate)
+            payslip.net_base_paise = convert_minor_units(net_paise, run_fx_rate)
             payslip.payment_status = "PENDING"
 
             total_gross_paise += gross_paise
@@ -1360,11 +1489,21 @@ class PayrollRunService:
         run.total_gross_paise = total_gross_paise
         run.total_deductions_paise = total_deductions_paise
         run.total_net_paise = total_net_paise
+        run.total_gross_base_paise = convert_minor_units(total_gross_paise, run_fx_rate)
+        run.total_deductions_base_paise = convert_minor_units(total_deductions_paise, run_fx_rate)
+        run.total_net_base_paise = convert_minor_units(total_net_paise, run_fx_rate)
         run.total_gross = paise_to_rupees(total_gross_paise)
         run.total_deductions = paise_to_rupees(total_deductions_paise)
         run.total_net = paise_to_rupees(total_net_paise)
         run.status = "PROCESSED"
-        run.validation_status = "VALID"
+        run.validation_status = "WARNING" if country_review_required else "VALID"
+        if country_review_required:
+            existing_issues = run.validation_errors if isinstance(run.validation_errors, list) else []
+            run.validation_errors = existing_issues + [{
+                "code": "COUNTRY_STATUTORY_REVIEW_REQUIRED",
+                "country_code": run_country,
+                "message": "Country statutory rules are unconfigured; local payroll review is required before approval.",
+            }]
 
         if run.company_id:
             try:
@@ -1408,7 +1547,16 @@ class PayrollRunService:
             "status": run.status,
             "period_month": run.period_month,
             "period_year": run.period_year,
+            "currency": getattr(run, "currency", "INR"),
+            "base_currency": getattr(run, "base_currency", "INR"),
+            "country_code": getattr(run, "country_code", "IN"),
+            "fx_rate_to_base": str(getattr(run, "fx_rate_to_base", 1)),
+            "fx_rate_locked_at": run.fx_rate_locked_at.isoformat() if getattr(run, "fx_rate_locked_at", None) else None,
+            "statutory_rule_version": getattr(run, "statutory_rule_version", "IN_LEGACY_STATUTORY_SERVICE"),
             "total_employees": run.total_employees,
+            "total_gross_base_paise": getattr(run, "total_gross_base_paise", 0),
+            "total_deductions_base_paise": getattr(run, "total_deductions_base_paise", 0),
+            "total_net_base_paise": getattr(run, "total_net_base_paise", 0),
             "total_gross_paise": run.total_gross_paise,
             "total_deductions_paise": run.total_deductions_paise,
             "total_net_paise": run.total_net_paise,

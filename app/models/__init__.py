@@ -268,7 +268,7 @@ from app.models.shift_plan import ShiftPlan, ShiftPlanEntry
 from app.models.shift import Shift, ShiftAllowancePolicy, EmployeeShiftAssignment, ShiftChangeRequest
 
 # AI Employee Digital Twin
-from app.models.digital_twin import EmployeeDigitalTwin
+from app.models.digital_twin import EmployeeDigitalTwin, OrgTwinSimulation
 
 # AI HR Voice Assistant
 from app.models.voice_assistant import VoiceCommandLog
@@ -283,7 +283,7 @@ from app.models.career_path import CareerPathPrediction
 from app.models.learning_recommendation import LearningRecommendation
 
 # AI Workforce Forecasting
-from app.models.workforce_forecast import WorkforceForecastRun
+from app.models.workforce_forecast import WorkforceForecastRun, WorkforcePlan
 
 # AI Talent Marketplace
 from app.models.talent_marketplace import TalentMatch, InternalJobOpening, InternalJobApplication
@@ -311,6 +311,7 @@ from app.models.engagement import (
 from app.models.accounting import GLAccountMapping, ExpensePosting, GLReconciliationReport
 from app.models.webhooks import TenantAPIKey, WebhookSubscription, WebhookDelivery, WebhookDeliveryAttempt
 from app.models.enterprise_auth import IdentityProvider, ExternalIdentity, SSOAssertion, SCIMToken, SCIMGroup, SCIMGroupMember
+from app.models.marketplace import MarketplaceIntegration, TenantIntegration, IntegrationConnection, IntegrationSyncLog
 
 # AI Recruitment Platform models
 from app.models.ai_recruitment import (
@@ -735,4 +736,8 @@ __all__ += [
     "GrievanceCase", "GrievanceCaseEvent", "ICCCommittee", "ICCMember",
     "POSHComplaint", "POSHEvidence", "POSHTrainingRecord", "POSHAnnualReturn",
     "PushSubscription", "MobileIdempotencyRecord", "WhatsAppInboundMessage", "WhatsAppConversation",
+]
+__all__ += [
+    "OrgTwinSimulation", "WorkforcePlan", "MarketplaceIntegration",
+    "TenantIntegration", "IntegrationConnection", "IntegrationSyncLog",
 ]
