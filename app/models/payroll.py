@@ -240,12 +240,13 @@ class PayrollRun(Base):
 
     __tablename__ = "payroll_runs"
     __table_args__ = (
-        UniqueConstraint("company_id", "period_month", "period_year", name="uq_payroll_run_company_period"),
+        UniqueConstraint("company_id", "legal_entity_id", "period_month", "period_year", name="uq_payroll_run_company_period", postgresql_nulls_not_distinct=True),
         Index("ix_payroll_runs_company_id", "company_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=True)
 
     period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
     run_number: Mapped[str | None] = mapped_column(String(50), nullable=True)

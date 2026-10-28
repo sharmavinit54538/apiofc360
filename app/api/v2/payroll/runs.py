@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
+from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _role, _uid
 from app.db.database import get_db_session
 from app.models.payroll import PayrollRun
 from app.schemas.payroll_v2.runs import (
@@ -42,6 +44,7 @@ def _run_dict(r: PayrollRun) -> dict[str, Any]:
     return {
         "id": str(r.id),
         "company_id": str(r.company_id) if r.company_id else None,
+        "legal_entity_id": str(r.legal_entity_id) if r.legal_entity_id else None,
         "period_id": str(r.period_id) if r.period_id else None,
         "run_number": r.run_number,
         "period_month": r.period_month,
@@ -617,3 +620,77 @@ async def get_run_validation_issues_v2(
     res = await PayrollRunService.validate_run(db, run_id=runId)
     issues = res.get("issues", [])
     return _ok(issues, "Validation issues retrieved successfully")
+
+
+class EntityPayrollCalendarRequest(BaseModel):
+    period_month: int = Field(ge=1, le=12)
+    period_year: int = Field(ge=2000, le=2200)
+    start_date: date
+    end_date: date
+    processing_date: date
+    pay_date: date
+    attendance_cutoff_date: date | None = None
+
+
+class EmployeeEntityTransferRequest(BaseModel):
+    employee_id: uuid.UUID
+    to_legal_entity_id: uuid.UUID
+    to_branch_id: uuid.UUID | None = None
+    effective_date: date
+    reason: str = Field(min_length=3)
+
+
+def _claims_company(claims: dict) -> uuid.UUID:
+    value = claims.get("company_id") if claims else None
+    if not value:
+        raise HTTPException(status_code=403, detail="Tenant claim is required")
+    return uuid.UUID(str(value))
+
+
+@router.post("/entities/{legal_entity_id}/calendar", summary="Create/update an entity-specific payroll calendar")
+async def upsert_entity_calendar(
+    legal_entity_id: uuid.UUID, payload: EntityPayrollCalendarRequest,
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin(claims)
+    try:
+        calendar, period = await PayrollRunService.upsert_entity_payroll_calendar(
+            db, legal_entity_id=legal_entity_id, company_id=_claims_company(claims), **payload.model_dump(),
+        )
+        return _ok({
+            "calendar_id": str(calendar.id), "payroll_period_id": str(period.id),
+            "legal_entity_id": str(calendar.legal_entity_id), "status": calendar.status,
+            "start_date": calendar.start_date.isoformat(), "end_date": calendar.end_date.isoformat(),
+            "pay_date": calendar.pay_date.isoformat(),
+        }, "Entity payroll calendar saved")
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 400, detail=str(exc)) from exc
+
+
+@router.post("/entities/transfers", summary="Schedule or complete an inter-entity employee transfer")
+async def transfer_employee_entity(
+    payload: EmployeeEntityTransferRequest, claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin(claims)
+    try:
+        transfer = await PayrollRunService.transfer_employee(
+            db, employee_id=payload.employee_id, to_legal_entity_id=payload.to_legal_entity_id,
+            to_branch_id=payload.to_branch_id, effective_date=payload.effective_date,
+            reason=payload.reason, requested_by=_uid(claims), company_id=_claims_company(claims),
+        )
+        return _ok({
+            "transfer_id": str(transfer.id), "status": transfer.status,
+            "effective_date": transfer.effective_date.isoformat(),
+            "from_legal_entity_id": str(transfer.from_legal_entity_id) if transfer.from_legal_entity_id else None,
+            "to_legal_entity_id": str(transfer.to_legal_entity_id),
+        }, "Employee entity transfer recorded")
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 400, detail=str(exc)) from exc
+
+
+@router.post("/entities/transfers/process-due", summary="Complete all effective-dated employee transfers")
+async def process_entity_transfers(claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin(claims)
+    count = await PayrollRunService.process_due_entity_transfers(db, company_id=_claims_company(claims))
+    return _ok({"completed": count}, "Due employee entity transfers processed")

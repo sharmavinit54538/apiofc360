@@ -60,7 +60,7 @@ class PayrollPeriod(Base):
     __table_args__ = (
         Index("ix_payroll_periods_company_id", "company_id"),
         Index("ix_payroll_periods_dates", "start_date", "end_date"),
-        UniqueConstraint("company_id", "period_month", "period_year", name="uq_period_company_month_year"),
+        UniqueConstraint("company_id", "legal_entity_id", "period_month", "period_year", name="uq_period_company_month_year", postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -70,6 +70,9 @@ class PayrollPeriod(Base):
         PG_UUID(as_uuid=True),
         ForeignKey("companies.id", ondelete="CASCADE"),
         nullable=True,
+    )
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -523,6 +526,9 @@ class PaymentBatch(Base):
     )
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retry_of_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -535,7 +541,8 @@ class PaymentBatch(Base):
     )
 
     items: Mapped[list["PaymentBatchItem"]] = relationship(
-        "PaymentBatchItem", back_populates="batch", cascade="all, delete-orphan", lazy="select"
+        "PaymentBatchItem", back_populates="batch", cascade="all, delete-orphan", lazy="select",
+        foreign_keys="PaymentBatchItem.batch_id",
     )
     bank_files: Mapped[list["PaymentBatchBankFile"]] = relationship(
         "PaymentBatchBankFile", back_populates="batch", cascade="all, delete-orphan", lazy="select"
@@ -581,6 +588,11 @@ class PaymentBatchItem(Base):
     ifsc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_holder_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     transaction_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    repayout_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"), nullable=True
+    )
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
     retry_count: Mapped[int] = mapped_column(
@@ -598,7 +610,7 @@ class PaymentBatchItem(Base):
     )
 
     batch: Mapped["PaymentBatch"] = relationship(
-        "PaymentBatch", back_populates="items", lazy="select"
+        "PaymentBatch", back_populates="items", lazy="select", foreign_keys=[batch_id]
     )
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
 

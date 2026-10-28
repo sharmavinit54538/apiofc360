@@ -153,6 +153,10 @@ class ComplianceDueDate(Base):
     overdue_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     interest_7q_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
     damages_14b_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+    filing_frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="MONTHLY", server_default=text("'MONTHLY'"))
+    filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    filing_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

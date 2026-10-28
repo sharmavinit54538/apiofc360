@@ -36,7 +36,7 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
-from app.models.payroll import EmployeeInvestmentDeclaration, Payslip, StatutoryComplianceConfig
+from app.models.payroll import EmployeeInvestmentDeclaration, PayrollRun, Payslip, StatutoryComplianceConfig
 from app.models.payroll_compliance import (
     ComplianceChallan,
     ComplianceDueDate,
@@ -1513,52 +1513,56 @@ class StatutoryService:
         company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         p_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
+        if company_id:
+            p_stmt = p_stmt.where(PayrollPeriod.company_id == company_id)
         period = (await session.execute(p_stmt)).scalar_one_or_none()
         if not period:
             raise HTTPException(status_code=404, detail="Payroll period not found.")
 
-        # Query payslips for this period month/year
-        ps_stmt = select(Payslip).where(
+        # Entity-owned periods must not aggregate another entity's same-month run.
+        ps_stmt = select(Payslip).join(PayrollRun, PayrollRun.id == Payslip.payroll_run_id).where(
             Payslip.period_month == period.period_month,
             Payslip.period_year == period.period_year,
         )
         if company_id:
-            ps_stmt = ps_stmt.where(Payslip.company_id == company_id)
+            ps_stmt = ps_stmt.where(Payslip.company_id == company_id, PayrollRun.company_id == company_id)
+        if period.legal_entity_id:
+            ps_stmt = ps_stmt.where(PayrollRun.legal_entity_id == period.legal_entity_id)
+        else:
+            ps_stmt = ps_stmt.where(PayrollRun.legal_entity_id.is_(None))
         payslips = (await session.execute(ps_stmt)).scalars().all()
 
-        emp_contrib = 0
-        empr_contrib = 0
         comp_name = (component or "PF").upper()
-
+        if comp_name not in {"PF", "ESI", "PT", "TDS", "ALL"}:
+            raise HTTPException(status_code=400, detail="component must be PF, ESI, PT, TDS, or ALL")
+        components = ("PF", "ESI", "PT", "TDS") if comp_name == "ALL" else (comp_name,)
+        totals = {name: [0, 0] for name in components}
         for ps in payslips:
-            if comp_name == "PF":
-                emp_contrib += int(ps.employee_pf * 100)
-                empr_contrib += int(ps.employer_pf * 100)
-            elif comp_name == "ESI":
-                emp_contrib += int(ps.employee_esi * 100)
-                empr_contrib += int(ps.employer_esi * 100)
-            elif comp_name == "PT":
-                emp_contrib += int(ps.professional_tax * 100)
-            elif comp_name == "TDS":
-                emp_contrib += int(ps.tds * 100)
-
+            for name in components:
+                if name == "PF":
+                    totals[name][0] += int(ps.employee_pf * 100)
+                    totals[name][1] += int(ps.employer_pf * 100)
+                elif name == "ESI":
+                    totals[name][0] += int(ps.employee_esi * 100)
+                    totals[name][1] += int(ps.employer_esi * 100)
+                elif name == "PT":
+                    totals[name][0] += int(ps.professional_tax * 100)
+                elif name == "TDS":
+                    totals[name][0] += int(ps.tds * 100)
+        emp_contrib = sum(values[0] for values in totals.values())
+        empr_contrib = sum(values[1] for values in totals.values())
         total_liability = emp_contrib + empr_contrib
-
+        breakup = [{
+            "component": name, "employee_count": len(payslips),
+            "employee_total": values[0] / 100.0, "employer_total": values[1] / 100.0,
+            "total": sum(values) / 100.0,
+        } for name, values in totals.items()]
         return {
-            "component": comp_name,
-            "period_id": str(period_id),
-            "total_employees": len(payslips),
-            "employee_contribution_paise": emp_contrib,
-            "employer_contribution_paise": empr_contrib,
-            "total_liability_paise": total_liability,
-            "breakup": [
-                {
-                    "employee_count": len(payslips),
-                    "employee_total": emp_contrib / 100.0,
-                    "employer_total": empr_contrib / 100.0,
-                    "total": total_liability / 100.0,
-                }
-            ],
+            "component": comp_name, "period_id": str(period_id),
+            "legal_entity_id": str(period.legal_entity_id) if period.legal_entity_id else None,
+            "total_employees": len(payslips), "employee_contribution_paise": emp_contrib,
+            "employer_contribution_paise": empr_contrib, "total_liability_paise": total_liability,
+            "breakup": breakup,
         }
 
     @classmethod

@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any, Optional
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
 
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _role, _uid
@@ -20,6 +21,7 @@ from app.schemas.payroll_v2.statutory import (
     StatutorySimulationRequest,
 )
 from app.services.payroll.statutory_service import StatutoryService
+from app.services.compliance_monitor_service import ComplianceMonitorService
 from app.workers.payroll_tasks import dispatch_statutory_report
 
 router = APIRouter(tags=["Payroll v2 - Statutory"])
@@ -702,3 +704,87 @@ async def seed_state_rules(claims: Claims = None, db: AsyncSession = Depends(get
     c_uuid = uuid.UUID(company_id_str) if company_id_str else None
     created = await StatutoryService.seed_state_statutory_rules(db, c_uuid)
     return _ok({"created": created, "states": list(StatutoryService.DEFAULT_STATE_RULES)}, "State statutory rules seeded successfully")
+
+
+class StatutoryFilingTrackRequest(BaseModel):
+    payment_date: date
+    filing_reference: Optional[str] = None
+    challan_number: Optional[str] = None
+    utr_number: Optional[str] = None
+    remarks: Optional[str] = Field(None, max_length=500)
+
+
+def _required_company(claims: dict) -> uuid.UUID:
+    value = claims.get("company_id") if claims else None
+    if not value:
+        raise HTTPException(status_code=403, detail="Tenant claim is required")
+    return uuid.UUID(str(value))
+
+
+@router.get("/statutory/compliance-calendar", summary="Unified monthly/quarterly/annual statutory compliance calendar")
+async def get_compliance_calendar(
+    year: int = Query(..., ge=2000, le=2200), frequency: Optional[str] = Query(None),
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    try:
+        rows = await ComplianceMonitorService(db).get_statutory_calendar(
+            company_id=_required_company(claims), year=year, frequency=frequency,
+        )
+        return _ok(rows, "Statutory compliance calendar retrieved")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/statutory/filings/{due_date_id}/track", summary="Track a statutory filing and payment against its due date")
+async def track_statutory_filing(
+    due_date_id: uuid.UUID, payload: StatutoryFilingTrackRequest,
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    try:
+        row = await ComplianceMonitorService(db).track_statutory_filing(
+            due_date_id, company_id=_required_company(claims), **payload.model_dump(),
+        )
+        return _ok({"id": str(row.id), "status": row.status, "payment_date": row.payment_date.isoformat(),
+                    "filing_reference": row.filing_reference, "utr_number": row.utr_number}, "Statutory filing tracked")
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/statutory/challans/archive", summary="Search the statutory challan and payment-receipt archive")
+async def get_statutory_challan_archive(
+    year: Optional[int] = Query(None), month: Optional[int] = Query(None, ge=1, le=12),
+    challan_type: Optional[str] = Query(None), claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    rows = await ComplianceMonitorService(db).get_challan_archive(
+        company_id=_required_company(claims), year=year, month=month, challan_type=challan_type,
+    )
+    return _ok(rows, "Statutory challan archive retrieved")
+
+
+@router.get("/statutory/registers/{register_type}", summary="Generate Form B, Form D, Fines/Deductions, or Bonus register")
+async def generate_statutory_register_api(
+    register_type: str, year: int = Query(..., ge=2000, le=2200),
+    month: int = Query(..., ge=1, le=12), legal_entity_id: Optional[uuid.UUID] = Query(None),
+    output_format: str = Query("json", alias="format"), claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    try:
+        result = await ComplianceMonitorService(db).generate_statutory_register(
+            register_type, company_id=_required_company(claims), year=year, month=month,
+            legal_entity_id=legal_entity_id,
+        )
+        if output_format.lower() == "csv":
+            return Response(content=result["csv_content"], media_type="text/csv", headers={
+                "Content-Disposition": f'attachment; filename="{result["file_name"]}"'
+            })
+        if output_format.lower() != "json":
+            raise HTTPException(status_code=400, detail="format must be json or csv")
+        result.pop("csv_content", None)
+        return _ok(result, "Statutory register generated from live records")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
