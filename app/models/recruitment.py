@@ -9,12 +9,13 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, Text, Time, func, text, JSON,
+    Numeric, String, Text, Time, UniqueConstraint, func, text, JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.core.field_encryption import EncryptedString
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -458,3 +459,58 @@ class JobPublishChannel(Base):
     unique_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     job: Mapped[Job] = relationship("Job", lazy="select")
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: job-board adapters and tenant-scoped source attribution
+# ---------------------------------------------------------------------------
+from app.models.enterprise_common import EnterpriseModelMixin
+
+
+class JobBoardIntegration(EnterpriseModelMixin, Base):
+    __tablename__ = "job_board_integrations"
+    __table_args__ = (UniqueConstraint("company_id", "provider", name="uq_job_board_integration_provider"),)
+
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    api_base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    api_token: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
+    webhook_secret: Mapped[str] = mapped_column(EncryptedString(), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+
+class JobBoardSync(EnterpriseModelMixin, Base):
+    __tablename__ = "job_board_syncs"
+    __table_args__ = (
+        UniqueConstraint("company_id", "job_id", "provider", name="uq_job_board_sync_job_provider"),
+        Index("ix_job_board_syncs_company_status", "company_id", "status"),
+    )
+
+    job_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    external_job_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"))
+    request_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+    response_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CandidateSource(EnterpriseModelMixin, Base):
+    __tablename__ = "candidate_sources"
+    __table_args__ = (
+        UniqueConstraint("company_id", "provider", "external_candidate_id", name="uq_candidate_source_external"),
+        Index("ix_candidate_sources_company_utm", "company_id", "utm_source", "utm_medium", "utm_campaign"),
+    )
+
+    application_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False)
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True)
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    external_candidate_id: Mapped[str] = mapped_column(String(150), nullable=False)
+    utm_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utm_medium: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utm_campaign: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    utm_term: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    utm_content: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    referrer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

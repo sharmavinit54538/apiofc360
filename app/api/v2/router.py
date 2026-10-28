@@ -66,6 +66,13 @@ from app.api.v2.data_migration_api import router as data_migration_router
 from app.api.v2.whatsapp_api import router as whatsapp_router
 from app.api.v2.mobile_pwa_api import router as mobile_pwa_router
 from app.api.v2.grievance_posh_api import router as grievance_posh_router
+from app.api.v2.bgv_api import router as bgv_v2_router
+from app.api.v2.succession_api import router as succession_v2_router
+from app.api.v2.lms_api import router as lms_v2_router
+from app.api.v2.engagement_api import router as engagement_v2_router
+from app.api.v2.developer_api import router as developer_v2_router
+from app.api.v2.scim_api import admin_router as scim_admin_v2_router
+from app.api.v2.enterprise_intelligence_apis import ijp_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -130,6 +137,13 @@ def get_v2_router() -> APIRouter:
         whatsapp_router,
         mobile_pwa_router,
         grievance_posh_router,
+        bgv_v2_router,
+        succession_v2_router,
+        lms_v2_router,
+        engagement_v2_router,
+        developer_v2_router,
+        scim_admin_v2_router,
+        ijp_router,
     ):
         router.include_router(r)
     

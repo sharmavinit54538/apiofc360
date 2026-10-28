@@ -29,6 +29,7 @@ from app.core.perf_instrumentation import (
 # Unified Routers - Single import for all v1 and v2 endpoints
 from app.api.v1.router import v1_router
 from app.api.v2.router import v2_router
+from app.api.v2.scim_api import router as scim_v2_router
 
 # Legacy public/unprefixed routers (keep separate for backward compatibility)
 from app.api.careers import router as careers_router
@@ -587,6 +588,9 @@ def create_app() -> FastAPI:
 
     # ── Unified API v2 Router (all endpoints under /api/v2) ───────────────────────
     app.include_router(v2_router)
+
+    # ── Standards-based SCIM 2.0 endpoint (not nested under /api/v2) ───────────
+    app.include_router(scim_v2_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")

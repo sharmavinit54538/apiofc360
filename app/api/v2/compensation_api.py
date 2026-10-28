@@ -106,3 +106,120 @@ async def compile_recommendation(
         },
         errors=None
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: compensation bands and enterprise pay analytics
+# ---------------------------------------------------------------------------
+from datetime import date as _date
+from app.api.v2.enterprise_dependencies import (
+    company_id as _tenant_id, ok as _ok, require_admin as _require_admin,
+    require_manager as _require_manager, translate as _translate,
+)
+from app.services.compensation_service import CompensationBandService
+
+
+class CompensationBandRequest(BaseModel):
+    band_code: str
+    grade: str
+    name: str
+    min_paise: int = Field(ge=0)
+    mid_paise: int = Field(ge=0)
+    max_paise: int = Field(ge=0)
+    effective_date: _date
+    department: str | None = None
+    designation: str | None = None
+
+
+class BandAssignmentRequest(BaseModel):
+    employee_id: uuid.UUID
+    annual_salary_paise: int = Field(ge=0)
+    effective_date: _date
+    change_reason: str | None = None
+
+
+class MarketBandBenchmarkRequest(BaseModel):
+    grade: str
+    designation: str
+    region: str = "IN"
+    min_paise: int = Field(ge=0)
+    median_paise: int = Field(ge=0)
+    max_paise: int = Field(ge=0)
+    source: str
+    effective_date: _date
+
+
+class IncrementBudgetRequest(BaseModel):
+    department: str
+    fiscal_year: str
+    budget_paise: int = Field(ge=0)
+    recommendations: dict[uuid.UUID, float]
+
+
+@router.post("/bands", status_code=201)
+async def create_compensation_band(body: CompensationBandRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        band = await CompensationBandService(db).create_band(company_id=_tenant_id(claims), **body.model_dump())
+        return _ok({"id": str(band.id), "grade": band.grade, "min_paise": band.min_paise, "mid_paise": band.mid_paise, "max_paise": band.max_paise})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/bands/{band_id}/assignments", status_code=201)
+async def assign_compensation_band(band_id: uuid.UUID, body: BandAssignmentRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        assignment = await CompensationBandService(db).assign_employee_band(
+            company_id=_tenant_id(claims), band_id=band_id, **body.model_dump(),
+        )
+        return _ok({"id": str(assignment.id), "employee_id": str(assignment.employee_id), "is_current": assignment.is_current})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.get("/employees/{employee_id}/compa-ratio")
+async def employee_compa_ratio(employee_id: uuid.UUID, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_manager(claims)
+    try:
+        return _ok(await CompensationBandService(db).compa_ratio(company_id=_tenant_id(claims), employee_id=employee_id))
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/market-benchmarks", status_code=201)
+async def create_band_market_benchmark(body: MarketBandBenchmarkRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        benchmark = await CompensationBandService(db).register_market_benchmark(company_id=_tenant_id(claims), **body.model_dump())
+        return _ok({"id": str(benchmark.id), "median_paise": benchmark.median_paise})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.get("/employees/{employee_id}/market-comparison")
+async def employee_market_comparison(employee_id: uuid.UUID, region: str = "IN", claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
+    _require_manager(claims)
+    try:
+        return _ok(await CompensationBandService(db).market_comparison(company_id=_tenant_id(claims), employee_id=employee_id, region=region))
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/increment-budgets/model")
+async def model_increment_budget(body: IncrementBudgetRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        budget = await CompensationBandService(db).model_department_increment(company_id=_tenant_id(claims), **body.model_dump())
+        return _ok({"id": str(budget.id), "modeled_increment_paise": budget.modeled_increment_paise, **budget.scenario_json})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.get("/pay-equity")
+async def pay_equity_report(minimum_group_size: int = 2, claims: Annotated[dict, Depends(get_current_user_claims)] = None, db: Annotated[AsyncSession, Depends(get_db_session)] = None):
+    _require_admin(claims)
+    try:
+        return _ok(await CompensationBandService(db).pay_equity_report(company_id=_tenant_id(claims), minimum_group_size=minimum_group_size))
+    except ValueError as exc:
+        _translate(exc)

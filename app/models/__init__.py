@@ -77,6 +77,9 @@ from app.models.recruitment import (
     CandidateCrmNote,
     RecruitmentNotification,
     JobPublishChannel,
+    JobBoardIntegration,
+    JobBoardSync,
+    CandidateSource,
 )
 
 # AI Recruitment module models
@@ -196,6 +199,10 @@ from app.models.performance import (
     PerformanceReviewCycle,
     EmployeePerformanceGoal,
     PerformanceReview,
+    PerformanceCycleV2,
+    PerformanceReview360,
+    PerformanceCalibrationRun,
+    PromotionApproval,
 )
 
 # AI Policy Explainer models
@@ -227,6 +234,10 @@ from app.models.generated_goal import (
 from app.models.compensation import (
     MarketCompensationBenchmark,
     AICompensationRecommendation,
+    CompensationBand,
+    EmployeeCompensationBand,
+    CompensationMarketBenchmark,
+    DepartmentIncrementBudget,
 )
 
 # AI Behavioural Interview models
@@ -275,7 +286,7 @@ from app.models.learning_recommendation import LearningRecommendation
 from app.models.workforce_forecast import WorkforceForecastRun
 
 # AI Talent Marketplace
-from app.models.talent_marketplace import TalentMatch
+from app.models.talent_marketplace import TalentMatch, InternalJobOpening, InternalJobApplication
 
 # AI Meeting Intelligence
 from app.models.meeting_intelligence import MeetingIntelligenceLog
@@ -288,6 +299,18 @@ from app.models.employee_risk import EmployeeRiskAssessment
 
 # AI Executive Copilot
 from app.models.executive_copilot import CopilotQueryLog
+
+# Batch 6 Growth & Enterprise modules
+from app.models.bgv import BGVVendor, BGVCase, BGVCheck, BGVWebhookEvent
+from app.models.succession import CriticalRole, SuccessorSlate, SuccessionDevelopmentAction
+from app.models.lms import LMSCourse, LMSModule, LMSEnrollment, LMSModuleProgress, LMSCertificate
+from app.models.engagement import (
+    EngagementSurvey, EngagementQuestion, EngagementResponse, EngagementAnswer,
+    ManagerActionPlan, PeerRecognition, RewardLedgerEntry,
+)
+from app.models.accounting import GLAccountMapping, ExpensePosting, GLReconciliationReport
+from app.models.webhooks import TenantAPIKey, WebhookSubscription, WebhookDelivery, WebhookDeliveryAttempt
+from app.models.enterprise_auth import IdentityProvider, ExternalIdentity, SSOAssertion, SCIMToken, SCIMGroup, SCIMGroupMember
 
 # AI Recruitment Platform models
 from app.models.ai_recruitment import (

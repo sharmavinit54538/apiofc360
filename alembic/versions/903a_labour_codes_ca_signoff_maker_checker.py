@@ -63,7 +63,7 @@ def upgrade() -> None:
     op.alter_column('variable_inputs', 'period_id',
                existing_type=sa.UUID(),
                nullable=True)
-    op.drop_constraint(op.f('fk_variable_inputs_period_id_payroll_periods'), 'variable_inputs', type_='foreignkey')
+    op.execute(sa.text('ALTER TABLE variable_inputs DROP CONSTRAINT IF EXISTS fk_variable_inputs_period_id_payroll_periods'))
     # ### end Alembic commands ###
 
 
