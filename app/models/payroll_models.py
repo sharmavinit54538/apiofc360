@@ -164,6 +164,9 @@ class PayrollRunEmployee(Base):
     net_pay_paise: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0")
     )
+    gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     paid_days: Mapped[Decimal] = mapped_column(
         Numeric(5, 1), nullable=False, default=Decimal("30.0"), server_default=text("30.0")
@@ -285,6 +288,8 @@ class Compensation(Base):
     special_allowance_monthly_paise: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0")
     )
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    fx_rate_to_inr: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
 
     effective_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(

@@ -145,6 +145,7 @@ class Employee(Base):
     employment_type: Mapped[str] = mapped_column(String(30), nullable=False, default="FULL_TIME", server_default=text("'FULL_TIME'"))
     employment_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PROBATION", server_default=text("'PROBATION'"))
     joining_date: Mapped[date] = mapped_column(Date, nullable=False)
+    last_promotion_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     probation_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     shift: Mapped[str | None] = mapped_column(String(50), nullable=True)
     shift_id: Mapped[uuid.UUID | None] = mapped_column(

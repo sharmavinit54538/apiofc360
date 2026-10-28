@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Annotated
+from datetime import date
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from app.db.database import get_db_session
 from app.rag.hr_copilot_rag import HRCopilotRAG, get_hr_copilot
 from app.rag.retriever import get_retriever
 from app.schemas.auth import APIResponse
+from app.services.ai_copilot_service import AiCopilotService, get_ai_copilot_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -187,3 +189,119 @@ async def remove_candidate_from_index(
         data={"candidate_id": str(candidate_id), "deleted": deleted},
         errors=None,
     )
+
+
+# Batch 7 decision-support copilots live under /ai while the legacy candidate
+# RAG routes above retain their /hr-copilot paths.
+ai_router = APIRouter(
+    prefix="/ai",
+    tags=["AI HR Decision Support v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
+
+class SalaryNegotiationRequest(BaseModel):
+    band_id: uuid.UUID
+    candidate_match_score: float | None = Field(None, ge=0, le=1)
+    match_score_id: uuid.UUID | None = None
+    hiring_budget_annual_paise: int = Field(..., ge=0)
+    candidate_name: str = Field("Candidate", min_length=1, max_length=150)
+    expected_ctc_annual_paise: int | None = Field(None, ge=0)
+    reference_employee_id: uuid.UUID | None = None
+
+
+class DisciplinaryAssistantRequest(BaseModel):
+    employee_id: uuid.UUID
+    incident_summary: str = Field(..., min_length=10, max_length=5000)
+    incident_date: date
+    policy_query: str | None = Field(None, max_length=1000)
+
+
+class TerminationRiskRequest(BaseModel):
+    employee_id: uuid.UUID
+    termination_reason: str = Field(..., min_length=5, max_length=2000)
+    proposed_last_working_date: date
+    notice_period_days: int = Field(30, ge=0, le=365)
+    notice_days_served: int = Field(0, ge=0, le=365)
+    maternity_protected: bool | None = None
+    is_workman: bool | None = None
+    as_of_date: date | None = None
+
+
+def _copilot_tenant_id(claims: dict) -> uuid.UUID:
+    from app.api.v2.enterprise_dependencies import company_id
+    return company_id(claims)
+
+
+def _copilot_error(exc: Exception) -> None:
+    if isinstance(exc, LookupError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@ai_router.post("/salary-negotiation-copilot", response_model=APIResponse[dict])
+async def salary_negotiation_copilot(
+    body: SalaryNegotiationRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    copilot: Annotated[AiCopilotService, Depends(get_ai_copilot_service)],
+):
+    if (body.candidate_match_score is None) == (body.match_score_id is None):
+        raise HTTPException(status_code=422, detail="Provide exactly one of candidate_match_score or match_score_id.")
+    score = body.candidate_match_score
+    if body.match_score_id is not None:
+        from sqlalchemy import select
+        from app.models.ai_recruitment import CandidateMatchScore
+        match = (await copilot.session.execute(select(CandidateMatchScore).where(
+            CandidateMatchScore.id == body.match_score_id,
+            CandidateMatchScore.company_id == _copilot_tenant_id(claims),
+        ))).scalar_one_or_none()
+        if match is None:
+            raise HTTPException(status_code=404, detail="Candidate match score not found in the current tenant.")
+        score = float(match.overall_match_score)
+    try:
+        data = await copilot.salary_negotiation_copilot(
+            company_id=_copilot_tenant_id(claims), band_id=body.band_id,
+            candidate_match_score=float(score), hiring_budget_annual_paise=body.hiring_budget_annual_paise,
+            candidate_name=body.candidate_name, expected_ctc_annual_paise=body.expected_ctc_annual_paise,
+            reference_employee_id=body.reference_employee_id,
+        )
+    except (ValueError, LookupError) as exc:
+        _copilot_error(exc)
+    return APIResponse(success=True, message="Salary negotiation scenarios generated.", data=data, errors=None)
+
+
+@ai_router.post("/disciplinary-assistant", response_model=APIResponse[dict])
+async def disciplinary_assistant(
+    body: DisciplinaryAssistantRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    copilot: Annotated[AiCopilotService, Depends(get_ai_copilot_service)],
+):
+    try:
+        data = await copilot.disciplinary_case_assistant(
+            company_id=_copilot_tenant_id(claims), employee_id=body.employee_id,
+            incident_summary=body.incident_summary, incident_date=body.incident_date.isoformat(),
+            policy_query=body.policy_query,
+        )
+    except (ValueError, LookupError) as exc:
+        _copilot_error(exc)
+    return APIResponse(success=True, message="Disciplinary review pack generated.", data=data, errors=None)
+
+
+@ai_router.post("/termination-risk-assistant", response_model=APIResponse[dict])
+async def termination_risk_assistant(
+    body: TerminationRiskRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    copilot: Annotated[AiCopilotService, Depends(get_ai_copilot_service)],
+):
+    try:
+        data = await copilot.termination_risk_assistant(
+            company_id=_copilot_tenant_id(claims), employee_id=body.employee_id,
+            termination_reason=body.termination_reason,
+            proposed_last_working_date=body.proposed_last_working_date,
+            notice_period_days=body.notice_period_days, notice_days_served=body.notice_days_served,
+            maternity_protected=body.maternity_protected, is_workman=body.is_workman,
+            as_of_date=body.as_of_date,
+        )
+    except (ValueError, LookupError) as exc:
+        _copilot_error(exc)
+    return APIResponse(success=True, message="Termination risk assessment generated.", data=data, errors=None)

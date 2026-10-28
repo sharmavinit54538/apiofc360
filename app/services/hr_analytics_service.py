@@ -533,3 +533,20 @@ class HRAnalyticsService:
             "leave_forecast": forecast,
             "leave_type_distribution": distribution,
         }
+
+    async def get_culture_analytics(self, company_id: uuid.UUID) -> dict[str, Any]:
+        from app.services.hr_differentiator_analytics import HRDifferentiatorAnalytics
+        return await HRDifferentiatorAnalytics(self.db).culture(company_id)
+
+    async def get_diversity_analytics(self, company_id: uuid.UUID) -> dict[str, Any]:
+        from app.services.hr_differentiator_analytics import HRDifferentiatorAnalytics
+        return await HRDifferentiatorAnalytics(self.db).diversity(company_id)
+
+    async def get_attrition_risk_analytics(
+        self, company_id: uuid.UUID, *, as_of_date: date | None = None,
+        persist: bool = False, limit: int = 100,
+    ) -> dict[str, Any]:
+        from app.services.hr_differentiator_analytics import HRDifferentiatorAnalytics
+        return await HRDifferentiatorAnalytics(self.db).attrition_risk(
+            company_id, as_of_date=as_of_date, persist=persist, limit=limit,
+        )

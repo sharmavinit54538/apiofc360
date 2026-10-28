@@ -78,3 +78,69 @@
 | **B-12.3** | TODO | | | Load smoke test (p95 < 200ms) on candidates, jobs, offers, interviews |
 | **B-12.4** | TODO | | | Regenerate openapi.json, all_live_fastapi_routes.json, API_ENDPOINTS.md |
 | **B-12.5** | TODO | | | Final report in docs/BACKEND_FINAL_REPORT.md |
+
+---
+
+## 44-Feature Roadmap Completion — Steps 1–9
+
+**Updated:** 2026-10-28
+**Status source:** merged Batches 1–6 plus Batch 7 on `arena/1118d5e8-apiofc360`.
+Unrelated B-series operational hardening TODOs above are not reclassified by this roadmap completion section. See `docs/BACKEND_ROADMAP_STATUS.md` for implementation evidence and exact validation caveats.
+
+| Roadmap ID | Feature | Status | Validation / completion batch |
+|---|---|---|---|
+| **R-01** | Real tenant onboarding and employee bulk import/export | **DONE ✅** | Batches 0A–4 |
+| **R-02** | Attendance-to-payroll lock and arrears | **DONE ✅** | Batch 1 |
+| **R-03** | Production payroll engine and payslips | **DONE ✅** | Batches 1–4 |
+| **R-04** | PF ECR, challan and filing calendar | **DONE ✅** | Batch 2 |
+| **R-05** | ESI / PT / LWF engine | **DONE ✅** | Batch 2 |
+| **R-06** | TDS and Form 138 / Form 130 | **DONE ✅** | Batch 2 |
+| **R-07** | Payslip delivery and YTD view | **DONE ✅** | Batch 3 |
+| **R-08** | Leave and attendance auto-approval | **DONE ✅** | Batch 3 |
+| **R-09** | Unified manager approval inbox | **DONE ✅** | Batch 3 |
+| **R-10** | Onboarding automation and BGV status | **DONE ✅** | Batches 4–6 |
+| **R-11** | Letters and e-sign | **DONE ✅** | Batch 4 |
+| **R-12** | Exit and full-and-final settlement | **DONE ✅** | Batch 4 |
+| **R-13** | Autopilot HR policy layer | **DONE ✅** | Batch 5 |
+| **R-14** | WhatsApp employee app | **DONE ✅** | Batch 5 |
+| **R-15** | Mobile PWA | **DONE ✅** | Batch 5 |
+| **R-16** | Confidential grievance workflow | **DONE ✅** | Batch 5 |
+| **R-17** | POSH module | **DONE ✅** | Batch 5 |
+| **R-18** | Policy acknowledgement | **DONE ✅** | Batch 5 |
+| **R-19** | Statutory compliance dashboard | **DONE ✅** | Batch 5 |
+| **R-20** | Bank payout and reconciliation | **DONE ✅** | Batch 5 |
+| **R-21** | Multi-company / multi-entity payroll | **DONE ✅** | Batch 5 |
+| **R-22** | DPDP compliance | **DONE ✅** | Batch 5 |
+| **R-23** | Background verification | **DONE ✅** | Batch 6 |
+| **R-24** | Succession planning | **DONE ✅** | Batch 6 |
+| **R-25** | Compensation bands and pay equity | **DONE ✅** | Batch 6 |
+| **R-26** | Performance cycle and promotion workflow | **DONE ✅** | Batch 6 |
+| **R-27** | Internal job board | **DONE ✅** | Batch 6 |
+| **R-28** | LMS | **DONE ✅** | Batch 6 |
+| **R-29** | Engagement and recognition | **DONE ✅** | Batch 6 |
+| **R-30** | Tally / Zoho / ERP accounting integration | **DONE ✅** | Batch 6 |
+| **R-31** | Recruitment integrations | **DONE ✅** | Batch 6 |
+| **R-32** | Webhooks and public API | **DONE ✅** | Batch 6 |
+| **R-33** | SSO / SCIM | **DONE ✅** | Batch 6 |
+| **R-34** | AI salary negotiation copilot | **DONE ✅** | Batch 7; `tests/test_batch7_p3_differentiators.py` |
+| **R-35** | AI disciplinary-case assistant | **DONE ✅** | Batch 7; grounded/insufficient-evidence and tenant tests |
+| **R-36** | AI termination-risk assistant | **DONE ✅** | Batch 7; exact compensation and non-suppressible-protection tests |
+| **R-37** | Culture analytics | **DONE ✅** | Batch 7; department index and coverage tests |
+| **R-38** | Diversity analytics | **DONE ✅** | Batch 7; consent, grade, leadership and funnel tests |
+| **R-39** | Workforce planning and hiring budget | **DONE ✅** | Batch 7; headcount, projection and monthly-burn tests |
+| **R-40** | Attrition risk and intervention playbook | **DONE ✅** | Batch 7; explainability, playbook and snapshot-isolation tests |
+| **R-41** | Employee / organization digital twin | **DONE ✅** | Batch 7; all five simulations and no-execution test |
+| **R-42** | Integration marketplace | **DONE ✅** | Batch 7; encrypted-credential, sync-health and tenant tests |
+| **R-43** | White-label HRMS | **DONE ✅** | Batch 7; domain validation and branded PDF tests |
+| **R-44** | Multi-currency / global payroll | **DONE ✅** | Batch 7; locked snapshots, USD execution, USD→AED conversion, base totals and review-warning tests |
+| **E-01** | Labour Codes support and config-driven wage rules | **DONE ✅** | Batches 0A–2 |
+| **E-02** | Security and tenant-isolation verification | **DONE ✅** | HRMS tenancy suite plus Batch 7 tenant-negative tests |
+| **E-03** | Parallel payroll comparison | **DONE ✅** | Batch 1 |
+| **E-04** | CA / payroll-expert validation artifacts | **DONE ✅** | Config flags, versioned rules and golden-test artifacts; deployment reviewer sign-off remains operational |
+| **E-05** | Legacy data migration | **DONE ✅** | Batch 4 |
+| **E-06** | Maker-checker and role separation | **DONE ✅** | Batch 0A; payroll audit retained through Batch 7 |
+| **E-07** | Overtime, comp-off and shift allowance payroll linkage | **DONE ✅** | Batch 1 |
+
+**Final roadmap count:** 44 / 44 features and 7 / 7 extras **DONE ✅**.
+**Final deterministic gate:** 65 passed; Batch 7 focused suite 14 passed; mapper and 2,104-route smoke passed; offline `911a` upgrade/downgrade SQL generated.
+**Full-suite caveat:** final complete run reported 890 passed, 216 failed, 3 skipped and 25 errors with no Batch 7 failures. Live PostgreSQL and pre-existing legacy fixture repair are still required before B-12.1/B-12.2 can be marked DONE.

@@ -20,6 +20,7 @@ from app.services.enterprise_intelligence_services import (
     MeetingIntelligenceService,
     TalentMarketplaceService,
     WorkforceForecastService,
+    WorkforcePlanningService,
 )
 
 # ── Workforce Forecasting ─────────────────────────────────
@@ -62,6 +63,58 @@ async def run_workforce_forecast(
         },
         errors=None,
     )
+
+
+class WorkforcePlanRequest(BaseModel):
+    fiscal_year: str = Field(..., pattern=r"^\d{4}-\d{4}$", examples=["2026-2027"])
+    department: str = Field(..., min_length=1, max_length=100)
+    approved_headcount: int = Field(..., ge=0)
+    annual_hiring_budget_paise: int = Field(..., ge=0)
+
+
+@workforce_router.put("/plans", response_model=APIResponse[dict])
+async def upsert_workforce_plan(
+    body: WorkforcePlanRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    from app.api.v2.enterprise_dependencies import company_id
+    try:
+        plan = await WorkforcePlanningService(db).upsert_plan(
+            company_id=company_id(claims), **body.model_dump(),
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return APIResponse(success=True, message="Workforce plan approved.", data={
+        "id": str(plan.id), "fiscal_year": plan.fiscal_year,
+        "department": plan.department, "approved_headcount": plan.approved_headcount,
+        "annual_hiring_budget_paise": plan.annual_hiring_budget_paise,
+    }, errors=None)
+
+
+@workforce_router.get("/planning", response_model=APIResponse[dict])
+async def get_workforce_planning(
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+    fiscal_year: str | None = None,
+):
+    from app.api.v2.enterprise_dependencies import company_id
+    from fastapi import HTTPException
+    if fiscal_year is None:
+        today = datetime.now().date()
+        start = today.year if today.month >= 4 else today.year - 1
+        fiscal_year = f"{start}-{start + 1}"
+    import re
+    if not re.fullmatch(r"\d{4}-\d{4}", fiscal_year):
+        raise HTTPException(status_code=422, detail="fiscal_year must be YYYY-YYYY.")
+    try:
+        data = await WorkforcePlanningService(db).planning(
+            company_id=company_id(claims), fiscal_year=fiscal_year,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return APIResponse(success=True, message="Workforce planning retrieved.", data=data, errors=None)
 
 
 # ── Talent Marketplace ────────────────────────────────────

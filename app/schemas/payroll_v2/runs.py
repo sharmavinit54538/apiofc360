@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, List, Optional
 from pydantic import Field, field_validator
 
@@ -12,6 +13,12 @@ from app.schemas.payroll_v2.common import PayrollBaseModel
 class PayrollRunCreateRequest(PayrollBaseModel):
     """Payload to trigger a new payroll run for a period."""
     period_id: str = Field(..., alias="periodId")
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    country_code: Optional[str] = Field(None, min_length=2, max_length=2)
+    fx_rate_to_base: Optional[Decimal] = Field(None, gt=0)
+    fx_rate_source: str = Field("MANUAL", max_length=100)
+    fx_rate_as_of: Optional[datetime] = None
+    statutory_rules: Optional[dict[str, Any]] = None
 
 
 class PayrollRunApproveRequest(PayrollBaseModel):
@@ -77,6 +84,9 @@ class PayrollRunEmployeeResponse(PayrollBaseModel):
     validation_status: str
     validation_messages: Optional[List[str]] = None
     status: str
+    gross_base_paise: int = 0
+    total_deductions_base_paise: int = 0
+    net_base_paise: int = 0
     earnings_breakup: Optional[dict[str, Any]] = None
     deductions_breakup: Optional[dict[str, Any]] = None
 
@@ -86,6 +96,17 @@ class PayrollRunResponse(PayrollBaseModel):
     company_id: Optional[str] = None
     period_id: Optional[str] = None
     run_number: Optional[str] = None
+    currency: str = "INR"
+    base_currency: str = "INR"
+    country_code: str = "IN"
+    fx_rate_to_base: Decimal = Decimal("1")
+    fx_rate_snapshot: Optional[dict[str, Any]] = None
+    fx_rate_locked_at: Optional[datetime] = None
+    statutory_rules_snapshot: Optional[dict[str, Any]] = None
+    statutory_rule_version: str = "IN_LEGACY_STATUTORY_SERVICE"
+    total_gross_base_paise: int = 0
+    total_deductions_base_paise: int = 0
+    total_net_base_paise: int = 0
     period_month: int
     period_year: int
     status: str

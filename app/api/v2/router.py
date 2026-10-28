@@ -32,7 +32,8 @@ from app.api.v2.org_intelligence_apis import (
     org_map_router, 
     skill_gap_router, 
     shift_router, 
-    digital_twin_router
+    digital_twin_router,
+    org_twin_router
 )
 from app.api.v2.employee_intelligence_apis import (
     voice_router, 
@@ -48,7 +49,7 @@ from app.api.v2.enterprise_intelligence_apis import (
     risk_router, 
     copilot_router
 )
-from app.api.v2.hr_copilot import router as hr_copilot_router
+from app.api.v2.hr_copilot import router as hr_copilot_router, ai_router as ai_decision_support_router
 from app.api.v2.candidate_matching import router as candidate_matching_router
 from app.api.v2.coding_assessment import router as coding_assessment_router
 from app.api.v2.ranking import router as ranking_router
@@ -73,6 +74,8 @@ from app.api.v2.engagement_api import router as engagement_v2_router
 from app.api.v2.developer_api import router as developer_v2_router
 from app.api.v2.scim_api import admin_router as scim_admin_v2_router
 from app.api.v2.enterprise_intelligence_apis import ijp_router
+from app.api.v2.marketplace_api import router as marketplace_v2_router
+from app.api.v2.whitelabel_api import router as whitelabel_v2_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -108,6 +111,7 @@ def get_v2_router() -> APIRouter:
         skill_gap_router,
         shift_router,
         digital_twin_router,
+        org_twin_router,
         voice_router,
         mood_router,
         career_router,
@@ -119,6 +123,7 @@ def get_v2_router() -> APIRouter:
         risk_router,
         copilot_router,
         hr_copilot_router,
+        ai_decision_support_router,
         candidate_matching_router,
         coding_assessment_router,
         ranking_router,
@@ -144,6 +149,8 @@ def get_v2_router() -> APIRouter:
         developer_v2_router,
         scim_admin_v2_router,
         ijp_router,
+        marketplace_v2_router,
+        whitelabel_v2_router,
     ):
         router.include_router(r)
     
