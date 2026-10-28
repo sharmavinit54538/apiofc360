@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 import uuid
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
@@ -24,7 +24,20 @@ class EmployeeLeavePolicy(Base):
     leave_type: Mapped[str] = mapped_column(String(50), nullable=False)
     total_days: Mapped[Decimal] = mapped_column(Numeric(6, 1), nullable=False, default=0)
     used_days: Mapped[Decimal] = mapped_column(Numeric(6, 1), nullable=False, default=0, server_default=text("0"))
+    # Optional employee-level overrides; company LeavePolicy supplies defaults.
+    auto_approve_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    max_auto_approve_days: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    min_advance_notice_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_team_absent_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    check_holiday_roster_clash: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    sandwich_rule_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     carry_forward: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # ``encashable=None`` preserves legacy behaviour (earned/carry-forward
+    # leave is inferred); explicit true/false takes precedence for FnF.
+    encashable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    encashable_days: Mapped[Decimal | None] = mapped_column(Numeric(6, 1), nullable=True)
+    encashment_base: Mapped[str] = mapped_column(String(10), nullable=False, default="BASIC", server_default=text("'BASIC'"))
+    encashment_divisor: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
     effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -7,11 +7,11 @@ from decimal import Decimal
 import uuid
 
 from sqlalchemy import (
-    JSON, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, Time,
+    JSON, BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, Time,
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from app.db.base import Base
 
@@ -182,3 +182,45 @@ class ShiftChangeRequest(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+class ShiftAllowancePolicy(Base):
+    """Company policy for a shift-specific fixed allowance.
+
+    ``shift_id`` is optional; when present it takes precedence over the broader
+    ``shift_type`` rule.  Amounts are stored in paise and the three statutory
+    flags tell the payroll engine whether the allowance belongs in each base.
+    """
+
+    __tablename__ = "shift_allowance_policies"
+    __table_args__ = (
+        Index("ix_shift_allowance_company_type", "company_id", "shift_type"),
+        Index("ix_shift_allowance_shift", "shift_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="CASCADE"), nullable=True
+    )
+    # GENERAL | MORNING | EVENING | NIGHT | ROTATIONAL | WEEKEND | HOLIDAY |
+    # EMERGENCY.  A string rather than a DB enum keeps policy rollout additive.
+    shift_type: Mapped[str] = mapped_column(String(30), nullable=False, default="GENERAL")
+    allowance_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    is_esi_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_pf_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_taxable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Concise compatibility aliases for API clients.
+    allowance_amount_paise = synonym("allowance_paise")
+    amount_paise = synonym("allowance_paise")
+    shift_code = synonym("shift_type")
+    esi_applicable = synonym("is_esi_applicable")
+    pf_applicable = synonym("is_pf_applicable")
+    taxable = synonym("is_taxable")

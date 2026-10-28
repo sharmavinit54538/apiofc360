@@ -15,6 +15,7 @@ from app.db.database import get_db_session
 from app.schemas.auth import APIResponse
 from app.services.org_intelligence_services import (
     DigitalTwinService,
+    OrgTwinSimulationService,
     OrgMapService,
     ShiftPlannerService,
     SkillGapService,
@@ -193,3 +194,63 @@ async def sync_digital_twin(
         },
         errors=None,
     )
+
+
+org_twin_router = APIRouter(
+    prefix="/org-twin",
+    tags=["Organization Digital Twin v2"],
+    dependencies=[Depends(require_admin_or_manager)],
+)
+
+
+class OrgTwinSimulationRequest(BaseModel):
+    scenario_type: str = Field(..., description="RESTRUCTURING | BUDGET_CUT | KEY_PERSON_EXIT | PROJECT_SKILLS | SPAN_OF_CONTROL")
+    name: str = Field("Organization scenario", min_length=1, max_length=150)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+@org_twin_router.post("/simulate", response_model=APIResponse[dict], status_code=status.HTTP_201_CREATED)
+async def simulate_org_twin(
+    body: OrgTwinSimulationRequest,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    from app.api.v2.enterprise_dependencies import company_id
+    try:
+        simulation = await OrgTwinSimulationService(db).simulate(
+            company_id=company_id(claims), scenario_type=body.scenario_type,
+            name=body.name, parameters=body.parameters,
+            created_by=uuid.UUID(str(claims["sub"])) if claims.get("sub") else None,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return APIResponse(success=True, message="Organization simulation completed.", data={
+        "simulation_id": str(simulation.id), "scenario_type": simulation.scenario_type,
+        "status": simulation.status, "baseline": simulation.baseline_json,
+        "result": simulation.result_json,
+    }, errors=None)
+
+
+@org_twin_router.get("/simulations/{simulation_id}", response_model=APIResponse[dict])
+async def get_org_twin_simulation(
+    simulation_id: uuid.UUID,
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    from app.api.v2.enterprise_dependencies import company_id
+    from sqlalchemy import select
+    from app.models.digital_twin import OrgTwinSimulation
+    simulation = (await db.execute(select(OrgTwinSimulation).where(
+        OrgTwinSimulation.id == simulation_id,
+        OrgTwinSimulation.company_id == company_id(claims),
+    ))).scalar_one_or_none()
+    if simulation is None:
+        raise HTTPException(status_code=404, detail="Simulation not found in the current tenant.")
+    return APIResponse(success=True, message="Organization simulation retrieved.", data={
+        "simulation_id": str(simulation.id), "scenario_type": simulation.scenario_type,
+        "name": simulation.name, "input": simulation.input_json,
+        "baseline": simulation.baseline_json, "result": simulation.result_json,
+        "status": simulation.status, "created_at": simulation.created_at,
+    }, errors=None)

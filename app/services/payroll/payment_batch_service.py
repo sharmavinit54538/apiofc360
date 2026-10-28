@@ -35,6 +35,46 @@ class PaymentBatchService:
     """Disbursement batch lifecycle and bank advice generation."""
 
     BANK_RESP_PREFIX = "payroll:bank_resp:"
+    BANK_FORMAT_ALIASES = {
+        "ICICI_CORPORATE": "ICICI_CORPORATE", "ICICI_CORPORATE_CSV": "ICICI_CORPORATE", "ICICI_EXCEL": "ICICI_CORPORATE",
+        "HDFC_ENET_CSV": "HDFC_ENET_CSV", "HDFC_CSV": "HDFC_ENET_CSV",
+        "SBI_CMP_TXT": "SBI_CMP_TXT", "SBI_TXT": "SBI_CMP_TXT",
+        "GENERIC_NEFT_RTGS_CSV": "GENERIC_NEFT_RTGS_CSV", "GENERIC_NEFT_CSV": "GENERIC_NEFT_RTGS_CSV",
+    }
+
+    @classmethod
+    def normalise_bank_format(cls, value: str) -> str:
+        clean = str(value).strip().upper()
+        if clean not in cls.BANK_FORMAT_ALIASES:
+            raise HTTPException(status_code=400, detail=f"Unsupported bank format: {value}")
+        return cls.BANK_FORMAT_ALIASES[clean]
+
+    @staticmethod
+    def assert_export_approved(batch: PaymentBatch) -> None:
+        if (
+            not batch.approved_by or not batch.approved_at or
+            batch.status not in {"APPROVED", "SUBMITTED", "RECONCILED"}
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "BATCH_APPROVAL_REQUIRED", "message": "Maker-checker approval is required before bank file export."},
+            )
+
+    @staticmethod
+    def maker_ids_for_batch(batch: PaymentBatch) -> list[uuid.UUID]:
+        """Every user who initiated or processed this batch (the "makers")."""
+        makers: list[uuid.UUID] = []
+        for attr in ("created_by", "processed_by"):
+            value = getattr(batch, attr, None)
+            if value is None:
+                continue
+            try:
+                parsed = value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+            except (ValueError, AttributeError, TypeError):
+                continue
+            if parsed not in makers:
+                makers.append(parsed)
+        return makers
 
     @classmethod
     async def get_batch(
@@ -168,10 +208,13 @@ class PaymentBatchService:
             company_id=run.company_id,
             run_id=run.id,
             batch_number=batch_number,
-            source_account_id=source_account_id,
+            # `source_account_id` is a VARCHAR column: always coerce to str so an
+            # upstream UUID never reaches asyncpg as the wrong type.
+            source_account_id=str(source_account_id),
             payment_mode=payment_mode,
             status="DRAFT",
             notes=notes,
+            created_by=user_id,
         )
         session.add(batch)
 
@@ -240,6 +283,24 @@ class PaymentBatchService:
     ) -> PaymentBatch:
         batch = await cls.get_batch(session, batch_id)
         old_status = batch.status
+
+        # Strict maker-checker: the user who created/processed the batch may not
+        # approve it.  Raises HTTP 403 with code MAKER_CHECKER_VIOLATION and writes
+        # an immutable audit record when the tenant enforces the policy.
+        from app.api.payroll.permissions import enforce_maker_checker
+
+        await enforce_maker_checker(
+            session,
+            entity_type="PaymentBatch",
+            entity_id=batch.id,
+            company_id=batch.company_id,
+            maker_ids=cls.maker_ids_for_batch(batch),
+            approver_id=user_id,
+            actor_role=user_role,
+            action="APPROVE",
+            before_status=old_status,
+        )
+
         batch.status = "APPROVED"
         batch.approved_by = user_id
         batch.approved_at = datetime.now()
@@ -310,6 +371,9 @@ class PaymentBatchService:
         batch.bank_reference_number = bank_reference_number
         batch.submission_date = submission_date
         batch.notes = notes
+        # Submitting a batch to the bank is "processing" it for maker-checker.
+        if user_id is not None:
+            batch.processed_by = user_id
 
         # Update non-held items to SUCCESS / PROCESSING
         item_stmt = select(PaymentBatchItem).where(
@@ -452,52 +516,45 @@ class PaymentBatchService:
         cls, session: AsyncSession, batch_id: uuid.UUID, file_format: str
     ) -> PaymentBatchBankFile:
         batch = await cls.get_batch(session, batch_id)
+        cls.assert_export_approved(batch)
+        canonical_format = cls.normalise_bank_format(file_format)
         item_stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.batch_id == batch.id,
             PaymentBatchItem.status.in_(("PENDING", "RELEASED", "SUCCESS")),
-        )
+        ).order_by(PaymentBatchItem.created_at)
         items = (await session.execute(item_stmt)).scalars().all()
+        if not items:
+            raise HTTPException(status_code=409, detail="No exportable payout items remain in this batch.")
 
         output = io.StringIO()
-        if file_format in ("HDFC_CSV", "GENERIC_NEFT_CSV"):
-            writer = csv.writer(output)
-            writer.writerow(["Beneficiary_Account", "IFSC", "Amount", "Beneficiary_Name", "Remarks"])
-            for it in items:
-                writer.writerow([
-                    it.account_number or "",
-                    it.ifsc_code or "",
-                    f"{it.amount_paise / 100.0:.2f}",
-                    it.account_holder_name or "",
-                    f"Salary {batch.batch_number}",
-                ])
-        elif file_format == "SBI_TXT":
-            for it in items:
-                output.write(
-                    f"{it.account_number}|{it.ifsc_code}|{it.amount_paise / 100.0:.2f}|{it.account_holder_name}\n"
-                )
-        else:  # ICICI_EXCEL / default CSV
-            writer = csv.writer(output)
-            writer.writerow(["Debit Account", "Credit Account", "IFSC", "Amount", "Beneficiary Name"])
-            for it in items:
-                writer.writerow([
-                    batch.source_account_id,
-                    it.account_number or "",
-                    it.ifsc_code or "",
-                    f"{it.amount_paise / 100.0:.2f}",
-                    it.account_holder_name or "",
-                ])
+        writer = csv.writer(output)
+        if canonical_format == "HDFC_ENET_CSV":
+            writer.writerow(["Debit_Account", "Beneficiary_Account", "IFSC", "Amount", "Beneficiary_Name", "Remarks"])
+            for item in items:
+                writer.writerow([batch.source_account_id, item.account_number or "", item.ifsc_code or "",
+                                 f"{item.amount_paise / 100.0:.2f}", item.account_holder_name or "", f"Salary {batch.batch_number}"])
+        elif canonical_format == "SBI_CMP_TXT":
+            writer = csv.writer(output, delimiter="|", lineterminator="\n")
+            for item in items:
+                writer.writerow([batch.batch_number, item.account_number or "", item.ifsc_code or "",
+                                 f"{item.amount_paise / 100.0:.2f}", item.account_holder_name or ""])
+        elif canonical_format == "GENERIC_NEFT_RTGS_CSV":
+            writer.writerow(["Payment_Mode", "Beneficiary_Account", "IFSC", "Amount", "Beneficiary_Name", "Remarks"])
+            for item in items:
+                writer.writerow(["RTGS" if batch.payment_mode == "RTGS" else "NEFT", item.account_number or "",
+                                 item.ifsc_code or "", f"{item.amount_paise / 100.0:.2f}",
+                                 item.account_holder_name or "", f"Salary {batch.batch_number}"])
+        else:  # ICICI Corporate Internet Banking CSV (legacy ICICI_EXCEL alias)
+            writer.writerow(["Debit Account", "Credit Account", "IFSC", "Amount", "Beneficiary Name", "Payment Details"])
+            for item in items:
+                writer.writerow([batch.source_account_id, item.account_number or "", item.ifsc_code or "",
+                                 f"{item.amount_paise / 100.0:.2f}", item.account_holder_name or "", batch.batch_number])
 
-        content_str = output.getvalue()
-        file_name = f"{batch.batch_number}_{file_format}.csv"
-
+        extension = "txt" if canonical_format == "SBI_CMP_TXT" else "csv"
         bank_file = PaymentBatchBankFile(
-            id=uuid.uuid4(),
-            batch_id=batch.id,
-            company_id=batch.company_id,
-            file_format=file_format,
-            file_name=file_name,
-            file_content=content_str,
-            status="GENERATED",
+            id=uuid.uuid4(), batch_id=batch.id, company_id=batch.company_id,
+            file_format=canonical_format, file_name=f"{batch.batch_number}_{canonical_format}.{extension}",
+            file_content=output.getvalue(), status="GENERATED",
         )
         session.add(bank_file)
         await session.commit()
@@ -508,30 +565,19 @@ class PaymentBatchService:
     async def get_latest_bank_file(
         cls, session: AsyncSession, batch_id: uuid.UUID
     ) -> tuple[bytes, str, str]:
+        batch = await cls.get_batch(session, batch_id)
+        cls.assert_export_approved(batch)
         stmt = (
             select(PaymentBatchBankFile)
             .where(PaymentBatchBankFile.batch_id == batch_id)
             .order_by(desc(PaymentBatchBankFile.created_at))
         )
-        bf = (await session.execute(stmt)).scalars().first()
-        if not bf:
-            # Auto-generate a generic NEFT file
-            bf = await cls.generate_bank_file(session, batch_id, "GENERIC_NEFT_CSV")
-        
-        content_bytes = bf.file_content.encode("utf-8") if bf.file_content else b""
-        
-        # Determine media type and correct extension based on format
-        if bf.file_format == "SBI_TXT":
-            media_type = "text/plain"
-            filename = f"{bf.file_name}.txt" if not bf.file_name.endswith(".txt") else bf.file_name
-        elif bf.file_format in ("HDFC_CSV", "GENERIC_NEFT_CSV", "ICICI_EXCEL"):
-            media_type = "text/csv"
-            filename = f"{bf.file_name}.csv" if not bf.file_name.endswith(".csv") else bf.file_name
-        else:
-            media_type = "text/csv"
-            filename = f"{bf.file_name}.csv"
-        
-        return content_bytes, filename, media_type
+        bank_file = (await session.execute(stmt)).scalars().first()
+        if not bank_file:
+            bank_file = await cls.generate_bank_file(session, batch_id, "GENERIC_NEFT_RTGS_CSV")
+        content_bytes = bank_file.file_content.encode("utf-8") if bank_file.file_content else b""
+        media_type = "text/plain" if bank_file.file_name.endswith(".txt") else "text/csv"
+        return content_bytes, bank_file.file_name, media_type
 
     @classmethod
     async def preview_bank_response(
@@ -616,3 +662,149 @@ class PaymentBatchService:
         await redis_client.delete(f"{cls.BANK_RESP_PREFIX}{preview_token}")
 
         return {"message": f"Bank response applied. {updated} items updated.", "updated_count": updated}
+
+    @classmethod
+    async def reconcile_bank_feed(
+        cls, session: AsyncSession, batch_id: uuid.UUID, rows: list[dict[str, Any]],
+        *, allow_partial: bool = False, company_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None, user_role: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply a bank UTR reverse feed and create one linked re-payout batch.
+
+        Rows may identify an item by item_id, transaction_ref, or account number.
+        All rows are validated before any item is changed.  Replaying the same
+        feed is safe and never creates a second re-payout for the original item.
+        """
+        if not rows:
+            raise HTTPException(status_code=400, detail="At least one bank response row is required.")
+        batch = await cls.get_batch(session, batch_id)
+        if company_id is not None and batch.company_id != company_id:
+            raise HTTPException(status_code=404, detail="Payment batch not found.")
+        if batch.status not in {"APPROVED", "SUBMITTED", "RECONCILED"}:
+            raise HTTPException(status_code=409, detail="Only an approved/submitted batch can be reconciled.")
+        items = (await session.execute(select(PaymentBatchItem).where(
+            PaymentBatchItem.batch_id == batch.id,
+        ))).scalars().all()
+        by_id = {str(item.id): item for item in items}
+        by_account: dict[str, list[PaymentBatchItem]] = {}
+        by_ref = {}
+        for item in items:
+            if item.account_number:
+                by_account.setdefault(item.account_number, []).append(item)
+            if item.transaction_ref:
+                by_ref[item.transaction_ref] = item
+
+        resolved: list[tuple[PaymentBatchItem, str, str | None, str | None, str | None]] = []
+        errors: list[str] = []
+        seen: set[uuid.UUID] = set()
+        for index, row in enumerate(rows, start=1):
+            item = None
+            item_id = row.get("item_id") or row.get("itemId")
+            account = row.get("account_number") or row.get("Account") or row.get("account")
+            reference = row.get("transaction_ref") or row.get("TransactionRef") or row.get("Ref")
+            if item_id:
+                item = by_id.get(str(item_id))
+            elif reference and reference in by_ref:
+                item = by_ref[reference]
+            elif account:
+                matches = by_account.get(str(account), [])
+                if len(matches) > 1:
+                    errors.append(f"Row {index}: account number is ambiguous; supply item_id.")
+                    continue
+                item = matches[0] if matches else None
+            if item is None:
+                if not allow_partial:
+                    errors.append(f"Row {index}: no matching payout item.")
+                continue
+            if item.id in seen:
+                errors.append(f"Row {index}: duplicate payout item.")
+                continue
+            seen.add(item.id)
+            raw_status = str(row.get("status") or row.get("Status") or "").strip().upper()
+            if raw_status in {"SUCCESS", "COMPLETED", "PAID"}:
+                canonical_status = "PAID"
+            elif raw_status in {"FAILED", "FAILURE", "REJECTED", "RETURNED"}:
+                canonical_status = "FAILED"
+            else:
+                errors.append(f"Row {index}: status must be PAID/SUCCESS or FAILED.")
+                continue
+            utr = row.get("utr_number") or row.get("utr") or row.get("UTR") or reference
+            utr = str(utr).strip() if utr else None
+            if canonical_status == "PAID" and not utr:
+                errors.append(f"Row {index}: UTR is required for a paid payout.")
+                continue
+            if item.status == "PAID" and (canonical_status != "PAID" or (item.utr_number and item.utr_number != utr)):
+                errors.append(f"Row {index}: a paid payout cannot be changed by a later feed.")
+                continue
+            error_message = row.get("error_message") or row.get("reason") or row.get("Error")
+            resolved.append((item, canonical_status, utr, reference, error_message))
+        if errors:
+            raise HTTPException(status_code=400, detail={"code": "INVALID_BANK_FEED", "errors": errors})
+        if not resolved:
+            raise HTTPException(status_code=400, detail="No bank response rows matched this batch.")
+
+        now = datetime.now()
+        paid_count = failed_count = 0
+        failed_items: list[PaymentBatchItem] = []
+        for item, canonical_status, utr, reference, error_message in resolved:
+            item.status = canonical_status
+            item.utr_number = utr
+            item.transaction_ref = reference or utr or item.transaction_ref
+            item.reconciled_at = now
+            item.error_message = str(error_message)[:500] if error_message else None
+            if canonical_status == "PAID":
+                paid_count += 1
+            else:
+                failed_count += 1
+                failed_items.append(item)
+            payslip = (await session.execute(select(Payslip).where(
+                Payslip.payroll_run_id == batch.run_id, Payslip.employee_id == item.employee_id,
+            ))).scalar_one_or_none()
+            if payslip:
+                payslip.payment_status = canonical_status
+                payslip.payment_reference = utr
+                payslip.payment_date = date.today() if canonical_status == "PAID" else None
+
+        retry_batch = None
+        pending_retry = [item for item in failed_items if item.repayout_batch_id is None]
+        if pending_retry:
+            retry_batch = PaymentBatch(
+                id=uuid.uuid4(), company_id=batch.company_id, run_id=batch.run_id,
+                batch_number=f"RP-{uuid.uuid4().hex[:18].upper()}",
+                source_account_id=batch.source_account_id, payment_mode=batch.payment_mode,
+                status="DRAFT", notes=f"Automatic re-payout for failed items in {batch.batch_number}",
+                created_by=user_id, retry_of_batch_id=batch.id,
+                total_amount_paise=sum(item.amount_paise for item in pending_retry), total_records=len(pending_retry),
+            )
+            session.add(retry_batch)
+            await session.flush()
+            for original in pending_retry:
+                session.add(PaymentBatchItem(
+                    id=uuid.uuid4(), batch_id=retry_batch.id, employee_id=original.employee_id,
+                    company_id=original.company_id, amount_paise=original.amount_paise, status="PENDING",
+                    account_number=original.account_number, ifsc_code=original.ifsc_code,
+                    account_holder_name=original.account_holder_name,
+                    remarks=f"Re-payout of original item {original.id}",
+                ))
+                original.repayout_batch_id = retry_batch.id
+        else:
+            retry_id = next((item.repayout_batch_id for item in failed_items if item.repayout_batch_id), None)
+            if retry_id:
+                retry_batch = await session.get(PaymentBatch, retry_id)
+
+        old_status = batch.status
+        batch.status = "RECONCILED"
+        await PayrollAuditService.log_event(
+            session=session, entity_type="PaymentBatch", entity_id=batch.id, action="BANK_UTR_RECONCILE",
+            company_id=batch.company_id, actor_id=user_id, actor_role=user_role,
+            before_status=old_status, after_status="RECONCILED",
+            reason=f"UTR feed: {paid_count} paid, {failed_count} failed; re-payout {retry_batch.id if retry_batch else 'not required'}",
+        )
+        await session.commit()
+        return {
+            "batch_id": str(batch.id), "status": batch.status, "updated_count": len(resolved),
+            "paid_count": paid_count, "failed_count": failed_count,
+            "repayout_batch_id": str(retry_batch.id) if retry_batch else None,
+            "re_payout_batch_id": str(retry_batch.id) if retry_batch else None,
+            "items": [{"item_id": str(item.id), "status": item.status, "utr_number": item.utr_number} for item, *_ in resolved],
+        }

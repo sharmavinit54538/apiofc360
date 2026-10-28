@@ -370,6 +370,11 @@ class DesignationStepInputList(OnboardingRequestModel):
 
 VALID_DAYS = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 
+VALID_MONTHS = {
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+}
+
 
 class WorkScheduleInput(OnboardingRequestModel):
     """Payload for Work Schedule and HR Settings configuration."""
@@ -474,11 +479,52 @@ class WorkScheduleInput(OnboardingRequestModel):
     @field_validator("financial_year")
     @classmethod
     def validate_financial_year(cls, value: str) -> str:
-        value = value.strip()
-        match = re.fullmatch(r"(\d{4})-(\d{4})", value)
-        if not match or int(match.group(2)) != int(match.group(1)) + 1:
-            raise ValueError("financial_year must use YYYY-YYYY with consecutive years.")
-        return value
+        """Accept both canonical and human-readable financial-year notations.
+
+        Two formats are supported because the wizard renders the fiscal year as a
+        label ("April - March") while reporting/exports key off the canonical
+        range ("2026-2027"):
+
+        1. ``YYYY-YYYY`` – two consecutive calendar years, normalised to
+           ``"2026-2027"`` (also tolerates en-dashes and extra spaces).
+        2. ``<StartMonth> - <EndMonth>`` – a month label pair such as
+           ``"April - March"``, normalised to title case with single spaces
+           around the separator.
+        """
+        if value is None:
+            raise ValueError("financial_year is required.")
+
+        # Collapse all whitespace runs so "April  -   March" and "2026 - 2027"
+        # both normalise cleanly.
+        value = " ".join(str(value).split())
+        if not value:
+            raise ValueError("financial_year is required.")
+
+        # 1. Canonical numeric range: 2026-2027
+        numeric = re.fullmatch(r"(\d{4})\s*[-\u2013\u2014]\s*(\d{4})", value)
+        if numeric:
+            start_year, end_year = int(numeric.group(1)), int(numeric.group(2))
+            if end_year != start_year + 1:
+                raise ValueError("financial_year must use YYYY-YYYY with consecutive years.")
+            return f"{start_year}-{end_year}"
+
+        # 2. Month label range: April - March
+        label = re.fullmatch(r"([A-Za-z]+)\s*[-\u2013\u2014]\s*([A-Za-z]+)", value)
+        if label:
+            start_month = label.group(1).capitalize()
+            end_month = label.group(2).capitalize()
+            if start_month not in VALID_MONTHS or end_month not in VALID_MONTHS:
+                raise ValueError(
+                    "financial_year month labels must be valid English month names "
+                    f"(e.g. 'April - March'). Received '{value}'."
+                )
+            return f"{start_month} - {end_month}"
+
+        raise ValueError(
+            "financial_year must be either 'YYYY-YYYY' with consecutive years "
+            "(e.g. '2026-2027') or a '<StartMonth> - <EndMonth>' label "
+            "(e.g. 'April - March')."
+        )
 
     @field_validator("working_days")
     @classmethod
@@ -632,6 +678,10 @@ class InvitationResponse(BaseModel):
     delivery_status: str = "QUEUED"
     expires_at: str
     created_at: str
+    # The persisted invitation token reference (SHA-256 digest of the secret that
+    # is emailed to the invitee).  Exposing the digest lets the HR admin verify a
+    # record without ever being able to reconstruct the activation link.
+    invitation_token: str | None = None
 
 
 class InvitationListResponse(BaseModel):

@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer,
-    Numeric, String, UniqueConstraint, JSON, func, text,
+    Numeric, String, Text, UniqueConstraint, JSON, func, text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.db.base import Base
 
@@ -73,6 +73,10 @@ class StatutoryComplianceConfig(Base):
     pf_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     employee_pf_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=Decimal("0.12"))
     employer_pf_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=Decimal("0.12"))
+    employer_eps_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False, default=Decimal("0.0833"), server_default=text("0.0833"))
+    employer_edli_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False, default=Decimal("0.005"), server_default=text("0.005"))
+    pf_admin_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False, default=Decimal("0.005"), server_default=text("0.005"))
+    esi_pwd_wage_ceiling: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("25000.00"), server_default=text("25000.00"))
     pf_wage_ceiling: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("15000.00"))
     pf_on_full_basic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
 
@@ -99,6 +103,50 @@ class StatutoryComplianceConfig(Base):
     salary_transfer_format: Mapped[str] = mapped_column(String(50), nullable=False, default="NEFT", server_default=text("'NEFT'"))
     auto_email_payslips: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     auto_backup_payroll: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    # Governance & Compliance
+    payroll_maker_checker_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    # CA Validation flags (set true when formula/rate needs CA/payroll expert validation)
+    needs_ca_validation_pf_rates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_esi_rates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_pt_slabs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_tds_slabs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_gratuity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_lwf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    needs_ca_validation_labour_codes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    # ── Labour Codes (Code on Wages, 2019) support — config driven ──────────
+    # When enabled, the "wages" definition of the Code on Wages applies:
+    # excluded allowances may not exceed (1 - min_basic_wage_ratio) of gross
+    # remuneration; the excess is folded back into statutory wages for PF, ESI
+    # and Gratuity.  Disabled by default so existing tenants keep their current
+    # behaviour until they opt in.
+    labour_code_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    min_basic_wage_ratio: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, default=Decimal("0.5000"), server_default=text("0.5000"))
+    excluded_allowance_components_json: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=lambda: ["HRA", "CONVEYANCE", "OVERTIME", "STATUTORY_BONUS", "COMMISSION"],
+        server_default=text(
+            "'[\"HRA\", \"CONVEYANCE\", \"OVERTIME\", \"STATUTORY_BONUS\", \"COMMISSION\"]'::jsonb"
+        ),
+    )
+    # Fixed-term employees accrue gratuity pro-rata without the 5-year minimum
+    # tenure requirement (Section 4(1) proviso, Payment of Gratuity (Amendment)
+    # Act, 2018 / Code on Wages).
+    fixed_term_pro_rata_gratuity_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── CA / Payroll Expert validation sign-off ─────────────────────────────
+    # Filled in by POST /api/v2/payroll/statutory/ca-signoff once a Chartered
+    # Accountant or payroll expert has validated the statutory formulae/rates.
+    ca_verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    ca_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ca_certificate_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    formula_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     settings_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
@@ -144,6 +192,8 @@ class SalaryStructure(Base):
     special_allowance_monthly: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     other_allowances: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"Meal Allowance": 1500}
     annual_bonus: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    fx_rate_to_inr: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
 
     is_metro_city: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     rent_paid_monthly: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # HRA exemption input (old regime)
@@ -192,15 +242,24 @@ class PayrollRun(Base):
 
     __tablename__ = "payroll_runs"
     __table_args__ = (
-        UniqueConstraint("company_id", "period_month", "period_year", name="uq_payroll_run_company_period"),
+        UniqueConstraint("company_id", "legal_entity_id", "period_month", "period_year", name="uq_payroll_run_company_period", postgresql_nulls_not_distinct=True),
         Index("ix_payroll_runs_company_id", "company_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=True)
 
     period_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True)
     run_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, default="IN", server_default=text("'IN'"))
+    fx_rate_to_base: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
+    fx_rate_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    fx_rate_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    statutory_rules_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    statutory_rule_version: Mapped[str] = mapped_column(String(100), nullable=False, default="IN_LEGACY_STATUTORY_SERVICE", server_default=text("'IN_LEGACY_STATUTORY_SERVICE'"))
 
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
     period_year: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -214,6 +273,9 @@ class PayrollRun(Base):
     total_gross_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     total_deductions_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     total_net_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     validation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING", server_default=text("'PENDING'"))
     validation_errors: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
@@ -225,6 +287,10 @@ class PayrollRun(Base):
 
     run_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Maker-checker (dual control) attribution: who created the run and who
+    # triggered the calculation engine.  Neither may also approve/finalize it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finalized_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -264,6 +330,10 @@ class Payslip(Base):
     payroll_run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_runs.id", ondelete="CASCADE"), nullable=False)
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     salary_structure_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("salary_structures.id", ondelete="SET NULL"), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     payslip_number: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)  # e.g. PAY-202607-00042
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -303,6 +373,12 @@ class Payslip(Base):
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     email_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))  # NOT_SENT/SENT/DELIVERED/OPENED/FAILED
     email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    whatsapp_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))
+    whatsapp_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_password_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    password_rule: Mapped[str | None] = mapped_column(String(100), nullable=True)
     download_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 
@@ -342,6 +418,17 @@ class EmployeeInvestmentDeclaration(Base):
     verified_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     verified_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    proof_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"))
+    proof_cutoff_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    proof_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    use_verified_amounts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    declared_details_json: Mapped[dict] = mapped_column(JSONB, nullable=True)
+    verified_details_json: Mapped[dict] = mapped_column(JSONB, nullable=True)
+    previous_employer_income_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    previous_employer_tds_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    ytd_tds_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    one_time_bonus_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    variable_pay_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -401,6 +488,12 @@ class PayCycle(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    regularisation_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    unlock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     disbursed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -477,11 +570,16 @@ class OvertimePolicy(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     applicable_role: Mapped[str | None] = mapped_column(String(100), nullable=True)   # null = applies to all
     applicable_grade: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    rate_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"))  # e.g. 1.5x
+    rate_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("1.5"))  # e.g. 1.5x or 2.0x
+    rate_base: Mapped[str] = mapped_column(String(20), nullable=False, default="BASIC", server_default=text("'BASIC'"))  # BASIC | GROSS
     max_ot_hours_per_month: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # Compatibility names used by policy configuration integrations.
+    base = synonym("rate_base")
+    calculation_base = synonym("rate_base")
 
 
 class OvertimeEntry(Base):
@@ -749,5 +847,18 @@ class TaxDeclarationProof(Base):
     document_name: Mapped[str] = mapped_column(String(255), nullable=False)
     document_url: Mapped[str] = mapped_column(String(500), nullable=False)
     amount_claimed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    verified_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"))
     verified_by_hr: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# Step 3 models live with the canonical payroll-period models.  Re-exporting
+# them here keeps the legacy ``app.models.payroll`` import path backwards
+# compatible without registering duplicate SQLAlchemy tables.
+from app.models.payroll_models import ArrearLedger, ParallelPayrollComparisonReport  # noqa: E402,F401

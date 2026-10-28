@@ -8,10 +8,10 @@ from typing import Optional, List
 
 from sqlalchemy import (
     Boolean, DateTime, Date, ForeignKey, Index, Integer,
-    Numeric, String, UniqueConstraint, JSON, func, text,
+    Numeric, String, UniqueConstraint, JSON, func, text, BigInteger,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.db.base import Base
 
@@ -52,6 +52,77 @@ class PayrollCompliance(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class StateStatutoryRule(Base):
+    """Versioned state-level PT and LWF rules.
+
+    Amounts are stored in paise so a rule can be evaluated without binary
+    floating-point rounding.  ``company_id`` is nullable for the seeded
+    all-tenant defaults; a tenant-specific row takes precedence over the
+    default for the same state and effective date.
+    """
+
+    __tablename__ = "state_statutory_rules"
+    __table_args__ = (
+        Index("ix_state_statutory_rules_state_effective", "state_code", "effective_from"),
+        Index("ix_state_statutory_rules_company_state", "company_id", "state_code"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    state_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    state_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False, default=date(2020, 1, 1))
+    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    pt_slabs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    lwf_employee_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    lwf_employer_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    lwf_frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="MONTHLY", server_default=text("'MONTHLY'"))
+    lwf_applicable_months: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    needs_ca_validation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # Integration-friendly aliases; all resolve to the same persisted columns.
+    state = synonym("state_code")
+    pt_slabs = synonym("pt_slabs_json")
+    lwf_applicable_months_json = synonym("lwf_applicable_months")
+    lwf_employee_contribution_paise = synonym("lwf_employee_paise")
+    lwf_employer_contribution_paise = synonym("lwf_employer_paise")
+    ca_validation_required = synonym("needs_ca_validation")
+
+
+class FinancialYearTaxRule(Base):
+    """Configurable old/new-regime tax slabs and deduction limits for one FY."""
+
+    __tablename__ = "financial_year_tax_rules"
+    __table_args__ = (
+        UniqueConstraint("company_id", "financial_year", "regime", name="uq_fy_tax_rule_company_year_regime"),
+        Index("ix_fy_tax_rules_year_regime", "financial_year", "regime"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    financial_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    regime: Mapped[str] = mapped_column(String(10), nullable=False)
+    slabs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    standard_deduction_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    rebate_87a_limit_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    rebate_87a_max_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    chapter_via_limits_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    surcharge_slabs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    cess_rate: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False, default=Decimal("0.04"), server_default=text("0.04"))
+    proof_cutoff_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    needs_ca_validation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class ComplianceDueDate(Base):
     """Statutory filing due dates calendar."""
     __tablename__ = "payroll_compliance_due_dates"
@@ -82,6 +153,10 @@ class ComplianceDueDate(Base):
     overdue_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     interest_7q_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
     damages_14b_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default=text("0"))
+    filing_frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="MONTHLY", server_default=text("'MONTHLY'"))
+    filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    filing_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -107,6 +182,10 @@ class ComplianceChallan(Base):
     employee_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     trrn_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    crn_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    bsr_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    challan_serial_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     challan_generation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -126,6 +205,41 @@ class ComplianceChallan(Base):
     # GENERATED | ECR_GENERATED | CHALLAN_UPLOADED | FILED_ON_TIME | OVERDUE | PAID
     file_payload: Mapped[str | None] = mapped_column(String, nullable=True) # Text payload for ECR (#|~|# delimited)
 
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class StatutoryForm(Base):
+    """Generated Form 138 / Form 130 drafts and their immutable source data."""
+
+    __tablename__ = "statutory_forms"
+    __table_args__ = (
+        Index("ix_statutory_forms_company_type_period", "company_id", "form_type", "period_id"),
+        Index("ix_statutory_forms_employee_year", "employee_id", "financial_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=True
+    )
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True
+    )
+    form_type: Mapped[str] = mapped_column(String(20), nullable=False)  # FORM_138 | FORM_130
+    financial_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    quarter: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    validation_errors_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

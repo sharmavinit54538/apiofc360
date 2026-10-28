@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, datetime
 from typing import Any, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, select
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.payroll import PayrollRun, PayrollAuditLog
 from app.models.payroll_models import PayrollPeriod
 from app.services.payroll.audit_service import PayrollAuditService
+from app.services.payroll.attendance_to_payroll_sync_service import AttendanceToPayrollSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,13 @@ class PayrollCycleService:
     """Business logic for Payroll Periods (canonical)."""
 
     @classmethod
-    async def get_cycle(cls, session: AsyncSession, cycle_id: uuid.UUID) -> PayrollPeriod:
+    async def get_cycle(
+        cls, session: AsyncSession, cycle_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> PayrollPeriod:
         stmt = select(PayrollPeriod).where(PayrollPeriod.id == cycle_id)
+        if company_id is not None:
+            stmt = stmt.where(PayrollPeriod.company_id == company_id)
         cycle = (await session.execute(stmt)).scalar_one_or_none()
         if not cycle:
             raise HTTPException(
@@ -77,6 +83,7 @@ class PayrollCycleService:
         end_date: Optional[date] = None,
         processing_date: Optional[date] = None,
         payment_date: Optional[date] = None,
+        regularisation_deadline: Optional[datetime] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PayrollPeriod:
@@ -96,7 +103,8 @@ class PayrollCycleService:
 
         # Defaults: processing_date = end_date, payment_date = pay_date
         processing_date = processing_date or end_date
-        payment_date = payment_date or pay_date
+        payment_date = payment_date or end_date
+        pay_date = payment_date
 
         cycle = PayrollPeriod(
             id=uuid.uuid4(),
@@ -111,6 +119,7 @@ class PayrollCycleService:
             period_year=period_year,
             status="OPEN",
             is_locked=False,
+            regularisation_deadline=regularisation_deadline,
             remarks=None,
         )
         session.add(cycle)
@@ -154,6 +163,9 @@ class PayrollCycleService:
         cycle.is_locked = False
         cycle.locked_by = None
         cycle.locked_at = None
+        cycle.attendance_locked_at = None
+        cycle.attendance_locked_by = None
+        cycle.unlock_reason = reason
         cycle.remarks = reason
 
         await PayrollAuditService.log_event(
@@ -194,6 +206,9 @@ class PayrollCycleService:
         cycle.is_locked = True
         cycle.locked_by = user_id
         cycle.locked_at = datetime.now()
+        cycle.attendance_locked_at = cycle.attendance_locked_at or cycle.locked_at
+        cycle.attendance_locked_by = cycle.attendance_locked_by or user_id
+        cycle.unlock_reason = None
 
         await PayrollAuditService.log_event(
             session=session,
@@ -206,6 +221,63 @@ class PayrollCycleService:
             before_status=old_status,
             after_status="LOCKED",
             reason="Payroll period locked",
+        )
+        await AttendanceToPayrollSyncService.sync_on_attendance_lock(session, cycle, commit=False)
+        await session.commit()
+        await session.refresh(cycle)
+        return cycle
+
+    @classmethod
+    async def lock_attendance(
+        cls,
+        session: AsyncSession,
+        cycle_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> PayrollPeriod:
+        cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
+        if cycle.attendance_locked_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance is already locked for this period.")
+        now = datetime.now()
+        cycle.attendance_locked_at = now
+        cycle.attendance_locked_by = user_id
+        cycle.unlock_reason = None
+        await PayrollAuditService.log_event(
+            session=session, entity_type="PayrollPeriod", entity_id=cycle.id,
+            action="ATTENDANCE_LOCK", company_id=cycle.company_id, actor_id=user_id,
+            actor_role=user_role, before_status=cycle.status, after_status=cycle.status,
+            reason="Attendance locked for payroll",
+        )
+        sync_result = await AttendanceToPayrollSyncService.sync_on_attendance_lock(session, cycle, commit=False)
+        cycle.remarks = f"Attendance locked; {sync_result['variable_input_count']} variable inputs synchronised"
+        await session.commit()
+        await session.refresh(cycle)
+        return cycle
+
+    @classmethod
+    async def unlock_attendance(
+        cls,
+        session: AsyncSession,
+        cycle_id: uuid.UUID,
+        reason: str,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> PayrollPeriod:
+        if not reason or not reason.strip():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="An unlock reason is required.")
+        cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
+        if cycle.attendance_locked_at is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance is not locked for this period.")
+        cycle.attendance_locked_at = None
+        cycle.attendance_locked_by = None
+        cycle.unlock_reason = reason.strip()
+        await PayrollAuditService.log_event(
+            session=session, entity_type="PayrollPeriod", entity_id=cycle.id,
+            action="ATTENDANCE_UNLOCK", company_id=cycle.company_id, actor_id=user_id,
+            actor_role=user_role, before_status="ATTENDANCE_LOCKED", after_status="ATTENDANCE_OPEN",
+            reason=cycle.unlock_reason, extra_data={"unlock_reason": cycle.unlock_reason},
         )
         await session.commit()
         await session.refresh(cycle)
@@ -237,7 +309,6 @@ class PayrollCycleService:
 
         old_status = cycle.status
         cycle.status = "VOID"
-        cycle.is_active = False
         cycle.remarks = reason
 
         await PayrollAuditService.log_event(

@@ -40,7 +40,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.db.base import Base
 
@@ -60,7 +60,7 @@ class PayrollPeriod(Base):
     __table_args__ = (
         Index("ix_payroll_periods_company_id", "company_id"),
         Index("ix_payroll_periods_dates", "start_date", "end_date"),
-        UniqueConstraint("company_id", "period_month", "period_year", name="uq_period_company_month_year"),
+        UniqueConstraint("company_id", "legal_entity_id", "period_month", "period_year", name="uq_period_company_month_year", postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -70,6 +70,9 @@ class PayrollPeriod(Base):
         PG_UUID(as_uuid=True),
         ForeignKey("companies.id", ondelete="CASCADE"),
         nullable=True,
+    )
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -85,6 +88,17 @@ class PayrollPeriod(Base):
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     locked_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Attendance cut-off is deliberately separate from the payroll lock.  HR can
+    # still prepare a run after attendance closes, while retrospective changes
+    # are routed through the arrear ledger instead of silently changing a paid
+    # period.
+    regularisation_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attendance_locked_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    unlock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -100,8 +114,14 @@ class PayrollPeriod(Base):
     runs: Mapped[list["PayrollRun"]] = relationship(
         "PayrollRun", back_populates="period", cascade="all, delete-orphan", lazy="select"
     )
+    # `variable_inputs.period_id` is a soft reference (no DB-level FK), so the
+    # join condition and foreign-key side must be declared explicitly.
     variable_inputs: Mapped[list["VariableInput"]] = relationship(
-        "VariableInput", back_populates="period", cascade="all, delete-orphan", lazy="select"
+        "VariableInput",
+        back_populates="period",
+        primaryjoin="PayrollPeriod.id == foreign(VariableInput.period_id)",
+        cascade="all, delete-orphan",
+        lazy="select",
     )
 
 
@@ -144,6 +164,9 @@ class PayrollRunEmployee(Base):
     net_pay_paise: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0")
     )
+    gross_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_base_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
 
     paid_days: Mapped[Decimal] = mapped_column(
         Numeric(5, 1), nullable=False, default=Decimal("30.0"), server_default=text("30.0")
@@ -265,6 +288,8 @@ class Compensation(Base):
     special_allowance_monthly_paise: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0")
     )
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
+    fx_rate_to_inr: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=Decimal("1"), server_default=text("1"))
 
     effective_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(
@@ -368,10 +393,15 @@ class VariableInput(Base):
         ForeignKey("employees.id", ondelete="CASCADE"),
         nullable=False,
     )
-    period_id: Mapped[uuid.UUID] = mapped_column(
+    # Soft reference to `payroll_periods.id` (no DB-level FK on purpose):
+    # variable pay — overtime, reimbursements, LOP — is routinely captured before
+    # the payroll period for that month has been opened, so the row must be
+    # storable while the period is still absent.  `PayrollRunService` joins on
+    # equality, so an unresolvable reference simply stays out of a run until the
+    # period exists.
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("payroll_periods.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     company_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -390,6 +420,9 @@ class VariableInput(Base):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="PENDING", server_default=text("'PENDING'")
     )  # PENDING | APPROVED | REJECTED
+
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -418,7 +451,12 @@ class VariableInput(Base):
     )
 
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
-    period: Mapped["PayrollPeriod"] = relationship("PayrollPeriod", back_populates="variable_inputs", lazy="select")
+    period: Mapped["PayrollPeriod"] = relationship(
+        "PayrollPeriod",
+        back_populates="variable_inputs",
+        primaryjoin="PayrollPeriod.id == foreign(VariableInput.period_id)",
+        lazy="select",
+    )
 
 
 class PaymentBatch(Base):
@@ -465,6 +503,19 @@ class PaymentBatch(Base):
     submission_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Maker-checker (dual control) attribution: who created the batch and who
+    # processed/submitted it.  Neither may also approve it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -480,6 +531,9 @@ class PaymentBatch(Base):
     )
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retry_of_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -492,7 +546,8 @@ class PaymentBatch(Base):
     )
 
     items: Mapped[list["PaymentBatchItem"]] = relationship(
-        "PaymentBatchItem", back_populates="batch", cascade="all, delete-orphan", lazy="select"
+        "PaymentBatchItem", back_populates="batch", cascade="all, delete-orphan", lazy="select",
+        foreign_keys="PaymentBatchItem.batch_id",
     )
     bank_files: Mapped[list["PaymentBatchBankFile"]] = relationship(
         "PaymentBatchBankFile", back_populates="batch", cascade="all, delete-orphan", lazy="select"
@@ -538,6 +593,11 @@ class PaymentBatchItem(Base):
     ifsc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_holder_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     transaction_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    repayout_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"), nullable=True
+    )
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
     retry_count: Mapped[int] = mapped_column(
@@ -555,7 +615,7 @@ class PaymentBatchItem(Base):
     )
 
     batch: Mapped["PaymentBatch"] = relationship(
-        "PaymentBatch", back_populates="items", lazy="select"
+        "PaymentBatch", back_populates="items", lazy="select", foreign_keys=[batch_id]
     )
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
 
@@ -640,6 +700,14 @@ class FullAndFinalSettlement(Base):
     shortfall_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    exit_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employee_exits.id", ondelete="SET NULL"), nullable=True
+    )
+    notice_buyout: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    notice_waived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settlement_sheet_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generated_letters_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'")
@@ -653,6 +721,19 @@ class FullAndFinalSettlement(Base):
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     statement_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Maker-checker (dual control) attribution: who initiated the settlement and
+    # who processed it.  Neither may also approve it.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    processed_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -685,6 +766,42 @@ class FullAndFinalSettlement(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    employee: Mapped["Employee"] = relationship("Employee", lazy="select")
+
+
+class EmployeeYTDSalary(Base):
+    """Imported employee payroll history for one April-March FY month.
+
+    This is used only when no canonical Payslip exists for the same period, so
+    migration data and newly processed payroll are never double counted.
+    """
+
+    __tablename__ = "employee_ytd_salaries"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "period_month", "period_year", name="uq_employee_ytd_salary_period"),
+        Index("ix_employee_ytd_company_fy", "company_id", "financial_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    financial_year: Mapped[str] = mapped_column(String(9), nullable=False)
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    gross_earnings_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    arrears_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    pf_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    esi_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    pt_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    lwf_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    tds_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    total_deductions_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    net_pay_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="MIGRATION", server_default=text("'MIGRATION'"))
+    migration_batch_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     employee: Mapped["Employee"] = relationship("Employee", lazy="select")
 
@@ -828,3 +945,97 @@ class PayrollReportExport(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ArrearLedger(Base):
+    """Auditable retroactive payroll adjustment carried into an open period.
+
+    Amounts are signed integer paise: a positive amount is an earning and a
+    negative amount is a recovery.  ``target_period_id`` can be null when the
+    source period is locked before the next period has been opened; the run
+    service claims that pending row when the next open run is calculated.
+    """
+
+    __tablename__ = "arrear_ledgers"
+    __table_args__ = (
+        Index("ix_arrear_ledgers_company_employee", "company_id", "employee_id"),
+        Index("ix_arrear_ledgers_target_status", "target_period_id", "status"),
+        Index("ix_arrear_ledgers_source_period", "source_period_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    source_period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True
+    )
+    target_period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True
+    )
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    delta_days: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False, default=Decimal("0"))
+    amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="PENDING", server_default=text("'PENDING'")
+    )  # PENDING | APPLIED | CANCELLED
+    calculation_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    applied_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    # Friendly aliases used by integrations which call the fields arrear_type,
+    # calculation, source_id and target_id.
+    arrear_type = synonym("type")
+    calculation = synonym("calculation_json")
+    calculation_breakdown = synonym("calculation_json")
+    breakdown_json = synonym("calculation_json")
+    source_id = synonym("source_period_id")
+    target_id = synonym("target_period_id")
+
+    TYPES = frozenset({"ATTENDANCE_RETRO", "LEAVE_REVERSAL", "SALARY_REVISION"})
+    STATUSES = frozenset({"PENDING", "APPLIED", "CANCELLED"})
+
+
+class ParallelPayrollComparisonReport(Base):
+    """Persisted employee- and pay-head-level legacy payroll comparison."""
+
+    __tablename__ = "parallel_payroll_comparison_reports"
+    __table_args__ = (
+        Index("ix_parallel_payroll_reports_run", "run_id"),
+        Index("ix_parallel_payroll_reports_company", "company_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    legacy_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legacy_file_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="COMPLETED", server_default=text("'COMPLETED'"))
+    employee_variances: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    head_variances: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    diagnoses: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # API/reporting aliases.
+    report_json = synonym("summary")
+    comparison_json = synonym("employee_variances")

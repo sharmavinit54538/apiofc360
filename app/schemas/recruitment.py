@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 # Enums & Status Constants
 # ---------------------------------------------------------------------------
 
-EMPLOYMENT_TYPE_VALUES = {"FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"}
+EMPLOYMENT_TYPE_VALUES = {"FULL_TIME", "PART_TIME", "CONTRACT", "INTERN", "FIXED_TERM"}
 JOB_STATUS_VALUES = {"DRAFT", "PUBLISHED", "CLOSED"}
 INTERVIEW_MODE_VALUES = {"ONLINE", "OFFLINE"}
 ROUND_STATUS_VALUES = {"PENDING", "PASSED", "REJECTED", "HOLD"}

@@ -14,12 +14,12 @@ from app.models.security_setting import (
     SecurityAuditLog,
 )
 from app.models.department import Department
-from app.models.company import Company
+from app.models.company import Company, LegalEntity, Branch, EntityPayrollCalendar, EmployeeEntityTransfer
 from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress
-from app.models.shift import Shift
+from app.models.shift import Shift, ShiftAllowancePolicy
 from app.models.employee_invitation import EmployeeInvitation
 
 # Employee module models
@@ -33,10 +33,18 @@ from app.models.asset import Asset, AssetAssignmentHistory, AssetMaintenanceReco
 from app.models.employee_emergency_contact import EmployeeEmergencyContact
 from app.models.employee_bank_account import EmployeeBankAccount
 from app.models.employee_leave_policy import EmployeeLeavePolicy
-from app.models.employee_onboarding import EmployeeOnboarding
-from app.models.employee_policy_acceptance import EmployeePolicyAcceptance
+from app.models.employee_onboarding import EmployeeOnboarding, OnboardingTaskChecklist
+from app.models.employee_policy_acceptance import EmployeePolicyAcceptance, PolicyAcknowledgementAssignment
+from app.models.grievance_posh import GrievanceCase, GrievanceCaseEvent, ICCCommittee, ICCMember, POSHComplaint, POSHEvidence, POSHTrainingRecord, POSHAnnualReturn
+from app.models.mobile_pwa import PushSubscription, MobileIdempotencyRecord
+from app.models.whatsapp_bot import WhatsAppInboundMessage, WhatsAppConversation
 from app.models.employee_tax_info import EmployeeTaxInfo
 from app.models.hierarchy_audit import HierarchyAuditLog
+from app.models.dpdp_compliance import (
+    DataConsentLedger,
+    DataRetentionPolicy,
+    DataSubjectRequest,
+)
 
 # Manager module models
 from app.models.manager import Manager
@@ -69,6 +77,9 @@ from app.models.recruitment import (
     CandidateCrmNote,
     RecruitmentNotification,
     JobPublishChannel,
+    JobBoardIntegration,
+    JobBoardSync,
+    CandidateSource,
 )
 
 # AI Recruitment module models
@@ -188,6 +199,10 @@ from app.models.performance import (
     PerformanceReviewCycle,
     EmployeePerformanceGoal,
     PerformanceReview,
+    PerformanceCycleV2,
+    PerformanceReview360,
+    PerformanceCalibrationRun,
+    PromotionApproval,
 )
 
 # AI Policy Explainer models
@@ -219,6 +234,10 @@ from app.models.generated_goal import (
 from app.models.compensation import (
     MarketCompensationBenchmark,
     AICompensationRecommendation,
+    CompensationBand,
+    EmployeeCompensationBand,
+    CompensationMarketBenchmark,
+    DepartmentIncrementBudget,
 )
 
 # AI Behavioural Interview models
@@ -246,10 +265,10 @@ from app.models.skill_gap import SkillGapAnalysis
 
 # AI Shift Planner
 from app.models.shift_plan import ShiftPlan, ShiftPlanEntry
-from app.models.shift import Shift, EmployeeShiftAssignment, ShiftChangeRequest
+from app.models.shift import Shift, ShiftAllowancePolicy, EmployeeShiftAssignment, ShiftChangeRequest
 
 # AI Employee Digital Twin
-from app.models.digital_twin import EmployeeDigitalTwin
+from app.models.digital_twin import EmployeeDigitalTwin, OrgTwinSimulation
 
 # AI HR Voice Assistant
 from app.models.voice_assistant import VoiceCommandLog
@@ -264,10 +283,10 @@ from app.models.career_path import CareerPathPrediction
 from app.models.learning_recommendation import LearningRecommendation
 
 # AI Workforce Forecasting
-from app.models.workforce_forecast import WorkforceForecastRun
+from app.models.workforce_forecast import WorkforceForecastRun, WorkforcePlan
 
 # AI Talent Marketplace
-from app.models.talent_marketplace import TalentMatch
+from app.models.talent_marketplace import TalentMatch, InternalJobOpening, InternalJobApplication
 
 # AI Meeting Intelligence
 from app.models.meeting_intelligence import MeetingIntelligenceLog
@@ -280,6 +299,19 @@ from app.models.employee_risk import EmployeeRiskAssessment
 
 # AI Executive Copilot
 from app.models.executive_copilot import CopilotQueryLog
+
+# Batch 6 Growth & Enterprise modules
+from app.models.bgv import BGVVendor, BGVCase, BGVCheck, BGVWebhookEvent
+from app.models.succession import CriticalRole, SuccessorSlate, SuccessionDevelopmentAction
+from app.models.lms import LMSCourse, LMSModule, LMSEnrollment, LMSModuleProgress, LMSCertificate
+from app.models.engagement import (
+    EngagementSurvey, EngagementQuestion, EngagementResponse, EngagementAnswer,
+    ManagerActionPlan, PeerRecognition, RewardLedgerEntry,
+)
+from app.models.accounting import GLAccountMapping, ExpensePosting, GLReconciliationReport
+from app.models.webhooks import TenantAPIKey, WebhookSubscription, WebhookDelivery, WebhookDeliveryAttempt
+from app.models.enterprise_auth import IdentityProvider, ExternalIdentity, SSOAssertion, SCIMToken, SCIMGroup, SCIMGroupMember
+from app.models.marketplace import MarketplaceIntegration, TenantIntegration, IntegrationConnection, IntegrationSyncLog
 
 # AI Recruitment Platform models
 from app.models.ai_recruitment import (
@@ -328,12 +360,20 @@ from app.models.payroll_models import (
     PaymentBatchItem,
     PaymentBatchBankFile,
     FullAndFinalSettlement,
+    EmployeeYTDSalary,
     ProvisionSlip,
     CompanyBankAccount,
     PayrollReportExport,
+    ArrearLedger,
+    ParallelPayrollComparisonReport,
 )
+from app.models.data_migration import DataMigrationBatch, DataMigrationRecord
+from app.models.leave_balance import LeaveBalance
 from app.models.payroll_compliance import (
     PayrollCompliance,
+    StateStatutoryRule,
+    FinancialYearTaxRule,
+    StatutoryForm,
     ComplianceDueDate,
     ComplianceChallan,
     ComplianceHistory,
@@ -359,7 +399,7 @@ from app.models.core_modules import (
 )
 
 # Leave module models
-from app.models.leave import LeaveRequest
+from app.models.leave import LeaveRequest, CompOffLedger
 
 # Travel module models
 from app.models.travel import TravelRequest
@@ -402,6 +442,34 @@ from app.models.ai_hub import (
     GeneratedDocument,
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Model modules that were historically only imported lazily by their own
+# routers/services.  Alembic autogenerate (and the
+# ``tests/test_migrations_match_models.py`` gate) inspects ``Base.metadata``,
+# which is only complete once *every* mapped class has been imported.  Leaving
+# these out makes the registered table set depend on import order: a test run
+# that happens to touch one of them registers 29 extra tables and the
+# migrations-vs-models comparison then reports phantom drift.  Import them all
+# eagerly so ``Base.metadata`` is deterministic and matches the migration chain.
+# ─────────────────────────────────────────────────────────────────────────────
+from app.models import school  # noqa: F401  (schools)
+from app.models import student  # noqa: F401  (students)
+from app.models import teacher  # noqa: F401  (teachers)
+from app.models import admission  # noqa: F401  (admissions)
+from app.models import fee  # noqa: F401  (fees)
+from app.models import attendance  # noqa: F401  (attendance)
+from app.models import misc  # noqa: F401  (cctv_cameras, documents, face_profiles, notifications, recognition_logs)
+from app.models import allowance  # noqa: F401  (allowances, allowance_history, allowance_audit_logs)
+from app.models import salary_component  # noqa: F401  (salary_components, salary_component_history, salary_component_audit_logs)
+from app.models import payroll_template  # noqa: F401  (payroll_templates, versions, history, audit logs)
+from app.models import tax_setting  # noqa: F401  (payroll_tax_settings, slabs, history, audit logs)
+from app.models import overtime_setting  # noqa: F401  (overtime_rules, payroll_overtime_settings, history, audit logs)
+
+# Geo-fencing model for the attendance module lives outside ``app/models`` but is
+# mapped on the same ``Base``; import it so its table is part of the metadata.
+from app.attendance.models import office_location  # noqa: F401  (office_locations)
+
+
 __all__ = [
     "AgentRun",
     "AgentFeedback",
@@ -427,6 +495,8 @@ __all__ = [
     "ConnectNotification",
     "ConnectUserSoundSettings",
     "Company",
+    "LegalEntity",
+    "Branch",
     "OTP",
     "User",
     "RefreshToken",
@@ -444,8 +514,12 @@ __all__ = [
     "EmployeeBankAccount",
     "EmployeeLeavePolicy",
     "EmployeeOnboarding",
+    "OnboardingTaskChecklist",
     "EmployeePolicyAcceptance",
     "EmployeeTaxInfo",
+    "DataConsentLedger",
+    "DataRetentionPolicy",
+    "DataSubjectRequest",
     "Manager",
     "ManagerAddress",
     "ManagerDocument",
@@ -572,12 +646,19 @@ __all__ = [
     "EmployeeRiskAssessment",
     "CopilotQueryLog",
     "StatutoryComplianceConfig",
+    "StateStatutoryRule",
+    "FinancialYearTaxRule",
+    "StatutoryForm",
     "SalaryStructure",
     "PayrollAttendanceInput",
     "PayrollRun",
     "Payslip",
     "EmployeeInvestmentDeclaration",
     "PayCycle",
+    "ParallelPayrollComparisonReport",
+    "ArrearLedger",
+    "CompOffLedger",
+    "ShiftAllowancePolicy",
     "PayrollAuditLog",
     "OvertimePolicy",
     "OvertimeEntry",
@@ -624,6 +705,10 @@ __all__ = [
     "PaymentBatchItem",
     "PaymentBatchBankFile",
     "FullAndFinalSettlement",
+    "EmployeeYTDSalary",
+    "DataMigrationBatch",
+    "DataMigrationRecord",
+    "LeaveBalance",
     "ProvisionSlip",
     "CompanyBankAccount",
     "PayrollReportExport",
@@ -645,4 +730,14 @@ __all__ = [
     "HRCopilotQuery",
     "JobTemplate",
     "RecruitmentAuditLog",
+]
+__all__ += [
+    "EntityPayrollCalendar", "EmployeeEntityTransfer", "PolicyAcknowledgementAssignment",
+    "GrievanceCase", "GrievanceCaseEvent", "ICCCommittee", "ICCMember",
+    "POSHComplaint", "POSHEvidence", "POSHTrainingRecord", "POSHAnnualReturn",
+    "PushSubscription", "MobileIdempotencyRecord", "WhatsAppInboundMessage", "WhatsAppConversation",
+]
+__all__ += [
+    "OrgTwinSimulation", "WorkforcePlan", "MarketplaceIntegration",
+    "TenantIntegration", "IntegrationConnection", "IntegrationSyncLog",
 ]

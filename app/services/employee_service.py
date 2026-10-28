@@ -734,7 +734,7 @@ class EmployeeService:
                 sort=sort,
                 order=order,
             )
-            total = await self.repo.count_employees(
+            total_raw = await self.repo.count_employees(
                 company_id=company_id,
                 department=department,
                 status=status_filter,
@@ -744,8 +744,15 @@ class EmployeeService:
                 shift=shift,
                 role=role,
             )
+            # Defensive: a COUNT query must always yield an int.  Guard against
+            # ``None`` (empty result set) or any non-numeric driver value so the
+            # pagination maths below can never raise ``TypeError``.
+            try:
+                total = int(total_raw) if total_raw is not None else 0
+            except (TypeError, ValueError):
+                total = 0
             items = [EmployeeListItem.model_validate(e) for e in employees]
-            pages = math.ceil(total / limit) if limit > 0 else 0
+            pages = math.ceil(total / limit) if limit and limit > 0 else 0
             has_next = page < pages
             has_previous = page > 1
             return EmployeeListResponse(
@@ -1026,7 +1033,7 @@ class EmployeeService:
                     if employee.company_id:
                         from app.middleware.auth import invalidate_auth_active_cache
                         await invalidate_auth_active_cache(employee.user_id, employee.company_id)
-            elif new_is_active is True and new_status == "ACTIVE":
+                elif new_is_active is True and new_status == "ACTIVE":
                     await self.session.execute(
                         sa_update(User).where(User.id == employee.user_id).values(
                             is_active=True,

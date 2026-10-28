@@ -22,6 +22,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -228,6 +229,88 @@ class HRCopilotRAG:
                 "department": department,
             },
         )
+
+    async def ground_policy_query(
+        self,
+        *,
+        company_id: uuid.UUID,
+        question: str,
+        documents: list[dict[str, Any]],
+        top_k: int = 5,
+    ) -> dict[str, Any]:
+        """Ground an HR answer in tenant-supplied handbook/standing-order chunks.
+
+        The service layer supplies documents only after applying its tenant and
+        publication-state predicates.  This method deliberately performs local
+        lexical retrieval instead of using the global candidate vector index:
+        policy text from two tenants must never share an unscoped namespace.
+        Returned citations contain the exact supporting excerpt, allowing the
+        caller to render a deterministic response when no LLM is available.
+        """
+        import re
+
+        safe_question = ResponseParser.sanitize_user_input(question, max_length=1000)
+        if ResponseParser.contains_injection(safe_question):
+            return {
+                "answer": "The policy request could not be processed.",
+                "citations": [], "confidence": 0.0,
+                "grounding_status": "REJECTED",
+            }
+
+        stop_words = {
+            "about", "after", "before", "could", "disciplinary", "employee",
+            "from", "have", "incident", "policy", "should", "show", "that",
+            "their", "there", "this", "under", "what", "when", "where", "with",
+        }
+        terms = {
+            token for token in re.findall(r"[a-z0-9]+", safe_question.lower())
+            if len(token) >= 3 and token not in stop_words
+        }
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for document in documents:
+            # Defence in depth: ignore accidentally supplied cross-tenant rows.
+            if str(document.get("company_id")) != str(company_id):
+                continue
+            text = str(document.get("chunk_text") or document.get("raw_content") or "").strip()
+            if not text:
+                continue
+            haystack = f"{document.get('title', '')} {document.get('category', '')} {text}".lower()
+            matched = sum(1 for term in terms if term in haystack)
+            # A small title/category boost helps short standing-order clauses.
+            title_text = f"{document.get('title', '')} {document.get('category', '')}".lower()
+            matched += sum(0.5 for term in terms if term in title_text)
+            score = matched / max(1, len(terms))
+            if matched or not terms:
+                ranked.append((score, document))
+        ranked.sort(key=lambda item: (-item[0], str(item[1].get("title") or ""), int(item[1].get("chunk_order") or 0)))
+        selected = ranked[: max(1, min(top_k, 20))]
+        citations = []
+        for score, document in selected:
+            excerpt = str(document.get("chunk_text") or document.get("raw_content") or "").strip()
+            citations.append({
+                "policy_document_id": str(document.get("policy_document_id") or document.get("id")),
+                "document": document.get("title") or "Company policy",
+                "category": document.get("category") or "GENERAL",
+                "section": f"Section {int(document.get('chunk_order') or 0) + 1}",
+                "version": document.get("version_number") or "1.0",
+                "excerpt": excerpt[:1200],
+                "relevance_score": round(float(score), 4),
+            })
+        if citations:
+            answer = "Relevant tenant policy passages were retrieved. Use the cited clauses and verify their effective version before issuing any notice."
+            status_value = "GROUNDED"
+            confidence = max(float(item["relevance_score"]) for item in citations)
+        else:
+            answer = "Insufficient published handbook or standing-order evidence was found. Obtain and verify the applicable policy before proceeding."
+            status_value = "INSUFFICIENT_EVIDENCE"
+            confidence = 0.0
+        return {
+            "answer": answer,
+            "citations": citations,
+            "confidence": round(confidence, 4),
+            "grounding_status": status_value,
+            "company_id": str(company_id),
+        }
 
     # ------------------------------------------------------------------
     # Private helpers

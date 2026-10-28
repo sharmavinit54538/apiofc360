@@ -38,7 +38,7 @@ def upgrade() -> None:
         # 2. Update foreign key constraint with ondelete SET NULL
         existing_fks = {fk['name']: fk for fk in insp.get_foreign_keys('document_templates')}
         if 'fk_document_templates_created_by_users' in existing_fks:
-            op.drop_constraint('fk_document_templates_created_by_users', 'document_templates', type_='foreignkey')
+            op.execute(sa.text('ALTER TABLE document_templates DROP CONSTRAINT IF EXISTS fk_document_templates_created_by_users'))
         op.create_foreign_key(
             'fk_document_templates_created_by_users',
             'document_templates',
@@ -56,7 +56,7 @@ def downgrade() -> None:
     if 'document_templates' in insp.get_table_names():
         existing_fks = {fk['name']: fk for fk in insp.get_foreign_keys('document_templates')}
         if 'fk_document_templates_created_by_users' in existing_fks:
-            op.drop_constraint('fk_document_templates_created_by_users', 'document_templates', type_='foreignkey')
+            op.execute(sa.text('ALTER TABLE document_templates DROP CONSTRAINT IF EXISTS fk_document_templates_created_by_users'))
         op.create_foreign_key(
             'fk_document_templates_created_by_users',
             'document_templates',

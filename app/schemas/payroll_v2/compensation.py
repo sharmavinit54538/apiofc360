@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, List, Optional
 from pydantic import Field
 
@@ -36,6 +37,12 @@ class CompensationResponse(PayrollBaseModel):
     basic_monthly_paise: int = 0
     hra_monthly_paise: int = 0
     special_allowance_monthly_paise: int = 0
+    currency: str = "INR"
+    fx_rate_to_inr: Decimal = Decimal("1")
+    ctc_annual_inr_paise: int = 0
+    basic_monthly_inr_paise: int = 0
+    hra_monthly_inr_paise: int = 0
+    special_allowance_monthly_inr_paise: int = 0
     effective_date: date
     status: str
     remarks: Optional[str] = None

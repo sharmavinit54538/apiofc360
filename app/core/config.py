@@ -58,6 +58,13 @@ class Settings(BaseSettings):
         default="",
         description="Secret key used for OTP hashing and other symmetric operations. Must be 32+ chars. Set via env var.",
     )
+    FIELD_ENCRYPTION_KEY: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Primary AES-256 field-encryption key. For rotation, provide a JSON list or comma-separated "
+            "keys with the new write key first and previous read keys after it."
+        ),
+    )
     JWT_ALGORITHM: str = "HS256"
     JWT_PRIVATE_KEY: SecretStr = Field(
         default="",
@@ -431,6 +438,11 @@ class Settings(BaseSettings):
             secret_val = self.SECRET_KEY.get_secret_value()
             if not secret_val or len(secret_val) < 32:
                 raise ValueError("SECRET_KEY must be set via environment variable (32+ characters) in production")
+            field_key = self.FIELD_ENCRYPTION_KEY.get_secret_value().strip()
+            if not field_key:
+                raise ValueError("FIELD_ENCRYPTION_KEY must be set via environment variable in production")
+            if len(field_key) < 32:
+                raise ValueError("FIELD_ENCRYPTION_KEY must be at least 32 characters in production")
             if not self.DATABASE_URL or not self.DATABASE_URL.startswith("postgresql+asyncpg://"):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():

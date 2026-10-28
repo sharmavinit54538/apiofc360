@@ -105,7 +105,8 @@ class FullAndFinalService:
             Compensation.employee_id == employee_id, Compensation.status == "ACTIVE"
         )
         comp = (await session.execute(comp_stmt)).scalar_one_or_none()
-        monthly_ctc_paise = (comp.ctc_annual_paise // 12) if comp else (50000 * 100)
+        # Missing compensation is zero, never a fabricated demo salary.
+        monthly_ctc_paise = (comp.ctc_annual_paise // 12) if comp else 0
 
         daily_rate_paise = monthly_ctc_paise // 30
         notice_shortfall_deduction = exit_details.shortfall_days * daily_rate_paise
@@ -123,7 +124,8 @@ class FullAndFinalService:
             notice_period_days_required=exit_details.notice_period_days_required,
             notice_period_days_served=exit_details.notice_period_days_served,
             shortfall_days=exit_details.shortfall_days,
-            status="PENDING_APPROVAL",
+            status="DRAFT",
+            created_by=user_id,
             net_payable_paise=net_payable_paise,
             settlement_breakup={
                 "monthly_salary_paise": monthly_ctc_paise,
@@ -145,7 +147,7 @@ class FullAndFinalService:
             actor_id=user_id,
             actor_role=user_role,
             before_status=None,
-            after_status="PENDING_APPROVAL",
+            after_status="DRAFT",
             reason=remarks or "Created F&F settlement request",
         )
         return settlement
@@ -167,6 +169,20 @@ class FullAndFinalService:
             )
 
         old_status = settlement.status
+
+        # Strict maker-checker / role separation: the user who initiated or
+        # processed the settlement may not approve it.  Raises HTTP 403 with code
+        # MAKER_CHECKER_VIOLATION and writes an immutable audit record.
+        from app.services.fnf_calculation_service import FnfCalculationService
+
+        await FnfCalculationService.enforce_settlement_maker_checker(
+            session,
+            settlement=settlement,
+            approver_id=user_id,
+            actor_role=user_role,
+            action="APPROVE",
+        )
+
         settlement.status = "APPROVED"
         settlement.approved_by = user_id
         settlement.approved_at = datetime.now()
@@ -203,6 +219,9 @@ class FullAndFinalService:
         settlement.finalized_by = user_id
         settlement.finalized_at = datetime.now()
         settlement.notes = notes
+        # Finalizing is "processing" the settlement for maker-checker purposes.
+        if user_id is not None:
+            settlement.processed_by = user_id
 
         await PayrollAuditService.log_event(
             session=session,
@@ -254,7 +273,11 @@ class FullAndFinalService:
 
     @classmethod
     async def generate_statement(cls, session: AsyncSession, fnf_id: uuid.UUID) -> tuple[bytes, str]:
+        import os
         settlement = await cls.get_settlement(session, fnf_id)
+        if settlement.statement_path and os.path.isfile(settlement.statement_path):
+            with open(settlement.statement_path, "rb") as handle:
+                return handle.read(), f"FnF_Settlement_{settlement.id}.pdf"
         emp_stmt = select(Employee).where(Employee.id == settlement.employee_id)
         emp = (await session.execute(emp_stmt)).scalar_one_or_none()
 
@@ -274,5 +297,8 @@ class FullAndFinalService:
             f"Net Payable: Rs. {settlement.net_payable_paise / 100.0:,.2f}\n"
             f"===================================\n"
         )
+        # Preserve the legacy pre-settlement text contract.  Once the new
+        # clearance-guarded workflow has generated a settlement sheet, the
+        # branch above serves that real PDF instead.
         filename = f"FnF_Statement_{settlement.id}.txt"
         return statement_text.encode("utf-8"), filename

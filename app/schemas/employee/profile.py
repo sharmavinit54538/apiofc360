@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from typing import Any
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from app.schemas.employee.address import EmployeeAddressResponse
 from app.schemas.employee.document import EmployeeDocumentResponse
@@ -39,6 +39,12 @@ class EmployeeResponse(BaseModel):
     alternate_phone: str | None
     blood_group: str | None
     marital_status: str | None
+    # Sensitive identifiers are always transformed by the validators below.
+    aadhaar_number: str | None = None
+    pan_number: str | None = None
+    uan_number: str | None = None
+    passport_number: str | None = None
+    voter_id: str | None = None
     department: str
     designation: str
     team: str | None
@@ -274,6 +280,24 @@ class EmployeeResponse(BaseModel):
             data["professional_tax"] = pt_in
             data["professionalTax"] = pt_in
         return data
+
+    @field_validator("pan_number", mode="after")
+    @classmethod
+    def mask_pan_response(cls, value: str | None) -> str | None:
+        from app.utils.security import mask_pan
+        return mask_pan(value)
+
+    @field_validator("uan_number", mode="after")
+    @classmethod
+    def mask_uan_response(cls, value: str | None) -> str | None:
+        from app.utils.security import mask_uan
+        return mask_uan(value)
+
+    @field_validator("aadhaar_number", "passport_number", "voter_id", mode="after")
+    @classmethod
+    def redact_government_identity_response(cls, value: str | None) -> str | None:
+        from app.utils.security import redact_government_id
+        return redact_government_id(value)
 
     # Relations
     addresses: list[EmployeeAddressResponse] = []

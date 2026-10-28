@@ -9,7 +9,11 @@ from pydantic import Field, field_validator
 from app.schemas.payroll_v2.common import PayrollBaseModel
 
 
-ALLOWED_BANK_FORMATS = ("HDFC_CSV", "ICICI_EXCEL", "SBI_TXT", "GENERIC_NEFT_CSV")
+ALLOWED_BANK_FORMATS = (
+    "ICICI_CORPORATE", "ICICI_CORPORATE_CSV", "HDFC_ENET_CSV", "SBI_CMP_TXT", "GENERIC_NEFT_RTGS_CSV",
+    # Backward-compatible aliases used by existing payroll workers/clients.
+    "HDFC_CSV", "ICICI_EXCEL", "SBI_TXT", "GENERIC_NEFT_CSV",
+)
 
 
 class PaymentBatchApproveRequest(PayrollBaseModel):
@@ -30,6 +34,20 @@ class PaymentBatchBankFileRequest(PayrollBaseModel):
 
 class PaymentBatchBankResponseApplyRequest(PayrollBaseModel):
     preview_token: str = Field(..., alias="previewToken")
+    allow_partial: bool = Field(False, alias="allowPartial")
+
+
+class BankReconciliationRow(PayrollBaseModel):
+    item_id: Optional[str] = Field(None, alias="itemId")
+    account_number: Optional[str] = Field(None, alias="accountNumber")
+    transaction_ref: Optional[str] = Field(None, alias="transactionRef")
+    status: str
+    utr_number: Optional[str] = Field(None, alias="utrNumber")
+    error_message: Optional[str] = Field(None, alias="errorMessage")
+
+
+class PaymentBatchReconcileRequest(PayrollBaseModel):
+    rows: List[BankReconciliationRow] = Field(..., min_length=1)
     allow_partial: bool = Field(False, alias="allowPartial")
 
 

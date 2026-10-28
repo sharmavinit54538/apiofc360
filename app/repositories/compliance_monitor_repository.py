@@ -18,6 +18,8 @@ from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
 from app.models.employee_risk import EmployeeRiskAssessment
 from app.models.payroll import ComplianceObligation, PayrollRun
+from app.models.payroll_compliance import ComplianceDueDate
+from app.models.employee_policy_acceptance import PolicyAcknowledgementAssignment
 from app.models.policy import CompanyPolicyDocument
 from app.models.timesheet import Timesheet, TimesheetEntry
 
@@ -48,14 +50,16 @@ class ComplianceMonitorRepository:
         if company_id:
             emp_filter.append(Employee.company_id == company_id)
 
+        # Encrypted empty strings have no blind index; use the index for
+        # completeness checks instead of comparing ciphertext with plaintext.
+        pan_missing = or_(Employee.pan_number.is_(None), Employee.pan_number_blind_idx.is_(None))
+        aadhaar_missing = or_(
+            Employee.aadhaar_number.is_(None), Employee.aadhaar_number_blind_idx.is_(None)
+        )
         emp_stmt = select(
             func.count(Employee.id).label("total"),
-            func.count(
-                case((or_(Employee.pan_number == None, Employee.pan_number == ""), 1))
-            ).label("missing_pan"),
-            func.count(
-                case((or_(Employee.aadhaar_number == None, Employee.aadhaar_number == ""), 1))
-            ).label("missing_aadhaar"),
+            func.count(case((pan_missing, 1))).label("missing_pan"),
+            func.count(case((aadhaar_missing, 1))).label("missing_aadhaar"),
             func.count(
                 case((Employee.verification_status != "VERIFIED", 1))
             ).label("unverified"),
@@ -136,6 +140,18 @@ class ComplianceMonitorRepository:
         obl_row = (await self.session.execute(obl_stmt)).fetchone()
         total_obl = obl_row.total_obl if obl_row else 0
         overdue_obl = obl_row.overdue_obl if obl_row else 0
+        due_stmt = select(
+            func.count(ComplianceDueDate.id).label("total"),
+            func.count(case((and_(
+                ComplianceDueDate.due_date < today,
+                ComplianceDueDate.status.notin_(["FILED", "FILED_ON_TIME", "FILED_LATE", "PAID", "WAIVED"]),
+            ), 1))).label("overdue"),
+        )
+        if company_id:
+            due_stmt = due_stmt.where(ComplianceDueDate.company_id == company_id)
+        due_row = (await self.session.execute(due_stmt)).fetchone()
+        total_obl += due_row.total if due_row else 0
+        overdue_obl += due_row.overdue if due_row else 0
 
         # ── 5. Timesheet Overtime Violations (>48 hrs/week) ───────────────
         ot_stmt = (
@@ -189,6 +205,13 @@ class ComplianceMonitorRepository:
         if pol_filter:
             pol_stmt = pol_stmt.where(*pol_filter)
         total_policies = (await self.session.execute(pol_stmt)).scalar() or 0
+        policy_violation_stmt = select(func.count(PolicyAcknowledgementAssignment.id)).where(
+            PolicyAcknowledgementAssignment.status == "PENDING",
+            PolicyAcknowledgementAssignment.due_at < datetime.now(),
+        )
+        if company_id:
+            policy_violation_stmt = policy_violation_stmt.where(PolicyAcknowledgementAssignment.company_id == company_id)
+        policy_violations = (await self.session.execute(policy_violation_stmt)).scalar() or 0
 
         # ── 8. Derived Counts & Composite Formulas ─────────────────────────
         missing_docs = missing_pan + missing_aadhaar + expired_docs
@@ -199,6 +222,7 @@ class ComplianceMonitorRepository:
             + ot_violations
             + critical_risk_cnt
             + high_risk_cnt
+            + policy_violations
         )
 
         # Factor 1: Document completeness (35%)
@@ -294,7 +318,7 @@ class ComplianceMonitorRepository:
             "working_hours": "NON_COMPLIANT" if ot_violations > 2 else ("WARNING" if ot_violations > 0 else "COMPLIANT"),
             "minimum_wage": "NON_COMPLIANT" if below_min_wage > 0 else "COMPLIANT",
             "statutory_pf_esic": "NON_COMPLIANT" if overdue_obl > 0 else "COMPLIANT",
-            "equal_pay": "COMPLIANT",
+            "equal_pay": "NOT_EVALUATED",
         }
 
         # ── 12. Dynamic Recommendations ───────────────────────────────────
@@ -355,7 +379,7 @@ class ComplianceMonitorRepository:
             "laborLawStatus": labor_law_status,
             "labor_law_status": labor_law_status,
             "recommendations": recommendations,
-            "policy_violations": 0,
+            "policy_violations": policy_violations,
             "expired_documents": expired_docs,
             "critical_risks": critical_risk_cnt,
             "total_checks": len(checks_evaluated),
@@ -436,10 +460,10 @@ class ComplianceMonitorRepository:
             emp_stmt = select(Employee).where(
                 Employee.is_deleted == False,
                 or_(
-                    Employee.pan_number == None,
-                    Employee.pan_number == "",
-                    Employee.aadhaar_number == None,
-                    Employee.aadhaar_number == "",
+                    Employee.pan_number.is_(None),
+                    Employee.pan_number_blind_idx.is_(None),
+                    Employee.aadhaar_number.is_(None),
+                    Employee.aadhaar_number_blind_idx.is_(None),
                 ),
             )
             if company_id:
@@ -635,10 +659,10 @@ class ComplianceMonitorRepository:
                     case(
                         (
                             and_(
-                                Employee.pan_number != None,
-                                Employee.pan_number != "",
-                                Employee.aadhaar_number != None,
-                                Employee.aadhaar_number != "",
+                                Employee.pan_number.is_not(None),
+                                Employee.pan_number_blind_idx.is_not(None),
+                                Employee.aadhaar_number.is_not(None),
+                                Employee.aadhaar_number_blind_idx.is_not(None),
                             ),
                             1,
                         )

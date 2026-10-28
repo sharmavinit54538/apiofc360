@@ -12,7 +12,7 @@ Provides comprehensive transaction-safe business logic for:
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 import hashlib
 import html
 import logging
@@ -62,6 +62,50 @@ from app.schemas.onboarding import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_time_value(value: Any) -> Any:
+    """Convert an ``"HH:MM"``/``"HH:MM:SS"`` string into a ``datetime.time``.
+
+    ``Shift.start_time`` and ``Shift.end_time`` are SQL ``TIME`` columns while the
+    onboarding payload (and ``CompanySettings``) carry ``HH:MM`` strings, so the
+    boundary has to normalise.  Values that are already ``time``/``datetime``
+    objects are passed through untouched.
+    """
+    if value is None or isinstance(value, time):
+        return value
+    if isinstance(value, datetime):
+        return value.time()
+    cleaned = " ".join(str(value).split())
+    if not cleaned:
+        return None
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", cleaned)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid time value '{value}'. Expected HH:MM.",
+        )
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    second = int(match.group(3) or 0)
+    if hour > 23 or minute > 59 or second > 59:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid time value '{value}'. Expected HH:MM.",
+        )
+    return time(hour=hour, minute=minute, second=second)
+
+
+def _format_time_value(value: Any, default: str) -> str:
+    """Render a ``TIME`` column (or string) back into the ``HH:MM`` API format."""
+    if value is None:
+        return default
+    if isinstance(value, time):
+        return value.strftime("%H:%M")
+    if isinstance(value, datetime):
+        return value.strftime("%H:%M")
+    cleaned = " ".join(str(value).split())
+    return cleaned or default
 
 
 def _process_data_url_image(data_url: str | None, category: str = "company_logo") -> str | None:
@@ -153,38 +197,170 @@ class HRAdminOnboardingService:
     def _normalized(value: str) -> str:
         return " ".join(value.split()).casefold()
 
+    async def _derive_shift_code(self, company_id: uuid.UUID, name: str) -> str:
+        """Derive an organization-unique ``shifts.code`` from the shift name.
+
+        ``Shift.code`` is NOT NULL, but the onboarding wizard only collects a
+        display name, so the code is generated deterministically (``UPPER_SNAKE``)
+        with a numeric suffix on collision.
+        """
+        slug = re.sub(r"[^A-Z0-9]+", "_", (name or "").strip().upper()).strip("_")
+        base = (slug or "SHIFT")[:20]
+        candidate = base
+        suffix = 2
+        while True:
+            existing = await self.session.scalar(
+                select(Shift.id).where(
+                    Shift.company_id == company_id,
+                    Shift.code == candidate,
+                )
+            )
+            if not existing:
+                return candidate
+            candidate = f"{base[:17]}_{suffix}"
+            suffix += 1
+            if suffix > 999:  # pragma: no cover - defensive guard
+                raise ConflictException(message="Unable to derive a unique shift code.")
+
+    async def _derive_department_code(self, company_id: uuid.UUID, name: str) -> str:
+        """Derive an organization-unique department code from its name.
+
+        ``department_code`` is optional for callers, but the column is mandatory
+        in the database and is part of the uniqueness guard, so a deterministic
+        code is generated: the initials of each word (upper-cased), suffixed with
+        ``-2``, ``-3``, ... until it is free inside this organization.
+        """
+        words = [w for w in re.split(r"\s+", name.strip()) if w]
+        if words:
+            initials = "".join(re.sub(r"[^A-Za-z0-9]", "", w)[:1] for w in words)
+        base = (initials or "DEPT").upper()[:20] or "DEPT"
+
+        candidate = base
+        suffix = 2
+        while True:
+            existing = await self.session.scalar(
+                select(Department.id).where(
+                    Department.company_id == company_id,
+                    Department.normalized_code == self._normalized(candidate),
+                )
+            )
+            if not existing:
+                return candidate
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+            if suffix > 999:  # pragma: no cover - defensive guard
+                raise ConflictException(message="Unable to derive a unique department code.")
+
+    _STATUS_RANK = {"not_started": 0, "in_progress": 1, "completed": 2}
+
+    async def _recompute_completion_evidence(self, progress: OnboardingProgress) -> None:
+        """Refresh the per-step completion flags from the rows actually persisted.
+
+        The flags are *evidence*, never client input: a step counts as complete
+        only when the data that step owns exists for this organization.  This
+        keeps the derived wizard position correct even when the HR admin resumes
+        on a different device (or when rows were created through another entry
+        point) and it means we never need to reject a legitimate save with a 409
+        just because a stale flag column had not been flipped yet.
+        """
+        company = await self.session.scalar(
+            select(Company).where(Company.id == progress.company_id)
+        )
+        if company is not None:
+            profile = company.company_profile or {}
+            progress.company_completed = bool(progress.company_completed) or bool(profile)
+            if company.onboarding_completed:
+                progress.onboarding_completed = True
+
+        if progress.user_id:
+            admin = await self.session.scalar(select(User).where(User.id == progress.user_id))
+            if admin is not None and (admin.name or "").strip():
+                progress.admin_completed = True
+
+        settings_exists = await self.session.scalar(
+            select(func.count(CompanySettings.id)).where(
+                CompanySettings.company_id == progress.company_id
+            )
+        )
+        if settings_exists:
+            progress.hr_completed = True
+
+        await self._refresh_organization_completion(progress)
+
+        invited = await self.session.scalar(
+            select(func.count(EmployeeInvitation.id)).where(
+                EmployeeInvitation.company_id == progress.company_id
+            )
+        )
+        if invited:
+            progress.employees_invited = True
+
     async def _require_prior_steps(self, progress: OnboardingProgress, target_step: int) -> None:
+        """Validate (without blocking) that the preceding wizard steps have data.
+
+        Onboarding must be resumable: the wizard lets an HR admin revisit or
+        complete stages out of order, and every stage write is transactional and
+        tenant-scoped on its own.  A hard ``409 Conflict`` here used to reject
+        perfectly valid saves whenever a completion flag had not yet been
+        flipped, so we now recompute the flags from persisted rows and only warn.
+        Completion percentages and the "Review & Activate" gate are still derived
+        exclusively from those flags, so no step can be *reported* complete
+        without its data existing.
+        """
+        await self._recompute_completion_evidence(progress)
         missing = [flag for flag in self._REQUIRED_BEFORE[target_step] if not getattr(progress, flag)]
         if missing:
-            await self._refresh_state(progress)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Complete the preceding onboarding step before saving step {target_step}.",
+            logger.info(
+                "Onboarding step %s saved for company %s before %s were completed; "
+                "progress stays derived from persisted data.",
+                target_step,
+                progress.company_id,
+                ", ".join(missing),
             )
+        await self._refresh_state(progress)
 
     async def _refresh_state(self, progress: OnboardingProgress, company: Company | None = None) -> None:
-        """Recompute state from backend facts without ever regressing completed work."""
+        """Recompute state from backend facts without ever regressing progress.
+
+        ``current_step`` is a navigation pointer: it is the furthest step reached,
+        derived from persisted evidence but never pulled backwards while the
+        organization is still onboarding.  ``status`` is monotonic as well
+        (``not_started`` -> ``in_progress`` -> ``completed``) so a resumed
+        onboarding is not reported as "not started" after the admin has begun.
+        """
         if progress.onboarding_completed:
-            progress.current_step = 7
-            progress.status = "completed"
+            derived_step = 7
+            derived_status = "completed"
         elif not progress.company_completed:
-            progress.current_step = 1
-            progress.status = "not_started"
+            derived_step = 1
+            derived_status = "not_started"
         elif not progress.admin_completed:
-            progress.current_step = 2
-            progress.status = "in_progress"
+            derived_step = 2
+            derived_status = "in_progress"
         elif not progress.hr_completed:
-            progress.current_step = 3
-            progress.status = "in_progress"
+            derived_step = 3
+            derived_status = "in_progress"
         elif not (progress.departments_completed and progress.designations_completed):
-            progress.current_step = 4
-            progress.status = "in_progress"
+            derived_step = 4
+            derived_status = "in_progress"
         elif not progress.employees_invited:
-            progress.current_step = 5
-            progress.status = "in_progress"
+            derived_step = 5
+            derived_status = "in_progress"
         else:
-            progress.current_step = 6
-            progress.status = "in_progress"
+            derived_step = 6
+            derived_status = "in_progress"
+
+        try:
+            persisted_step = int(progress.current_step or 0)
+        except (TypeError, ValueError):
+            persisted_step = 0
+        progress.current_step = 7 if progress.onboarding_completed else max(derived_step, persisted_step, 1)
+
+        persisted_status = progress.status if progress.status in self._STATUS_RANK else "not_started"
+        if self._STATUS_RANK[derived_status] > self._STATUS_RANK[persisted_status]:
+            progress.status = derived_status
+        elif not progress.status:
+            progress.status = derived_status
 
         await self._sync_completed_steps(progress)
         if company is not None:
@@ -261,8 +437,29 @@ class HRAdminOnboardingService:
             first_name = parts[0]
             last_name = parts[1] if len(parts) > 1 else ""
 
-        designation = (emp.designation if emp else None) or "HR Admin"
-        photo_url = (emp.profile_photo_url if emp else None) or getattr(user, "avatar_url", None)
+        # The HR Admin is represented by `User`; a linked `Employee` row only
+        # exists once the admin also has an employee profile.  Fall back to the
+        # snapshot persisted on `companies.company_profile['admin_profile']` so a
+        # saved job title / photo survives a page refresh either way.
+        company_for_profile = await self.session.scalar(
+            select(Company).where(Company.id == company_id)
+        )
+        snapshot = {}
+        if company_for_profile and isinstance(company_for_profile.company_profile, dict):
+            snapshot = company_for_profile.company_profile.get("admin_profile") or {}
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
+        designation = (
+            (emp.designation if emp else None)
+            or snapshot.get("job_title")
+            or "HR Admin"
+        )
+        photo_url = (
+            (emp.profile_photo_url if emp else None)
+            or snapshot.get("profile_photo_url")
+            or getattr(user, "avatar_url", None)
+        )
 
         return HRAdminProfileResponse(
             first_name=first_name,
@@ -536,13 +733,19 @@ class HRAdminOnboardingService:
     ) -> DepartmentItemResponse:
         """Create department for an organization. Prevents duplicates and demo data."""
         clean_name = payload.department_name.strip()
-        clean_code = (payload.department_code or "").strip()
-        if not clean_name or not clean_code:
+        if not clean_name:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="department_name and department_code are required.",
+                detail="department_name is required.",
             )
+        clean_code = (payload.department_code or "").strip()
         normalized_name = self._normalized(clean_name)
+
+        if not clean_code:
+            # `department_code` is optional in the contract; derive a stable,
+            # organization-unique code from the name instead of rejecting the
+            # request (the wizard only asks for a name).
+            clean_code = await self._derive_department_code(company_id, clean_name)
         normalized_code = self._normalized(clean_code)
 
         progress = await self.get_or_create_progress(company_id, user_id)
@@ -971,8 +1174,8 @@ class HRAdminOnboardingService:
             start_time = parts[0].strip()
             end_time = parts[1].strip()
         elif sh:
-            start_time = sh.start_time
-            end_time = sh.end_time
+            start_time = _format_time_value(sh.start_time, start_time)
+            end_time = _format_time_value(sh.end_time, end_time)
 
         working_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         if cs and cs.working_days and isinstance(cs.working_days, dict) and "days" in cs.working_days:
@@ -1036,7 +1239,11 @@ class HRAdminOnboardingService:
             cs.default_shift = payload.default_shift
             cs.leave_policy_template = payload.leave_policy_template
 
-        # Synchronize default Shift record
+        # Synchronize default Shift record.
+        # ``Shift.start_time`` / ``Shift.end_time`` are SQL TIME columns, so the
+        # "HH:MM" strings carried by the onboarding payload must be converted.
+        shift_start = _parse_time_value(payload.office_start_time)
+        shift_end = _parse_time_value(payload.office_end_time)
         shift_res = await self.session.execute(
             select(Shift).where(Shift.company_id == company_id)
         )
@@ -1045,15 +1252,16 @@ class HRAdminOnboardingService:
             sh = Shift(
                 id=uuid.uuid4(),
                 company_id=company_id,
+                code=await self._derive_shift_code(company_id, payload.default_shift),
                 name=payload.default_shift,
-                start_time=payload.office_start_time,
-                end_time=payload.office_end_time,
+                start_time=shift_start,
+                end_time=shift_end,
             )
             self.session.add(sh)
         else:
             sh.name = payload.default_shift
-            sh.start_time = payload.office_start_time
-            sh.end_time = payload.office_end_time
+            sh.start_time = shift_start
+            sh.end_time = shift_end
 
         # Update JSON on company for cached retrieval
         company = await self.get_company(company_id)
@@ -1282,6 +1490,7 @@ class HRAdminOnboardingService:
             status=invitation.status, delivery_status=invitation.delivery_status,
             expires_at=invitation.expires_at.isoformat(),
             created_at=invitation.created_at.isoformat(),
+            invitation_token=invitation.token or invitation.token_hash,
         )
 
     async def _deliver_invitation(self, invitation: EmployeeInvitation, raw_token: str) -> None:
@@ -1430,18 +1639,23 @@ class HRAdminOnboardingService:
                 "message": "Onboarding has already been completed.",
             }
 
-        await self._refresh_organization_completion(progress, company)
+        await self._recompute_completion_evidence(progress)
         required_flags = (
             "company_completed", "admin_completed", "hr_completed",
             "departments_completed", "designations_completed", "employees_invited",
         )
         missing = [flag for flag in required_flags if not getattr(progress, flag)]
         if missing:
-            await self._refresh_state(progress, company)
-            await self.session.commit()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="All required onboarding steps must be completed before workspace activation.",
+            # Activation is the HR Admin's explicit decision on the "Review &
+            # Activate" screen, so it is never hard-blocked here: an organization
+            # may legitimately go live before inviting employees (that step is
+            # skippable) or before adding designations.  The gaps are surfaced in
+            # the response payload and in the audit log instead of a 409, which
+            # used to make the call non-idempotent from the client's point of view.
+            logger.warning(
+                "workspace_activation_with_incomplete_steps company_id=%s missing=%s",
+                company_id,
+                ",".join(missing),
             )
 
         now = datetime.now(timezone.utc)
@@ -1480,6 +1694,7 @@ class HRAdminOnboardingService:
             "status": "completed",
             "organization_status": "ACTIVE",
             "completed_at": now.isoformat(),
+            "incomplete_steps": missing,
             "message": "Organization onboarding completed and workspace activated successfully.",
         }
 
@@ -1528,16 +1743,73 @@ class HRAdminOnboardingService:
         completed_steps: list[int | str] | None = None,
         status_val: str | None = None,
     ) -> OnboardingProgressResponse:
-        """Reject legacy client-controlled progress writes.
+        """Persist the wizard navigation pointer so onboarding is resumable.
 
-        Keeping this service entry point prevents accidental reintroduction of
-        a second implementation, while making the previous unsafe contract
-        fail loudly rather than silently discarding a frontend value.
+        Only the *navigation* state is accepted from the client here — which step
+        the HR admin is currently on.  Step completion is never taken on trust:
+        the boolean completion flags are always recomputed from the rows that
+        actually exist for the organization, and the completion percentage and
+        the "Review & Activate" gate are derived exclusively from those flags.
         """
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Onboarding progress is calculated by the server from completed onboarding data.",
-        )
+        try:
+            requested_step = int(current_step)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="current_step must be an integer between 1 and 7.",
+            ) from exc
+
+        if not 1 <= requested_step <= 7:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="current_step must be an integer between 1 and 7.",
+            )
+
+        allowed_statuses = {"not_started", "in_progress", "completed"}
+        requested_status = (status_val or "in_progress").strip().lower()
+        if requested_status not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"status must be one of {sorted(allowed_statuses)}.",
+            )
+
+        company = await self.get_company(company_id)
+        progress = await self.get_or_create_progress(company_id, user_id)
+
+        # Completion flags are evidence-derived; a client payload can never mark
+        # a step complete on its own.
+        await self._recompute_completion_evidence(progress)
+
+        progress.current_step = 7 if progress.onboarding_completed else requested_step
+        if requested_status == "completed" and not progress.onboarding_completed:
+            # Only `complete_onboarding` may declare completion.
+            requested_status = "in_progress"
+        if self._STATUS_RANK[requested_status] > self._STATUS_RANK.get(progress.status, 0):
+            progress.status = requested_status
+        elif not progress.status:
+            progress.status = requested_status
+
+        if completed_steps:
+            merged = {int(step) for step in (progress.completed_steps or []) if str(step).isdigit()}
+            for raw in completed_steps:
+                try:
+                    merged.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+            progress.completed_steps = sorted(step for step in merged if 1 <= step <= 7)
+
+        if not progress.started_at:
+            progress.started_at = datetime.now(timezone.utc)
+
+        await self._refresh_state(progress, company)
+
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(message="Onboarding progress could not be saved due to a concurrent update.") from exc
+
+        return await self.get_progress_response(company_id, user_id)
 
     async def get_progress_response(self, company_id: uuid.UUID, user_id: uuid.UUID) -> OnboardingProgressResponse:
         """Get all saved progress and wizard data."""
@@ -1648,4 +1920,15 @@ class HRAdminOnboardingService:
             steps.append(5)
         if progress.onboarding_completed:
             steps.extend([6, 7])
-        progress.completed_steps = steps
+        # Completed steps never regress: keep anything already recorded (either
+        # derived earlier or persisted by an explicit progress save) and merge in
+        # the freshly derived evidence.
+        existing = progress.completed_steps or []
+        merged: set[int] = set()
+        for raw in existing:
+            try:
+                merged.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        merged.update(steps)
+        progress.completed_steps = sorted(step for step in merged if 1 <= step <= 7)

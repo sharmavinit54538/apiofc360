@@ -23,6 +23,7 @@ class PayrollCycleCreateRequest(PayrollBaseModel):
     end_date: Optional[date] = None
     processing_date: Optional[date] = None
     payment_date: Optional[date] = None
+    regularisation_deadline: Optional[datetime] = None
 
 
 class PayrollCycleResponse(PayrollBaseModel):
@@ -39,6 +40,10 @@ class PayrollCycleResponse(PayrollBaseModel):
     payment_date: Optional[date] = None
     is_active: bool = False
     is_locked: bool = False
+    regularisation_deadline: Optional[datetime] = None
+    attendance_locked_at: Optional[datetime] = None
+    attendance_locked_by: Optional[str] = None
+    unlock_reason: Optional[str] = None
     total_employees: int = 0
     total_gross: float = 0.0
     total_deductions: float = 0.0

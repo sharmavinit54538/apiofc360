@@ -124,7 +124,7 @@ def test_register_payload_missing_required_fields():
 # 2. AuthService Business Logic & Flow Tests
 # ============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_successful_registration_flow():
     """Test full registration logic: Company, User, Employee, Departments, Leave Policies, OTP, Email."""
     mock_session = AsyncMock()
@@ -218,7 +218,7 @@ async def test_auth_service_successful_registration_flow():
     mock_session.refresh.assert_awaited_once_with(user)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_duplicate_email_returns_409():
     """Test duplicate verified email raises ConflictException (409)."""
     mock_session = AsyncMock()
@@ -253,7 +253,7 @@ async def test_auth_service_duplicate_email_returns_409():
     mock_session.rollback.assert_awaited_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_duplicate_phone_returns_409():
     """Test duplicate verified phone raises ConflictException (409)."""
     mock_session = AsyncMock()
@@ -288,7 +288,7 @@ async def test_auth_service_duplicate_phone_returns_409():
     assert exc_info.value.message == "Phone already exists."
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_transaction_rollback_on_db_error():
     """Test that when a database error occurs, rollback is performed and DatabaseException is raised."""
     mock_session = AsyncMock()
@@ -356,7 +356,7 @@ from app.main import create_app
 from app.services.auth_service import get_auth_service
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_fastapi_register_endpoint_success():
     """Test POST /api/v1/auth/register through FastAPI routing and dependency injection."""
     app = create_app()
@@ -389,7 +389,7 @@ async def test_fastapi_register_endpoint_success():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_fastapi_register_endpoint_conflict():
     """Test POST /api/v1/auth/register returns 409 when AuthService raises ConflictException."""
     app = create_app()

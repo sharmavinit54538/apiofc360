@@ -64,3 +64,13 @@ class EmployeeBankAccountResponse(BaseModel):
     is_primary: bool
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("account_number", mode="after")
+    @classmethod
+    def mask_account_number_response(cls, value: str) -> str:
+        from app.utils.security import mask_bank_account
+        return mask_bank_account(value) or ""
+
+
+# Canonical short name retained for APIs that refer to BankAccountResponse.
+BankAccountResponse = EmployeeBankAccountResponse

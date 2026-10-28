@@ -279,6 +279,12 @@ class FnfResponse(BaseModel):
     net_payable_amount: Decimal
     payment_status: str
     payment_date: date | None
+    status: str = "DRAFT"
+    settlement_breakup: dict | None = None
+    statement_path: str | None = None
+    statement_hash: str | None = None
+    settled_at: datetime | None = None
+    generated_letters_json: list | None = None
 
 
 class FnfPreviewResponse(BaseModel):
@@ -289,17 +295,27 @@ class FnfPreviewResponse(BaseModel):
     last_working_date: date
     tenure_years: float
     basic_monthly: float
+    da_monthly: float = 0.0
+    gross_monthly: float = 0.0
     last_salary: float
+    base_pending_salary: float = 0.0
+    arrears: float = 0.0
     pending_salary: float
     leave_encashment: float
     unused_leave_days: float
+    leave_breakup: list[dict] = Field(default_factory=list)
     gratuity: float
+    gratuity_ceiling: float = 2000000.0
     bonus: float
     incentives: float
     recoveries: float
     notice_recovery: float
     required_notice_days: int
     actual_notice_days: int
+    notice_shortfall_days: int = 0
+    notice_payout: float = 0.0
+    notice_waived: bool = False
+    notice_buyout: bool = False
     asset_recovery: float
     loan_recovery: float
     other_deductions: float

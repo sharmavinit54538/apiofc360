@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, NotFoundException
@@ -408,6 +408,13 @@ class ComplianceMonitorService:
         if not pending_actions:
             pending_actions.append("No immediate audit blocking actions pending.")
 
+        from app.models.employee_policy_acceptance import PolicyAcknowledgementAssignment
+        pending_policy_stmt = select(func.count(PolicyAcknowledgementAssignment.id)).where(
+            PolicyAcknowledgementAssignment.status == "PENDING"
+        )
+        if company_id:
+            pending_policy_stmt = pending_policy_stmt.where(PolicyAcknowledgementAssignment.company_id == company_id)
+        pending_policy_acknowledgements = (await self.session.execute(pending_policy_stmt)).scalar() or 0
         checklist = [
             {
                 "section": "Payroll & Tax Records",
@@ -423,14 +430,22 @@ class ComplianceMonitorService:
             },
             {
                 "section": "Company Policy Compliance",
-                "status": "READY",
+                "status": "READY" if pending_policy_acknowledgements == 0 else "PENDING_REVIEW",
+                "pending_acknowledgements": pending_policy_acknowledgements,
             },
         ]
 
-        timeline = [
-            {"event": "Annual Statutory HR Audit", "date": "2026-08-15", "status": "UPCOMING"},
-            {"event": "Quarterly EPF/ESIC Reconciliation", "date": "2026-07-15", "status": "COMPLETED"},
-        ]
+        from app.models.payroll_compliance import ComplianceDueDate
+        due_stmt = select(ComplianceDueDate).order_by(ComplianceDueDate.due_date).limit(20)
+        if company_id:
+            due_stmt = due_stmt.where(ComplianceDueDate.company_id == company_id)
+        due_rows = (await self.session.execute(due_stmt)).scalars().all()
+        today = date.today()
+        timeline = [{
+            "event": row.title, "date": row.due_date.isoformat(),
+            "status": "COMPLETED" if row.status in {"FILED", "FILED_ON_TIME", "FILED_LATE", "PAID"} else ("OVERDUE" if row.due_date < today else "UPCOMING"),
+            "filing_frequency": row.filing_frequency,
+        } for row in due_rows]
 
         return AuditReadinessResponse(
             readiness_pct=readiness_pct,
@@ -443,34 +458,73 @@ class ComplianceMonitorService:
     async def get_analytics(
         self, company_id: Optional[uuid.UUID] = None
     ) -> ComplianceAnalyticsResponse:
-        """Fetch real compliance analytics across departments and trends."""
+        """Build every analytics series from current database rows."""
+        from collections import defaultdict
+        from app.models.employee import Employee
+        from app.models.employee_document import EmployeeDocument
+        from app.models.employee_policy_acceptance import PolicyAcknowledgementAssignment
+        from app.models.policy import CompanyPolicyDocument
+
         kpis = await self.repo.get_dashboard_kpis(company_id=company_id)
         trend = kpis.get("compliance_trend", [])
         dept_analytics = await self.repo.get_department_analytics(company_id=company_id)
 
-        policy_compliance = [
-            {"policy": "Attendance Policy", "compliance_pct": 96.0},
-            {"policy": "IT Security & Data Privacy Policy", "compliance_pct": 94.0},
-            {"policy": "Code of Conduct & POSH", "compliance_pct": 98.0},
-        ]
+        assignment_stmt = select(PolicyAcknowledgementAssignment, CompanyPolicyDocument).join(
+            CompanyPolicyDocument,
+            CompanyPolicyDocument.id == PolicyAcknowledgementAssignment.policy_document_id,
+        )
+        if company_id:
+            assignment_stmt = assignment_stmt.where(PolicyAcknowledgementAssignment.company_id == company_id)
+        assignment_rows = (await self.session.execute(assignment_stmt)).all()
+        policy_groups: dict[uuid.UUID, dict[str, Any]] = {}
+        for assignment, policy in assignment_rows:
+            if assignment.status == "CANCELLED":
+                continue
+            group = policy_groups.setdefault(policy.id, {"policy": policy.title, "version": policy.version_number, "assigned": 0, "acknowledged": 0})
+            group["assigned"] += 1
+            group["acknowledged"] += assignment.status == "ACKNOWLEDGED"
+        policy_compliance = [{
+            "policy": group["policy"], "version": group["version"],
+            "compliance_pct": round(group["acknowledged"] * 100.0 / group["assigned"], 1),
+            "assigned": group["assigned"], "acknowledged": group["acknowledged"],
+        } for group in policy_groups.values()]
 
-        missing_docs = kpis.get("missing_docs", 0)
-        doc_pct = max(0.0, 100.0 - (missing_docs * 0.1))
-        document_compliance = [
-            {"doc_type": "Identity Proofs (PAN/Aadhaar)", "compliance_pct": round(doc_pct, 1)},
-            {"doc_type": "Contracts & NDAs", "compliance_pct": 95.0},
-        ]
+        document_stmt = (
+            select(EmployeeDocument.document_type, EmployeeDocument.status, func.count(EmployeeDocument.id))
+            .join(Employee, Employee.id == EmployeeDocument.employee_id)
+            .where(EmployeeDocument.is_deleted.is_(False), Employee.is_deleted.is_(False))
+            .group_by(EmployeeDocument.document_type, EmployeeDocument.status)
+        )
+        if company_id:
+            document_stmt = document_stmt.where(Employee.company_id == company_id)
+        document_groups: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "verified": 0})
+        for doc_type, doc_status, count in (await self.session.execute(document_stmt)).all():
+            key = doc_type or "UNCATEGORISED"
+            document_groups[key]["total"] += count
+            document_groups[key]["verified"] += count if doc_status == "VERIFIED" else 0
+        document_compliance = [{
+            "doc_type": key,
+            "compliance_pct": round(values["verified"] * 100.0 / values["total"], 1) if values["total"] else 100.0,
+            "total": values["total"], "verified": values["verified"],
+        } for key, values in document_groups.items()]
 
+        audit_stmt = select(ComplianceAuditLog)
+        if company_id:
+            audit_stmt = audit_stmt.where(ComplianceAuditLog.company_id == company_id)
+        audits = (await self.session.execute(audit_stmt)).scalars().all()
+        audit_groups: dict[str, list[int]] = defaultdict(list)
+        risk_scores = {"LOW": 95, "MEDIUM": 82, "HIGH": 68}
+        for audit in audits:
+            created = audit.created_at
+            quarter = (created.month - 1) // 3 + 1
+            audit_groups[f"Q{quarter} {created.year}"].append(risk_scores.get(audit.risk_level, 50))
         audit_performance = [
-            {"quarter": "Q1 2026", "audit_score": 91.0},
-            {"quarter": "Q2 2026", "audit_score": round(float(kpis.get("compliance_score", 90.0)), 1)},
+            {"quarter": quarter, "audit_score": round(sum(scores) / len(scores), 1), "audit_count": len(scores)}
+            for quarter, scores in sorted(audit_groups.items())
         ]
-
         return ComplianceAnalyticsResponse(
-            monthly_trend=trend,
-            department_compliance=dept_analytics[:6],
-            policy_compliance=policy_compliance,
-            document_compliance=document_compliance,
+            monthly_trend=trend, department_compliance=dept_analytics[:6],
+            policy_compliance=policy_compliance, document_compliance=document_compliance,
             audit_performance=audit_performance,
         )
 
@@ -493,6 +547,24 @@ class ComplianceMonitorService:
                 )
             )
 
+        from app.models.payroll_compliance import ComplianceDueDate
+        due_stmt = select(ComplianceDueDate).where(
+            ComplianceDueDate.status.notin_(["FILED", "FILED_ON_TIME", "FILED_LATE", "PAID", "WAIVED"])
+        ).order_by(ComplianceDueDate.due_date).limit(25)
+        if company_id:
+            due_stmt = due_stmt.where(ComplianceDueDate.company_id == company_id)
+        today = date.today()
+        for due in (await self.session.execute(due_stmt)).scalars().all():
+            days = (due.due_date - today).days
+            if days > 7:
+                continue
+            alerts.append(ComplianceAlertItem(
+                id=str(due.id), title=due.title,
+                severity="CRITICAL" if days < 0 else ("HIGH" if days <= 2 else "MEDIUM"),
+                category="Statutory Filing",
+                message=f"Due {due.due_date.isoformat()}: {'overdue by ' + str(-days) + ' day(s)' if days < 0 else 'due in ' + str(days) + ' day(s)'}.",
+                timestamp=datetime.now(),
+            ))
         return ComplianceAlertsResponse(alerts=alerts)
 
     async def get_report(
@@ -597,3 +669,262 @@ class ComplianceMonitorService:
     ) -> RiskDetectionResponse:
         """Run risk analysis engine over real database data."""
         return await self.get_risks(company_id=company_id)
+
+    @staticmethod
+    def _due_status(due_date: date, stored_status: str | None, today: date | None = None) -> str:
+        if stored_status in {"FILED", "FILED_ON_TIME", "FILED_LATE", "PAID", "WAIVED"}:
+            return stored_status
+        today = today or date.today()
+        if due_date < today:
+            return "OVERDUE"
+        if (due_date - today).days <= 7:
+            return "DUE_SOON"
+        return "PENDING"
+
+    async def get_statutory_calendar(
+        self, *, company_id: uuid.UUID, year: int, frequency: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Unified monthly/quarterly/annual calendar from rules and filing rows."""
+        import calendar as month_calendar
+        from sqlalchemy import or_
+        from app.models.payroll_compliance import ComplianceDueDate, PayrollCompliance
+        frequency = frequency.upper() if frequency else None
+        if frequency and frequency not in {"MONTHLY", "QUARTERLY", "ANNUAL"}:
+            raise ValueError("frequency must be MONTHLY, QUARTERLY, or ANNUAL")
+        due_rows = (await self.session.execute(select(ComplianceDueDate).where(
+            ComplianceDueDate.company_id == company_id, ComplianceDueDate.period_year == year,
+        ))).scalars().all()
+        by_rule_period = {(row.compliance_id, row.period_month, row.period_year): row for row in due_rows}
+        items: list[dict[str, Any]] = []
+        included_ids = set()
+        for row in due_rows:
+            if frequency and row.filing_frequency != frequency:
+                continue
+            items.append({
+                "id": str(row.id), "compliance_id": str(row.compliance_id) if row.compliance_id else None,
+                "title": row.title, "frequency": row.filing_frequency,
+                "period": row.period, "period_month": row.period_month, "period_year": row.period_year,
+                "due_date": row.due_date.isoformat(), "status": self._due_status(row.due_date, row.status),
+                "overdue_days": max(0, (date.today() - row.due_date).days) if self._due_status(row.due_date, row.status) == "OVERDUE" else 0,
+                "challan_id": str(row.challan_id) if row.challan_id else None,
+                "challan_number": row.challan_number, "trrn_number": row.trrn_number,
+                "utr_number": row.utr_number, "payment_date": row.payment_date.isoformat() if row.payment_date else None,
+                "filing_reference": row.filing_reference, "filed_at": row.filed_at.isoformat() if row.filed_at else None,
+            })
+            included_ids.add(row.id)
+
+        rules = (await self.session.execute(select(PayrollCompliance).where(
+            PayrollCompliance.is_enabled.is_(True),
+            or_(PayrollCompliance.company_id == company_id, PayrollCompliance.company_id.is_(None)),
+        ))).scalars().all()
+        # Tenant-specific rule overrides a global row with the same code.
+        rule_map = {}
+        for rule in sorted(rules, key=lambda item: item.company_id == company_id):
+            rule_map[rule.compliance_code] = rule
+        for rule in rule_map.values():
+            rule_frequency = rule.filing_frequency.upper()
+            if frequency and rule_frequency != frequency:
+                continue
+            if rule_frequency not in {"MONTHLY", "QUARTERLY", "ANNUAL"}:
+                continue
+            months = range(1, 13) if rule_frequency == "MONTHLY" else ((3, 6, 9, 12) if rule_frequency == "QUARTERLY" else (12,))
+            for month in months:
+                existing = by_rule_period.get((rule.id, month, year))
+                if existing:
+                    continue
+                due_year, due_month = (year + 1, 1) if month == 12 else (year, month + 1)
+                due_day = min(max(1, rule.due_day_of_month), month_calendar.monthrange(due_year, due_month)[1])
+                due_date = date(due_year, due_month, due_day)
+                period_label = f"{month_calendar.month_name[month]} {year}" if rule_frequency == "MONTHLY" else (f"Q{month // 3} {year}" if rule_frequency == "QUARTERLY" else f"Annual {year}")
+                items.append({
+                    "id": None, "compliance_id": str(rule.id), "title": rule.compliance_name,
+                    "frequency": rule_frequency, "period": period_label,
+                    "period_month": month, "period_year": year, "due_date": due_date.isoformat(),
+                    "status": self._due_status(due_date, "PENDING"),
+                    "overdue_days": max(0, (date.today() - due_date).days) if due_date < date.today() else 0,
+                    "challan_id": None, "challan_number": None, "trrn_number": None,
+                    "utr_number": None, "payment_date": None, "filing_reference": None, "filed_at": None,
+                })
+        return sorted(items, key=lambda item: (item["due_date"], item["title"]))
+
+    async def track_statutory_filing(
+        self, due_date_id: uuid.UUID, *, company_id: uuid.UUID,
+        payment_date: date, filing_reference: str | None = None,
+        challan_number: str | None = None, utr_number: str | None = None,
+        remarks: str | None = None,
+    ):
+        from app.models.payroll_compliance import ComplianceDueDate
+        row = await self.session.get(ComplianceDueDate, due_date_id)
+        if row is None or row.company_id != company_id:
+            raise LookupError("Statutory filing due date not found")
+        row.payment_date = payment_date
+        row.status = "FILED_ON_TIME" if payment_date <= row.due_date else "FILED_LATE"
+        row.filed_at = datetime.now()
+        row.filing_reference = filing_reference
+        row.challan_number = challan_number or row.challan_number
+        row.utr_number = utr_number or row.utr_number
+        row.remarks = remarks
+        row.is_overdue = False
+        row.overdue_days = 0
+        if row.challan_id:
+            from app.models.payroll_compliance import ComplianceChallan
+            challan = await self.session.get(ComplianceChallan, row.challan_id)
+            if challan:
+                challan.payment_date = payment_date
+                challan.utr_number = utr_number or challan.utr_number
+                challan.bank_reference = filing_reference or challan.bank_reference
+                challan.status = row.status
+        await self.session.commit()
+        return row
+
+    async def get_challan_archive(
+        self, *, company_id: uuid.UUID, year: int | None = None,
+        month: int | None = None, challan_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        from app.models.payroll_compliance import ComplianceChallan
+        stmt = select(ComplianceChallan).where(ComplianceChallan.company_id == company_id)
+        if year:
+            stmt = stmt.where(ComplianceChallan.period_year == year)
+        if month:
+            stmt = stmt.where(ComplianceChallan.period_month == month)
+        if challan_type:
+            stmt = stmt.where(ComplianceChallan.challan_type == challan_type.upper())
+        rows = (await self.session.execute(stmt.order_by(ComplianceChallan.period_year.desc(), ComplianceChallan.period_month.desc()))).scalars().all()
+        return [{
+            "id": str(row.id), "challan_type": row.challan_type,
+            "period_month": row.period_month, "period_year": row.period_year,
+            "status": row.status, "total_amount": float(row.total_amount or 0),
+            "employee_count": row.employee_count, "trrn_number": row.trrn_number,
+            "crn_number": row.crn_number, "bank_reference": row.bank_reference,
+            "utr_number": row.utr_number, "payment_date": row.payment_date.isoformat() if row.payment_date else None,
+            "challan_file_url": row.challan_file_url, "payment_receipt_url": row.payment_receipt_url,
+        } for row in rows]
+
+    async def generate_statutory_register(
+        self, register_type: str, *, company_id: uuid.UUID, year: int, month: int,
+        legal_entity_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Generate Form B, Form D, Fines/Deductions, or Bonus register from live rows."""
+        import calendar as month_calendar
+        import csv
+        import io
+        from app.attendance.models.attendance import Attendance
+        from app.models.employee import Employee
+        from app.models.payroll import PayrollRun, Payslip
+        from app.models.payroll_models import PayrollPeriod, PayrollRunEmployee, VariableInput
+
+        canonical = register_type.strip().upper().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "FORM_B": "FORM_B_WAGE_REGISTER", "WAGE_REGISTER": "FORM_B_WAGE_REGISTER",
+            "FORM_D": "FORM_D_ATTENDANCE_MUSTER_ROLL", "ATTENDANCE_MUSTER_ROLL": "FORM_D_ATTENDANCE_MUSTER_ROLL",
+            "FINES_DEDUCTIONS": "FINES_DEDUCTIONS_REGISTER", "DEDUCTIONS_REGISTER": "FINES_DEDUCTIONS_REGISTER",
+            "BONUS": "BONUS_REGISTER",
+        }
+        canonical = aliases.get(canonical, canonical)
+        supported = {"FORM_B_WAGE_REGISTER", "FORM_D_ATTENDANCE_MUSTER_ROLL", "FINES_DEDUCTIONS_REGISTER", "BONUS_REGISTER"}
+        if canonical not in supported:
+            raise ValueError(f"register_type must be one of {', '.join(sorted(supported))}")
+        if not 1 <= month <= 12:
+            raise ValueError("month must be between 1 and 12")
+        rows: list[dict[str, Any]] = []
+
+        if canonical == "FORM_D_ATTENDANCE_MUSTER_ROLL":
+            start = date(year, month, 1)
+            end = date(year, month, month_calendar.monthrange(year, month)[1])
+            stmt = select(Attendance, Employee).join(Employee, Employee.id == Attendance.employee_id).where(
+                Attendance.company_id == company_id, Attendance.date >= start, Attendance.date <= end,
+            )
+            if legal_entity_id:
+                stmt = stmt.where(Employee.legal_entity_id == legal_entity_id)
+            records = (await self.session.execute(stmt.order_by(Employee.employee_id, Attendance.date))).all()
+            for attendance, employee in records:
+                rows.append({
+                    "employee_code": employee.employee_id, "employee_name": f"{employee.first_name} {employee.last_name}".strip(),
+                    "department": employee.department, "date": attendance.date.isoformat(), "day": attendance.date.day,
+                    "status": attendance.status, "check_in": attendance.check_in_time.isoformat() if attendance.check_in_time else None,
+                    "check_out": attendance.check_out_time.isoformat() if attendance.check_out_time else None,
+                    "working_hours": attendance.working_hours or 0, "late_minutes": attendance.late_minutes or 0,
+                    "overtime_hours": attendance.overtime_hours or 0, "verified": attendance.verified,
+                })
+        else:
+            stmt = select(Payslip, Employee).join(Employee, Employee.id == Payslip.employee_id).where(
+                Payslip.company_id == company_id, Payslip.period_year == year, Payslip.period_month == month,
+            )
+            if legal_entity_id:
+                stmt = stmt.where(Employee.legal_entity_id == legal_entity_id)
+            payslip_rows = (await self.session.execute(stmt.order_by(Employee.employee_id))).all()
+            fine_map: dict[uuid.UUID, dict[str, Any]] = {}
+            deduction_map: dict[uuid.UUID, dict[str, Any]] = {}
+            if canonical == "FINES_DEDUCTIONS_REGISTER":
+                period_stmt = select(PayrollPeriod).where(
+                    PayrollPeriod.company_id == company_id, PayrollPeriod.period_year == year, PayrollPeriod.period_month == month,
+                )
+                if legal_entity_id:
+                    period_stmt = period_stmt.where(PayrollPeriod.legal_entity_id == legal_entity_id)
+                periods = (await self.session.execute(period_stmt)).scalars().all()
+                if periods:
+                    variable_rows = (await self.session.execute(select(VariableInput).where(
+                        VariableInput.period_id.in_([period.id for period in periods]),
+                        VariableInput.status == "APPROVED",
+                    ))).scalars().all()
+                    for variable in variable_rows:
+                        if "FINE" in variable.type.upper():
+                            entry = fine_map.setdefault(variable.employee_id, {"fine_amount": 0.0, "fine_reasons": []})
+                            entry["fine_amount"] += variable.amount_paise / 100.0
+                            entry["fine_reasons"].append(variable.description)
+                run_rows = (await self.session.execute(
+                    select(PayrollRunEmployee, PayrollRun).join(PayrollRun, PayrollRun.id == PayrollRunEmployee.run_id).where(
+                        PayrollRun.company_id == company_id, PayrollRun.period_year == year, PayrollRun.period_month == month,
+                    )
+                )).all()
+                for run_employee, run in run_rows:
+                    if legal_entity_id and run.legal_entity_id != legal_entity_id:
+                        continue
+                    deduction_map[run_employee.employee_id] = run_employee.deductions_breakup or {}
+
+            for payslip, employee in payslip_rows:
+                base = {
+                    "employee_code": employee.employee_id, "employee_name": f"{employee.first_name} {employee.last_name}".strip(),
+                    "department": employee.department, "designation": employee.designation,
+                    "period_month": month, "period_year": year,
+                }
+                if canonical == "FORM_B_WAGE_REGISTER":
+                    rows.append({**base, "paid_days": float(payslip.paid_days or 0), "lop_days": float(payslip.lop_days or 0),
+                        "basic": float(payslip.basic or 0), "hra": float(payslip.hra or 0),
+                        "conveyance": float(payslip.conveyance or 0), "special_allowance": float(payslip.special_allowance or 0),
+                        "other_allowances": float(payslip.other_allowances_total or 0), "arrears": float(payslip.arrears or 0),
+                        "gross_earnings": float(payslip.gross_earnings or 0), "employee_pf": float(payslip.employee_pf or 0),
+                        "employee_esi": float(payslip.employee_esi or 0), "professional_tax": float(payslip.professional_tax or 0),
+                        "tds": float(payslip.tds or 0), "other_deductions": float(payslip.other_deductions or 0),
+                        "total_deductions": float(payslip.total_deductions or 0), "net_pay": float(payslip.net_pay or 0),
+                        "payment_status": payslip.payment_status, "payment_reference": payslip.payment_reference})
+                elif canonical == "BONUS_REGISTER":
+                    rows.append({**base, "bonus_amount": float(payslip.bonus or 0), "gross_earnings": float(payslip.gross_earnings or 0),
+                        "net_pay": float(payslip.net_pay or 0), "payment_status": payslip.payment_status,
+                        "payment_date": payslip.payment_date.isoformat() if payslip.payment_date else None,
+                        "payment_reference": payslip.payment_reference})
+                else:
+                    fine = fine_map.get(employee.id, {"fine_amount": 0.0, "fine_reasons": []})
+                    rows.append({**base, "fine_amount": fine["fine_amount"], "fine_reasons": " | ".join(fine["fine_reasons"]),
+                        "employee_pf": float(payslip.employee_pf or 0), "employee_esi": float(payslip.employee_esi or 0),
+                        "professional_tax": float(payslip.professional_tax or 0), "tds": float(payslip.tds or 0),
+                        "lop_deduction": float(payslip.lop_deduction or 0), "other_deductions": float(payslip.other_deductions or 0),
+                        "total_deductions": float(payslip.total_deductions or 0),
+                        "deduction_breakup": deduction_map.get(employee.id, {})})
+
+        columns = list(rows[0].keys()) if rows else ["employee_code", "employee_name", "period_month", "period_year"]
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: json.dumps(value, default=str) if isinstance(value, (dict, list)) else value for key, value in row.items()})
+        filename = f"{canonical}_{year}_{month:02d}.csv"
+        return {
+            "register_type": canonical, "period_month": month, "period_year": year,
+            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
+            "columns": columns, "rows": rows, "row_count": len(rows),
+            "file_name": filename, "csv_content": output.getvalue(),
+        }
+
+    async def generate_register(self, register_type: str, **kwargs) -> dict[str, Any]:
+        return await self.generate_statutory_register(register_type, **kwargs)

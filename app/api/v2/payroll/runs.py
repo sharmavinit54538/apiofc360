@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
+from decimal import Decimal
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
+from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _role, _uid
 from app.db.database import get_db_session
 from app.models.payroll import PayrollRun
 from app.schemas.payroll_v2.runs import (
@@ -23,6 +26,7 @@ from app.schemas.payroll_v2.runs import (
 )
 from app.services.payroll.payment_batch_service import PaymentBatchService
 from app.services.payroll.payslip_service import PayslipService
+from app.services.payroll.parallel_comparison_service import ParallelPayrollComparisonService
 from app.services.payroll.run_service import PayrollRunService
 from app.workers.payroll_tasks import (
     PayrollJobTracker,
@@ -38,11 +42,27 @@ def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
 
 
 def _run_dict(r: PayrollRun) -> dict[str, Any]:
+    # __dict__ defaults keep legacy MagicMock-based API tests and old rows
+    # compatible while real ORM runs expose the Batch 7 global-payroll fields.
+    fx_rate = r.__dict__.get("fx_rate_to_base", Decimal("1"))
+    fx_locked = r.__dict__.get("fx_rate_locked_at")
     return {
         "id": str(r.id),
         "company_id": str(r.company_id) if r.company_id else None,
+        "legal_entity_id": str(r.legal_entity_id) if r.legal_entity_id else None,
         "period_id": str(r.period_id) if r.period_id else None,
         "run_number": r.run_number,
+        "currency": r.__dict__.get("currency", "INR"),
+        "base_currency": r.__dict__.get("base_currency", "INR"),
+        "country_code": r.__dict__.get("country_code", "IN"),
+        "fx_rate_to_base": str(fx_rate),
+        "fx_rate_snapshot": r.__dict__.get("fx_rate_snapshot"),
+        "fx_rate_locked_at": fx_locked.isoformat() if fx_locked else None,
+        "statutory_rules_snapshot": r.__dict__.get("statutory_rules_snapshot"),
+        "statutory_rule_version": r.__dict__.get("statutory_rule_version", "IN_LEGACY_STATUTORY_SERVICE"),
+        "total_gross_base_paise": r.__dict__.get("total_gross_base_paise", 0),
+        "total_deductions_base_paise": r.__dict__.get("total_deductions_base_paise", 0),
+        "total_net_base_paise": r.__dict__.get("total_net_base_paise", 0),
         "period_month": r.period_month,
         "period_year": r.period_year,
         "status": r.status,
@@ -66,6 +86,21 @@ def _run_dict(r: PayrollRun) -> dict[str, Any]:
         "rejected_at": r.rejected_at.isoformat() if r.rejected_at else None,
         "rejection_reason": r.rejection_reason,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+
+
+def _parallel_comparison_dict(report) -> dict[str, Any]:
+    return {
+        "id": str(report.id), "report_id": str(report.id), "run_id": str(report.run_id),
+        "status": report.status, "summary": report.summary or {},
+        "employee_variances": report.employee_variances or [],
+        "employees": report.employee_variances or [],
+        "head_variances": report.head_variances or {},
+        "heads": report.head_variances or {}, "diagnoses": report.diagnoses or [],
+        "legacy_file_name": report.legacy_file_name,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
     }
 
 
@@ -102,6 +137,12 @@ async def create_run_v2(
         company_id=c_uuid,
         user_id=user_id,
         user_role=user_role,
+        currency=payload.currency,
+        country_code=payload.country_code,
+        fx_rate_to_base=payload.fx_rate_to_base,
+        fx_rate_source=payload.fx_rate_source,
+        fx_rate_as_of=payload.fx_rate_as_of,
+        statutory_rules=payload.statutory_rules,
     )
     return _ok(_run_dict(run), f"Payroll run created for period {p_uuid}")
 
@@ -167,6 +208,7 @@ async def approve_run_v2(
         comments=comments,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(_run_dict(run), "Payroll run approved successfully")
 
@@ -237,7 +279,7 @@ async def download_run_employee_payslip_v2(
     content_bytes, filename = await PayslipService.get_payslip_file(db, run_id=runId, employee_id=employeeId)
     return Response(
         content=content_bytes,
-        media_type="text/plain",
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -283,6 +325,7 @@ async def finalize_run_v2(
         lock=lock,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
     )
     return _ok(_run_dict(run), "Payroll run finalized successfully")
 
@@ -325,7 +368,7 @@ async def create_payment_batch_from_run(
     batch = await PaymentBatchService.create_batch_from_run(
         session=db,
         run_id=runId,
-        source_account_id=src_uuid,
+        source_account_id=str(src_uuid),
         payment_mode=payload.payment_mode,
         held_employee_ids=payload.held_employee_ids,
         notes=payload.notes,
@@ -334,7 +377,7 @@ async def create_payment_batch_from_run(
     )
     return _ok({
         "id": str(batch.id),
-        "run_id": str(batch.payroll_run_id),
+        "run_id": str(batch.run_id),
         "batch_number": batch.batch_number,
         "status": batch.status,
         "total_amount_paise": batch.total_amount_paise,
@@ -400,6 +443,25 @@ async def preview_run_v2(
     return _ok(preview, "Payroll run preview retrieved successfully")
 
 
+@router.post("/runs/{run_id}/parallel-compare", summary="Compare a payroll run with legacy CSV/XLSX output")
+async def parallel_compare_run_v2(
+    run_id: uuid.UUID,
+    file: Optional[UploadFile] = File(None),
+    legacy_file: Optional[UploadFile] = File(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    upload = file or legacy_file
+    if upload is None:
+        raise HTTPException(status_code=422, detail="A legacy CSV or XLSX file is required (field 'file').")
+    company_id = uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None
+    report = await ParallelPayrollComparisonService.compare_file(
+        db, run_id=run_id, file=upload, company_id=company_id, created_by=_uid(claims)
+    )
+    return _ok(_parallel_comparison_dict(report), "Parallel payroll comparison generated and persisted")
+
+
 # 15. POST /api/v2/payroll/runs/{runId}/process
 @router.post("/runs/{runId}/process", summary="Trigger payroll calculation engine processing")
 async def process_run_v2(
@@ -421,8 +483,57 @@ async def calculate_run_sync_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.execute_run_calculation(db, run_id=runId)
+    run = await PayrollRunService.execute_run_calculation(
+        db, run_id=runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
     return _ok(_run_dict(run), "Payroll calculation executed successfully")
+
+
+@router.post("/runs/{runId}/submit-for-approval", summary="Submit a processed run for approval")
+@router.post("/runs/{runId}/submit", summary="Submit a processed run for approval (alias)")
+async def submit_run_for_approval_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.submit_for_approval(
+        db, runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run submitted for approval")
+
+
+@router.post("/runs/{runId}/lock", summary="Lock an approved payroll run")
+async def lock_run_v2(
+    runId: uuid.UUID,
+    payload: Optional[PayrollRunFinalizeRequest] = None,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.finalize_run(
+        db, runId, notes=payload.notes if payload else None, lock=True,
+        user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run locked successfully")
+
+
+@router.post("/runs/{runId}/mark-paid", summary="Mark a locked payroll run as paid")
+@router.post("/runs/{runId}/pay", summary="Mark a locked payroll run as paid (alias)")
+async def mark_run_paid_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.mark_paid(
+        db, runId, user_id=_uid(claims), user_role=_role(claims),
+        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+    )
+    return _ok(_run_dict(run), "Payroll run marked as paid")
 
 
 # 16. POST /api/v2/payroll/runs/{runId}/reject
@@ -531,3 +642,77 @@ async def get_run_validation_issues_v2(
     res = await PayrollRunService.validate_run(db, run_id=runId)
     issues = res.get("issues", [])
     return _ok(issues, "Validation issues retrieved successfully")
+
+
+class EntityPayrollCalendarRequest(BaseModel):
+    period_month: int = Field(ge=1, le=12)
+    period_year: int = Field(ge=2000, le=2200)
+    start_date: date
+    end_date: date
+    processing_date: date
+    pay_date: date
+    attendance_cutoff_date: date | None = None
+
+
+class EmployeeEntityTransferRequest(BaseModel):
+    employee_id: uuid.UUID
+    to_legal_entity_id: uuid.UUID
+    to_branch_id: uuid.UUID | None = None
+    effective_date: date
+    reason: str = Field(min_length=3)
+
+
+def _claims_company(claims: dict) -> uuid.UUID:
+    value = claims.get("company_id") if claims else None
+    if not value:
+        raise HTTPException(status_code=403, detail="Tenant claim is required")
+    return uuid.UUID(str(value))
+
+
+@router.post("/entities/{legal_entity_id}/calendar", summary="Create/update an entity-specific payroll calendar")
+async def upsert_entity_calendar(
+    legal_entity_id: uuid.UUID, payload: EntityPayrollCalendarRequest,
+    claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin(claims)
+    try:
+        calendar, period = await PayrollRunService.upsert_entity_payroll_calendar(
+            db, legal_entity_id=legal_entity_id, company_id=_claims_company(claims), **payload.model_dump(),
+        )
+        return _ok({
+            "calendar_id": str(calendar.id), "payroll_period_id": str(period.id),
+            "legal_entity_id": str(calendar.legal_entity_id), "status": calendar.status,
+            "start_date": calendar.start_date.isoformat(), "end_date": calendar.end_date.isoformat(),
+            "pay_date": calendar.pay_date.isoformat(),
+        }, "Entity payroll calendar saved")
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 400, detail=str(exc)) from exc
+
+
+@router.post("/entities/transfers", summary="Schedule or complete an inter-entity employee transfer")
+async def transfer_employee_entity(
+    payload: EmployeeEntityTransferRequest, claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin(claims)
+    try:
+        transfer = await PayrollRunService.transfer_employee(
+            db, employee_id=payload.employee_id, to_legal_entity_id=payload.to_legal_entity_id,
+            to_branch_id=payload.to_branch_id, effective_date=payload.effective_date,
+            reason=payload.reason, requested_by=_uid(claims), company_id=_claims_company(claims),
+        )
+        return _ok({
+            "transfer_id": str(transfer.id), "status": transfer.status,
+            "effective_date": transfer.effective_date.isoformat(),
+            "from_legal_entity_id": str(transfer.from_legal_entity_id) if transfer.from_legal_entity_id else None,
+            "to_legal_entity_id": str(transfer.to_legal_entity_id),
+        }, "Employee entity transfer recorded")
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 400, detail=str(exc)) from exc
+
+
+@router.post("/entities/transfers/process-due", summary="Complete all effective-dated employee transfers")
+async def process_entity_transfers(claims: Claims = None, db: AsyncSession = Depends(get_db_session)):
+    _require_admin(claims)
+    count = await PayrollRunService.process_due_entity_transfers(db, company_id=_claims_company(claims))
+    return _ok({"completed": count}, "Due employee entity transfers processed")

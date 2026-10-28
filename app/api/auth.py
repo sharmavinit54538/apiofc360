@@ -1,10 +1,14 @@
 """Authentication API routes."""
 
 import logging
+import secrets
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -1157,3 +1161,96 @@ async def change_phone(
         data=None,
         errors=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: Enterprise Google Workspace / Microsoft Entra OIDC and SAML ACS
+# ---------------------------------------------------------------------------
+from app.api.v2.enterprise_dependencies import translate as _translate_enterprise
+from app.db.database import get_db_session
+from app.repositories.auth_repository import AuthRepository
+from app.services.sso_service import SSOService
+
+
+def _enterprise_sso_serializer():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(settings.SECRET_KEY.get_secret_value(), salt="enterprise-sso-state-v1")
+
+
+def _enterprise_oidc_provider(provider: str) -> str:
+    mapping = {"google": "GOOGLE_OIDC", "microsoft": "MICROSOFT_OIDC"}
+    if provider.lower() not in mapping:
+        raise HTTPException(status_code=404, detail="Unsupported enterprise OIDC provider.")
+    return mapping[provider.lower()]
+
+
+async def _issue_enterprise_sso_session(*, user, request: Request, response: Response, db: AsyncSession) -> dict[str, Any]:
+    service = TokenService(session=db, auth_repository=AuthRepository(db))
+    access_token, refresh_token, expires_in = await service.generate_auth_tokens(
+        user_id=user.id, role=user.role, company_id=user.company_id, email=user.email,
+        ip_address=request.client.host if request.client else None,
+        device=request.headers.get("user-agent"),
+    )
+    await db.commit()
+    set_auth_cookies(response, refresh_token)
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "expires_in": expires_in, "user_id": str(user.id)}
+
+
+@router.get("/sso/{provider}/url", name="enterprise_oidc_url")
+async def enterprise_oidc_url(provider: str, company_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db_session)):
+    """Return a nonce/state-bound Google Workspace or Microsoft Entra login URL."""
+    provider_type = _enterprise_oidc_provider(provider)
+    nonce = secrets.token_urlsafe(24)
+    redirect_uri = str(request.url_for("enterprise_oidc_callback", provider=provider.lower()))
+    state = _enterprise_sso_serializer().dumps({
+        "company_id": str(company_id), "provider_type": provider_type,
+        "redirect_uri": redirect_uri, "nonce": nonce,
+    })
+    try:
+        url = await SSOService(db).authorization_url(
+            company_id=company_id, provider_type=provider_type,
+            redirect_uri=redirect_uri, state=state, nonce=nonce,
+        )
+        return APIResponse[Any](success=True, data={"authorization_url": url, "state": state, "redirect_uri": redirect_uri}, message="Enterprise SSO URL generated", errors=None)
+    except (ValueError, LookupError) as exc:
+        _translate_enterprise(exc)
+
+
+@router.get("/sso/{provider}/callback", name="enterprise_oidc_callback")
+async def enterprise_oidc_callback(provider: str, code: str, state: str, request: Request, response: Response, db: AsyncSession = Depends(get_db_session)):
+    from itsdangerous import BadSignature, SignatureExpired
+    provider_type = _enterprise_oidc_provider(provider)
+    try:
+        data = _enterprise_sso_serializer().loads(state, max_age=600)
+        redirect_uri = str(request.url_for("enterprise_oidc_callback", provider=provider.lower()))
+        if data.get("provider_type") != provider_type or data.get("redirect_uri") != redirect_uri:
+            raise PermissionError("OIDC state does not match the callback.")
+        user = await SSOService(db).authenticate_oidc(
+            company_id=uuid.UUID(data["company_id"]), provider_type=provider_type,
+            code=code, redirect_uri=redirect_uri, expected_nonce=data["nonce"],
+        )
+        tokens = await _issue_enterprise_sso_session(user=user, request=request, response=response, db=db)
+        return APIResponse[Any](success=True, data=tokens, message="Enterprise SSO login successful", errors=None)
+    except (BadSignature, SignatureExpired, KeyError, ValueError, LookupError, PermissionError) as exc:
+        _translate_enterprise(exc)
+
+
+@router.post("/saml/acs", name="enterprise_saml_acs")
+async def enterprise_saml_acs(request: Request, response: Response, SAMLResponse: str = Form(...), RelayState: str = Form(...), db: AsyncSession = Depends(get_db_session)):
+    """Validate a signed SAML 2.0 assertion, consume it once, and create a session."""
+    from itsdangerous import BadSignature, SignatureExpired
+    try:
+        state = _enterprise_sso_serializer().loads(RelayState, max_age=600)
+        if state.get("provider_type") != "SAML":
+            raise PermissionError("Invalid SAML relay state.")
+        recipient = str(request.url_for("enterprise_saml_acs"))
+        if state.get("recipient") != recipient:
+            raise PermissionError("SAML relay recipient does not match.")
+        user = await SSOService(db).authenticate_saml(
+            company_id=uuid.UUID(state["company_id"]), encoded_response=SAMLResponse,
+            recipient_url=recipient,
+        )
+        tokens = await _issue_enterprise_sso_session(user=user, request=request, response=response, db=db)
+        return APIResponse[Any](success=True, data=tokens, message="SAML SSO login successful", errors=None)
+    except (BadSignature, SignatureExpired, KeyError, ValueError, LookupError, PermissionError) as exc:
+        _translate_enterprise(exc)

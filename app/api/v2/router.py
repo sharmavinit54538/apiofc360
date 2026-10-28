@@ -32,7 +32,8 @@ from app.api.v2.org_intelligence_apis import (
     org_map_router, 
     skill_gap_router, 
     shift_router, 
-    digital_twin_router
+    digital_twin_router,
+    org_twin_router
 )
 from app.api.v2.employee_intelligence_apis import (
     voice_router, 
@@ -48,7 +49,7 @@ from app.api.v2.enterprise_intelligence_apis import (
     risk_router, 
     copilot_router
 )
-from app.api.v2.hr_copilot import router as hr_copilot_router
+from app.api.v2.hr_copilot import router as hr_copilot_router, ai_router as ai_decision_support_router
 from app.api.v2.candidate_matching import router as candidate_matching_router
 from app.api.v2.coding_assessment import router as coding_assessment_router
 from app.api.v2.ranking import router as ranking_router
@@ -58,6 +59,23 @@ from app.api.v2.offer_letters import router as offer_letters_router
 from app.api.v2.interview_agent import router as interview_agent_router
 from app.api.v2.analytics import router as analytics_v2_router
 from app.api.v2.resume_ats_checker import router as resume_ats_checker_router
+from app.api.v2.dpdp_api import router as dpdp_router, employee_pii_router as dpdp_employee_pii_router
+from app.api.v2.employee_bulk_api import router as employee_bulk_router
+from app.api.v2.document_esign_api import router as document_esign_router
+from app.api.v2.fnf_workflow_api import router as fnf_workflow_router
+from app.api.v2.data_migration_api import router as data_migration_router
+from app.api.v2.whatsapp_api import router as whatsapp_router
+from app.api.v2.mobile_pwa_api import router as mobile_pwa_router
+from app.api.v2.grievance_posh_api import router as grievance_posh_router
+from app.api.v2.bgv_api import router as bgv_v2_router
+from app.api.v2.succession_api import router as succession_v2_router
+from app.api.v2.lms_api import router as lms_v2_router
+from app.api.v2.engagement_api import router as engagement_v2_router
+from app.api.v2.developer_api import router as developer_v2_router
+from app.api.v2.scim_api import admin_router as scim_admin_v2_router
+from app.api.v2.enterprise_intelligence_apis import ijp_router
+from app.api.v2.marketplace_api import router as marketplace_v2_router
+from app.api.v2.whitelabel_api import router as whitelabel_v2_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -93,6 +111,7 @@ def get_v2_router() -> APIRouter:
         skill_gap_router,
         shift_router,
         digital_twin_router,
+        org_twin_router,
         voice_router,
         mood_router,
         career_router,
@@ -104,6 +123,7 @@ def get_v2_router() -> APIRouter:
         risk_router,
         copilot_router,
         hr_copilot_router,
+        ai_decision_support_router,
         candidate_matching_router,
         coding_assessment_router,
         ranking_router,
@@ -113,6 +133,24 @@ def get_v2_router() -> APIRouter:
         interview_agent_router,
         analytics_v2_router,
         resume_ats_checker_router,
+        dpdp_router,
+        dpdp_employee_pii_router,
+        employee_bulk_router,
+        document_esign_router,
+        fnf_workflow_router,
+        data_migration_router,
+        whatsapp_router,
+        mobile_pwa_router,
+        grievance_posh_router,
+        bgv_v2_router,
+        succession_v2_router,
+        lms_v2_router,
+        engagement_v2_router,
+        developer_v2_router,
+        scim_admin_v2_router,
+        ijp_router,
+        marketplace_v2_router,
+        whitelabel_v2_router,
     ):
         router.include_router(r)
     

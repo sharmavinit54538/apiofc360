@@ -980,6 +980,391 @@ Please generate the specific recruiter outcome. Be precise, clear, and professio
         res = await self.ollama.generate_completion(prompt=prompt)
         return res or "AI failed to generate response."
 
+    async def salary_negotiation_copilot(
+        self,
+        *,
+        company_id: uuid.UUID,
+        band_id: uuid.UUID,
+        candidate_match_score: float,
+        hiring_budget_annual_paise: int,
+        candidate_name: str = "Candidate",
+        expected_ctc_annual_paise: int | None = None,
+        reference_employee_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Build three auditable CTC scenarios from a tenant compensation band.
+
+        No market or employee salary data is inferred by an LLM.  Amounts remain
+        integer minor units, every scenario is capped by the approved hiring
+        budget, and the resulting compa-ratio is shown for compensation review.
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        from sqlalchemy import select
+        from app.models.compensation import CompensationBand
+        from app.services.compensation_service import CompensationService
+
+        if not 0 <= float(candidate_match_score) <= 1:
+            raise ValueError("candidate_match_score must be between 0 and 1.")
+        if int(hiring_budget_annual_paise) < 0:
+            raise ValueError("hiring_budget_annual_paise cannot be negative.")
+        band = (await self.session.execute(select(CompensationBand).where(
+            CompensationBand.id == band_id,
+            CompensationBand.company_id == company_id,
+            CompensationBand.is_active.is_(True),
+        ))).scalar_one_or_none()
+        if band is None:
+            raise LookupError("Compensation band not found in the current tenant.")
+        if not 0 <= band.min_paise <= band.mid_paise <= band.max_paise:
+            raise ValueError("Compensation band minimum, midpoint and maximum are inconsistent.")
+
+        score = Decimal(str(candidate_match_score))
+        minimum, midpoint, maximum = (Decimal(band.min_paise), Decimal(band.mid_paise), Decimal(band.max_paise))
+        budget = Decimal(int(hiring_budget_annual_paise))
+        conservative = minimum + (midpoint - minimum) * max(Decimal("0"), score - Decimal("0.5"))
+        recommended = midpoint * (Decimal("0.90") + Decimal("0.20") * score)
+        if expected_ctc_annual_paise is not None:
+            if expected_ctc_annual_paise < 0:
+                raise ValueError("expected_ctc_annual_paise cannot be negative.")
+            # Expectations inform, but never move a package outside its band.
+            expected = min(maximum, max(minimum, Decimal(expected_ctc_annual_paise)))
+            recommended = (recommended + expected) / 2
+        stretch = max(recommended, midpoint + (maximum - midpoint) * (Decimal("0.50") + score / 2))
+
+        reference = None
+        if reference_employee_id is not None:
+            reference = await CompensationService(self.session).compa_ratio(
+                company_id=company_id, employee_id=reference_employee_id,
+            )
+
+        scenario_specs = (
+            ("CONSERVATIVE", conservative, Decimal("0.95"), Decimal("0.00")),
+            ("RECOMMENDED", recommended, Decimal("0.90"), Decimal("0.02")),
+            ("STRETCH", stretch, Decimal("0.85"), Decimal("0.03")),
+        )
+        scenarios = []
+        for name, raw_amount, fixed_ratio, signing_ratio in scenario_specs:
+            amount = int(min(budget, maximum, max(minimum, raw_amount)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            signing = int((Decimal(amount) * signing_ratio).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            variable = int((Decimal(amount - signing) * (Decimal("1") - fixed_ratio)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            fixed = amount - signing - variable
+            ratio = (Decimal(amount) / midpoint).quantize(Decimal("0.0001")) if midpoint else Decimal("0")
+            band_position = "BELOW_BAND" if amount < band.min_paise else "ABOVE_BAND" if amount > band.max_paise else "WITHIN_BAND"
+            amount_text = f"{amount / 100:,.2f} {band.currency}"
+            within_band = band_position == "WITHIN_BAND"
+            opening = (
+                f"We can offer a total annual CTC of {amount_text}, structured within the approved {band.grade} band."
+                if within_band else
+                f"The budget-constrained scenario of {amount_text} is {band_position.lower().replace('_', ' ')} and is not issuable without a documented band and budget review."
+            )
+            concession_guardrail = (
+                "Any increase requires compensation approval and must remain within the band and hiring budget."
+                if within_band else
+                "Do not issue this scenario: restore a band-compliant budget or obtain a documented compensation-band exception first."
+            )
+            scenarios.append({
+                "scenario": name,
+                "ctc_annual_paise": amount,
+                "currency": band.currency,
+                "fixed_ctc_annual_paise": fixed,
+                "variable_pay_annual_paise": variable,
+                "signing_bonus_paise": signing,
+                "compa_ratio": float(ratio),
+                "band_position": band_position,
+                "budget_utilization_pct": float((Decimal(amount) * 100 / budget).quantize(Decimal("0.01"))) if budget else None,
+                "within_budget": amount <= hiring_budget_annual_paise,
+                "issuable_without_band_exception": within_band,
+                "negotiation_script": {
+                    "opening": opening,
+                    "candidate_expectation_response": "The package reflects role match, internal equity and the approved budget; let us discuss fixed pay, variable pay and joining support separately.",
+                    "concession_guardrail": concession_guardrail,
+                    "close": "If the overall structure works for you, we will route this exact scenario for written approval before issuing an offer.",
+                },
+            })
+
+        return {
+            "company_id": str(company_id),
+            "candidate_name": candidate_name,
+            "band": {
+                "id": str(band.id), "code": band.band_code, "grade": band.grade,
+                "min_paise": band.min_paise, "mid_paise": band.mid_paise,
+                "max_paise": band.max_paise, "currency": band.currency,
+            },
+            "candidate_match_score": float(score),
+            "hiring_budget_annual_paise": int(hiring_budget_annual_paise),
+            "budget_feasible_for_band": hiring_budget_annual_paise >= band.min_paise,
+            "reference_internal_compa_ratio": reference,
+            "scenarios": scenarios,
+            "decision_support_only": True,
+            "requires_compensation_approval": True,
+        }
+
+    async def disciplinary_case_assistant(
+        self,
+        *,
+        company_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        incident_summary: str,
+        incident_date: str,
+        policy_query: str | None = None,
+    ) -> dict[str, Any]:
+        """Draft a policy-grounded show-cause pack without deciding guilt."""
+        import re
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.grievance_posh import GrievanceCase
+        from app.models.policy import CompanyPolicyChunk, CompanyPolicyDocument
+        from app.rag.hr_copilot_rag import get_hr_copilot
+
+        employee = (await self.session.execute(select(Employee).where(
+            Employee.id == employee_id, Employee.company_id == company_id,
+            Employee.is_deleted.is_(False),
+        ))).scalar_one_or_none()
+        if employee is None:
+            raise LookupError("Employee not found in the current tenant.")
+        incident_summary = incident_summary.strip()
+        if len(incident_summary) < 10:
+            raise ValueError("A factual incident summary of at least 10 characters is required.")
+
+        documents = (await self.session.execute(select(CompanyPolicyDocument).where(
+            CompanyPolicyDocument.company_id == company_id,
+            CompanyPolicyDocument.status.in_(("PUBLISHED", "ACTIVE", "APPROVED")),
+        ))).scalars().all()
+        policy_rows: list[dict[str, Any]] = []
+        for document in documents:
+            chunks = (await self.session.execute(select(CompanyPolicyChunk).where(
+                CompanyPolicyChunk.policy_document_id == document.id,
+            ).order_by(CompanyPolicyChunk.chunk_order))).scalars().all()
+            if chunks:
+                for chunk in chunks:
+                    policy_rows.append({
+                        "company_id": company_id, "policy_document_id": document.id,
+                        "title": document.title, "category": document.category,
+                        "version_number": document.version_number,
+                        "chunk_order": chunk.chunk_order, "chunk_text": chunk.chunk_text,
+                    })
+            else:
+                # Unchunked, published standing orders remain usable with exact
+                # excerpts; no fabricated fallback handbook is introduced.
+                policy_rows.append({
+                    "company_id": company_id, "policy_document_id": document.id,
+                    "title": document.title, "category": document.category,
+                    "version_number": document.version_number,
+                    "chunk_order": 0, "raw_content": document.raw_content,
+                })
+        query = policy_query or f"discipline misconduct show cause inquiry {incident_summary}"
+        grounding = await get_hr_copilot().ground_policy_query(
+            company_id=company_id, question=query, documents=policy_rows, top_k=5,
+        )
+
+        # Precedents are metadata/outcome comparisons only.  Confidential case
+        # narratives and reporter identities are never copied into the response.
+        precedents = (await self.session.execute(select(GrievanceCase).where(
+            GrievanceCase.company_id == company_id,
+            GrievanceCase.status.in_(("RESOLVED", "CLOSED", "APPEAL_RESOLVED")),
+        ).order_by(GrievanceCase.resolved_at.desc()).limit(50))).scalars().all()
+        terms = set(re.findall(r"[a-z0-9]+", incident_summary.lower()))
+        precedent_rows = []
+        for case in precedents:
+            case_terms = set(re.findall(r"[a-z0-9]+", f"{case.category} {case.subject}".lower()))
+            similarity = len(terms & case_terms) / max(1, len(terms | case_terms))
+            precedent_rows.append({
+                "case_number": case.case_number, "category": case.category,
+                "status": case.status, "resolution": case.resolution,
+                "resolved_at": case.resolved_at.isoformat() if case.resolved_at else None,
+                "similarity_score": round(similarity, 4),
+            })
+        precedent_rows.sort(key=lambda row: (-row["similarity_score"], row["case_number"]))
+
+        citations = grounding["citations"]
+        clause_lines = "\n".join(
+            f"- {item['document']}, {item['section']} (version {item['version']}): {item['excerpt']}"
+            for item in citations
+        ) or "- [INSERT VERIFIED POLICY CLAUSE BEFORE ISSUE]"
+        employee_name = f"{employee.first_name} {employee.last_name}".strip()
+        notice = (
+            f"DRAFT SHOW-CAUSE NOTICE — NOT FOR ISSUE WITHOUT HR/LEGAL REVIEW\n\n"
+            f"To: {employee_name} ({employee.employee_id})\n"
+            f"Incident date: {incident_date}\n\n"
+            f"It is alleged that: {incident_summary}\n\n"
+            f"Potentially applicable policy passages:\n{clause_lines}\n\n"
+            "You are requested to submit your written explanation and any supporting material within the period confirmed by HR. "
+            "You may inspect the relied-upon evidence and present your response during the inquiry. "
+            "This notice records an allegation, not a finding of misconduct. No disciplinary penalty is predetermined."
+        )
+        checklist = [
+            {"step": 1, "action": "Preserve original evidence and record a chain of custody.", "owner": "HR / IT"},
+            {"step": 2, "action": "Verify the applicable published policy version and jurisdiction-specific standing orders.", "owner": "HR / Legal"},
+            {"step": 3, "action": "Issue an allegation-specific show-cause notice with reasonable response time and evidence access.", "owner": "HR"},
+            {"step": 4, "action": "Appoint an impartial inquiry officer and check conflicts of interest.", "owner": "HR / Legal"},
+            {"step": 5, "action": "Allow the employee to present evidence, witnesses and questions; document the proceedings.", "owner": "Inquiry officer"},
+            {"step": 6, "action": "Compare only relevant, non-confidential precedents and assess proportionality.", "owner": "HR / Legal"},
+            {"step": 7, "action": "Record findings separately from allegations and obtain required approvals before any action.", "owner": "Disciplinary authority"},
+        ]
+        return {
+            "company_id": str(company_id), "employee_id": str(employee_id),
+            "grounding_status": grounding["grounding_status"],
+            "policy_answer": grounding["answer"], "policy_citations": citations,
+            "show_cause_notice": notice,
+            "inquiry_checklist": checklist,
+            "precedent_comparisons": precedent_rows[:5],
+            "allegation_not_finding": True,
+            "requires_legal_review": True,
+            "warnings": ([] if citations else ["No published policy evidence was retrieved; the notice contains a mandatory clause placeholder."]),
+        }
+
+    async def termination_risk_assistant(
+        self,
+        *,
+        company_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        termination_reason: str,
+        proposed_last_working_date: Any,
+        notice_period_days: int = 30,
+        notice_days_served: int = 0,
+        maternity_protected: bool | None = None,
+        is_workman: bool | None = None,
+        as_of_date: Any = None,
+    ) -> dict[str, Any]:
+        """Estimate termination process risk and statutory payment components.
+
+        This is an HR decision-support estimator, not a legal conclusion.  Active
+        employee-relations cases are re-read from tenant tables on every call;
+        callers cannot suppress those protections with request flags.
+        """
+        from datetime import date, datetime
+        from decimal import Decimal, ROUND_HALF_UP
+        from sqlalchemy import select
+        from app.models.employee import Employee
+        from app.models.grievance_posh import GrievanceCase, POSHComplaint
+        from app.models.payroll import SalaryStructure
+        from app.models.payroll_models import Compensation
+
+        employee = (await self.session.execute(select(Employee).where(
+            Employee.id == employee_id, Employee.company_id == company_id,
+            Employee.is_deleted.is_(False),
+        ))).scalar_one_or_none()
+        if employee is None:
+            raise LookupError("Employee not found in the current tenant.")
+        today = as_of_date or date.today()
+        if isinstance(today, datetime):
+            today = today.date()
+        proposed_date = proposed_last_working_date
+        if isinstance(proposed_date, str):
+            proposed_date = date.fromisoformat(proposed_date)
+        if proposed_date < today:
+            raise ValueError("proposed_last_working_date cannot be before as_of_date.")
+        if not 0 <= notice_period_days <= 365 or not 0 <= notice_days_served <= 365:
+            raise ValueError("Notice days must be between 0 and 365.")
+        if len(termination_reason.strip()) < 5:
+            raise ValueError("A documented termination reason is required.")
+
+        tenure_days = max(0, (today - employee.joining_date).days)
+        tenure_months = int(Decimal(tenure_days) / Decimal("30.4375"))
+        completed_years = tenure_days // 365
+        metadata = employee.role_metadata if isinstance(employee.role_metadata, dict) else {}
+        # Request flags can add HR-reviewed context, but cannot suppress a
+        # protection/classification already present on the employee record.
+        maternity = bool(metadata.get("maternity_protected", False)) or bool(maternity_protected)
+        workman = str(employee.employee_category or "").strip().upper() in {"WORKMAN", "WORKMEN"} or bool(is_workman)
+        retrenchment = "retrench" in termination_reason.lower() or "redundan" in termination_reason.lower()
+
+        closed_statuses = {"CLOSED", "RESOLVED", "REJECTED", "WITHDRAWN", "APPEAL_RESOLVED"}
+        grievances = (await self.session.execute(select(GrievanceCase).where(
+            GrievanceCase.company_id == company_id,
+        ))).scalars().all()
+        posh_cases = (await self.session.execute(select(POSHComplaint).where(
+            POSHComplaint.company_id == company_id,
+        ))).scalars().all()
+
+        def involves_employee(case: Any) -> bool:
+            if case.reporter_employee_id == employee.id:
+                return True
+            accused = {str(value) for value in (case.accused_user_ids or [])}
+            return str(employee.id) in accused or (employee.user_id is not None and str(employee.user_id) in accused)
+
+        active_grievances = [case for case in grievances if case.status not in closed_statuses and involves_employee(case)]
+        active_posh = [case for case in posh_cases if case.status not in closed_statuses and involves_employee(case)]
+        active_case_count = len(active_grievances) + len(active_posh)
+
+        compensation = (await self.session.execute(select(Compensation).where(
+            Compensation.company_id == company_id, Compensation.employee_id == employee.id,
+            Compensation.status == "ACTIVE",
+        ).order_by(Compensation.effective_date.desc()).limit(1))).scalar_one_or_none()
+        salary = None
+        monthly_wage_paise = 0
+        currency = "INR"
+        if compensation is not None:
+            monthly_wage_paise = int(round(Decimal(compensation.ctc_annual_paise) / 12))
+            currency = getattr(compensation, "currency", "INR") or "INR"
+        else:
+            salary = (await self.session.execute(select(SalaryStructure).where(
+                SalaryStructure.company_id == company_id, SalaryStructure.employee_id == employee.id,
+                SalaryStructure.is_active.is_(True),
+            ).order_by(SalaryStructure.effective_from.desc()).limit(1))).scalar_one_or_none()
+            if salary is not None:
+                monthly_wage_paise = int(round(Decimal(str(salary.basic_monthly + salary.hra_monthly + salary.special_allowance_monthly)) * 100))
+                currency = getattr(salary, "currency", "INR") or "INR"
+        shortfall_days = max(0, notice_period_days - notice_days_served)
+        notice_compensation_paise = int((Decimal(monthly_wage_paise) * shortfall_days / 30).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        retrenchment_applicable = bool(workman and retrenchment and completed_years >= 1)
+        retrenchment_compensation_paise = int((Decimal(monthly_wage_paise) * completed_years * 15 / 30).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) if retrenchment_applicable else 0
+
+        score = 10
+        factors = [{"factor": "DOCUMENTED_PROCESS", "points": 10, "detail": "Every involuntary exit requires documented reason, evidence and approval."}]
+        if tenure_months < 12:
+            score += 10
+            factors.append({"factor": "SHORT_TENURE", "points": 10, "detail": "Verify probation/confirmation and contract terms."})
+        if maternity:
+            score += 45
+            factors.append({"factor": "MATERNITY_PROTECTION", "points": 45, "detail": "Potential statutory protection requires specialist legal review."})
+        if active_case_count:
+            protection_points = min(45, 30 + active_case_count * 5)
+            score += protection_points
+            factors.append({"factor": "ACTIVE_POSH_OR_GRIEVANCE", "points": protection_points, "detail": f"{active_case_count} active protected case(s) involve this employee."})
+        if retrenchment_applicable:
+            score += 20
+            factors.append({"factor": "WORKMAN_RETRENCHMENT", "points": 20, "detail": "Workman retrenchment conditions and compensation must be verified."})
+        if shortfall_days and not notice_compensation_paise:
+            score += 10
+            factors.append({"factor": "UNRESOLVED_NOTICE_SHORTFALL", "points": 10, "detail": "Notice shortfall has no calculated wage coverage."})
+        score = min(100, score)
+        level = "LOW" if score < 25 else "MEDIUM" if score < 50 else "HIGH" if score < 75 else "CRITICAL"
+        checklist = [
+            "Verify employment contract, applicable standing orders and current jurisdiction with counsel.",
+            "Document the reason, supporting evidence, objective selection criteria and approval trail.",
+            "Offer any contractually or statutorily required hearing and review retaliation risks.",
+            "Reconcile notice, earned leave, retrenchment and other final dues before the last working day.",
+        ]
+        if maternity:
+            checklist.insert(0, "Pause action until maternity-protection and prohibited-timing rules are reviewed by specialist counsel.")
+        if active_case_count:
+            checklist.insert(0, "Coordinate with the independent POSH/grievance owner; do not alter or close the protected case through this workflow.")
+        if retrenchment_applicable:
+            checklist.append("Validate government notice/permission, seniority and retrenchment-compensation rules before proceeding.")
+        return {
+            "company_id": str(company_id), "employee_id": str(employee_id),
+            "as_of_date": today.isoformat(), "tenure_months": tenure_months,
+            "completed_years": completed_years,
+            "protected_employment_flags": {
+                "maternity_protected": maternity, "active_posh_or_grievance": bool(active_case_count),
+                "active_case_count": active_case_count, "is_workman": workman,
+            },
+            "risk_score": score, "risk_level": level, "risk_factors": factors,
+            "notice": {
+                "required_days": notice_period_days, "served_days": notice_days_served,
+                "shortfall_days": shortfall_days, "compensation_paise": notice_compensation_paise,
+            },
+            "retrenchment": {
+                "applicable_estimate": retrenchment_applicable,
+                "completed_years_used": completed_years if retrenchment_applicable else 0,
+                "compensation_paise": retrenchment_compensation_paise,
+            },
+            "monthly_wage_basis_paise": monthly_wage_paise, "currency": currency,
+            "total_estimated_notice_and_retrenchment_paise": notice_compensation_paise + retrenchment_compensation_paise,
+            "mitigation_checklist": checklist,
+            "requires_legal_review": bool(maternity or active_case_count or retrenchment_applicable or score >= 50),
+            "estimator_not_legal_advice": True,
+        }
+
 
 async def get_ai_copilot_service(
     session: AsyncSession = Depends(get_db_session),

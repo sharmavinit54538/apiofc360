@@ -1,9 +1,12 @@
 """Employee Onboarding Service to manage the 10-step employee onboarding flow."""
 from __future__ import annotations
+import hashlib
 import logging
 import uuid
 import json
-from datetime import datetime, date
+import re
+import secrets
+from datetime import datetime, date, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from decimal import Decimal
 
@@ -17,7 +20,7 @@ from app.models.employee_bank_account import EmployeeBankAccount
 from app.models.employee_education import EmployeeEducation
 from app.models.employee_experience import EmployeeExperience
 from app.models.employee_emergency_contact import EmployeeEmergencyContact
-from app.models.employee_onboarding import EmployeeOnboarding
+from app.models.employee_onboarding import EmployeeOnboarding, OnboardingTaskChecklist
 from app.models.employee_policy_acceptance import EmployeePolicyAcceptance
 from app.models.employee_tax_info import EmployeeTaxInfo
 from app.models.employee_document import EmployeeDocument
@@ -40,11 +43,31 @@ ONBOARDING_STEPS = [
     {"name": "Final Review", "order": 10}
 ]
 
+BGV_STATUSES = {"NOT_STARTED", "INITIATED", "IN_PROGRESS", "VERIFIED_CLEAR", "DISCREPANCY"}
+DEFAULT_PROVISIONING_TASKS = [
+    ("IT", "IT_EMAIL", "Create corporate email and SSO account", "it_admin"),
+    ("IT", "IT_EQUIPMENT", "Allocate laptop and required peripherals", "it_admin"),
+    ("ADMIN", "ADMIN_WORKSPACE", "Assign workspace and branch access", "admin"),
+    ("ADMIN", "ADMIN_ID_CARD", "Prepare employee ID and access card", "admin"),
+    ("HR", "HR_PAYROLL", "Verify payroll, statutory and bank setup", "hr_admin"),
+    ("HR", "HR_POLICIES", "Assign leave policy and joining documentation", "hr_admin"),
+]
+DOCUMENT_TYPE_ALIASES = {
+    "PAN": "PAN", "PAN_CARD": "PAN",
+    "AADHAAR": "GOVERNMENT_ID", "AADHAAR_FRONT": "GOVERNMENT_ID",
+    "AADHAAR_BACK": "GOVERNMENT_ID", "MASKED_GOVERNMENT_ID": "GOVERNMENT_ID",
+    "GOVERNMENT_ID": "GOVERNMENT_ID", "GOVT_ID": "GOVERNMENT_ID",
+    "BANK_ACCOUNT": "BANK_PROOF", "CANCELLED_CHEQUE": "BANK_PROOF",
+    "PASSBOOK": "BANK_PROOF", "BANK_PROOF": "BANK_PROOF",
+    "UAN": "UAN", "UAN_CARD": "UAN",
+}
+
+
 class EmployeeOnboardingService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def get_or_create_onboarding_steps(self, employee_id: uuid.UUID) -> List[EmployeeOnboarding]:
+    async def get_or_create_onboarding_steps(self, employee_id: uuid.UUID, *, commit: bool = True) -> List[EmployeeOnboarding]:
         """Ensures that all 10 onboarding step tracking records exist for the employee."""
         result = await self.db.execute(
             select(EmployeeOnboarding)
@@ -73,7 +96,10 @@ class EmployeeOnboardingService:
                 new_steps.append(step_record)
         
         if new_steps:
-            await self.db.commit()
+            if commit:
+                await self.db.commit()
+            else:
+                await self.db.flush()
             
         result = await self.db.execute(
             select(EmployeeOnboarding)
@@ -176,6 +202,10 @@ class EmployeeOnboardingService:
         # Emergency contact
         emergency = employee.emergency_contacts[0] if employee.emergency_contacts else None
 
+        # Standard onboarding responses are prefills, not privileged unmask
+        # endpoints. Never return raw government IDs or bank account numbers.
+        from app.utils.security import mask_bank_account, mask_pan, mask_uan, redact_government_id
+
         # Build combined response
         data = {
             "personal_info": {
@@ -212,11 +242,11 @@ class EmployeeOnboardingService:
                 "preferred_language": employee.preferred_language or "English"
             },
             "identity": {
-                "aadhaar_number": employee.aadhaar_number,
-                "pan_number": employee.pan_number,
-                "passport_number": employee.passport_number,
-                "driving_license": employee.driving_license,
-                "voter_id": employee.voter_id
+                "aadhaar_number": redact_government_id(employee.aadhaar_number),
+                "pan_number": mask_pan(employee.pan_number),
+                "passport_number": redact_government_id(employee.passport_number),
+                "driving_license": redact_government_id(employee.driving_license),
+                "voter_id": redact_government_id(employee.voter_id)
             },
             "employment": {
                 "employee_id": employee.employee_id,
@@ -265,7 +295,7 @@ class EmployeeOnboardingService:
             "bank": {
                 "bank_name": primary_bank.bank_name if primary_bank else None,
                 "account_holder_name": primary_bank.account_holder_name if primary_bank else None,
-                "account_number": primary_bank.account_number if primary_bank else None,
+                "account_number": mask_bank_account(primary_bank.account_number) if primary_bank else None,
                 "ifsc_code": primary_bank.ifsc_code if primary_bank else None,
                 "branch": primary_bank.branch if primary_bank else None,
                 "upi_id": primary_bank.upi_id if primary_bank else None,
@@ -274,13 +304,13 @@ class EmployeeOnboardingService:
             },
             "tax_payroll": {
                 "tax_regime": tax_info.tax_regime if tax_info else "NEW",
-                "uan_number": employee.uan_number,
+                "uan_number": mask_uan(employee.uan_number),
                 "pf_number": employee.pf_number,
                 "esic_number": employee.esic_number,
                 "professional_tax": float(tax_info.professional_tax) if tax_info and tax_info.professional_tax else None,
                 "nominee_name": tax_info.nominee_name if tax_info else None,
                 "nominee_relation": tax_info.nominee_relation if tax_info else None,
-                "nominee_aadhaar": tax_info.nominee_aadhaar if tax_info else None,
+                "nominee_aadhaar": redact_government_id(tax_info.nominee_aadhaar) if tax_info else None,
                 "nominee_dob": tax_info.nominee_dob if tax_info else None
             },
             "documents": [
@@ -518,8 +548,335 @@ class EmployeeOnboardingService:
         employee.employee_onboarding_step = max(employee.employee_onboarding_step, 8)
         await self.db.commit()
 
+    async def create_preboarding_from_offer(self, offer_id: uuid.UUID) -> Employee:
+        """Idempotently create an Employee and onboarding checklist for an accepted offer."""
+        from app.models.recruitment import Application, Offer
+
+        offer = (await self.db.execute(
+            select(Offer).where(Offer.id == offer_id).options(
+                selectinload(Offer.application).selectinload(Application.job),
+                selectinload(Offer.application).selectinload(Application.candidate),
+            )
+        )).scalar_one_or_none()
+        if offer is None:
+            raise ValueError("Offer not found.")
+        application = offer.application
+        if application is None:
+            raise ValueError("Offer application not found.")
+        company_id = offer.company_id or application.company_id or application.job.company_id
+        if company_id is None:
+            raise ValueError("Offer has no tenant company.")
+        existing_step = (await self.db.execute(
+            select(EmployeeOnboarding).where(EmployeeOnboarding.offer_id == offer.id).limit(1)
+        )).scalar_one_or_none()
+        if existing_step is not None:
+            employee = await self.db.get(Employee, existing_step.employee_id)
+            if employee is not None:
+                employee._preboarding_created = False
+                return employee
+
+        email = application.email.strip().lower()
+        employee = (await self.db.execute(select(Employee).where(Employee.personal_email == email))).scalar_one_or_none()
+        created = employee is None
+        if employee is not None and employee.company_id != company_id:
+            raise ValueError("An employee with this email already exists in another tenant.")
+        department_id = None
+        branch_id = None
+        if application.job:
+            from app.models.department import Department
+            department = (await self.db.execute(select(Department).where(
+                Department.company_id == company_id,
+                Department.department_name == application.job.department,
+                Department.is_deleted == False,  # noqa: E712
+            ))).scalar_one_or_none()
+            if department is not None:
+                department_id, branch_id = department.id, department.branch_id
+        if employee is None:
+            from app.services.employee_service import generate_employee_id
+            employee = Employee(
+                company_id=company_id,
+                employee_id=await generate_employee_id(self.db),
+                first_name=application.first_name,
+                last_name=application.last_name,
+                personal_email=email,
+                phone=application.phone,
+                department=application.job.department if application.job else "Unassigned",
+                designation=application.job.designation if application.job else "Staff",
+                joining_date=offer.joining_date,
+                employment_type=(application.job.employment_type if application.job else "FULL_TIME"),
+                employment_status="PROBATION",
+                status="PREBOARDING",
+                role="employee",
+                department_id=department_id,
+                branch_id=branch_id,
+                work_location=application.job.location if application.job else application.city,
+            )
+            self.db.add(employee)
+            await self.db.flush()
+        from app.services.tenant_onboarding_service import validate_employee_assignment
+        await validate_employee_assignment(self.db, employee)
+        employee.onboarding_data = {
+            **(employee.onboarding_data or {}),
+            "offer_id": str(offer.id),
+            "application_id": str(application.id),
+            "candidate_id": str(application.candidate_id) if application.candidate_id else None,
+        }
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        steps = await self.get_or_create_onboarding_steps(employee.id, commit=False)
+        for step in steps:
+            step.offer_id = offer.id
+            step.candidate_id = application.candidate_id
+            step.invite_token_hash = token_hash
+            step.invite_sent_at = now
+            step.bgv_status = step.bgv_status or "NOT_STARTED"
+        await self.create_provisioning_tasks(employee.id, due_date=offer.joining_date, commit=False)
+        await self.db.flush()
+        employee._onboarding_invite_token = token
+        employee._preboarding_created = created
+        return employee
+
+    async def send_onboarding_invite(self, employee: Employee, token: str | None = None) -> bool:
+        """Send the pre-boarding invite after the database transaction succeeds."""
+        token = token or getattr(employee, "_onboarding_invite_token", None)
+        if not token:
+            return False
+        try:
+            from app.services.email_service import send_email
+            await send_email(
+                employee.personal_email,
+                "Complete your OFC360 onboarding",
+                f"<p>Hello {employee.first_name},</p><p>Your offer has been accepted. "
+                f"Use this one-time onboarding token to complete pre-boarding: <strong>{token}</strong></p>",
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Onboarding invite delivery failed for employee=%s: %s", employee.id, exc)
+            return False
+
+    async def complete_offer_acceptance(self, offer_id: uuid.UUID) -> Employee:
+        """Accept an offer, atomically create pre-boarding, then send its invite."""
+        from app.models.recruitment import Offer
+        offer = await self.db.get(Offer, offer_id)
+        if offer is None:
+            raise ValueError("Offer not found.")
+        offer.status = "ACCEPTED"
+        employee = await self.create_preboarding_from_offer(offer_id)
+        # create_preboarding_from_offer eagerly loads the relationship; do not
+        # trigger async lazy-loading on the offer fetched above.
+        application = offer.application
+        if application is not None:
+            application.status = "OFFER_ACCEPTED"
+        token = getattr(employee, "_onboarding_invite_token", None)
+        await self.db.commit()
+        await self.send_onboarding_invite(employee, token)
+        return employee
+
+    async def create_provisioning_tasks(
+        self, employee_id: uuid.UUID, *, due_date: date | None = None, commit: bool = False,
+    ) -> list[OnboardingTaskChecklist]:
+        employee = await self.db.get(Employee, employee_id)
+        if employee is None:
+            raise ValueError("Employee not found.")
+        existing = (await self.db.execute(select(OnboardingTaskChecklist).where(
+            OnboardingTaskChecklist.employee_id == employee_id
+        ))).scalars().all()
+        by_key = {task.task_key: task for task in existing}
+        for category, key, title, owner_role in DEFAULT_PROVISIONING_TASKS:
+            if key not in by_key:
+                task = OnboardingTaskChecklist(
+                    company_id=employee.company_id, employee_id=employee_id,
+                    category=category, task_key=key, title=title,
+                    owner_role=owner_role, due_date=due_date or employee.joining_date,
+                )
+                self.db.add(task)
+                by_key[key] = task
+        await self.db.flush()
+        if commit:
+            await self.db.commit()
+        return list(by_key.values())
+
+    async def update_bgv_status(
+        self, employee_id: uuid.UUID, status: str, *, provider_reference: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        normalized = status.strip().upper()
+        if normalized not in BGV_STATUSES:
+            raise ValueError(f"Unsupported BGV status: {status}")
+        steps = await self.get_or_create_onboarding_steps(employee_id, commit=False)
+        if not steps:
+            raise ValueError("Onboarding record not found.")
+        for step in steps:
+            step.bgv_status = normalized
+            if provider_reference:
+                step.bgv_provider_reference = provider_reference
+        if normalized == "VERIFIED_CLEAR":
+            await self.create_provisioning_tasks(employee_id, commit=False)
+        await self.db.flush()
+        if commit:
+            await self.db.commit()
+        return {"employee_id": str(employee_id), "bgv_status": normalized,
+                "provider_reference": provider_reference}
+
+    async def get_joining_checklist(self, employee_id: uuid.UUID) -> dict[str, Any]:
+        await self.create_provisioning_tasks(employee_id, commit=False)
+        tasks = (await self.db.execute(select(OnboardingTaskChecklist).where(
+            OnboardingTaskChecklist.employee_id == employee_id
+        ).order_by(OnboardingTaskChecklist.category, OnboardingTaskChecklist.task_key))).scalars().all()
+        required = [task for task in tasks if task.is_required]
+        completed = [task for task in required if task.status == "COMPLETED"]
+        percentage = round(len(completed) * 100 / len(required), 2) if required else 100.0
+        await self.db.execute(update(EmployeeOnboarding).where(
+            EmployeeOnboarding.employee_id == employee_id
+        ).values(completion_percentage=percentage))
+        await self.db.flush()
+        return {
+            "employee_id": str(employee_id), "completion_percentage": percentage,
+            "completed_tasks": len(completed), "total_tasks": len(required),
+            "items": [{
+                "id": str(task.id), "category": task.category, "task_key": task.task_key,
+                "title": task.title, "owner_role": task.owner_role, "status": task.status,
+                "is_required": task.is_required, "due_date": task.due_date.isoformat() if task.due_date else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            } for task in tasks],
+        }
+
+    async def complete_provisioning_task(
+        self, employee_id: uuid.UUID, task_id: uuid.UUID, actor_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        task = await self.db.get(OnboardingTaskChecklist, task_id)
+        if task is None or task.employee_id != employee_id:
+            raise ValueError("Onboarding task not found.")
+        task.status = "COMPLETED"
+        task.completed_by = actor_id
+        task.completed_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        checklist = await self.get_joining_checklist(employee_id)
+        await self.db.commit()
+        return checklist
+
+    @staticmethod
+    def validate_onboarding_document(document_type: str, ocr_data: dict[str, Any] | None) -> dict[str, Any]:
+        """Validate OCR values and return a masked, persistence-safe result."""
+        canonical = DOCUMENT_TYPE_ALIASES.get(str(document_type or "").upper())
+        if canonical is None:
+            return {"valid": True, "required": False, "document_type": str(document_type or "").upper(), "normalized": {}}
+        data = dict(ocr_data or {})
+        text = str(data.get("text") or "")
+        errors: list[str] = []
+        normalized: dict[str, Any] = {}
+        confidence = data.get("confidence")
+        if confidence is not None:
+            try:
+                if float(confidence) < 0.70:
+                    errors.append("OCR confidence is below 0.70.")
+            except (TypeError, ValueError):
+                errors.append("OCR confidence must be numeric.")
+        if canonical == "PAN":
+            pan = str(data.get("pan_number") or data.get("pan") or "").upper().replace(" ", "")
+            if not pan:
+                match = re.search(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", text.upper())
+                pan = match.group(0) if match else ""
+            if not re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", pan):
+                errors.append("A valid PAN is required (five letters, four digits, one letter).")
+            normalized["pan_number"] = pan
+        elif canonical == "GOVERNMENT_ID":
+            raw = str(data.get("masked_government_id") or data.get("government_id") or data.get("aadhaar_number") or "")
+            if not raw:
+                match = re.search(r"(?<!\d)(\d{4}[\s-]?\d{4}[\s-]?\d{4})(?!\d)", text)
+                raw = match.group(1) if match else ""
+            digits = re.sub(r"\D", "", raw)
+            already_masked = ("X" in raw.upper() or "*" in raw) and len(digits) == 4
+            if len(digits) != 12 and not already_masked:
+                errors.append("Government ID proof must contain a valid 12-digit ID or its masked last four digits.")
+            elif not raw and not re.search(r"\b\d{12}\b", re.sub(r"\s", "", text)):
+                errors.append("Government ID number was not detected by OCR.")
+            last4 = digits[-4:] if digits else ""
+            if len(last4) != 4:
+                errors.append("Government ID last four digits are missing.")
+            normalized["masked_government_id"] = f"XXXX-XXXX-{last4}" if last4 else ""
+        elif canonical == "BANK_PROOF":
+            raw_account = str(data.get("account_number") or data.get("bank_account") or "")
+            if not raw_account:
+                match = re.search(r"(?:account|a/c|ac)\s*(?:number|no)?\s*[:#-]?\s*(\d[\d\s-]{4,20}\d)", text, re.IGNORECASE)
+                raw_account = match.group(1) if match else ""
+            account = re.sub(r"[\s-]", "", raw_account)
+            ifsc = str(data.get("ifsc_code") or data.get("ifsc") or "").upper().replace(" ", "")
+            if not ifsc:
+                match = re.search(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", text.upper())
+                ifsc = match.group(0) if match else ""
+            if not re.fullmatch(r"\d{6,18}", account):
+                errors.append("A valid bank account number (6-18 digits) is required.")
+            if not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", ifsc):
+                errors.append("A valid IFSC code is required.")
+            normalized.update({"bank_account_masked": f"XXXXXX{account[-4:]}" if len(account) >= 4 else "", "ifsc_code": ifsc})
+        elif canonical == "UAN":
+            raw_uan = str(data.get("uan_number") or data.get("uan") or "")
+            if not raw_uan:
+                match = re.search(r"(?:UAN|universal account number)\s*[:#-]?\s*(\d[\d\s-]{10,16}\d)", text, re.IGNORECASE)
+                raw_uan = match.group(1) if match else ""
+            uan = re.sub(r"[\s-]", "", raw_uan)
+            if not re.fullmatch(r"\d{12}", uan):
+                errors.append("UAN must contain exactly 12 numeric digits.")
+            normalized["uan_number"] = uan
+        return {
+            "valid": not errors, "required": True, "document_type": canonical,
+            "errors": errors, "normalized": normalized,
+        }
+
+    async def process_onboarding_document(
+        self, document: EmployeeDocument, *, file_bytes: bytes | None = None,
+        ocr_data: dict[str, Any] | None = None, mime_type: str | None = None,
+    ) -> dict[str, Any]:
+        data = ocr_data
+        if data is None and file_bytes:
+            try:
+                data = {"text": file_bytes.decode("utf-8")}
+            except UnicodeDecodeError:
+                try:
+                    from app.services.google_document_ai_service import GoogleDocumentAIService
+                    raw = await GoogleDocumentAIService().process_document(file_bytes, mime_type or "application/pdf")
+                    ai_document = raw.get("document")
+                    data = {"text": getattr(ai_document, "text", "")}
+                except Exception as exc:
+                    data = {}
+                    document.ocr_error = f"OCR extraction failed: {exc}"
+        result = self.validate_onboarding_document(document.document_type or "", data)
+        document.ocr_extracted_json = result.get("normalized") or {}
+        document.ocr_confidence = (data or {}).get("confidence")
+        document.ocr_status = "VERIFIED" if result["valid"] else "FAILED"
+        document.ocr_error = "; ".join(result.get("errors") or []) or document.ocr_error
+        document.ocr_validated_at = datetime.now(timezone.utc) if result["valid"] else None
+        if result["valid"]:
+            document.ocr_error = None
+        self.db.add(document)
+        await self.db.flush()
+        return result
+
+    async def get_document_validation_status(self, employee_id: uuid.UUID) -> dict[str, Any]:
+        documents = (await self.db.execute(select(EmployeeDocument).where(
+            EmployeeDocument.employee_id == employee_id,
+            EmployeeDocument.is_deleted == False,  # noqa: E712
+        ))).scalars().all()
+        valid_types = {
+            DOCUMENT_TYPE_ALIASES.get((doc.document_type or "").upper())
+            for doc in documents if doc.ocr_status == "VERIFIED" and doc.status != "REJECTED"
+        }
+        required = {"PAN", "GOVERNMENT_ID", "BANK_PROOF", "UAN"}
+        missing = sorted(required - valid_types)
+        invalid = [{
+            "document_id": str(doc.id), "document_type": doc.document_type,
+            "ocr_status": doc.ocr_status, "error": doc.ocr_error,
+        } for doc in documents if (doc.document_type or "").upper() in DOCUMENT_TYPE_ALIASES and doc.ocr_status != "VERIFIED"]
+        return {"valid": not missing and not invalid, "missing": missing, "invalid": invalid,
+                "validated": sorted(required & valid_types)}
+
     async def mark_documents_uploaded(self, employee_id: uuid.UUID) -> None:
-        """Step 8 - Checks if all required documents are present, marks completed."""
+        """Step 8 - Require valid PAN, masked ID, bank proof and UAN OCR."""
+        validation = await self.get_document_validation_status(employee_id)
+        if not validation["valid"]:
+            raise ValueError(f"Onboarding document OCR validation is incomplete: {validation}")
         await self._mark_step_completed(employee_id, 8)
         
         # Advance step to 9
@@ -593,6 +950,9 @@ class EmployeeOnboardingService:
 
         if missing_docs:
             raise ValueError(f"Mandatory documents are missing: {', '.join(missing_docs)}")
+        ocr_validation = await self.get_document_validation_status(employee.id)
+        if not ocr_validation["valid"]:
+            raise ValueError(f"Mandatory OCR-validated documents are incomplete: {ocr_validation}")
 
         # Check policies accepted
         pol_res = await self.db.execute(
@@ -647,14 +1007,16 @@ class EmployeeOnboardingService:
         department: Optional[str] = None,
         location: Optional[str] = None,
         status_filter: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
-        """Admin view to list onboarding status of all employees with filters."""
+        """Admin view to list onboarding status within the current tenant."""
         query = select(Employee).options(
             selectinload(Employee.onboarding_steps),
             selectinload(Employee.documents)
-        )
-        
+        ).where(Employee.is_deleted == False)  # noqa: E712
+        if company_id is not None:
+            query = query.where(Employee.company_id == company_id)
         if department:
             query = query.where(Employee.department == department)
         if location:

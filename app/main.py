@@ -29,6 +29,7 @@ from app.core.perf_instrumentation import (
 # Unified Routers - Single import for all v1 and v2 endpoints
 from app.api.v1.router import v1_router
 from app.api.v2.router import v2_router
+from app.api.v2.scim_api import router as scim_v2_router
 
 # Legacy public/unprefixed routers (keep separate for backward compatibility)
 from app.api.careers import router as careers_router
@@ -418,11 +419,18 @@ async def lifespan(app: FastAPI):
 
 
 def configure_logging() -> None:
-    """Configure process logging."""
+    """Configure process logging with mandatory credential/PII redaction."""
     logging.basicConfig(
         level=settings.LOG_LEVEL,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    from app.core.structured_logging import PIIRedactionFilter
+
+    # basicConfig is a no-op when an embedding server installed handlers first;
+    # attach the filter to every root handler in either case.
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(existing, PIIRedactionFilter) for existing in handler.filters):
+            handler.addFilter(PIIRedactionFilter())
 
     class CancelledErrorFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
@@ -580,6 +588,9 @@ def create_app() -> FastAPI:
 
     # ── Unified API v2 Router (all endpoints under /api/v2) ───────────────────────
     app.include_router(v2_router)
+
+    # ── Standards-based SCIM 2.0 endpoint (not nested under /api/v2) ───────────
+    app.include_router(scim_v2_router)
 
     # ── Public / unprefixed routers ────────────────────────────────────────────
     app.include_router(careers_router, prefix="/api")
@@ -869,6 +880,10 @@ def create_app() -> FastAPI:
                 "data": None,
                 "errors": [{"field": None, "message": message}],
                 "code": code or f"HTTP_{exc.status_code}",
+                # Backwards compatibility: Starlette/FastAPI's default
+                # HTTPException body is ``{"detail": ...}`` and existing clients
+                # read that key directly, so keep it in the envelope.
+                "detail": exc.detail if isinstance(exc.detail, dict) else message,
             },
             headers=cors_headers,
         )

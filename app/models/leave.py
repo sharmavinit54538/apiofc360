@@ -8,10 +8,10 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Date, DateTime, ForeignKey, Index, Numeric, String, Text, func, text
+    BigInteger, Boolean, Date, DateTime, ForeignKey, Index, JSON, Numeric, String, Text, func, text
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.db.base import Base
 
@@ -47,6 +47,10 @@ class LeaveRequest(Base):
     # Review fields (new)
     reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    exception_reasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    policy_trace_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    approval_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -94,3 +98,44 @@ class LeaveRequest(Base):
             name = f"{first} {last}".strip()
             return name if name else None
         return None
+
+
+class CompOffLedger(Base):
+    """Compensatory-off credit, availment, lapse and encashment ledger."""
+
+    __tablename__ = "comp_off_ledgers"
+    __table_args__ = (
+        Index("ix_comp_off_company_employee", "company_id", "employee_id"),
+        Index("ix_comp_off_status_expiry", "status", "expiry_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True
+    )
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    worked_date: Mapped[date] = mapped_column(Date, nullable=False)
+    worked_hours: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False, default=Decimal("0"))
+    credit_days: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False, default=Decimal("0"))
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="EARNED", server_default=text("'EARNED'")
+    )  # EARNED/AVAILABLE | AVAILED | ENCASHED | EXPIRED/LAPSED
+    encashment_amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    encashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    availed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    worked_on = synonym("worked_date")
+    comp_off_date = synonym("worked_date")
+    credited_days = synonym("credit_days")
+    expires_on = synonym("expiry_date")
+    encashment_paise = synonym("encashment_amount_paise")
+    amount_paise = synonym("encashment_amount_paise")
+    encashment_date = synonym("encashed_at")
+
+    STATUSES = frozenset({"EARNED", "AVAILABLE", "AVAILED", "ENCASHED", "EXPIRED", "LAPSED"})

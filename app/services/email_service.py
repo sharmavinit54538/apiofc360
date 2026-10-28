@@ -107,25 +107,56 @@ def _html_to_plain(html: str) -> str:
 # Synchronous SMTP worker (runs in a thread via asyncio.to_thread)
 # ---------------------------------------------------------------------------
 
-def _build_message(to_email: str, subject: str, html_content: str) -> MIMEMultipart:
-    """Construct a MIMEMultipart/alternative message with plain-text + HTML parts."""
+def _build_message(
+    to_email: str,
+    subject: str,
+    html_content: str,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> MIMEMultipart:
+    """Construct an HTML email, optionally with binary attachments.
 
-    msg = MIMEMultipart("alternative")
+    ``attachments`` contains ``(filename, content, mime_type)`` tuples.  The
+    three-argument form intentionally retains the original MIME structure for
+    existing transactional email callers.
+    """
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    has_attachments = bool(attachments)
+    msg = MIMEMultipart("mixed" if has_attachments else "alternative")
     msg["Subject"] = subject
     msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
     msg["To"] = to_email
     msg["X-Mailer"] = "HRMS-Mailer/1.0"
 
     plain_text = _html_to_plain(html_content)
-    msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-    msg.attach(MIMEText(html_content, "html", "utf-8"))
+    if has_attachments:
+        body = MIMEMultipart("alternative")
+        body.attach(MIMEText(plain_text, "plain", "utf-8"))
+        body.attach(MIMEText(html_content, "html", "utf-8"))
+        msg.attach(body)
+    else:
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_content, "html", "utf-8"))
+    for filename, content, mime_type in attachments or []:
+        maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
+        part = MIMEBase(maintype or "application", subtype or "octet-stream")
+        part.set_payload(content)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(part)
     return msg
 
 
-def _send_via_smtp(to_email: str, subject: str, html_content: str) -> None:
+def _send_via_smtp(
+    to_email: str,
+    subject: str,
+    html_content: str,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> None:
     """Synchronous SMTP send.  Called inside asyncio.to_thread()."""
 
-    msg = _build_message(to_email, subject, html_content)
+    msg = _build_message(to_email, subject, html_content, attachments)
     raw = msg.as_string()
 
     host = settings.SMTP_HOST
@@ -165,9 +196,16 @@ def _send_via_smtp(to_email: str, subject: str, html_content: str) -> None:
 # Async wrapper with retry logic
 # ---------------------------------------------------------------------------
 
-async def send_email(to_email: str, subject: str, html_content: str) -> None:
+async def send_email(
+    to_email: str,
+    subject: str,
+    html_content: str,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> None:
     """Send an HTML email (with plain-text fallback) over real SMTP.
 
+    ``attachments`` is optional and backward compatible with the original
+    three-argument API.
     Retries up to ``_SMTP_MAX_RETRIES`` times with exponential back-off.
     In local/debug environments logs failure but does NOT raise, so the
     application continues. In production raises ``RuntimeError`` so the
@@ -184,7 +222,7 @@ async def send_email(to_email: str, subject: str, html_content: str) -> None:
                 "Email send attempt %d/%d | to=%s | subject=%r",
                 attempt, max_attempts, to_email, subject,
             )
-            await asyncio.to_thread(_send_via_smtp, to_email, subject, html_content)
+            await asyncio.to_thread(_send_via_smtp, to_email, subject, html_content, attachments)
             logger.info(
                 "Email delivered | attempt=%d | to=%s | subject=%r",
                 attempt, to_email, subject,

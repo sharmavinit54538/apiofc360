@@ -29,6 +29,10 @@ class StatutoryConfigResponse(PayrollBaseModel):
     pf_enabled: bool = True
     employee_pf_rate: float = 0.12
     employer_pf_rate: float = 0.12
+    employer_eps_rate: float = 0.0833
+    employer_edli_rate: float = 0.005
+    pf_admin_rate: float = 0.005
+    esi_pwd_wage_ceiling: float = 25000.00
     pf_wage_ceiling: float = 15000.00
     pf_on_full_basic: bool = False
     esi_enabled: bool = True
@@ -43,6 +47,10 @@ class StatutoryConfigRequest(PayrollBaseModel):
     pf_enabled: Optional[bool] = Field(None, alias="pfEnabled")
     employee_pf_rate: Optional[float] = Field(None, alias="employeePfRate")
     employer_pf_rate: Optional[float] = Field(None, alias="employerPfRate")
+    employer_eps_rate: Optional[float] = Field(None, alias="employerEpsRate")
+    employer_edli_rate: Optional[float] = Field(None, alias="employerEdliRate")
+    pf_admin_rate: Optional[float] = Field(None, alias="pfAdminRate")
+    esi_pwd_wage_ceiling: Optional[float] = Field(None, alias="esiPwdWageCeiling")
     pf_wage_ceiling: Optional[float] = Field(None, alias="pfWageCeiling")
     pf_on_full_basic: Optional[bool] = Field(None, alias="pfOnFullBasic")
     esi_enabled: Optional[bool] = Field(None, alias="esiEnabled")
@@ -51,6 +59,52 @@ class StatutoryConfigRequest(PayrollBaseModel):
     esi_wage_ceiling: Optional[float] = Field(None, alias="esiWageCeiling")
     pt_state: Optional[str] = Field(None, alias="ptState")
     default_tax_regime: Optional[str] = Field(None, alias="defaultTaxRegime")
+
+
+#: Every ``needs_ca_validation_*`` flag a CA / payroll expert can sign off.
+CA_VALIDATION_SCOPES = (
+    "pf_rates",
+    "esi_rates",
+    "pt_slabs",
+    "tds_slabs",
+    "gratuity",
+    "lwf",
+    "labour_codes",
+)
+
+
+class StatutoryCaSignoffRequest(PayrollBaseModel):
+    """Payload for the CA / payroll-expert validation sign-off."""
+
+    certificate_ref: Optional[str] = Field(None, alias="certificateRef", max_length=100)
+    formula_version: Optional[str] = Field(None, alias="formulaVersion", max_length=50)
+    scopes: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional subset of validation scopes to clear. "
+            "Defaults to every scope (pf_rates, esi_rates, pt_slabs, tds_slabs, "
+            "gratuity, lwf, labour_codes)."
+        ),
+    )
+    remarks: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("scopes")
+    @classmethod
+    def validate_scopes(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        cleaned: List[str] = []
+        for item in v:
+            code = str(item).strip().lower()
+            if code not in CA_VALIDATION_SCOPES:
+                raise ValueError(
+                    f"scope must be one of: {', '.join(CA_VALIDATION_SCOPES)}"
+                )
+            if code not in cleaned:
+                cleaned.append(code)
+        if not cleaned:
+            raise ValueError("scopes cannot be an empty list; omit it to clear every scope.")
+        return cleaned
 
 
 class StatutorySimulationRequest(PayrollBaseModel):
@@ -80,6 +134,10 @@ class StatutorySummaryResponse(PayrollBaseModel):
 class ChallanRecordRequest(PayrollBaseModel):
     period_id: str = Field(..., alias="periodId")
     trrn_number: str = Field(..., alias="trrnNumber")
+    crn_number: Optional[str] = Field(None, alias="crnNumber")
+    bank_reference: Optional[str] = Field(None, alias="bankReference")
+    bsr_code: Optional[str] = Field(None, alias="bsrCode")
+    challan_serial_number: Optional[str] = Field(None, alias="challanSerialNumber")
     challan_generation_date: Optional[str] = Field(None, alias="challanGenerationDate")
     payment_date: Optional[str] = Field(None, alias="paymentDate")
     utr_number: Optional[str] = Field(None, alias="utrNumber")
@@ -94,8 +152,13 @@ class ChallanRecordRequest(PayrollBaseModel):
 class EmployeePfUpdateRequest(PayrollBaseModel):
     uan_number: Optional[str] = Field(None, alias="uanNumber")
     is_pf_eligible: Optional[bool] = Field(None, alias="isPfEligible")
+    pf_membership_active: Optional[bool] = Field(None, alias="pfMembershipActive")
     is_international_worker: Optional[bool] = Field(None, alias="isInternationalWorker")
     pf_wage_ceiling_applicable: Optional[bool] = Field(None, alias="pfWageCeilingApplicable")
+    pf_higher_wage_opted: Optional[bool] = Field(None, alias="pfHigherWageOpted")
+    vpf_rate: Optional[float] = Field(None, alias="vpfRate")
+    is_pwd: Optional[bool] = Field(None, alias="isPwd")
+    state_code: Optional[str] = Field(None, alias="stateCode")
 
 
 class UanValidationItem(PayrollBaseModel):

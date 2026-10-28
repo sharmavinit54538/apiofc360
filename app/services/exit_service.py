@@ -470,9 +470,16 @@ class ExitService:
                     "leave_encashment": Decimal(str(preview["leave_encashment"])),
                     "gratuity": Decimal(str(preview["gratuity"])),
                     "bonus": Decimal(str(preview["bonus"])),
+                    "incentives": Decimal(str(preview["incentives"])),
                     "notice_recovery": Decimal(str(preview["notice_recovery"])),
                     "loan_recovery": Decimal(str(preview["loan_recovery"])),
+                    "settlement_breakup": preview,
                 })
+                exit_obj.notice_period_days_required = preview["required_notice_days"]
+                exit_obj.notice_period_days_served = preview["actual_notice_days"]
+                exit_obj.notice_shortfall_days = preview["notice_shortfall_days"]
+                exit_obj.notice_buyout = preview["notice_buyout"]
+                exit_obj.notice_waived = preview["notice_waived"]
 
             fnf = await self.repo.upsert_fnf(exit_uuid, data)
             await self.session.commit()
@@ -497,28 +504,30 @@ class ExitService:
             logger.exception("get_documents: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def generate_exit_documents(self, exit_uuid: uuid.UUID) -> list[ExitDocumentResponse]:
+    async def generate_exit_documents(
+        self, exit_uuid: uuid.UUID, actor_id: uuid.UUID | None = None,
+    ) -> list[ExitDocumentResponse]:
+        """Return real PDF exit letters, unlocked only by a SETTLED FnF."""
         logger.info("generate_exit_documents | exit_id=%s", exit_uuid)
         try:
             exit_obj = await self.repo.get_exit_by_id(exit_uuid)
             if not exit_obj:
                 raise AppException(message="Exit request not found.", status_code=status.HTTP_404_NOT_FOUND)
-
-            # Generate default exit letters (Relieving, Experience, FNF Settlement)
-            doc_types = ["RELIEVING_LETTER", "EXPERIENCE_LETTER", "FINAL_SETTLEMENT_LETTER"]
-            generated = []
-            for doc_type in doc_types:
-                doc_kwargs = {
-                    "exit_id": exit_uuid,
-                    "document_type": doc_type,
-                    "file_path": f"uploads/exit_documents/{doc_type.lower()}_{exit_uuid}.pdf",
-                }
-                doc = await self.repo.create_exit_document(**doc_kwargs)
-                generated.append(doc)
-
-            await self.session.commit()
-            return [ExitDocumentResponse.model_validate(d) for d in generated]
-
+            if exit_obj.status != "SETTLED":
+                raise AppException(
+                    message="Relieving and experience letters are locked until FnF is SETTLED.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            fnf = await self.repo.get_fnf_by_exit_id(exit_uuid)
+            if fnf is not None:
+                from app.services.fnf_workflow_service import FnFWorkflowService
+                await FnFWorkflowService(self.session).settle_exit_fnf(
+                    exit_uuid, actor_id=actor_id or exit_obj.employee.user_id,
+                )
+            documents = await self.repo.get_documents_by_exit_id(exit_uuid)
+            if not documents:
+                raise AppException(message="Settled exit documents were not found.", status_code=status.HTTP_404_NOT_FOUND)
+            return [ExitDocumentResponse.model_validate(document) for document in documents]
         except AppException:
             await self.session.rollback()
             raise

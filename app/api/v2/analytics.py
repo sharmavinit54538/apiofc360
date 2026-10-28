@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.analytics_service import get_analytics_service
@@ -172,3 +172,45 @@ async def get_interview_success_rate(
     svc = get_analytics_service(db)
     data = await svc.get_interview_success_rate(company_id=company_id, days=days)
     return APIResponse[dict](success=True, message="Interview success rate retrieved.", data=data, errors=None)
+
+
+def _tenant_id(claims: dict) -> uuid.UUID:
+    value = claims.get("company_id") if claims else None
+    if not value:
+        raise HTTPException(status_code=403, detail="Tenant claim is required.")
+    return uuid.UUID(str(value))
+
+
+@router.get("/culture", response_model=APIResponse[dict], summary="Department culture and burnout analytics")
+async def get_culture_analytics(
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    from app.services.hr_analytics_service import HRAnalyticsService
+    data = await HRAnalyticsService(db).get_culture_analytics(_tenant_id(claims))
+    return APIResponse(success=True, message="Culture analytics retrieved.", data=data, errors=None)
+
+
+@router.get("/diversity", response_model=APIResponse[dict], summary="Workforce diversity and hiring-parity analytics")
+async def get_diversity_analytics(
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    from app.services.hr_analytics_service import HRAnalyticsService
+    data = await HRAnalyticsService(db).get_diversity_analytics(_tenant_id(claims))
+    return APIResponse(success=True, message="Diversity analytics retrieved.", data=data, errors=None)
+
+
+@router.get("/attrition-risk", response_model=APIResponse[dict], summary="Explainable employee flight-risk analytics")
+async def get_attrition_risk_analytics(
+    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+    as_of_date: date | None = Query(None),
+    persist: bool = Query(False, description="Persist assessment snapshots after computing the response"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    from app.services.hr_analytics_service import HRAnalyticsService
+    data = await HRAnalyticsService(db).get_attrition_risk_analytics(
+        _tenant_id(claims), as_of_date=as_of_date, persist=persist, limit=limit,
+    )
+    return APIResponse(success=True, message="Attrition-risk analytics retrieved.", data=data, errors=None)

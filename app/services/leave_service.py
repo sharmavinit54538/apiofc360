@@ -8,11 +8,15 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, BadRequestException, NotFoundException
 from app.models.employee import Employee
+from app.attendance.services.validation_service import (
+    assert_attendance_period_editable, attendance_period_block_reason,
+)
 from app.models.employee_leave_policy import EmployeeLeavePolicy
 from app.models.leave import LeaveRequest
 from app.models.user import User
@@ -197,6 +201,15 @@ class LeaveService:
                     message=f"Leave cannot be applied for dates more than {LEAVE_BACKDATE_DAYS} days in the past."
                 )
 
+        # Payroll cut-off applies to new leave applications as well as
+        # attendance corrections.  Retroactive approval is handled separately
+        # in review_leave, where an arrear can be recorded.
+        applicant = await self.session.get(Employee, employee_id)
+        await assert_attendance_period_editable(
+            self.session, applicant.company_id if applicant else None, data.start_date,
+            action="apply for leave",
+        )
+
         # Check for active or pending overlapping leaves
         has_overlap = await self.repo.check_leave_overlap(employee_id, data.start_date, data.end_date)
         if has_overlap:
@@ -362,6 +375,13 @@ class LeaveService:
         if leave.status != "PENDING":
             raise BadRequestException(message="Leave request is not in PENDING state.")
 
+        period = await assert_attendance_period_editable(
+            self.session, reviewer_company_id, leave.start_date,
+            action="review leave for a closed payroll period",
+            allow_retroactive=True, actor_role=reviewer_role,
+        )
+        retroactive = attendance_period_block_reason(period) is not None
+
         if status == "APPROVED":
             leave.approved_by_id = reviewer_user_id
             leave.rejection_reason = None
@@ -388,6 +408,18 @@ class LeaveService:
             # Deduct balance
             policy.used_days += leave.total_days
             leave.status = "APPROVED"
+            if retroactive:
+                from app.models.payroll_models import PayrollPeriod
+                from app.services.payroll.arrear_service import ArrearService
+                # Approving leave after payroll reduces the already-paid salary;
+                # the signed negative arrear is recovered in the next open run.
+                await ArrearService.create_arrear(
+                    self.session, employee_id=leave.employee_id, company_id=reviewer_company_id,
+                    source_period_id=period.id if isinstance(period, PayrollPeriod) else None,
+                    arrear_type="LEAVE_REVERSAL", delta_days=-leave.total_days,
+                    calculation_json={"leave_request_id": str(leave.id), "leave_days": str(leave.total_days), "direction": "RECOVERY"},
+                    created_by=reviewer_user_id,
+                )
 
         elif status == "REJECTED":
             if not rejection_reason or not rejection_reason.strip():
@@ -458,6 +490,11 @@ class LeaveService:
         emp = leave.employee
         if not emp or emp.company_id != caller_company_id:
             raise NotFoundException(message="Leave request not found.")
+
+        await assert_attendance_period_editable(
+            self.session, caller_company_id, leave.start_date,
+            action="modify or cancel leave",
+        )
 
         # Ownership / Role check: only owner or hr_admin/super_admin can cancel
         is_owner = emp.user_id == caller_user_id

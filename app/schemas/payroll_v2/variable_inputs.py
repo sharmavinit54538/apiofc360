@@ -12,7 +12,8 @@ from app.schemas.payroll_v2.common import PayrollBaseModel
 
 ALLOWED_VARIABLE_TYPES = (
     "overtime", "bonus", "incentive", "commission", "reimbursement",
-    "deduction", "advance_recovery", "lop", "other"
+    "deduction", "advance_recovery", "lop", "other",
+    "shift_allowance", "comp_off_encashment", "lta", "statutory_bonus"
 )
 
 
