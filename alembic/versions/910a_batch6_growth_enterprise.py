@@ -1,7 +1,7 @@
 """Batch 6: P2 growth and enterprise modules, features 23 through 33.
 
-Revision ID: 910a_batch6_growth_enterprise
-Revises: 909a_batch5_employee_experience
+Revision ID: 910a_batch6_growth_ent
+Revises: 909a_batch5_employee_exp
 """
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "910a_batch6_growth_enterprise"
-down_revision = "909a_batch5_employee_experience"
+revision = "910a_batch6_growth_ent"
+down_revision = "909a_batch5_employee_exp"
 branch_labels = None
 depends_on = None
 

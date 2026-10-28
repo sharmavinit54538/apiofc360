@@ -1,7 +1,7 @@
 """Step 4 batch 2: state statutory rules, proof workflow and tax forms.
 
-Revision ID: 907a_step4_statutory_rules_forms
-Revises: 906a_step3_lock_arrears_ot_parallel
+Revision ID: 907a_step4_statutory_forms
+Revises: 906a_step3_lock_arrears_ot
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "907a_step4_statutory_rules_forms"
-down_revision = "906a_step3_lock_arrears_ot_parallel"
+revision = "907a_step4_statutory_forms"
+down_revision = "906a_step3_lock_arrears_ot"
 branch_labels = None
 depends_on = None
 

@@ -1,6 +1,7 @@
 """Test configuration for root tests directory."""
 import os
 import pytest
+import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 from app.core.config import settings
@@ -91,3 +92,11 @@ def override_db_session():
     app.dependency_overrides[get_db_session] = mock_get_db_session
     yield
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def db_engine_lifecycle():
+    """Dispose the shared async engine after the complete test session."""
+    from app.db.database import engine
+    yield
+    await engine.dispose()

@@ -1,7 +1,7 @@
 """Batch 7: P3 differentiators, features 34 through 44.
 
-Revision ID: 911a_batch7_p3_differentiators
-Revises: 910a_batch6_growth_enterprise
+Revision ID: 911a_batch7_p3_features
+Revises: 910a_batch6_growth_ent
 """
 from __future__ import annotations
 
@@ -9,10 +9,26 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "911a_batch7_p3_differentiators"
-down_revision = "910a_batch6_growth_enterprise"
+revision = "911a_batch7_p3_features"
+down_revision = "910a_batch6_growth_ent"
 branch_labels = None
 depends_on = None
+
+
+# These columns intentionally use ORM/Python-side defaults rather than database
+# defaults. Earlier migrations added server defaults, producing metadata drift.
+_PYTHON_SIDE_DEFAULTS = (
+    ("arrear_ledgers", "delta_days", "0"),
+    ("comp_off_ledgers", "worked_hours", "0"),
+    ("comp_off_ledgers", "credit_days", "0"),
+    ("comp_off_ledgers", "encashment_amount_paise", "0"),
+    ("shift_allowance_policies", "shift_type", "'GENERAL'"),
+    ("shift_allowance_policies", "allowance_paise", "0"),
+    ("shift_allowance_policies", "is_esi_applicable", "false"),
+    ("shift_allowance_policies", "is_pf_applicable", "false"),
+    ("shift_allowance_policies", "is_taxable", "true"),
+    ("shift_allowance_policies", "is_active", "true"),
+)
 
 
 def _uuid():
@@ -38,6 +54,37 @@ def _drop_columns(table, names):
 
 
 def upgrade() -> None:
+    for table, column, _ in _PYTHON_SIDE_DEFAULTS:
+        op.alter_column(table, column, server_default=None)
+
+    _add_columns("attendance_regularization_requests", [
+        sa.Column("auto_approved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("exception_reasons", sa.JSON(), nullable=True),
+        sa.Column("policy_trace_json", sa.JSON(), nullable=True),
+    ])
+    _add_columns("employee_leave_policies", [
+        sa.Column("auto_approve_enabled", sa.Boolean(), nullable=True),
+        sa.Column("max_auto_approve_days", sa.Numeric(6, 2), nullable=True),
+        sa.Column("min_advance_notice_days", sa.Integer(), nullable=True),
+        sa.Column("max_team_absent_pct", sa.Numeric(5, 2), nullable=True),
+        sa.Column("check_holiday_roster_clash", sa.Boolean(), nullable=True),
+        sa.Column("sandwich_rule_enabled", sa.Boolean(), nullable=True),
+    ])
+    _add_columns("leave_policies", [
+        sa.Column("auto_approve_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("max_auto_approve_days", sa.Numeric(6, 2), nullable=False, server_default=sa.text("3")),
+        sa.Column("min_advance_notice_days", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("max_team_absent_pct", sa.Numeric(5, 2), nullable=False, server_default=sa.text("100")),
+        sa.Column("check_holiday_roster_clash", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("sandwich_rule_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+    ])
+    _add_columns("leave_requests", [
+        sa.Column("auto_approved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("exception_reasons", sa.JSON(), nullable=True),
+        sa.Column("policy_trace_json", sa.JSON(), nullable=True),
+        sa.Column("approval_source", sa.String(length=30), nullable=True),
+    ])
+
     _add_columns("companies", [
         sa.Column("custom_domain", sa.String(length=255), nullable=True),
         sa.Column("whitelabel_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
@@ -98,6 +145,12 @@ def upgrade() -> None:
         sa.Column("gross_base_paise", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
         sa.Column("total_deductions_base_paise", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
         sa.Column("net_base_paise", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
+        sa.Column("whatsapp_status", sa.String(length=20), nullable=False, server_default=sa.text("'NOT_SENT'")),
+        sa.Column("whatsapp_sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("delivery_error", sa.Text(), nullable=True),
+        sa.Column("is_password_protected", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column("password_rule", sa.String(length=100), nullable=True),
     ])
 
     # Existing rows are INR/IN by definition.  Backfill their base-denominated
@@ -216,7 +269,25 @@ def downgrade() -> None:
     op.drop_table("org_twin_simulations")
     op.drop_table("workforce_plans")
 
-    _drop_columns("payslips", ["currency", "gross_base_paise", "total_deductions_base_paise", "net_base_paise"])
+    _drop_columns("payslips", [
+        "currency", "gross_base_paise", "total_deductions_base_paise", "net_base_paise",
+        "whatsapp_status", "whatsapp_sent_at", "sent_at", "delivery_error",
+        "is_password_protected", "password_rule",
+    ])
+    _drop_columns("leave_requests", [
+        "auto_approved", "exception_reasons", "policy_trace_json", "approval_source",
+    ])
+    _drop_columns("leave_policies", [
+        "auto_approve_enabled", "max_auto_approve_days", "min_advance_notice_days",
+        "max_team_absent_pct", "check_holiday_roster_clash", "sandwich_rule_enabled",
+    ])
+    _drop_columns("employee_leave_policies", [
+        "auto_approve_enabled", "max_auto_approve_days", "min_advance_notice_days",
+        "max_team_absent_pct", "check_holiday_roster_clash", "sandwich_rule_enabled",
+    ])
+    _drop_columns("attendance_regularization_requests", [
+        "auto_approved", "exception_reasons", "policy_trace_json",
+    ])
     _drop_columns("payroll_run_employees", ["gross_base_paise", "total_deductions_base_paise", "net_base_paise"])
     _drop_columns("payroll_runs", [
         "currency", "base_currency", "country_code", "fx_rate_to_base",
@@ -240,3 +311,6 @@ def downgrade() -> None:
         "brand_favicon_url", "email_sender_name", "email_sender_address",
         "email_reply_to", "branded_pdf_header_text",
     ])
+
+    for table, column, default in reversed(_PYTHON_SIDE_DEFAULTS):
+        op.alter_column(table, column, server_default=sa.text(default))
