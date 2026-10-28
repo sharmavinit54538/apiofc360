@@ -14,7 +14,7 @@ from app.models.security_setting import (
     SecurityAuditLog,
 )
 from app.models.department import Department
-from app.models.company import Company, LegalEntity, Branch
+from app.models.company import Company, LegalEntity, Branch, EntityPayrollCalendar, EmployeeEntityTransfer
 from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
@@ -34,7 +34,10 @@ from app.models.employee_emergency_contact import EmployeeEmergencyContact
 from app.models.employee_bank_account import EmployeeBankAccount
 from app.models.employee_leave_policy import EmployeeLeavePolicy
 from app.models.employee_onboarding import EmployeeOnboarding, OnboardingTaskChecklist
-from app.models.employee_policy_acceptance import EmployeePolicyAcceptance
+from app.models.employee_policy_acceptance import EmployeePolicyAcceptance, PolicyAcknowledgementAssignment
+from app.models.grievance_posh import GrievanceCase, GrievanceCaseEvent, ICCCommittee, ICCMember, POSHComplaint, POSHEvidence, POSHTrainingRecord, POSHAnnualReturn
+from app.models.mobile_pwa import PushSubscription, MobileIdempotencyRecord
+from app.models.whatsapp_bot import WhatsAppInboundMessage, WhatsAppConversation
 from app.models.employee_tax_info import EmployeeTaxInfo
 from app.models.hierarchy_audit import HierarchyAuditLog
 from app.models.dpdp_compliance import (
@@ -703,4 +706,10 @@ __all__ = [
     "HRCopilotQuery",
     "JobTemplate",
     "RecruitmentAuditLog",
+]
+__all__ += [
+    "EntityPayrollCalendar", "EmployeeEntityTransfer", "PolicyAcknowledgementAssignment",
+    "GrievanceCase", "GrievanceCaseEvent", "ICCCommittee", "ICCMember",
+    "POSHComplaint", "POSHEvidence", "POSHTrainingRecord", "POSHAnnualReturn",
+    "PushSubscription", "MobileIdempotencyRecord", "WhatsAppInboundMessage", "WhatsAppConversation",
 ]

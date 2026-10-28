@@ -14,6 +14,7 @@ from app.schemas.payroll_v2.payment_batches import (
     PaymentBatchApproveRequest,
     PaymentBatchBankFileRequest,
     PaymentBatchBankResponseApplyRequest,
+    PaymentBatchReconcileRequest,
     PaymentBatchItemHoldRequest,
     PaymentBatchItemReleaseRequest,
     PaymentBatchItemRetryRequest,
@@ -125,6 +126,9 @@ async def get_payment_batch(
                     "ifsc_code": item.ifsc_code,
                     "account_holder_name": item.account_holder_name,
                     "transaction_ref": item.transaction_ref,
+                    "utr_number": item.utr_number,
+                    "reconciled_at": item.reconciled_at.isoformat() if item.reconciled_at else None,
+                    "repayout_batch_id": str(item.repayout_batch_id) if item.repayout_batch_id else None,
                     "error_message": item.error_message,
                     "remarks": item.remarks,
                     "retry_count": item.retry_count,
@@ -170,6 +174,11 @@ async def generate_bank_file(
 ):
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
+    batch = await PaymentBatchService.get_batch(db, batchId)
+    company_id = claims.get("company_id") if claims else None
+    if company_id and str(batch.company_id) != str(company_id):
+        raise HTTPException(status_code=404, detail="Payment batch not found.")
+    PaymentBatchService.assert_export_approved(batch)
     dispatch_res = await dispatch_bank_file_generation(
         batch_id=str(batchId),
         format_type=payload.format,
@@ -186,6 +195,10 @@ async def download_bank_file(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    batch = await PaymentBatchService.get_batch(db, batchId)
+    company_id = claims.get("company_id") if claims else None
+    if company_id and str(batch.company_id) != str(company_id):
+        raise HTTPException(status_code=404, detail="Payment batch not found.")
     content_bytes, filename, media_type = await PaymentBatchService.get_latest_bank_file(
         session=db, batch_id=batchId
     )
@@ -310,15 +323,27 @@ async def retry_batch_item(
 
 
 # 11. POST /api/v2/payroll/payment-batches/{batchId}/reconcile
-@router.post("/payment-batches/{batchId}/reconcile", summary="Reconcile payment batch against bank responses")
+@router.post("/payment-batches/{batchId}/reconcile", summary="Apply bank UTR reverse feed and create re-payouts for failures")
 async def reconcile_payment_batch(
     batchId: uuid.UUID,
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
+    payload: Optional[PaymentBatchReconcileRequest] = None,
 ):
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    if payload is not None:
+        company_id = claims.get("company_id") if claims else None
+        result = await PaymentBatchService.reconcile_bank_feed(
+            session=db, batch_id=batchId, rows=[row.model_dump() for row in payload.rows],
+            allow_partial=payload.allow_partial,
+            company_id=uuid.UUID(str(company_id)) if company_id else None,
+            user_id=user_id, user_role=user_role,
+        )
+        return _ok(result, "Bank UTR reverse feed reconciled successfully")
+    # Backward-compatible manual status transition for legacy clients.  New
+    # integrations should send bank rows to this same endpoint.
     batch = await PaymentBatchService.reconcile_batch(
         session=db, batch_id=batchId, user_id=user_id, user_role=user_role
     )

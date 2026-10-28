@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, UniqueConstraint, func, Boolean, Integer, JSON, text
+from sqlalchemy import String, Date, DateTime, ForeignKey, Text, UniqueConstraint, func, Boolean, Integer, JSON, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -147,3 +147,58 @@ class Branch(TenantMixin, TimestampMixin, Base):
         "Employee", foreign_keys=[branch_manager_id], lazy="select"
     )
 
+
+
+class EntityPayrollCalendar(TenantMixin, TimestampMixin, Base):
+    """Entity-owned monthly payroll dates, independent of other tenant entities."""
+
+    __tablename__ = "entity_payroll_calendars"
+    __table_args__ = (
+        UniqueConstraint("legal_entity_id", "period_month", "period_year", name="uq_entity_payroll_calendar_period"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    payroll_period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payroll_periods.id", ondelete="SET NULL"), nullable=True
+    )
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    processing_date: Mapped[date] = mapped_column(Date, nullable=False)
+    pay_date: Mapped[date] = mapped_column(Date, nullable=False)
+    attendance_cutoff_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN", server_default=text("'OPEN'"))
+
+
+class EmployeeEntityTransfer(TenantMixin, TimestampMixin, Base):
+    """Auditable inter-entity employee transfer with an effective-dated transition."""
+
+    __tablename__ = "employee_entity_transfers"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False
+    )
+    from_legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="SET NULL", name="fk_entity_transfer_from_legal_entity"), nullable=True
+    )
+    to_legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("legal_entities.id", ondelete="RESTRICT"), nullable=False
+    )
+    from_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True
+    )
+    to_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True
+    )
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SCHEDULED", server_default=text("'SCHEDULED'"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

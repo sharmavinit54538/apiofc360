@@ -5,12 +5,12 @@ Includes policies registration records and vector semantic chunk tables.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 import uuid
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Index, Integer, String, Text, func, text, JSON
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text, JSON
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,8 +35,23 @@ class CompanyPolicyDocument(Base):
     title: Mapped[str] = mapped_column(String(150), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)  # LEAVE, TRAVEL, IT, SECURITY, PAYROLL, COMPLIANCE
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
-    
+    version_number: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0", server_default=text("'1.0'"))
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    supersedes_policy_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("company_policy_documents.id", ondelete="SET NULL", name="fk_policy_document_supersedes"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
+    acknowledgement_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    acknowledgement_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reminder_after_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default=text("3"))
+    escalation_after_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default=text("7"))
+    target_branch_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+    target_departments: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+    target_roles: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+    target_employment_types: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     # Relations
     company: Mapped[Company] = relationship("Company", lazy="select")

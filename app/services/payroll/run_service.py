@@ -19,6 +19,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.models.employee import Employee
+from app.models.company import Branch, EmployeeEntityTransfer, EntityPayrollCalendar, LegalEntity
 from app.models.payroll import (
     AdvanceLoan,
     AdvanceLoanInstallment,
@@ -93,6 +94,7 @@ class PayrollRunService:
         company_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        legal_entity_id: Optional[uuid.UUID] = None,
     ) -> PayrollRun:
         # Verify period exists
         period_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
@@ -104,11 +106,19 @@ class PayrollRunService:
             )
 
         target_company_id = company_id or period.company_id
+        target_entity_id = legal_entity_id or period.legal_entity_id
+        if legal_entity_id is not None and period.legal_entity_id != legal_entity_id:
+            raise HTTPException(status_code=409, detail="Payroll period belongs to a different legal entity.")
+        if target_entity_id is not None:
+            entity = await session.get(LegalEntity, target_entity_id)
+            if entity is None or entity.company_id != target_company_id or not entity.is_active:
+                raise HTTPException(status_code=404, detail="Legal entity not found for this tenant.")
         run_number = f"PR-{period.period_year}{period.period_month:02d}-{uuid.uuid4().hex[:4].upper()}"
 
         run = PayrollRun(
             id=uuid.uuid4(),
             company_id=target_company_id,
+            legal_entity_id=target_entity_id,
             period_id=period.id,
             period_month=period.period_month,
             period_year=period.period_year,
@@ -591,6 +601,8 @@ class PayrollRunService:
         )
         if run.company_id:
             emp_stmt = emp_stmt.where(Employee.company_id == run.company_id)
+        if run.legal_entity_id:
+            emp_stmt = emp_stmt.where(Employee.legal_entity_id == run.legal_entity_id)
         employees = (await session.execute(emp_stmt)).scalars().all()
 
         issues: list[dict[str, Any]] = []
@@ -704,6 +716,34 @@ class PayrollRunService:
         return total_paise
 
     @classmethod
+    async def resolve_employee_statutory_state(
+        cls, session: AsyncSession, employee: Employee, *, fallback_state: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve PT/LWF jurisdiction from branch, then legal entity, then legacy fields."""
+        branch = await session.get(Branch, employee.branch_id) if employee.branch_id else None
+        if branch is not None and branch.company_id == employee.company_id and branch.state_code:
+            return {
+                "state_code": StatutoryService._state_code(branch.state_code), "state_source": "BRANCH",
+                "branch_id": str(branch.id), "legal_entity_id": str(branch.legal_entity_id),
+            }
+        entity = await session.get(LegalEntity, employee.legal_entity_id) if employee.legal_entity_id else None
+        if entity is not None and entity.company_id == employee.company_id and entity.state_code:
+            return {
+                "state_code": StatutoryService._state_code(entity.state_code), "state_source": "LEGAL_ENTITY",
+                "branch_id": str(branch.id) if branch else None, "legal_entity_id": str(entity.id),
+            }
+        legacy = (
+            getattr(employee, "state_code", None) or getattr(employee, "state", None) or
+            getattr(employee, "branch", None) or getattr(employee, "work_location", None) or
+            fallback_state or "MAHARASHTRA"
+        )
+        return {
+            "state_code": StatutoryService._state_code(legacy), "state_source": "EMPLOYEE_FALLBACK",
+            "branch_id": str(branch.id) if branch else None,
+            "legal_entity_id": str(entity.id) if entity else None,
+        }
+
+    @classmethod
     async def execute_run_calculation(
         cls,
         session: AsyncSession,
@@ -753,6 +793,8 @@ class PayrollRunService:
         )
         if run.company_id:
             emp_stmt = emp_stmt.where(Employee.company_id == run.company_id)
+        if run.legal_entity_id:
+            emp_stmt = emp_stmt.where(Employee.legal_entity_id == run.legal_entity_id)
         employees = (await session.execute(emp_stmt)).scalars().all()
 
         component_stmt = select(PayComponent).where(PayComponent.is_active == True)  # noqa: E712
@@ -1024,7 +1066,10 @@ class PayrollRunService:
             )
             employee_esi_paise = esi_res["employee_esi_paise"]
 
-            emp_state = getattr(emp, "state_code", None) or getattr(emp, "state", None) or getattr(emp, "branch", None) or getattr(emp, "work_location", None) or config.pt_state or "MAHARASHTRA"
+            state_resolution = await cls.resolve_employee_statutory_state(
+                session, emp, fallback_state=config.pt_state,
+            )
+            emp_state = state_resolution["state_code"]
             try:
                 state_rule = await StatutoryService.get_state_statutory_rule(
                     session, emp_state, run.company_id,
@@ -1372,3 +1417,143 @@ class PayrollRunService:
             "total_net": float(run.total_net),
             "is_locked": run.is_locked,
         }
+
+    @classmethod
+    async def upsert_entity_payroll_calendar(
+        cls, session: AsyncSession, *, legal_entity_id: uuid.UUID,
+        period_month: int, period_year: int, start_date: date, end_date: date,
+        processing_date: date, pay_date: date, attendance_cutoff_date: date | None = None,
+        company_id: uuid.UUID | None = None,
+    ) -> tuple[EntityPayrollCalendar, PayrollPeriod]:
+        if not 1 <= period_month <= 12:
+            raise ValueError("period_month must be between 1 and 12")
+        if not (start_date <= end_date <= processing_date <= pay_date):
+            raise ValueError("Expected start_date <= end_date <= processing_date <= pay_date")
+        if attendance_cutoff_date and not start_date <= attendance_cutoff_date <= processing_date:
+            raise ValueError("Attendance cut-off must fall inside the processing calendar")
+        entity = await session.get(LegalEntity, legal_entity_id)
+        if entity is None or not entity.is_active or (company_id is not None and entity.company_id != company_id):
+            raise LookupError("Active legal entity not found")
+        calendar = (await session.execute(select(EntityPayrollCalendar).where(
+            EntityPayrollCalendar.legal_entity_id == entity.id,
+            EntityPayrollCalendar.period_month == period_month,
+            EntityPayrollCalendar.period_year == period_year,
+        ))).scalar_one_or_none()
+        period = (await session.execute(select(PayrollPeriod).where(
+            PayrollPeriod.company_id == entity.company_id,
+            PayrollPeriod.legal_entity_id == entity.id,
+            PayrollPeriod.period_month == period_month, PayrollPeriod.period_year == period_year,
+        ))).scalar_one_or_none()
+        if calendar is None:
+            calendar = EntityPayrollCalendar(
+                id=uuid.uuid4(), company_id=entity.company_id, legal_entity_id=entity.id,
+                period_month=period_month, period_year=period_year,
+            )
+            session.add(calendar)
+        if period is None:
+            period = PayrollPeriod(
+                id=uuid.uuid4(), company_id=entity.company_id, legal_entity_id=entity.id,
+                name=f"{entity.code} {period_year}-{period_month:02d}",
+                period_month=period_month, period_year=period_year, status="OPEN", is_locked=False,
+            )
+            session.add(period)
+        if period.is_locked or period.status in {"CLOSED", "VOID"}:
+            raise ValueError("A closed/locked payroll calendar cannot be changed")
+        for target in (calendar, period):
+            target.start_date = start_date
+            target.end_date = end_date
+            target.processing_date = processing_date
+            target.pay_date = pay_date
+        calendar.attendance_cutoff_date = attendance_cutoff_date
+        period.payment_date = pay_date
+        await session.flush()
+        calendar.payroll_period_id = period.id
+        await session.commit()
+        return calendar, period
+
+    @classmethod
+    async def transfer_employee(
+        cls, session: AsyncSession, *, employee_id: uuid.UUID,
+        to_legal_entity_id: uuid.UUID, to_branch_id: uuid.UUID | None,
+        effective_date: date, reason: str, requested_by: uuid.UUID | None = None,
+        company_id: uuid.UUID | None = None,
+    ) -> EmployeeEntityTransfer:
+        employee = await session.get(Employee, employee_id)
+        target = await session.get(LegalEntity, to_legal_entity_id)
+        if employee is None or target is None or employee.company_id != target.company_id:
+            raise LookupError("Employee or target legal entity not found")
+        if len(reason.strip()) < 3:
+            raise ValueError("Transfer reason must contain at least three characters")
+        if company_id is not None and employee.company_id != company_id:
+            raise LookupError("Employee or target legal entity not found")
+        if not target.is_active:
+            raise ValueError("Cannot transfer to an inactive legal entity")
+        branch = await session.get(Branch, to_branch_id) if to_branch_id else None
+        if to_branch_id and (
+            branch is None or branch.company_id != employee.company_id or branch.legal_entity_id != target.id or not branch.is_active
+        ):
+            raise ValueError("Target branch must be active and belong to the target legal entity")
+        if employee.legal_entity_id == target.id and employee.branch_id == to_branch_id:
+            raise ValueError("Employee is already assigned to this entity and branch")
+        pending = (await session.execute(select(EmployeeEntityTransfer).where(
+            EmployeeEntityTransfer.employee_id == employee.id,
+            EmployeeEntityTransfer.status == "SCHEDULED",
+        ))).scalar_one_or_none()
+        if pending:
+            raise ValueError("An employee entity transfer is already scheduled")
+        transfer = EmployeeEntityTransfer(
+            id=uuid.uuid4(), company_id=employee.company_id, employee_id=employee.id,
+            from_legal_entity_id=employee.legal_entity_id, to_legal_entity_id=target.id,
+            from_branch_id=employee.branch_id, to_branch_id=to_branch_id,
+            effective_date=effective_date, reason=reason.strip(), requested_by=requested_by,
+            status="SCHEDULED",
+        )
+        session.add(transfer)
+        await session.flush()
+        if effective_date <= date.today():
+            await cls._complete_transfer(session, transfer, employee, branch)
+        await PayrollAuditService.log_event(
+            session=session, entity_type="EmployeeEntityTransfer", entity_id=transfer.id,
+            action="TRANSFER" if transfer.status == "COMPLETED" else "SCHEDULE",
+            company_id=employee.company_id, actor_id=requested_by,
+            before_status=None, after_status=transfer.status, reason=reason,
+        )
+        await session.commit()
+        return transfer
+
+    @classmethod
+    async def _complete_transfer(
+        cls, session: AsyncSession, transfer: EmployeeEntityTransfer,
+        employee: Employee, branch: Branch | None,
+    ) -> None:
+        employee.legal_entity_id = transfer.to_legal_entity_id
+        employee.branch_id = transfer.to_branch_id
+        employee.branch = branch.name if branch else None
+        transfer.status = "COMPLETED"
+        transfer.completed_at = datetime.now()
+
+    @classmethod
+    async def process_due_entity_transfers(
+        cls, session: AsyncSession, *, company_id: uuid.UUID, as_of: date | None = None,
+    ) -> int:
+        as_of = as_of or date.today()
+        transfers = (await session.execute(select(EmployeeEntityTransfer).where(
+            EmployeeEntityTransfer.company_id == company_id,
+            EmployeeEntityTransfer.status == "SCHEDULED",
+            EmployeeEntityTransfer.effective_date <= as_of,
+        ))).scalars().all()
+        completed = 0
+        for transfer in transfers:
+            employee = await session.get(Employee, transfer.employee_id)
+            branch = await session.get(Branch, transfer.to_branch_id) if transfer.to_branch_id else None
+            if employee is None or employee.company_id != company_id:
+                continue
+            await cls._complete_transfer(session, transfer, employee, branch)
+            await PayrollAuditService.log_event(
+                session=session, entity_type="EmployeeEntityTransfer", entity_id=transfer.id,
+                action="COMPLETE", company_id=company_id, actor_id=transfer.requested_by,
+                before_status="SCHEDULED", after_status="COMPLETED", reason=transfer.reason,
+            )
+            completed += 1
+        await session.commit()
+        return completed

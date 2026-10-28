@@ -63,6 +63,9 @@ from app.api.v2.employee_bulk_api import router as employee_bulk_router
 from app.api.v2.document_esign_api import router as document_esign_router
 from app.api.v2.fnf_workflow_api import router as fnf_workflow_router
 from app.api.v2.data_migration_api import router as data_migration_router
+from app.api.v2.whatsapp_api import router as whatsapp_router
+from app.api.v2.mobile_pwa_api import router as mobile_pwa_router
+from app.api.v2.grievance_posh_api import router as grievance_posh_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -124,6 +127,9 @@ def get_v2_router() -> APIRouter:
         document_esign_router,
         fnf_workflow_router,
         data_migration_router,
+        whatsapp_router,
+        mobile_pwa_router,
+        grievance_posh_router,
     ):
         router.include_router(r)
     
