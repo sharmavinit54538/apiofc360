@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, status
@@ -280,3 +281,106 @@ async def ask_copilot(
         },
         errors=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: Internal Job Board (#27)
+# ---------------------------------------------------------------------------
+from app.api.v2.enterprise_dependencies import (
+    company_id as _tenant_id, ok as _ok, require_admin as _require_admin,
+    role as _claims_role, translate as _translate, user_id as _actor_id,
+)
+from app.middleware.auth import get_current_user_claims
+from app.db.database import get_db_session
+from app.services.internal_job_service import InternalJobService
+
+ijp_router = APIRouter(prefix="/internal-jobs", tags=["Internal Job Board v2"])
+
+
+class InternalOpeningRequest(BaseModel):
+    title: str
+    department: str
+    designation: str
+    description: str
+    min_tenure_months: int = Field(0, ge=0)
+    min_performance_score: float | None = Field(None, ge=0, le=5)
+    closes_at: Optional[datetime] = None
+
+
+class InternalApplicationRequest(BaseModel):
+    cover_note: str | None = None
+
+
+class InternalManagerDecision(BaseModel):
+    approved: bool
+    reason: str | None = None
+
+
+async def _current_employee(db: AsyncSession, claims: dict):
+    from sqlalchemy import select
+    from app.models.employee import Employee
+    employee = (await db.execute(select(Employee).where(
+        Employee.user_id == _actor_id(claims), Employee.company_id == _tenant_id(claims),
+        Employee.is_deleted.is_(False),
+    ))).scalar_one_or_none()
+    if employee is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Employee profile not found for current user.")
+    return employee
+
+
+@ijp_router.post("/openings", status_code=201)
+async def create_internal_opening(body: InternalOpeningRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        opening = await InternalJobService(db).create_opening(
+            company_id=_tenant_id(claims), created_by=_actor_id(claims), **body.model_dump(),
+        )
+        return _ok({"id": str(opening.id), "status": opening.status})
+    except ValueError as exc:
+        _translate(exc)
+
+
+@ijp_router.get("/openings")
+async def list_internal_openings(claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    from sqlalchemy import select
+    from app.models.talent_marketplace import InternalJobOpening
+    rows = (await db.execute(select(InternalJobOpening).where(
+        InternalJobOpening.company_id == _tenant_id(claims), InternalJobOpening.status == "OPEN",
+    ))).scalars().all()
+    return _ok([{"id": str(row.id), "title": row.title, "department": row.department,
+                 "min_tenure_months": row.min_tenure_months,
+                 "min_performance_score": float(row.min_performance_score) if row.min_performance_score is not None else None} for row in rows])
+
+
+@ijp_router.get("/openings/{opening_id}/eligibility")
+async def internal_job_eligibility(opening_id: uuid.UUID, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    employee = await _current_employee(db, claims)
+    try:
+        return _ok(await InternalJobService(db).check_eligibility(opening_id, company_id=_tenant_id(claims), employee_id=employee.id))
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@ijp_router.post("/openings/{opening_id}/applications", status_code=201)
+async def apply_internal_job(opening_id: uuid.UUID, body: InternalApplicationRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    employee = await _current_employee(db, claims)
+    try:
+        application = await InternalJobService(db).apply(
+            opening_id, company_id=_tenant_id(claims), employee_id=employee.id, cover_note=body.cover_note,
+        )
+        return _ok({"id": str(application.id), "status": application.status, "eligibility": application.eligibility_json})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@ijp_router.post("/applications/{application_id}/manager-decision")
+async def decide_internal_application(application_id: uuid.UUID, body: InternalManagerDecision, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    try:
+        application = await InternalJobService(db).manager_decision(
+            application_id, company_id=_tenant_id(claims), actor_user_id=_actor_id(claims),
+            actor_role=_claims_role(claims), **body.model_dump(),
+        )
+        return _ok({"id": str(application.id), "status": application.status})
+    except (ValueError, LookupError, PermissionError) as exc:
+        _translate(exc)

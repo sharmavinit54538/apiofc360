@@ -571,3 +571,109 @@ async def get_performance_data(
         },
         errors=None
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: tenant-safe 360 reviews, calibration, and promotion pipeline
+# ---------------------------------------------------------------------------
+from app.api.v2.enterprise_dependencies import (
+    company_id as _tenant_id, ok as _ok, require_admin as _require_admin,
+    require_manager as _require_manager, translate as _translate, user_id as _actor_id,
+)
+from app.services.performance_service import PerformanceEnterpriseService
+
+
+class EnterpriseCycleRequest(BaseModel):
+    name: str
+    start_date: date
+    end_date: date
+    bell_curve_targets: dict[str, float] | None = None
+
+
+class Review360Request(BaseModel):
+    employee_id: uuid.UUID
+    review_type: str
+
+
+class Review360Submission(BaseModel):
+    rating: Decimal = Field(ge=0, le=5)
+    comments: str | None = None
+
+
+class PromotionRequest(BaseModel):
+    employee_id: uuid.UUID
+    target_band_id: uuid.UUID
+    justification: str = Field(min_length=10)
+
+
+class PromotionDecision(BaseModel):
+    stage: str
+    approved: bool
+
+
+@router.post("/enterprise/cycles", status_code=201)
+async def create_enterprise_cycle(body: EnterpriseCycleRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        cycle = await PerformanceEnterpriseService(db).create_cycle(company_id=_tenant_id(claims), **body.model_dump())
+        return _ok({"id": str(cycle.id), "status": cycle.status, "bell_curve_targets": cycle.bell_curve_targets})
+    except ValueError as exc:
+        _translate(exc)
+
+
+@router.post("/enterprise/cycles/{cycle_id}/reviews", status_code=201)
+async def add_360_review(cycle_id: uuid.UUID, body: Review360Request, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    try:
+        review = await PerformanceEnterpriseService(db).add_review(
+            company_id=_tenant_id(claims), cycle_id=cycle_id, employee_id=body.employee_id,
+            reviewer_id=_actor_id(claims), review_type=body.review_type,
+        )
+        return _ok({"id": str(review.id), "review_type": review.review_type, "status": review.status})
+    except (ValueError, LookupError, PermissionError) as exc:
+        _translate(exc)
+
+
+@router.post("/enterprise/reviews/{review_id}/submit")
+async def submit_360_review(review_id: uuid.UUID, body: Review360Submission, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    try:
+        review = await PerformanceEnterpriseService(db).submit_review(
+            review_id, company_id=_tenant_id(claims), reviewer_id=_actor_id(claims),
+            rating=float(body.rating), comments=body.comments,
+        )
+        return _ok({"id": str(review.id), "status": review.status, "rating": float(review.rating)})
+    except (ValueError, LookupError, PermissionError) as exc:
+        _translate(exc)
+
+
+@router.post("/enterprise/cycles/{cycle_id}/calibrate")
+async def calibrate_enterprise_cycle(cycle_id: uuid.UUID, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        run = await PerformanceEnterpriseService(db).calibrate_cycle(cycle_id, company_id=_tenant_id(claims), actor_id=_actor_id(claims))
+        return _ok({"id": str(run.id), "status": run.status, **run.result_json})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/enterprise/cycles/{cycle_id}/promotions", status_code=201)
+async def create_promotion(cycle_id: uuid.UUID, body: PromotionRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_manager(claims)
+    try:
+        promotion = await PerformanceEnterpriseService(db).create_promotion_request(
+            company_id=_tenant_id(claims), cycle_id=cycle_id, requested_by=_actor_id(claims), **body.model_dump(),
+        )
+        return _ok({"id": str(promotion.id), "status": promotion.status, "recommended_increment_percentage": float(promotion.recommended_increment_percentage)})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/enterprise/promotions/{promotion_id}/decision")
+async def decide_promotion(promotion_id: uuid.UUID, body: PromotionDecision, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_manager(claims)
+    try:
+        promotion = await PerformanceEnterpriseService(db).decide_promotion(
+            promotion_id, company_id=_tenant_id(claims), actor_id=_actor_id(claims), **body.model_dump(),
+        )
+        return _ok({"id": str(promotion.id), "status": promotion.status})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)

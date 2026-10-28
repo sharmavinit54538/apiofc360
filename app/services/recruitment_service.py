@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone, time
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1271,7 +1271,6 @@ Generate realistic content under each heading. Make the tone professional, encou
         from app.models.ai_recruitment import AIResumeDocument, CandidateMatchScore
         from app.models.recruitment import JobSkill, Application
         from app.services.ats_scoring_service import ATSScoringService
-        from sqlalchemy import select
 
         # Get latest resume doc
         resume_stmt = select(AIResumeDocument).where(AIResumeDocument.candidate_id == candidate.id).order_by(AIResumeDocument.created_at.desc())
@@ -2624,3 +2623,203 @@ async def get_recruitment_service(
         employee_repo=EmployeeRepository(session),
         email_service=email_service,
     )
+
+
+class HttpJobBoardAdapter:
+    """HTTP boundary for job-board providers; no provider credentials enter logs."""
+
+    provider = "GENERIC"
+
+    async def sync_job(self, integration, job) -> dict[str, Any]:
+        import httpx
+        if not integration.api_base_url.lower().startswith("https://"):
+            raise ValueError("Job-board API must use HTTPS.")
+        payload = {
+            "reference": str(job.id), "title": job.title, "description": job.job_description,
+            "department": job.department, "designation": job.designation, "location": job.location,
+            "employment_type": job.employment_type, "vacancies": job.vacancies,
+            "application_deadline": job.application_deadline.isoformat() if job.application_deadline else None,
+        }
+        headers = {"Authorization": f"Bearer {integration.api_token}"} if integration.api_token else {}
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            response = await client.post(f"{integration.api_base_url.rstrip('/')}/jobs", json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Job-board provider returned an invalid response.")
+        return data
+
+
+class NaukriJobBoardAdapter(HttpJobBoardAdapter):
+    provider = "NAUKRI"
+
+
+class LinkedInJobBoardAdapter(HttpJobBoardAdapter):
+    provider = "LINKEDIN"
+
+
+class RecruitmentIntegrationService:
+    """Tenant-scoped job-board synchronization and signed candidate ingestion."""
+
+    def __init__(self, session: AsyncSession, adapters: dict[str, Any] | None = None) -> None:
+        self.session = session
+        self.adapters = adapters or {
+            "NAUKRI": NaukriJobBoardAdapter(), "LINKEDIN": LinkedInJobBoardAdapter(),
+        }
+
+    async def _integration(self, company_id: uuid.UUID, provider: str):
+        from app.models.recruitment import JobBoardIntegration
+        integration = (await self.session.execute(select(JobBoardIntegration).where(
+            JobBoardIntegration.company_id == company_id,
+            JobBoardIntegration.provider == provider.upper(), JobBoardIntegration.is_active.is_(True),
+        ))).scalar_one_or_none()
+        if integration is None:
+            raise LookupError("Job-board integration not found or inactive.")
+        return integration
+
+    async def configure_integration(
+        self, *, company_id: uuid.UUID, provider: str, api_base_url: str,
+        webhook_secret: str, api_token: str | None = None,
+    ):
+        from app.models.recruitment import JobBoardIntegration
+        provider = provider.upper()
+        if provider not in {"NAUKRI", "LINKEDIN"}:
+            raise ValueError("Provider must be NAUKRI or LINKEDIN.")
+        if len(webhook_secret) < 16:
+            raise ValueError("Webhook secret must contain at least 16 characters.")
+        integration = (await self.session.execute(select(JobBoardIntegration).where(
+            JobBoardIntegration.company_id == company_id, JobBoardIntegration.provider == provider,
+        ))).scalar_one_or_none()
+        integration = integration or JobBoardIntegration(id=uuid.uuid4(), company_id=company_id, provider=provider)
+        integration.api_base_url = api_base_url.strip()
+        integration.api_token = api_token
+        integration.webhook_secret = webhook_secret
+        integration.is_active = True
+        self.session.add(integration)
+        await self.session.commit()
+        return integration
+
+    async def sync_job(self, job_id: uuid.UUID, *, company_id: uuid.UUID, provider: str):
+        from app.models.recruitment import Job, JobBoardSync
+        provider = provider.upper()
+        integration = await self._integration(company_id, provider)
+        job = (await self.session.execute(select(Job).where(
+            Job.id == job_id, Job.company_id == company_id, Job.is_deleted.is_(False),
+        ))).scalar_one_or_none()
+        if job is None:
+            raise LookupError("Job not found in this tenant.")
+        if job.status != "PUBLISHED":
+            raise ValueError("Only published jobs can be synchronized.")
+        sync = (await self.session.execute(select(JobBoardSync).where(
+            JobBoardSync.company_id == company_id, JobBoardSync.job_id == job_id,
+            JobBoardSync.provider == provider,
+        ))).scalar_one_or_none()
+        sync = sync or JobBoardSync(id=uuid.uuid4(), company_id=company_id, job_id=job_id, provider=provider)
+        sync.status = "SYNCING"
+        sync.request_json = {"job_id": str(job.id), "title": job.title, "location": job.location}
+        self.session.add(sync)
+        await self.session.flush()
+        try:
+            response = await self.adapters[provider].sync_job(integration, job)
+            external_id = response.get("id") or response.get("external_job_id") or response.get("job_id")
+            if not external_id:
+                raise ValueError("Job-board response did not include an external job ID.")
+            sync.external_job_id = str(external_id)
+            sync.response_json = response
+            sync.status = "SYNCED"
+            sync.last_synced_at = datetime.now(timezone.utc)
+            sync.error_message = None
+        except Exception as exc:
+            sync.status = "FAILED"
+            sync.error_message = str(exc)[:1000]
+            await self.session.commit()
+            raise
+        await self.session.commit()
+        return sync
+
+    async def ingest_candidate_webhook(
+        self, *, company_id: uuid.UUID, provider: str, raw_body: bytes, signature: str | None,
+    ) -> dict[str, Any]:
+        import hashlib
+        import hmac
+        import json
+        from decimal import Decimal
+        from app.models.recruitment import Application, CandidateSource, Job
+        provider = provider.upper()
+        integration = await self._integration(company_id, provider)
+        expected = "sha256=" + hmac.new(integration.webhook_secret.encode(), raw_body, hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            raise PermissionError("Invalid recruitment webhook signature.")
+        try:
+            payload = json.loads(raw_body)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ValueError("Invalid candidate webhook JSON.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("Candidate webhook must contain an object.")
+        external_candidate_id = str(payload.get("candidate_id") or payload.get("id") or "").strip()
+        job_id = uuid.UUID(str(payload.get("job_id")))
+        if not external_candidate_id:
+            raise ValueError("External candidate_id is required.")
+        existing = (await self.session.execute(select(CandidateSource).where(
+            CandidateSource.company_id == company_id, CandidateSource.provider == provider,
+            CandidateSource.external_candidate_id == external_candidate_id,
+        ))).scalar_one_or_none()
+        if existing:
+            if existing.raw_payload != payload:
+                raise ValueError("External candidate was already ingested with a different payload.")
+            return {"duplicate": True, "application_id": str(existing.application_id), "source_id": str(existing.id)}
+        job = (await self.session.execute(select(Job).where(
+            Job.id == job_id, Job.company_id == company_id, Job.status == "PUBLISHED", Job.is_deleted.is_(False),
+        ))).scalar_one_or_none()
+        if job is None:
+            raise LookupError("Published job not found in this tenant.")
+        email = str(payload.get("email") or "").strip().lower()
+        if "@" not in email:
+            raise ValueError("A valid candidate email is required.")
+        status_value = str(payload.get("status") or "APPLIED").upper()
+        if status_value not in {"APPLIED", "SCREENING", "SHORTLISTED", "INTERVIEW", "OFFER", "HIRED", "REJECTED"}:
+            raise ValueError("Unsupported candidate application status.")
+        application = Application(
+            id=uuid.uuid4(), company_id=company_id, job_id=job.id, candidate_id=None,
+            first_name=str(payload.get("first_name") or "Candidate").strip(),
+            last_name=str(payload.get("last_name") or external_candidate_id).strip(), email=email,
+            phone=str(payload.get("phone") or "0000000000")[:20],
+            country=str(payload.get("country") or "UNKNOWN"), state=str(payload.get("state") or "UNKNOWN"),
+            city=str(payload.get("city") or "UNKNOWN"), current_company=payload.get("current_company"),
+            current_designation=payload.get("current_designation"), linkedin_url=payload.get("linkedin_url"),
+            experience_years=Decimal(str(payload.get("experience_years") or 0)), status=status_value,
+            declaration_checked=False,
+        )
+        self.session.add(application)
+        await self.session.flush()
+        utm = payload.get("utm") if isinstance(payload.get("utm"), dict) else payload
+        source = CandidateSource(
+            id=uuid.uuid4(), company_id=company_id, application_id=application.id,
+            provider=provider, external_candidate_id=external_candidate_id,
+            utm_source=utm.get("utm_source") or provider.lower(), utm_medium=utm.get("utm_medium"),
+            utm_campaign=utm.get("utm_campaign"), utm_term=utm.get("utm_term"),
+            utm_content=utm.get("utm_content"), referrer=payload.get("referrer"),
+            raw_payload=payload, ingested_at=datetime.now(timezone.utc),
+        )
+        self.session.add(source)
+        await self.session.commit()
+        return {"duplicate": False, "application_id": str(application.id), "source_id": str(source.id)}
+
+    async def source_analytics(self, *, company_id: uuid.UUID) -> dict[str, Any]:
+        from app.models.recruitment import Application, CandidateSource
+        rows = (await self.session.execute(
+            select(
+                CandidateSource.provider, CandidateSource.utm_source, CandidateSource.utm_medium,
+                CandidateSource.utm_campaign, Application.status, func.count(CandidateSource.id),
+            ).join(Application, Application.id == CandidateSource.application_id)
+            .where(CandidateSource.company_id == company_id, Application.company_id == company_id)
+            .group_by(
+                CandidateSource.provider, CandidateSource.utm_source, CandidateSource.utm_medium,
+                CandidateSource.utm_campaign, Application.status,
+            )
+        )).all()
+        items = [{
+            "provider": provider, "utm_source": source, "utm_medium": medium,
+            "utm_campaign": campaign, "application_status": status_value, "candidate_count": count,
+        } for provider, source, medium, campaign, status_value, count in rows]
+        return {"total_candidates": sum(item["candidate_count"] for item in items), "sources": items}

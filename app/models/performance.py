@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import uuid
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Numeric, func, text, JSON
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Numeric, UniqueConstraint, func, text, JSON
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -96,3 +96,77 @@ class PerformanceReview(Base):
     cycle: Mapped[PerformanceReviewCycle] = relationship("PerformanceReviewCycle", back_populates="reviews")
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
     reviewer: Mapped[User | None] = relationship("User", lazy="select")
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: tenant-safe 360 reviews, calibration, and promotion workflows
+# ---------------------------------------------------------------------------
+from app.models.enterprise_common import EnterpriseModelMixin
+
+
+class PerformanceCycleV2(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_cycles_v2"
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_performance_cycle_v2_company_name"),
+        Index("ix_performance_cycles_v2_company_status", "company_id", "status"),
+    )
+
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
+    bell_curve_targets: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+
+    reviews: Mapped[list[PerformanceReview360]] = relationship(
+        "PerformanceReview360", back_populates="cycle", cascade="all, delete-orphan", lazy="select",
+    )
+
+
+class PerformanceReview360(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_reviews_360"
+    __table_args__ = (
+        UniqueConstraint("cycle_id", "employee_id", "reviewer_id", "review_type", name="uq_performance_360_reviewer"),
+        Index("ix_performance_360_company_employee", "company_id", "employee_id"),
+    )
+
+    cycle_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_cycles_v2.id", ondelete="CASCADE"), nullable=False)
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    reviewer_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    review_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    calibrated_rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    cycle: Mapped[PerformanceCycleV2] = relationship("PerformanceCycleV2", back_populates="reviews", lazy="select")
+
+
+class PerformanceCalibrationRun(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_calibration_runs"
+    __table_args__ = (Index("ix_performance_calibration_company_cycle", "company_id", "cycle_id"),)
+
+    cycle_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_cycles_v2.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="IN_PROGRESS", server_default=text("'IN_PROGRESS'"))
+    target_distribution: Mapped[dict] = mapped_column(JSON, nullable=False)
+    result_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
+    started_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PromotionApproval(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_promotion_approvals"
+    __table_args__ = (Index("ix_promotion_approvals_company_status", "company_id", "status"),)
+
+    cycle_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_cycles_v2.id", ondelete="CASCADE"), nullable=False)
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    current_grade: Mapped[str] = mapped_column(String(40), nullable=False)
+    target_grade: Mapped[str] = mapped_column(String(40), nullable=False)
+    target_band_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("compensation_bands.id", ondelete="SET NULL"), nullable=True)
+    recommended_increment_percentage: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="PENDING_MANAGER", server_default=text("'PENDING_MANAGER'"))
+    justification: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    manager_approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    hr_approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -308,3 +308,64 @@ async def modify_recruitment_job_description(
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# Batch 6: Naukri / LinkedIn provider sync and signed candidate ingestion
+# ---------------------------------------------------------------------------
+from fastapi import Header
+from pydantic import BaseModel, Field
+from app.api.v2.enterprise_dependencies import (
+    company_id as _tenant_id, ok as _ok, require_admin as _require_admin,
+    require_manager as _require_manager, translate as _translate,
+)
+from app.services.recruitment_service import RecruitmentIntegrationService
+
+
+class ProviderConnectionRequest(BaseModel):
+    api_base_url: str
+    api_token: str | None = None
+    webhook_secret: str = Field(min_length=16)
+
+
+@router.post("/integrations/{provider}/connections", status_code=201)
+async def configure_recruitment_provider(provider: str, body: ProviderConnectionRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        connection = await RecruitmentIntegrationService(db).configure_integration(
+            company_id=_tenant_id(claims), provider=provider, **body.model_dump(),
+        )
+        return _ok({"id": str(connection.id), "provider": connection.provider, "is_active": connection.is_active})
+    except ValueError as exc:
+        _translate(exc)
+
+
+@router.post("/integrations/{provider}/jobs/{job_id}/sync")
+async def sync_recruitment_job(provider: str, job_id: uuid.UUID, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_admin(claims)
+    try:
+        sync = await RecruitmentIntegrationService(db).sync_job(job_id, company_id=_tenant_id(claims), provider=provider)
+        return _ok({"id": str(sync.id), "external_job_id": sync.external_job_id, "status": sync.status})
+    except (ValueError, LookupError) as exc:
+        _translate(exc)
+
+
+@router.post("/integrations/{tenant_id}/webhooks/{provider}")
+async def recruitment_provider_webhook(
+    tenant_id: uuid.UUID, provider: str, request: Request,
+    signature: Annotated[str | None, Header(alias="X-Recruitment-Signature")] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+):
+    try:
+        result = await RecruitmentIntegrationService(db).ingest_candidate_webhook(
+            company_id=tenant_id, provider=provider, raw_body=await request.body(), signature=signature,
+        )
+        return _ok(result, "Candidate webhook processed")
+    except (ValueError, LookupError, PermissionError) as exc:
+        _translate(exc)
+
+
+@router.get("/integrations/analytics")
+async def recruitment_source_analytics(claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
+    _require_manager(claims)
+    return _ok(await RecruitmentIntegrationService(db).source_analytics(company_id=_tenant_id(claims)))
