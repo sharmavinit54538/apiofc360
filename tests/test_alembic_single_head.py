@@ -4,6 +4,7 @@ Verifies:
 1. Exactly one head exists (no branches / multiple heads).
 2. Exactly one base exists (no multiple disconnected roots).
 3. Every migration's down_revision resolves to a valid existing revision.
+4. Every revision and down_revision identifier is at most 28 characters.
 """
 
 from pathlib import Path
@@ -65,4 +66,28 @@ def test_alembic_migration_graph_continuity():
     
     assert not missing_parents, (
         f"Found migrations referencing missing parent revisions: {missing_parents}"
+    )
+
+
+def test_alembic_revision_ids_fit_legacy_version_table():
+    """Keep all revision references within the 28-character safety limit."""
+    script_dir = get_alembic_script_dir()
+    oversized = []
+
+    for rev in script_dir.walk_revisions():
+        down_revs = rev.down_revision
+        if down_revs is None:
+            down_revs = ()
+        elif isinstance(down_revs, str):
+            down_revs = (down_revs,)
+
+        for kind, revision_id in [("revision", rev.revision)] + [
+            ("down_revision", parent_id) for parent_id in down_revs
+        ]:
+            if len(revision_id) > 28:
+                oversized.append((rev.revision, kind, revision_id, len(revision_id)))
+
+    assert not oversized, (
+        "Every Alembic revision/down_revision must be <= 28 characters; "
+        f"found: {oversized}"
     )
