@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     JobRequisitionCreate,
@@ -27,10 +27,10 @@ router = APIRouter(prefix="/requisitions")
 )
 async def create_requisition(
     payload: JobRequisitionCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobRequisitionResponse]:
-    """Request a new job requisition. Admin and HR only."""
+    """Request a new job requisition. Super Admin, HR Admin, IT Admin, and Manager."""
     user_id = uuid.UUID(claims["sub"])
     req = await service.create_requisition(user_id, payload)
     return APIResponse[JobRequisitionResponse](
@@ -53,7 +53,7 @@ async def approve_requisition(
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobRequisitionResponse]:
-    """Approve or reject a job requisition. Convert to Job posting if approved. Admin and HR only."""
+    """Approve or reject a job requisition. Convert to Job posting if approved. Super Admin, HR Admin, and IT Admin only."""
     user_id = uuid.UUID(claims["sub"])
     req = await service.approve_requisition(user_id, id, payload.approve)
     msg = "Job requisition approved and job template created." if payload.approve else "Job requisition rejected."
