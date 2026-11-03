@@ -70,6 +70,28 @@ class JobCreate(BaseModel):
         if not isinstance(data, dict):
             return data
         d = dict(data)
+        # Normalize frontend camelCase aliases
+        if "description" in d and "job_description" not in d:
+            d["job_description"] = d["description"]
+        if "jobType" in d and "employment_type" not in d:
+            d["employment_type"] = d["jobType"]
+        if "departmentId" in d and "department" not in d:
+            d["department"] = d["departmentId"]
+        if "designation" not in d and "title" in d:
+            d["designation"] = d["title"]
+        if "openingsCount" in d and "vacancies" not in d:
+            d["vacancies"] = d["openingsCount"]
+        if "experienceMinYears" in d and "min_experience" not in d:
+            d["min_experience"] = d["experienceMinYears"]
+        if "experienceMaxYears" in d and "max_experience" not in d:
+            d["max_experience"] = d["experienceMaxYears"]
+        if "minSalary" in d and "min_salary" not in d:
+            d["min_salary"] = d["minSalary"]
+        if "maxSalary" in d and "max_salary" not in d:
+            d["max_salary"] = d["maxSalary"]
+        if "location" not in d or not d["location"]:
+            d["location"] = "Remote"
+
         for field_name in ("responsibilities", "requirements", "benefits"):
             val = d.get(field_name)
             if isinstance(val, list):
