@@ -297,6 +297,34 @@ async def draft_job(
     )
 
 
+class JobStatusUpdateRequest(BaseModel):
+    status: str
+
+
+@router.patch(
+    "/{id}/status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[JobResponse],
+    summary="Update job status",
+)
+async def patch_job_status(
+    id: uuid.UUID,
+    payload: JobStatusUpdateRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+) -> APIResponse[JobResponse]:
+    """Update job status (DRAFT, PUBLISHED, CLOSED). Admin and HR only."""
+    raw_status = payload.status.upper()
+    valid_status = "PUBLISHED" if raw_status == "OPEN" else raw_status
+    job = await service.update_job_status(id, valid_status)
+    return APIResponse[JobResponse](
+        success=True,
+        message=f"Job posting status updated to {valid_status} successfully.",
+        data=job,
+        errors=None,
+    )
+
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 

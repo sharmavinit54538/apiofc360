@@ -217,6 +217,13 @@ def get_v1_router() -> APIRouter:
         attendance_router,  # from app/attendance/routers/
     ):
         router.include_router(r)
+
+    # ── Recruitment Domain Aliases ──────────────────────────────────────────
+    # Expose job openings and interview workflows under /recruitment prefix
+    # to support standard /api/v1/recruitment/jobs and /api/v1/recruitment/interviews
+    # while retaining legacy /api/v1/jobs and /api/v1/interviews endpoints.
+    router.include_router(jobs_router, prefix="/recruitment")
+    router.include_router(interviews_router, prefix="/recruitment")
     
     # AI Module Routes
     router.include_router(chat_assistant_router, prefix="/ai/chat")
