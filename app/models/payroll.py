@@ -541,7 +541,10 @@ class PayrollCycleLog(Base):
 class PayrollAuditLog(Base):
     """Immutable append-only log of every state-changing payroll action."""
     __tablename__ = "payroll_audit_logs"
-    __table_args__ = (Index("ix_payroll_audit_logs_pay_cycle_id", "pay_cycle_id"),)
+    __table_args__ = (
+        Index("ix_payroll_audit_logs_pay_cycle_id", "pay_cycle_id"),
+        Index("ix_payroll_audit_logs_company_entity", "company_id", "entity_type", "entity_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pay_cycle_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pay_cycles.id", ondelete="CASCADE"), nullable=True)
@@ -724,6 +727,9 @@ class ReimbursementClaim(Base):
     __table_args__ = (
         Index("ix_reimbursement_claims_employee_id", "employee_id"),
         Index("ix_reimbursement_claims_pay_cycle_id", "pay_cycle_id"),
+        Index("ix_reimbursement_claims_company_status_date", "company_id", "status", "claim_date"),
+        Index("ix_reimbursement_claims_company_employee", "company_id", "employee_id", "created_at"),
+        Index("ix_reimbursement_claims_company_payment", "company_id", "payment_reference"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -732,14 +738,26 @@ class ReimbursementClaim(Base):
     pay_cycle_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pay_cycles.id", ondelete="SET NULL"), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)  # TRAVEL|MEDICAL|FOOD|EQUIPMENT|OTHER
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default=text("'INR'"))
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    merchant: Mapped[str | None] = mapped_column(String(255), nullable=True)
     receipt_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # External project reference, matching TimesheetEntry.project_id. There is no
+    # project master table in this backend to reference with a foreign key.
+    project_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     claim_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUBMITTED", server_default=text("'SUBMITTED'"))  # SUBMITTED|APPROVED|REJECTED|QUEUED|PAID
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUBMITTED", server_default=text("'SUBMITTED'"))  # DRAFT|SUBMITTED|CHANGES_REQUESTED|APPROVED|REJECTED|QUEUED|PAID
     payout_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="CYCLE")  # CYCLE|STANDALONE
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
