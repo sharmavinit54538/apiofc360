@@ -10,6 +10,7 @@ import io
 import uuid
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -110,6 +111,106 @@ def test_pf_vpf_higher_wage_and_uan_membership():
     assert inactive["total_pf_liability_paise"] == 0
     with pytest.raises(ValueError):
         StatutoryService.calculate_pf(basic_paise=1_000_000, uan_number="123", require_uan=True)
+
+
+@pytest.mark.parametrize(
+    ("wages_rupees", "employee_paise", "employer_eps_paise", "employer_epf_paise"),
+    [
+        (15_000, 180_000, 125_000, 55_000),
+        (20_000, 240_000, 166_600, 73_400),
+        (25_000, 300_000, 208_300, 91_700),
+        (30_000, 300_000, 208_300, 91_700),
+    ],
+)
+def test_pf_revised_ceiling_effective_from_17_september_2026(
+    wages_rupees, employee_paise, employer_eps_paise, employer_epf_paise,
+):
+    result = StatutoryService.calculate_pf(
+        basic_paise=wages_rupees * 100,
+        as_of_date=date(2026, 9, 17),
+    )
+    assert result["employee_pf_paise"] == employee_paise
+    assert result["employer_eps_paise"] == employer_eps_paise
+    assert result["employer_epf_paise"] == employer_epf_paise
+    assert result["total_employer_pf_paise"] == employer_eps_paise + employer_epf_paise
+
+
+def test_pf_ceiling_is_historical_and_september_period_is_prorated():
+    before = StatutoryService.calculate_pf(basic_paise=3_000_000, as_of_date=date(2026, 9, 16))
+    september = StatutoryService.calculate_pf(
+        basic_paise=3_000_000,
+        period_start_date=date(2026, 9, 1), period_end_date=date(2026, 9, 30),
+    )
+    assert before["pf_wage_paise"] == 1_500_000
+    assert september["pf_wage_paise"] == 1_966_667
+    assert september["employee_pf_paise"] == september["employer_epf_paise"] + september["employer_eps_paise"]
+
+
+def test_pf_membership_eps_eligibility_and_custom_tenant_ceiling_are_separate():
+    ineligible = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17),
+        is_pf_eligible=True, pf_membership_active=True, eps_membership_active=False,
+    )
+    custom = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17),
+        config=SimpleNamespace(pf_enabled=True, pf_wage_ceiling=Decimal("18000")),
+    )
+    inactive = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17), pf_membership_active=False,
+    )
+    assert ineligible["employer_eps_paise"] == 0
+    assert ineligible["employer_epf_paise"] == 240_000
+    assert custom["pf_wage_paise"] == custom["eps_wage_paise"] == 1_800_000
+    assert inactive["total_pf_liability_paise"] == 0
+
+    epf_only_higher_wage = StatutoryService.calculate_pf(
+        basic_paise=3_000_000, as_of_date=date(2026, 9, 17),
+        pf_higher_wage_opted=True, eps_higher_wage_opted=False,
+    )
+    eps_higher_wage = StatutoryService.calculate_pf(
+        basic_paise=3_000_000, as_of_date=date(2026, 9, 17),
+        pf_higher_wage_opted=True, eps_higher_wage_opted=True,
+    )
+    assert epf_only_higher_wage["pf_wage_paise"] == 3_000_000
+    assert epf_only_higher_wage["eps_wage_paise"] == 2_500_000
+    assert eps_higher_wage["eps_wage_paise"] == 3_000_000
+
+
+@pytest.mark.parametrize(
+    ("payment_date", "financial_year"),
+    [
+        (date(2026, 3, 31), "2025-2026"),
+        (date(2026, 4, 1), "2026-2027"),
+        (date(2026, 4, 30), "2026-2027"),
+        (date(2026, 5, 31), "2026-2027"),
+    ],
+)
+def test_salary_tds_financial_year_uses_payment_date(payment_date, financial_year):
+    assert StatutoryService.financial_year_for_salary_payment(payment_date) == financial_year
+
+
+def test_salary_tds_uses_actual_or_scheduled_payment_date_not_period_month():
+    march_paid_in_march = SimpleNamespace(payment_date=date(2026, 3, 31), pay_date=date(2026, 4, 1))
+    march_paid_in_april = SimpleNamespace(payment_date=None, pay_date=date(2026, 4, 1))
+    april_paid_in_april = SimpleNamespace(payment_date=date(2026, 4, 30), pay_date=date(2026, 4, 30))
+    later_payment = SimpleNamespace(payment_date=date(2026, 5, 15), pay_date=date(2026, 4, 30))
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(march_paid_in_march)
+    ) == "2025-2026"
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(march_paid_in_april)
+    ) == "2026-2027"
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(april_paid_in_april)
+    ) == "2026-2027"
+    assert StatutoryService.resolve_salary_payment_date(later_payment) == date(2026, 5, 15)
+
+
+def test_salary_tds_requires_payment_date_or_scheduled_pay_date():
+    with pytest.raises(ValueError, match="scheduled pay_date"):
+        StatutoryService.resolve_salary_payment_date(SimpleNamespace(payment_date=None, pay_date=None))
+    with pytest.raises(ValueError, match="payroll period"):
+        StatutoryService.resolve_salary_payment_date(None)
 
 
 @pytest.mark.asyncio

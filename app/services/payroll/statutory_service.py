@@ -3,8 +3,8 @@
 Implements deterministic calculations for:
 1. PF (Provident Fund):
    - Employee: 12% of Basic (+ DA).
-   - Employer: 3.67% EPF + 8.33% EPS (capped at ₹1,250/mo on ₹15,000 wage ceiling) + 0.5% EDLI + 0.5% Admin charges.
-   - Configurable toggle for "Wage Ceiling (₹15,000)" vs "Actual Basic".
+   - Employer: 8.33% EPS up to the effective PF wage ceiling; the remainder goes to EPF, plus EDLI/admin charges.
+   - Ceiling: ₹15,000 through 16 Sep 2026, then ₹25,000 from 17 Sep 2026; tenant custom ceilings remain supported.
 2. ESI (Employee State Insurance):
    - Applicable only if Gross Monthly Salary <= ₹21,000.
    - Employee: 0.75% of wages, rounded up to the next rupee.
@@ -32,7 +32,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,6 @@ from app.models.payroll_compliance import (
     ComplianceChallan,
     ComplianceDueDate,
     FinancialYearTaxRule,
-    PayrollCompliance,
     StateStatutoryRule,
     StatutoryForm,
 )
@@ -54,6 +53,52 @@ logger = logging.getLogger(__name__)
 
 
 class StatutoryService:
+    # S.O. 5109(E), published 17 Sep 2026, revised the monthly EPF/EPS/EDLI
+    # wage ceiling. Keep the date and old value explicit for historical runs.
+    PF_WAGE_CEILING_EFFECTIVE_DATE = date(2026, 9, 17)
+    PF_WAGE_CEILING_BEFORE_PAISE = 1_500_000
+    PF_WAGE_CEILING_FROM_PAISE = 2_500_000
+
+    @classmethod
+    def _effective_pf_wage_ceiling_paise(
+        cls,
+        as_of_date: date | None,
+        config: Optional[StatutoryComplianceConfig],
+    ) -> int:
+        """Return the effective statutory PF/EPS/EDLI ceiling.
+
+        A non-default tenant value remains an intentional tenant override.
+        Stored legacy defaults of ₹15,000 follow the statutory effective date.
+        """
+        statutory = (
+            cls.PF_WAGE_CEILING_FROM_PAISE
+            if as_of_date and as_of_date >= cls.PF_WAGE_CEILING_EFFECTIVE_DATE
+            else cls.PF_WAGE_CEILING_BEFORE_PAISE
+        )
+        configured = as_decimal(getattr(config, "pf_wage_ceiling", 15000) if config else 15000)
+        configured_paise = int(configured * 100)
+        if configured_paise in {cls.PF_WAGE_CEILING_BEFORE_PAISE, cls.PF_WAGE_CEILING_FROM_PAISE}:
+            return statutory
+        return max(0, configured_paise)
+
+    @classmethod
+    def _pf_ceiling_for_period_paise(
+        cls,
+        period_start: date | None,
+        period_end: date | None,
+        config: Optional[StatutoryComplianceConfig],
+    ) -> int:
+        """Prorate a ceiling for a wage period crossing the statutory date."""
+        if not period_start or not period_end or period_end < period_start:
+            return cls._effective_pf_wage_ceiling_paise(period_start, config)
+        days = (period_end - period_start).days + 1
+        old_days = max(0, (min(period_end, cls.PF_WAGE_CEILING_EFFECTIVE_DATE - timedelta(days=1)) - period_start).days + 1)
+        old_days = min(days, old_days)
+        new_days = days - old_days
+        old_cap = cls._effective_pf_wage_ceiling_paise(date(2026, 9, 16), config)
+        new_cap = cls._effective_pf_wage_ceiling_paise(date(2026, 9, 17), config)
+        return int((Decimal(old_cap * old_days + new_cap * new_days) / Decimal(days)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
     """Business logic for Indian statutory calculations, compliance config, and filing reports."""
 
     STATE_ALIASES = {
@@ -307,20 +352,26 @@ class StatutoryService:
         age: Optional[int] = None,
         vpf_rate: Decimal | float | str | int = Decimal("0"),
         pf_higher_wage_opted: bool = False,
+        eps_higher_wage_opted: Optional[bool] = None,
         pf_membership_active: bool = True,
+        eps_membership_active: Optional[bool] = None,
         uan_number: Optional[str] = None,
         require_uan: bool = False,
         eps_rate: Optional[Decimal | float | str] = None,
         edli_rate: Optional[Decimal | float | str] = None,
         admin_rate: Optional[Decimal | float | str] = None,
+        as_of_date: date | None = None,
+        period_start_date: date | None = None,
+        period_end_date: date | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Calculate EPF/EPS/EDLI/admin using integer paise throughout.
 
         ``vpf_rate`` is a fraction (``0.05`` means five percent); percentages
-        such as ``5`` are accepted for API convenience.  EPS wages are capped
-        at the statutory ceiling unless the employee has explicitly opted for
-        higher-wage pension (or is an international worker).
+        such as ``5`` are accepted for API convenience. Statutory PF, EPS, and
+        EDLI wages follow the effective-dated ceiling unless a higher-wage
+        arrangement applies. September 2026 periods crossing the effective date
+        prorate the ceiling by calendar days.
         """
         if "higher_wage_opted" in kwargs:
             pf_higher_wage_opted = bool(kwargs["higher_wage_opted"])
@@ -356,15 +407,18 @@ class StatutoryService:
             pf_on_full_basic if pf_on_full_basic is not None
             else bool(getattr(config, "pf_on_full_basic", False)) if config else False
         )
-        ceiling_paise = int(as_decimal(getattr(config, "pf_wage_ceiling", 15000) if config else 15000) * 100)
-        ceiling_paise = max(0, ceiling_paise)
+        ceiling_paise = cls._pf_ceiling_for_period_paise(
+            period_start_date, period_end_date, config,
+        ) if period_start_date and period_end_date else cls._effective_pf_wage_ceiling_paise(as_of_date, config)
         higher_wage = bool(pf_higher_wage_opted)
+        eps_higher_wage = higher_wage if eps_higher_wage_opted is None else bool(eps_higher_wage_opted)
+        eps_active = is_pf_eligible if eps_membership_active is None else bool(eps_membership_active)
 
         if is_international_worker or higher_wage or not pf_wage_ceiling_applicable or full_basic:
             pf_wage_paise = wages_paise
         else:
             pf_wage_paise = min(wages_paise, ceiling_paise)
-        if is_international_worker or higher_wage:
+        if is_international_worker or eps_higher_wage:
             eps_wage_paise = wages_paise
         else:
             eps_wage_paise = min(wages_paise, ceiling_paise)
@@ -383,12 +437,10 @@ class StatutoryService:
         employee_epf_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * employee_rate)
         employee_vpf_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * vpf_rate_dec)
         employee_pf_paise = employee_epf_paise + employee_vpf_paise
-        if age is not None and age >= 58:
+        if not eps_active or (age is not None and age >= 58):
             employer_eps_paise = 0
         else:
             employer_eps_paise = round_to_rupee_paise(Decimal(eps_wage_paise) * pension_rate)
-            if not (is_international_worker or higher_wage):
-                employer_eps_paise = min(125000, employer_eps_paise)
         total_employer_12_paise = round_to_rupee_paise(Decimal(pf_wage_paise) * employer_rate)
         employer_epf_paise = max(0, total_employer_12_paise - employer_eps_paise)
         employer_edli_paise = round_to_rupee_paise(Decimal(edli_wage_paise) * edli_rate_dec)
@@ -413,6 +465,9 @@ class StatutoryService:
             "uan_valid": uan_valid,
             "uan_error": uan_error,
             "vpf_rate": float(vpf_rate_dec),
+            "statutory_wage_ceiling_paise": ceiling_paise,
+            "eps_membership_active": eps_active,
+            "eps_higher_wage_opted": eps_higher_wage,
         }
 
 
@@ -939,6 +994,22 @@ class StatutoryService:
     def _fy_start_year(financial_year: str | None) -> int:
         match = re.search(r"(20\d{2})", str(financial_year or ""))
         return int(match.group(1)) if match else 2024
+
+    @staticmethod
+    def financial_year_for_salary_payment(payment_date: date) -> str:
+        """Return the April-March tax year in which salary is paid."""
+        start_year = payment_date.year if payment_date.month >= 4 else payment_date.year - 1
+        return f"{start_year}-{start_year + 1}"
+
+    @staticmethod
+    def resolve_salary_payment_date(period: PayrollPeriod | None) -> date:
+        """Use an actual salary date, else the configured scheduled pay date."""
+        if period is None:
+            raise ValueError("A payroll period is required for salary TDS calculation.")
+        payment_date = period.payment_date or period.pay_date
+        if payment_date is None:
+            raise ValueError("Salary TDS requires payment_date or the payroll period's scheduled pay_date.")
+        return payment_date
 
     @classmethod
     def _default_tax_rule(cls, financial_year: str, regime: str) -> dict[str, Any]:
@@ -1738,8 +1809,12 @@ class StatutoryService:
                 is_international_worker=bool(getattr(emp, "is_international_worker", False)),
                 pf_wage_ceiling_applicable=bool(getattr(emp, "pf_wage_ceiling_applicable", True)),
                 pf_higher_wage_opted=bool(getattr(emp, "pf_higher_wage_opted", False)),
+                eps_higher_wage_opted=bool(getattr(emp, "eps_higher_wage_opted", False)),
                 pf_membership_active=member_active,
                 vpf_rate=getattr(emp, "vpf_rate", Decimal("0")), age=age,
+                as_of_date=period.start_date,
+                period_start_date=period.start_date,
+                period_end_date=period.end_date,
             )
             gross_paise = int(as_decimal(ps.gross_earnings or 0) * 100)
             if not uan_valid or not active or not member_active or not eligible:
@@ -2876,7 +2951,9 @@ class StatutoryService:
 
         for field, aliases in {
             "pf_membership_active": ("pf_membership_active", "pfMembershipActive"),
+            "is_eps_eligible": ("is_eps_eligible", "isEpsEligible"),
             "pf_higher_wage_opted": ("pf_higher_wage_opted", "pfHigherWageOpted"),
+            "eps_higher_wage_opted": ("eps_higher_wage_opted", "epsHigherWageOpted", "higher_wage_eps_opted"),
             "is_pwd": ("is_pwd", "isPwd"),
             "state_code": ("state_code", "stateCode"),
             "vpf_rate": ("vpf_rate", "vpfRate"),
@@ -2903,7 +2980,9 @@ class StatutoryService:
             "is_international_worker": emp.is_international_worker,
             "pf_wage_ceiling_applicable": emp.pf_wage_ceiling_applicable,
             "pf_membership_active": emp.pf_membership_active,
+            "is_eps_eligible": emp.is_eps_eligible,
             "pf_higher_wage_opted": emp.pf_higher_wage_opted,
+            "eps_higher_wage_opted": emp.eps_higher_wage_opted,
             "vpf_rate": float(emp.vpf_rate or 0),
             "is_pwd": emp.is_pwd,
             "state_code": emp.state_code,

@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT))
 
 def scenarios(count: int, seed: int) -> list[dict]:
     result = []
-    periods = [(2026, 2), (2024, 2), (2026, 4), (2026, 5), (2026, 6), (2026, 12)]
+    periods = [(2026, 2), (2024, 2), (2026, 3), (2026, 4), (2026, 5), (2026, 9), (2026, 12)]
     for index in range(count):
         rng = random.Random(seed + index)
         year, month = periods[(index // 100) % len(periods)]
@@ -46,6 +46,16 @@ def scenarios(count: int, seed: int) -> list[dict]:
         annual = 10_000_007 if index % 13 == 0 else monthly * 12 + index % 12
         monthly = annual // 12
         basic, hra = monthly // 2, monthly // 5
+        pf_wage_boundary = None
+        if index % 100 in (4, 5, 6, 7):
+            # Keep statutory wages at exact 15k/20k/25k/30k boundaries:
+            # basic and special allowance each make up half of monthly pay.
+            basic = [1_500_000, 2_000_000, 2_500_000, 3_000_000][index % 100 - 4]
+            monthly = basic * 2
+            annual = monthly * 12 + index % 12
+            monthly = annual // 12
+            hra = 0
+            pf_wage_boundary = basic // 100
         lop = ["0", "0.5", "3.5", str(denominator)][index % 4]
         overtime, bonus = rng.randrange(0, 50_001), rng.randrange(0, 10_001)
         arrear = rng.randrange(0, 10_001) if index % 3 == 0 else 0
@@ -76,8 +86,15 @@ def scenarios(count: int, seed: int) -> list[dict]:
         # proration is intentionally not claimed by this harness.
         if joining != "2020-01-01" and edge_kind == "ordinary":
             lop = "14"
+        period_end = date(year, month, calendar.monthrange(year, month)[1])
+        payment_date = period_end
+        if (year, month) == (2026, 3):
+            payment_date = date(2026, 3, 31) if index % 2 == 0 else date(2026, 4, 1)
+        elif (year, month) == (2026, 4):
+            payment_date = date(2026, 4, 30) if index % 2 == 0 else date(2026, 5, 15)
         result.append({
             "scenario": index, "seed": seed, "year": year, "month": month,
+            "payment_date": payment_date.isoformat(), "pf_wage_boundary_rupees": pf_wage_boundary,
             "policy": policy, "denominator": denominator, "state": state,
             "statutory_enabled": statutory, "annual_ctc_paise": annual,
             "basic_paise": basic, "hra_paise": hra, "special_paise": monthly - basic - hra,
@@ -171,7 +188,7 @@ async def main(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     groups = defaultdict(list)
     for item in generated:
-        key = (item["year"], item["month"], item["policy"], item["state"], item["statutory_enabled"])
+        key = (item["year"], item["month"], item["policy"], item["state"], item["statutory_enabled"], item["payment_date"])
         if item["edge"] == "negative":
             key += (item["scenario"],)
         groups[key].append(item)
@@ -201,6 +218,7 @@ async def main(args: argparse.Namespace) -> int:
                         start_date=date(first["year"], first["month"], 1),
                         end_date=date(first["year"], first["month"], calendar.monthrange(first["year"], first["month"])[1]),
                         pay_date=date(first["year"], first["month"], calendar.monthrange(first["year"], first["month"])[1]),
+                        payment_date=date.fromisoformat(first["payment_date"]),
                         period_month=first["month"], period_year=first["year"], status="OPEN",
                     )
                     session.add_all([config, period])
@@ -298,6 +316,10 @@ async def main(args: argparse.Namespace) -> int:
                         assert components == row.gross_earnings_paise == expected_gross(item)
                         assert deducted == row.total_deductions_paise
                         assert components - deducted - row.net_pay_paise == 0
+                        payment_date = date.fromisoformat(item["payment_date"])
+                        expected_fy_start = payment_date.year - int(payment_date.month < 4)
+                        assert deductions["tds_financial_year"] == f"{expected_fy_start}-{expected_fy_start + 1}"
+                        assert deductions["salary_payment_date"] == item["payment_date"]
                         assert Decimal(slip.gross_earnings) * 100 == components
                         assert Decimal(slip.total_deductions) * 100 == deducted
                         assert Decimal(slip.net_pay) * 100 == row.net_pay_paise
@@ -305,6 +327,8 @@ async def main(args: argparse.Namespace) -> int:
                         output_row = {"scenario": item["scenario"], "repetition": repetition, "company_id": str(company_id), "run_id": str(run_id),
                             "employee_id": str(eid), "gross_paise": components, "deductions_paise": deducted, "net_paise": row.net_pay_paise,
                             "settlement_adjustment_paise": 0, "payment_amount_paise": payment.amount_paise, "variance_paise": 0,
+                            "tds_financial_year": deductions["tds_financial_year"],
+                            "salary_payment_date": deductions["salary_payment_date"],
                             "payroll_variance_rupees": "0.000000", "payment_variance_rupees": "0.000000",
                             "policy": first["policy"], "config_id": str(config.id), "statutory_rule_version": deductions["statutory_rule_version"],
                             "statutory_config_version": config.formula_version, "code_sha256": code_digest,
@@ -330,6 +354,12 @@ async def main(args: argparse.Namespace) -> int:
                         counters["employee_evaluations_passed"] += 1
                         scenario_passes[item["scenario"]] += 1
                         cover[item["edge"]] += 1
+                        if item["pf_wage_boundary_rupees"] is not None:
+                            cover[f"pf_wage_boundary_{item['pf_wage_boundary_rupees']}"] += 1
+                        if (item["year"], item["month"]) == (2026, 3):
+                            cover[f"tds_payment_boundary_{item['payment_date']}"] += 1
+                        if (item["year"], item["month"]) == (2026, 4) and item["payment_date"] == "2026-05-15":
+                            cover["tds_later_scheduled_payment"] += 1
                         for key, value in output_row["statutory_components_paise"].items():
                             cover[key] += bool(value)
                     counters["runs_passed"] += 1

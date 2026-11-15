@@ -34,7 +34,9 @@ def _revision():
 def test_expense_migration_has_single_head_and_additive_offline_sql():
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
-    assert ScriptDirectory.from_config(config).get_heads() == ["912a_expense_workflow"]
+    # The expense revision is no longer the tip; later additive payroll
+    # migrations merge the historical migration branches into one head.
+    assert ScriptDirectory.from_config(config).get_heads() == ["e1f2a3b4c5d6"]
     output = io.StringIO()
     context = MigrationContext.configure(
         dialect_name="postgresql",

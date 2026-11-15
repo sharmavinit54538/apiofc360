@@ -11,7 +11,7 @@ import uuid
 import calendar
 import hashlib
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -1378,8 +1378,13 @@ class PayrollRunService:
                 is_international_worker=bool(getattr(emp, "is_international_worker", False)),
                 pf_wage_ceiling_applicable=bool(getattr(emp, "pf_wage_ceiling_applicable", True)),
                 pf_higher_wage_opted=bool(getattr(emp, "pf_higher_wage_opted", False)),
+                eps_higher_wage_opted=bool(getattr(emp, "eps_higher_wage_opted", False)),
+                eps_membership_active=bool(getattr(emp, "is_eps_eligible", True)),
                 vpf_rate=getattr(emp, "vpf_rate", 0),
                 age=employee_age,
+                as_of_date=(period_record.start_date if period_record is not None else None),
+                period_start_date=(period_record.start_date if period_record is not None else None),
+                period_end_date=(period_record.end_date if period_record is not None else None),
             )
             employee_pf_paise = pf_res["employee_pf_paise"]
 
@@ -1437,8 +1442,17 @@ class PayrollRunService:
             )
             employee_lwf_paise = lwf_res["employee_lwf_paise"]
 
-            # Query tax investment declaration for TDS calculation
-            fy_label = f"{run.period_year}-{run.period_year+1}" if run.period_month >= 4 else f"{run.period_year-1}-{run.period_year}"
+            # Salary TDS is triggered on payment. Keep the scheduled payment
+            # date as the pre-disbursement policy date; payment_date takes
+            # precedence when an actual date has already been recorded.
+            try:
+                salary_payment_date = StatutoryService.resolve_salary_payment_date(period_record)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=str(exc),
+                ) from exc
+            fy_label = StatutoryService.financial_year_for_salary_payment(salary_payment_date)
             decl_stmt = select(EmployeeInvestmentDeclaration).where(
                 EmployeeInvestmentDeclaration.employee_id == emp.id,
                 EmployeeInvestmentDeclaration.financial_year == fy_label,
@@ -1458,9 +1472,9 @@ class PayrollRunService:
                 "professional_tax": as_decimal(getattr(emp, "professional_tax", 0) or 0) * 12
             }
             emp_regime = (decl.tax_regime if decl else None) or config.default_tax_regime or "NEW"
-            # April–March FY: April has 12 remaining months, May 11, …,
-            # December 4, and January–March have 3/2/1 respectively.
-            rem_months = 16 - run.period_month if run.period_month >= 4 else 4 - run.period_month
+            # April-March tax year follows the salary payment date, including
+            # payroll periods paid across a month/year boundary.
+            rem_months = 16 - salary_payment_date.month if salary_payment_date.month >= 4 else 4 - salary_payment_date.month
             verified_declarations = (decl.verified_details_json if decl else None) or None
             cutoff_passed = bool(decl and decl.proof_cutoff_date and decl.proof_cutoff_date <= (getattr(run, "end_date", None) or date.today()))
             current_one_time_variable_paise = sum(
@@ -1469,15 +1483,18 @@ class PayrollRunService:
             )
             current_one_time_paise = one_time_bonus_paise + current_one_time_variable_paise
             current_recurring_monthly_paise = max(0, gross_paise - current_one_time_paise)
-            fy_start_year = run.period_year if run.period_month >= 4 else run.period_year - 1
+            fy_start_year = salary_payment_date.year if salary_payment_date.month >= 4 else salary_payment_date.year - 1
             fy_pairs = [(m, fy_start_year if m >= 4 else fy_start_year + 1) for m in range(4, 13)] + [(m, fy_start_year + 1) for m in range(1, 4)]
-            current_fy_index = run.period_month - 4 if run.period_month >= 4 else run.period_month + 8
+            current_fy_index = salary_payment_date.month - 4 if salary_payment_date.month >= 4 else salary_payment_date.month + 8
             elapsed_pairs = fy_pairs[:current_fy_index]
             prior_tds_paise = 0
             prior_actual_gross_paise = 0
             has_prior_history = False
             if elapsed_pairs:
-                period_filter = or_(*[and_(Payslip.period_month == month, Payslip.period_year == year) for month, year in elapsed_pairs])
+                period_filter = and_(
+                    Payslip.payment_date >= date(fy_start_year, 4, 1),
+                    Payslip.payment_date < salary_payment_date,
+                )
                 prior_row = (await session.execute(select(
                     func.coalesce(func.sum(Payslip.tds), 0),
                     func.coalesce(func.sum(Payslip.gross_earnings), 0),
@@ -1488,10 +1505,7 @@ class PayrollRunService:
                 prior_tds_paise = int(as_decimal(prior_row[0]) * 100)
                 prior_actual_gross_paise = int(as_decimal(prior_row[1]) * 100)
                 has_prior_history = has_prior_history or int(prior_row[2] or 0) > 0
-                imported_filter = or_(*[
-                    and_(EmployeeYTDSalary.period_month == month, EmployeeYTDSalary.period_year == year)
-                    for month, year in elapsed_pairs
-                ])
+                imported_filter = EmployeeYTDSalary.financial_year == fy_label
                 imported_stmt = select(
                     func.coalesce(func.sum(EmployeeYTDSalary.tds_paise), 0),
                     func.coalesce(func.sum(EmployeeYTDSalary.gross_earnings_paise), 0),
@@ -1525,7 +1539,7 @@ class PayrollRunService:
                 use_verified_declarations=bool(decl and decl.use_verified_amounts and cutoff_passed),
                 proof_cutoff_passed=cutoff_passed,
                 financial_year=fy_label,
-                current_month=run.period_month,
+                current_month=salary_payment_date.month,
                 remaining_months=rem_months,
                 ytd_tds_paise=ytd_for_projection,
                 previous_employer_tds_paise=int(getattr(decl, "previous_employer_tds_paise", 0) or 0) if decl else 0,
@@ -1727,6 +1741,11 @@ class PayrollRunService:
                 "pt_paise": pt_paise,
                 "lwf_paise": employee_lwf_paise,
                 "tds_paise": tds_paise,
+                "tds_financial_year": fy_label,
+                "salary_payment_date": salary_payment_date.isoformat(),
+                "pf_statutory_wage_ceiling_paise": pf_res.get("statutory_wage_ceiling_paise", 0),
+                "eps_membership_active": pf_res.get("eps_membership_active", False),
+                "eps_higher_wage_opted": pf_res.get("eps_higher_wage_opted", False),
                 "advance_recovery_paise": advance_deduction_paise,
                 "variable_deductions_paise": variable_deductions_paise,
                 "custom_deductions_paise": custom_deductions_paise,
