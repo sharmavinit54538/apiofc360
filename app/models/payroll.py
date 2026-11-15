@@ -284,6 +284,8 @@ class PayrollRun(Base):
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     comments: Mapped[str | None] = mapped_column(String(500), nullable=True)
     job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    processing_token: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    processing_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

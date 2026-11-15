@@ -7,8 +7,8 @@ Implements deterministic calculations for:
    - Configurable toggle for "Wage Ceiling (₹15,000)" vs "Actual Basic".
 2. ESI (Employee State Insurance):
    - Applicable only if Gross Monthly Salary <= ₹21,000.
-   - Employee: 0.75% of Gross (ROUND_HALF_UP to nearest rupee).
-   - Employer: 3.25% of Gross (ROUND_HALF_UP to nearest rupee).
+   - Employee: 0.75% of wages, rounded up to the next rupee.
+   - Employer: 3.25% of wages, rounded up to the next rupee.
 3. PT (Professional Tax):
    - State-wise slab engine (Maharashtra, Karnataka, Gujarat, Andhra Pradesh, Telangana, Tamil Nadu, West Bengal, MP, Rajasthan, Delhi, etc.)
 4. LWF (Labour Welfare Fund):
@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
@@ -45,9 +46,9 @@ from app.models.payroll_compliance import (
     StateStatutoryRule,
     StatutoryForm,
 )
-from app.models.payroll_models import PayrollPeriod
+from app.models.payroll_models import PayrollPeriod, PayrollRunEmployee
 from app.services.storage_service import StorageService
-from app.services.payroll.money import as_decimal, round_to_rupee_paise
+from app.services.payroll.money import as_decimal, round_to_rupee_paise, round_up_to_rupee_paise
 
 logger = logging.getLogger(__name__)
 
@@ -557,6 +558,7 @@ class StatutoryService:
         contribution_period_start: Optional[date] = None,
         period_start: Optional[date] = None,
         previously_covered: Optional[bool] = None,
+        coverage_wage_paise: Optional[int] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Calculate ESI with the PwD ceiling and six-month coverage lock.
@@ -578,6 +580,10 @@ class StatutoryService:
             covered_at_period_start = previously_covered
 
         gross = max(0, int(gross_monthly_paise or 0))
+        coverage_gross = max(
+            0,
+            int(gross if coverage_wage_paise is None else coverage_wage_paise),
+        )
         enabled = bool(getattr(config, "esi_enabled", True)) if config else True
         regular_ceiling = int(as_decimal(getattr(config, "esi_wage_ceiling", 21000) if config else 21000) * 100)
         pwd_ceiling = int(as_decimal(getattr(config, "esi_pwd_wage_ceiling", 25000) if config else 25000) * 100)
@@ -592,37 +598,52 @@ class StatutoryService:
             supplied_start, _ = cls.esi_contribution_period(supplied_lock_start)
             lock_matches = supplied_start == lock_start
         locked = bool(covered_at_period_start) and lock_matches
-        covered = gross <= ceiling or locked
+        covered = coverage_gross <= ceiling or locked
 
         reason = "Eligible under gross wage ceiling"
-        if locked and gross > ceiling:
+        if locked and coverage_gross > ceiling:
             reason = "Covered at contribution-period start; six-month lock applies"
-        elif not covered and gross > ceiling:
+        elif not covered and coverage_gross > ceiling:
             reason = f"Exceeds ₹{ceiling // 100:,} gross wage ceiling"
         elif not enabled or gross <= 0:
             reason = "ESI disabled or zero gross"
 
         wage_base = max(0, int(contribution_wage_paise if contribution_wage_paise is not None else gross))
+        rounding_rule_date = as_of_date or supplied_lock_start or date.today()
+        if rounding_rule_date >= date(2026, 5, 8):
+            rounding_rule_version = "SOCIAL_SECURITY_CENTRAL_RULES_2026_RULE_19"
+            rounding_rule_effective_from = "2026-05-08"
+        else:
+            rounding_rule_version = "ESI_CENTRAL_RULES_1950_RULE_51"
+            # Rule 51's current whole-rupee rounding text was substituted by
+            # G.S.R. 316 dated 2004-08-26, effective 2004-10-01.
+            rounding_rule_effective_from = "2004-10-01"
         if not enabled or gross <= 0 or not covered:
             employee = employer = 0
         else:
             emp_rate = as_decimal(getattr(config, "employee_esi_rate", Decimal("0.0075")) if config else Decimal("0.0075"))
             empr_rate = as_decimal(getattr(config, "employer_esi_rate", Decimal("0.0325")) if config else Decimal("0.0325"))
-            employee = round_to_rupee_paise(Decimal(wage_base) * emp_rate)
-            employer = round_to_rupee_paise(Decimal(wage_base) * empr_rate)
+            # Rule 51 of the ESI (Central) Rules, 1950 and Rule 19 of the
+            # Social Security (Central) Rules, 2026 both require each share
+            # to be rounded to the next higher rupee (not nearest rupee).
+            employee = round_up_to_rupee_paise(Decimal(wage_base) * emp_rate)
+            employer = round_up_to_rupee_paise(Decimal(wage_base) * empr_rate)
 
         applicable = bool(enabled and gross > 0 and covered)
         return {
             "is_applicable": applicable,
             "gross_paise": gross,
+            "coverage_wage_paise": coverage_gross,
             "contribution_wage_paise": wage_base,
             "employee_esi_paise": employee,
             "employer_esi_paise": employer,
+            "rounding_rule_version": rounding_rule_version,
+            "rounding_rule_effective_from": rounding_rule_effective_from,
             "total_esi_liability_paise": employee + employer,
             "ceiling_paise": ceiling,
             "is_pwd": bool(is_pwd),
             "contribution_period_lock": locked,
-            "covered_at_period_start": bool(covered_at_period_start) if covered_at_period_start is not None else gross <= ceiling,
+            "covered_at_period_start": bool(covered_at_period_start) if covered_at_period_start is not None else coverage_gross <= ceiling,
             "contribution_period_start": lock_start.isoformat(),
             "contribution_period_end": lock_end.isoformat(),
             "reason": reason,
@@ -662,15 +683,25 @@ class StatutoryService:
         return int(amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP) if paise else (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     @classmethod
-    def _default_rule(cls, state: str) -> dict[str, Any]:
+    def _default_rule(cls, state: str, effective_date: Optional[date] = None) -> dict[str, Any]:
         code = cls._state_code(state)
-        return cls.DEFAULT_STATE_RULES.get(code, {
+        rule = cls.DEFAULT_STATE_RULES.get(code, {
             "state_name": code, "pt_slabs": [
                 {"min_gross_paise": 0, "max_gross_paise": 1000000, "amount_paise": 0},
                 {"min_gross_paise": 1000001, "max_gross_paise": None, "amount_paise": 20000},
             ], "lwf_employee_paise": 1000, "lwf_employer_paise": 2000,
             "lwf_frequency": "MONTHLY", "lwf_applicable_months": list(range(1, 13)),
         })
+        if code == "MH" and (effective_date or date.today()) >= date(2023, 4, 1):
+            rule = dict(rule)
+            rule["pt_slabs"] = [
+                {"min_gross_paise": 0, "max_gross_paise": 750000, "amount_paise": 0, "gender": "MALE"},
+                {"min_gross_paise": 750001, "max_gross_paise": 1000000, "amount_paise": 17500, "gender": "MALE"},
+                {"min_gross_paise": 1000001, "max_gross_paise": None, "amount_paise": 20000, "monthly_amounts": {"2": 30000}, "gender": "MALE"},
+                {"min_gross_paise": 0, "max_gross_paise": 2500000, "amount_paise": 0, "gender": "FEMALE"},
+                {"min_gross_paise": 2500001, "max_gross_paise": None, "amount_paise": 20000, "monthly_amounts": {"2": 30000}, "gender": "FEMALE"},
+            ]
+        return rule
 
     @classmethod
     async def get_state_statutory_rule(
@@ -703,23 +734,27 @@ class StatutoryService:
         """Idempotently seed the eleven requested state rule sets."""
         created = 0
         for code, values in cls.DEFAULT_STATE_RULES.items():
-            stmt = select(StateStatutoryRule).where(
-                StateStatutoryRule.state_code == code,
-                StateStatutoryRule.company_id.is_(None) if company_id is None else StateStatutoryRule.company_id == company_id,
-                StateStatutoryRule.effective_from == date(2020, 1, 1),
-            )
-            if (await session.execute(stmt)).scalar_one_or_none():
-                continue
-            session.add(StateStatutoryRule(
-                company_id=company_id, state_code=code, state_name=values["state_name"],
-                effective_from=date(2020, 1, 1), pt_slabs_json=values["pt_slabs"],
-                lwf_employee_paise=values.get("lwf_employee_paise", 0),
-                lwf_employer_paise=values.get("lwf_employer_paise", 0),
-                lwf_frequency=values.get("lwf_frequency", "MONTHLY"),
-                lwf_applicable_months=values.get("lwf_applicable_months", []),
-                needs_ca_validation=True,
-            ))
-            created += 1
+            versions = [(date(2020, 1, 1), values["pt_slabs"])]
+            if code == "MH":
+                versions.append((date(2023, 4, 1), cls._default_rule(code, date(2023, 4, 1))["pt_slabs"]))
+            for effective_from, slabs in versions:
+                stmt = select(StateStatutoryRule).where(
+                    StateStatutoryRule.state_code == code,
+                    StateStatutoryRule.company_id.is_(None) if company_id is None else StateStatutoryRule.company_id == company_id,
+                    StateStatutoryRule.effective_from == effective_from,
+                )
+                if (await session.execute(stmt)).scalar_one_or_none():
+                    continue
+                session.add(StateStatutoryRule(
+                    company_id=company_id, state_code=code, state_name=values["state_name"],
+                    effective_from=effective_from, pt_slabs_json=slabs,
+                    lwf_employee_paise=values.get("lwf_employee_paise", 0),
+                    lwf_employer_paise=values.get("lwf_employer_paise", 0),
+                    lwf_frequency=values.get("lwf_frequency", "MONTHLY"),
+                    lwf_applicable_months=values.get("lwf_applicable_months", []),
+                    needs_ca_validation=True,
+                ))
+                created += 1
         if created:
             await session.commit()
         return created
@@ -780,12 +815,16 @@ class StatutoryService:
         rule: Any = None,
         state_rule: Any = None,
         pt_slabs: Optional[list[dict[str, Any]]] = None,
+        effective_date: Optional[date] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Evaluate PT slabs by state, gender and month using integer paise."""
         selected_rule = rule or state_rule
         code = cls._state_code(state)
-        defaults = cls._default_rule(code)
+        effective_date = effective_date or kwargs.get("as_of") or kwargs.get("period_start")
+        if isinstance(effective_date, str):
+            effective_date = date.fromisoformat(effective_date)
+        defaults = cls._default_rule(code, effective_date)
         slabs = pt_slabs
         if slabs is None:
             slabs = cls._rule_value(selected_rule, "pt_slabs_json", "pt_slabs", "slabs", default=None)
@@ -1379,6 +1418,7 @@ class StatutoryService:
         pf_on_full_basic: bool = False,
         declarations: Optional[dict[str, Any]] = None,
         config: Optional[StatutoryComplianceConfig] = None,
+        effective_date: Optional[date] = None,
     ) -> dict[str, Any]:
         """Simulate end-to-end Gross-to-Net Indian Statutory Calculation."""
         day_ratio = max(0.0, min(1.0, paid_days / total_days)) if total_days > 0 else 1.0
@@ -1407,6 +1447,7 @@ class StatutoryService:
             gross_monthly_paise=earned_gross_paise,
             state=state,
             month=month,
+            effective_date=effective_date,
         )
 
         # 4. LWF
@@ -2206,13 +2247,61 @@ class StatutoryService:
         ceiling = int(as_decimal(getattr(config, "esi_pwd_wage_ceiling", 25000) if is_pwd else getattr(config, "esi_wage_ceiling", 21000)) * 100)
         explicit = bool(getattr(employee, "esi_covered_at_period_start", False))
         first_gross = int(as_decimal(first.gross_earnings or 0) * 100) if first else None
-        covered = explicit or (first_gross is not None and first_gross <= ceiling)
+        first_coverage_wage = first_gross
+        if first is not None:
+            overtime = await cls._stored_overtime_component(
+                session, first.payroll_run_id, employee.id, company_id,
+            )
+            if overtime is not None and first_coverage_wage is not None:
+                first_coverage_wage = max(0, first_coverage_wage - int(overtime))
+        covered = explicit or (first_coverage_wage is not None and first_coverage_wage <= ceiling)
         return {
             "covered": covered, "explicitly_covered": explicit,
-            "first_gross_paise": first_gross, "ceiling_paise": ceiling,
+            "first_gross_paise": first_gross, "first_coverage_wage_paise": first_coverage_wage,
+            "ceiling_paise": ceiling,
             "contribution_period_start": start, "contribution_period_end": end,
             "source": "EMPLOYEE_FLAG" if explicit else ("FIRST_PAYSLIP" if first else "CURRENT_MONTH"),
         }
+
+
+    @staticmethod
+    async def _stored_overtime_component(
+        session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> Optional[int]:
+        stmt = select(PayrollRunEmployee).where(
+            PayrollRunEmployee.run_id == run_id,
+            PayrollRunEmployee.employee_id == employee_id,
+        )
+        if company_id is not None:
+            stmt = stmt.where(PayrollRunEmployee.company_id == company_id)
+        try:
+            row = (await session.execute(stmt.limit(1))).scalar_one_or_none()
+        except OperationalError as exc:
+            # Older SQLite report fixtures omit the additive run-employee table;
+            # only that fixture limitation may use the legacy gross fallback.
+            if session.bind is None or session.bind.dialect.name != "sqlite" or "no such table" not in str(exc).lower():
+                raise
+            return None
+        breakup = getattr(row, "earnings_breakup", None) or {}
+        overtime = (breakup.get("variable_components_paise") or {}).get("OVERTIME")
+        return int(overtime) if overtime is not None else None
+
+
+    @staticmethod
+    async def _esi_coverage_wage_for_payslip(
+        session: AsyncSession, payslip: Payslip, employee: Employee,
+        gross_paise: int, company_id: Optional[uuid.UUID] = None,
+    ) -> int:
+        """Return gross excluding overtime for the statutory coverage ceiling.
+
+        Legacy payslips without the exact component snapshot use gross as a
+        conservative fallback because overtime cannot be inferred safely.
+        """
+        overtime = await StatutoryService._stored_overtime_component(
+            session, payslip.payroll_run_id, employee.id, company_id,
+        )
+        return max(0, gross_paise - int(overtime)) if overtime is not None else gross_paise
 
 
     @classmethod
@@ -2233,10 +2322,14 @@ class StatutoryService:
             coverage = await cls.get_esi_coverage_at_period_start(
                 session, emp, period, config, company_id or period.company_id,
             )
+            coverage_wage_paise = await cls._esi_coverage_wage_for_payslip(
+                session, ps, emp, gross_paise, company_id or period.company_id,
+            )
             result = cls.calculate_esi(
                 gross_monthly_paise=gross_paise, config=config,
+                coverage_wage_paise=coverage_wage_paise,
                 is_pwd=bool(getattr(emp, "is_pwd", False)),
-                covered_at_period_start=coverage["covered"] or gross_paise <= coverage["ceiling_paise"],
+                covered_at_period_start=coverage["covered"] or coverage_wage_paise <= coverage["ceiling_paise"],
                 contribution_period_start=coverage["contribution_period_start"],
                 as_of_date=period.start_date or date(period.period_year, period.period_month, 1),
             )

@@ -156,6 +156,68 @@ def test_esi_pwd_ceiling_and_six_month_contribution_lock():
     assert not next_period["is_applicable"]
 
 
+def test_esi_overtime_is_excluded_from_ceiling_but_included_in_contribution():
+    overtime_case = StatutoryService.calculate_esi(
+        gross_monthly_paise=2_150_000,
+        coverage_wage_paise=2_000_000,
+        contribution_wage_paise=2_150_000,
+        as_of_date=date(2026, 8, 15),
+    )
+    assert overtime_case["is_applicable"]
+    assert overtime_case["coverage_wage_paise"] == 2_000_000
+    assert overtime_case["contribution_wage_paise"] == 2_150_000
+    assert overtime_case["employee_esi_paise"] == 16_200
+    assert overtime_case["employer_esi_paise"] == 69_900
+
+    above_ceiling = StatutoryService.calculate_esi(
+        gross_monthly_paise=2_250_000,
+        coverage_wage_paise=2_110_000,
+        contribution_wage_paise=2_250_000,
+        as_of_date=date(2026, 8, 15),
+    )
+    assert not above_ceiling["is_applicable"]
+
+
+def test_esi_next_rupee_rounding_on_both_sides_of_rupee_boundary():
+    # The pre-Code Rule 51 and Rule 19 of the 2026 Central Rules both direct
+    # rounding to the next higher rupee. Verify legacy and current periods.
+    for as_of in (date(2025, 4, 1), date(2026, 6, 1)):
+        below = StatutoryService.calculate_esi(
+            1_999_999, coverage_wage_paise=1_999_999, as_of_date=as_of,
+        )
+        exact = StatutoryService.calculate_esi(
+            2_000_000, coverage_wage_paise=2_000_000, as_of_date=as_of,
+        )
+        above = StatutoryService.calculate_esi(
+            2_000_001, coverage_wage_paise=2_000_001, as_of_date=as_of,
+        )
+        assert (below["employee_esi_paise"], below["employer_esi_paise"]) == (15_000, 65_000)
+        assert (exact["employee_esi_paise"], exact["employer_esi_paise"]) == (15_000, 65_000)
+        assert (above["employee_esi_paise"], above["employer_esi_paise"]) == (15_100, 65_100)
+
+
+def test_esi_21500_contribution_wages_round_employee_share_up():
+    # Rule 51 of the ESI (Central) Rules, 1950 applies through 2026-05-07;
+    # Rule 19 of the Social Security (Central) Rules, 2026 applies from 2026-05-08.
+    # Both require rounding each contribution up to the next whole rupee.
+    for as_of, expected_rule in (
+        (date(2026, 5, 7), "ESI_CENTRAL_RULES_1950_RULE_51"),
+        (date(2026, 5, 8), "SOCIAL_SECURITY_CENTRAL_RULES_2026_RULE_19"),
+    ):
+        result = StatutoryService.calculate_esi(
+            gross_monthly_paise=2_000_000,
+            coverage_wage_paise=2_000_000,
+            contribution_wage_paise=2_150_000,
+            as_of_date=as_of,
+        )
+        assert result["employee_esi_paise"] == 16_200  # ₹162 from ₹161.25
+        assert result["employer_esi_paise"] == 69_900  # ₹699 from ₹698.75
+        assert result["rounding_rule_version"] == expected_rule
+        assert result["rounding_rule_effective_from"] == (
+            "2004-10-01" if as_of < date(2026, 5, 8) else "2026-05-08"
+        )
+
+
 @pytest.mark.asyncio
 async def test_esi_challan_is_persisted_and_downloadable(db_session):
     company, employee, period, run, payslip = await _seed_payroll(db_session)
@@ -182,6 +244,17 @@ def test_dynamic_pt_lwf_and_maharashtra_february():
     assert StatutoryService.calculate_lwf(2_000_000, "RJ", 6, rule=custom)["employee_lwf_paise"] == 0
     assert StatutoryService.calculate_lwf(2_000_000, "MH", 6)["employee_lwf_paise"] == 1_200
     assert StatutoryService.calculate_lwf(2_000_000, "MH", 7)["employee_lwf_paise"] == 0
+
+
+def test_maharashtra_pt_female_exemption_is_effective_from_april_2023():
+    current = date(2026, 8, 1)
+    assert StatutoryService.calculate_pt(1_500_000, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 0
+    assert StatutoryService.calculate_pt(2_500_000, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 0
+    assert StatutoryService.calculate_pt(2_500_001, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 20_000
+    assert StatutoryService.calculate_pt(2_500_001, "MH", 2, "FEMALE", effective_date=current)["pt_paise"] == 30_000
+    assert StatutoryService.calculate_pt(1_500_000, "MH", 3, "FEMALE", effective_date=date(2022, 3, 1))["pt_paise"] == 20_000
+    assert StatutoryService.calculate_pt(1_000_000, "MH", 3, "MALE", effective_date=current)["pt_paise"] == 17_500
+    assert StatutoryService.calculate_pt(1_000_001, "MH", 3, "MALE", effective_date=current)["pt_paise"] == 20_000
 
 
 def test_old_new_tds_math_proration_bonus_and_verified_declarations():

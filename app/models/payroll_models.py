@@ -466,6 +466,7 @@ class PaymentBatch(Base):
     __table_args__ = (
         Index("ix_payment_batches_company_id", "company_id"),
         Index("ix_payment_batches_run_id", "run_id"),
+        UniqueConstraint("company_id", "run_id", "operation_key", name="uq_payment_batch_operation", postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -483,6 +484,8 @@ class PaymentBatch(Base):
     )
 
     batch_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    operation_key: Mapped[str] = mapped_column(String(100), nullable=False, default="INITIAL", server_default=text("'INITIAL'"))
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
     payment_mode: Mapped[str] = mapped_column(
         String(30), nullable=False, default="NEFT", server_default=text("'NEFT'")
@@ -562,6 +565,8 @@ class PaymentBatchItem(Base):
     __table_args__ = (
         Index("ix_payment_batch_items_batch_id", "batch_id"),
         Index("ix_payment_batch_items_employee_id", "employee_id"),
+        UniqueConstraint("batch_id", "employee_id", name="uq_payment_batch_employee"),
+        UniqueConstraint("retry_source_item_id", name="uq_payment_retry_source"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -584,6 +589,9 @@ class PaymentBatchItem(Base):
     )
 
     amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    retry_source_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("payment_batch_items.id", ondelete="RESTRICT"), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="PENDING", server_default=text("'PENDING'")
     )  # PENDING | HELD | RELEASED | SUCCESS | FAILED | RETRIED

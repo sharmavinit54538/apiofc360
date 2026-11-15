@@ -364,6 +364,9 @@ async def create_payment_batch_from_run(
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    tenant = claims.get("company_id") if claims else None
+    if not tenant and user_role != "super_admin":
+        raise HTTPException(status_code=403, detail="Company scope is required for payment operations.")
     src_uuid = uuid.UUID(payload.source_account_id)
     batch = await PaymentBatchService.create_batch_from_run(
         session=db,
@@ -374,6 +377,7 @@ async def create_payment_batch_from_run(
         notes=payload.notes,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(str(tenant)) if tenant else None,
     )
     return _ok({
         "id": str(batch.id),
@@ -470,8 +474,9 @@ async def process_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    # Trigger calculation async
-    job_id = await dispatch_payroll_processing(run_id=runId)
+    company_id = uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None
+    await PayrollRunService.get_run(db, runId, company_id=company_id)
+    job_id = await dispatch_payroll_processing(run_id=runId, company_id=company_id)
     return _ok({"job_id": job_id, "status": "PROCESSING"}, "Payroll run processing initiated")
 
 

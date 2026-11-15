@@ -18,6 +18,7 @@ try:
         include=[
             "app.workers.resume_tasks",
             "app.workers.notification_tasks",
+            "app.workers.payroll_tasks",
         ],
     )
 
@@ -38,6 +39,12 @@ try:
             "app.workers.notification_tasks.*": {"queue": "notifications"},
         },
         task_default_queue="default",
+        beat_schedule={
+            "recover-abandoned-payroll-claims": {
+                "task": "app.workers.payroll_tasks.recover_abandoned_payroll_runs_task",
+                "schedule": 60.0,
+            },
+        },
     )
 
     CELERY_AVAILABLE = True

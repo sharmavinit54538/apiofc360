@@ -48,9 +48,9 @@ def get_company_id_from_claims(claims: dict) -> Optional[uuid.UUID]:
 async def get_attendance_dashboard(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
-    department_id: Optional[uuid.UUID] = Query(None),
-    start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
 ) -> APIResponse[AttendanceDashboardResponse]:
     """Retrieve dynamic attendance KPIs: Health Score, Attendance %, Anomalies, Late Arrivals, Overtime Hours, Today Present, Today Absent."""
     company_id = get_company_id_from_claims(claims)
@@ -78,9 +78,9 @@ async def get_attendance_trend(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
     group_by: str = Query("daily", description="daily | weekly | monthly | department | shift"),
-    department_id: Optional[uuid.UUID] = Query(None),
-    start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
 ) -> APIResponse[AttendanceTrendResponse]:
     """Retrieve attendance percentage trend grouped by daily, weekly, monthly, department, or shift."""
     company_id = get_company_id_from_claims(claims)
@@ -108,9 +108,9 @@ async def get_attendance_trend(
 async def get_late_arrivals(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
-    department_id: Optional[uuid.UUID] = Query(None),
-    start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
 ) -> APIResponse[LateArrivalsResponse]:
     """Retrieve late arrival records, expected vs actual check-in times, delay minutes, and employee frequencies."""
     company_id = get_company_id_from_claims(claims)

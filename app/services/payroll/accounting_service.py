@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payroll import Payslip
 from app.models.payroll_models import PayrollPeriod
+from app.services.payroll.money import paise_to_rupees, rupees_to_paise
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ class AccountingService:
         company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         p_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
+        if company_id is not None:
+            p_stmt = p_stmt.where(PayrollPeriod.company_id == company_id)
         period = (await session.execute(p_stmt)).scalar_one_or_none()
         if not period:
             raise HTTPException(status_code=404, detail="Payroll period not found.")
@@ -39,30 +42,57 @@ class AccountingService:
             ps_stmt = ps_stmt.where(Payslip.company_id == company_id)
         payslips = (await session.execute(ps_stmt)).scalars().all()
 
-        total_gross = sum(float(ps.gross_earnings) for ps in payslips)
-        total_net = sum(float(ps.net_pay) for ps in payslips)
-        total_pf_emp = sum(float(ps.employee_pf) for ps in payslips)
-        total_pf_empr = sum(float(ps.employer_pf) for ps in payslips)
-        total_esi_emp = sum(float(ps.employee_esi) for ps in payslips)
-        total_esi_empr = sum(float(ps.employer_esi) for ps in payslips)
-        total_pt = sum(float(ps.professional_tax) for ps in payslips)
-        total_tds = sum(float(ps.tds) for ps in payslips)
+        totals = {
+            field: sum((rupees_to_paise(getattr(ps, model_field) or 0) for ps in payslips), 0)
+            for field, model_field in {
+                "gross": "gross_earnings", "net": "net_pay", "deductions": "total_deductions",
+                "employee_pf": "employee_pf", "employer_pf": "employer_pf",
+                "employee_esi": "employee_esi", "employer_esi": "employer_esi",
+                "pt": "professional_tax", "tds": "tds",
+            }.items()
+        }
+        for payslip in payslips:
+            gross = rupees_to_paise(payslip.gross_earnings or 0)
+            deductions = rupees_to_paise(payslip.total_deductions or 0)
+            net = rupees_to_paise(payslip.net_pay or 0)
+            if gross - deductions != net:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Payslip {payslip.id} fails gross/deductions/net reconciliation.",
+                )
+        other_deductions_paise = (
+            totals["deductions"] - totals["employee_pf"] - totals["employee_esi"]
+            - totals["pt"] - totals["tds"]
+        )
+        if other_deductions_paise < 0:
+            raise HTTPException(status_code=409, detail="Payslip statutory deductions exceed total deductions.")
 
-        journal_entries = [
+        entries_paise = [
             # Debits (Expenses)
-            {"account_code": "5001", "account_name": "Salaries & Wages Expense", "debit": round(total_gross, 2), "credit": 0.0},
-            {"account_code": "5002", "account_name": "Employer PF Contribution", "debit": round(total_pf_empr, 2), "credit": 0.0},
-            {"account_code": "5003", "account_name": "Employer ESI Contribution", "debit": round(total_esi_empr, 2), "credit": 0.0},
+            {"account_code": "5001", "account_name": "Salaries & Wages Expense", "debit_paise": totals["gross"], "credit_paise": 0},
+            {"account_code": "5002", "account_name": "Employer PF Contribution", "debit_paise": totals["employer_pf"], "credit_paise": 0},
+            {"account_code": "5003", "account_name": "Employer ESI Contribution", "debit_paise": totals["employer_esi"], "credit_paise": 0},
             # Credits (Liabilities)
-            {"account_code": "2001", "account_name": "Net Salaries Payable", "debit": 0.0, "credit": round(total_net, 2)},
-            {"account_code": "2002", "account_name": "PF Payable (Employee + Employer)", "debit": 0.0, "credit": round(total_pf_emp + total_pf_empr, 2)},
-            {"account_code": "2003", "account_name": "ESI Payable (Employee + Employer)", "debit": 0.0, "credit": round(total_esi_emp + total_esi_empr, 2)},
-            {"account_code": "2004", "account_name": "Professional Tax Payable", "debit": 0.0, "credit": round(total_pt, 2)},
-            {"account_code": "2005", "account_name": "TDS on Salaries Payable", "debit": 0.0, "credit": round(total_tds, 2)},
+            {"account_code": "2001", "account_name": "Net Salaries Payable", "debit_paise": 0, "credit_paise": totals["net"]},
+            {"account_code": "2002", "account_name": "PF Payable (Employee + Employer)", "debit_paise": 0, "credit_paise": totals["employee_pf"] + totals["employer_pf"]},
+            {"account_code": "2003", "account_name": "ESI Payable (Employee + Employer)", "debit_paise": 0, "credit_paise": totals["employee_esi"] + totals["employer_esi"]},
+            {"account_code": "2004", "account_name": "Professional Tax Payable", "debit_paise": 0, "credit_paise": totals["pt"]},
+            {"account_code": "2005", "account_name": "TDS on Salaries Payable", "debit_paise": 0, "credit_paise": totals["tds"]},
+            {"account_code": "2006", "account_name": "Other Deductions Payable", "debit_paise": 0, "credit_paise": other_deductions_paise},
         ]
 
-        total_debits = sum(e["debit"] for e in journal_entries)
-        total_credits = sum(e["credit"] for e in journal_entries)
+        total_debits_paise = sum(e["debit_paise"] for e in entries_paise)
+        total_credits_paise = sum(e["credit_paise"] for e in entries_paise)
+        if total_debits_paise != total_credits_paise:
+            raise HTTPException(status_code=409, detail="Payroll journal does not balance exactly to the paise.")
+        journal_entries = [
+            {
+                **entry,
+                "debit": float(paise_to_rupees(entry["debit_paise"])),
+                "credit": float(paise_to_rupees(entry["credit_paise"])),
+            }
+            for entry in entries_paise
+        ]
 
         return {
             "period_id": str(period_id),
@@ -70,9 +100,11 @@ class AccountingService:
             "period_month": period.period_month,
             "period_year": period.period_year,
             "currency": "INR",
-            "is_balanced": abs(total_debits - total_credits) < 1.0,
-            "total_debits": round(total_debits, 2),
-            "total_credits": round(total_credits, 2),
+            "is_balanced": total_debits_paise == total_credits_paise,
+            "total_debits": float(paise_to_rupees(total_debits_paise)),
+            "total_credits": float(paise_to_rupees(total_credits_paise)),
+            "total_debits_paise": total_debits_paise,
+            "total_credits_paise": total_credits_paise,
             "entries": journal_entries,
         }
 

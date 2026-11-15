@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import UploadFile, status
@@ -188,8 +189,14 @@ class CompanyLogoService:
                 logger.warning("Could not delete old logo %s: %s", old_logo_path, cleanup_exc)
 
         logger.info("Company logo uploaded for company %s → %s", company.id, logo_url)
+        updated_at = (
+            company.updated_at.isoformat()
+            if hasattr(company, "updated_at") and company.updated_at
+            else datetime.now(timezone.utc).isoformat()
+        )
         return {
             "logo": logo_url,
             "logo_url": logo_url,
             "logoUrl": logo_url,
+            "updated_at": updated_at,
         }

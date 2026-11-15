@@ -8,6 +8,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, status, Request, Response, HTTPException
+from pydantic import BaseModel
 
 from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
 from app.core.rbac import require_admin
