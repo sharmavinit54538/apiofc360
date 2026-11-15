@@ -7,6 +7,7 @@ assertions are deliberately in integer paise.
 from __future__ import annotations
 
 import io
+import os
 import uuid
 import calendar
 from datetime import date, datetime, timedelta, timezone
@@ -66,6 +67,11 @@ TEST_TABLES = (
 
 @pytest.fixture
 async def db_session():
+    if os.getenv("PAYROLL_USE_MIGRATED_DB") == "1":
+        from payroll_migrated_db import migrated_session
+        async with migrated_session() as session:
+            yield session
+        return
     if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
     tables = [Base.metadata.tables[name] for name in TEST_TABLES]

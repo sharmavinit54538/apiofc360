@@ -82,7 +82,7 @@ def environment(database):
     url = f"postgresql+asyncpg://payroll_verify_runner:{credentials['test_password']}@127.0.0.1:{PORT}/{database}"
     env = os.environ.copy()
     env.update(DATABASE_URL=url, PAYROLL_POSTGRES_TEST_URL=url, EXPENSES_TEST_DATABASE_URL=url,
-               PAYROLL_TEST_DISPOSABLE="1", FIELD_ENCRYPTION_KEY="0" * 64,
+               PAYROLL_TEST_DISPOSABLE="1", PAYROLL_USE_MIGRATED_DB="1", FIELD_ENCRYPTION_KEY="0" * 64,
                SECRET_KEY="disposable-payroll-verification-only-key", ENVIRONMENT="local",
                USE_CELERY="false", REDIS_URL="redis://127.0.0.1:1/0",
                CELERY_BROKER_URL="redis://127.0.0.1:1/1", CELERY_RESULT_BACKEND="redis://127.0.0.1:1/2",

@@ -652,9 +652,9 @@ async def reject_asset_request(
 )
 async def fulfill_asset_request(
     request_id: uuid.UUID,
-    asset_id: uuid.UUID = Query(..., description="Asset ID to assign"),
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[AssetService, Depends(get_asset_service)],
+    asset_id: uuid.UUID = Query(..., description="Asset ID to assign"),
 ) -> APIResponse[AssetRequestResponse]:
     """Fulfill an approved asset request by assigning a specific available asset (Admin/HR/IT only)."""
     cid = _get_cid(claims)

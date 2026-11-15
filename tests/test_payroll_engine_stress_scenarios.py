@@ -22,3 +22,8 @@ def test_stress_scenarios_include_pf_and_tds_effective_date_boundaries():
     }
     assert {"2026-04-30", "2026-05-15"}.issubset(april_payments)
     assert items == scenarios(700, 36020261114)
+    for item in items:
+        if item["pf_wage_boundary_rupees"] is not None:
+            assert item["lop_days"] == "0"
+            assert item["basic_paise"] == item["pf_wage_boundary_rupees"] * 100
+            assert item["overtime_paise"] == item["bonus_paise"] == item["arrear_paise"] == 0

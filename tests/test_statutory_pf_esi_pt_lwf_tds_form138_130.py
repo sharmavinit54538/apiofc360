@@ -7,6 +7,7 @@ no external payroll or filing service is required.
 from __future__ import annotations
 
 import io
+import os
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -42,6 +43,11 @@ TEST_TABLES = (
 
 @pytest.fixture
 async def db_session():
+    if os.getenv("PAYROLL_USE_MIGRATED_DB") == "1":
+        from payroll_migrated_db import migrated_session
+        async with migrated_session() as session:
+            yield session
+        return
     if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
     tables = [Base.metadata.tables[name] for name in TEST_TABLES]
@@ -144,6 +150,40 @@ def test_pf_ceiling_is_historical_and_september_period_is_prorated():
     assert before["pf_wage_paise"] == 1_500_000
     assert september["pf_wage_paise"] == 1_966_667
     assert september["employee_pf_paise"] == september["employer_epf_paise"] + september["employer_eps_paise"]
+
+
+@pytest.mark.parametrize("wages,expected_base,expected_employee", [
+    (1_500_000, 1_500_000, 180_000),
+    (2_000_000, 1_733_333, 208_000),
+    (2_500_000, 1_966_667, 236_000),
+    (3_000_000, 1_966_667, 236_000),
+])
+def test_september_transition_caps_each_wage_segment(wages, expected_base, expected_employee):
+    # EPFO's official Wage Ceiling FAQ Q7 scenario C, extended to boundary wages.
+    result = StatutoryService.calculate_pf(
+        basic_paise=wages, period_start_date=date(2026, 9, 1), period_end_date=date(2026, 9, 30),
+    )
+    assert result["pf_wage_paise"] == result["eps_wage_paise"] == result["edli_wage_paise"] == expected_base
+    assert result["employee_pf_paise"] == expected_employee
+    assert result["employer_epf_paise"] + result["employer_eps_paise"] == expected_employee
+
+
+@pytest.mark.parametrize("options", [{"eps_membership_active": False}, {"age": 58}])
+def test_ineligible_eps_member_has_zero_pensionable_wages(options):
+    result = StatutoryService.calculate_pf(basic_paise=2_000_000, **options)
+    assert result["eps_wage_paise"] == result["employer_eps_paise"] == 0
+    assert result["employer_epf_paise"] == result["employee_epf_paise"]
+
+
+@pytest.mark.asyncio
+async def test_ecr_respects_independent_eps_membership(db_session):
+    company, employee, period, _, _ = await _seed_payroll(db_session)
+    employee.is_eps_eligible = False
+    await db_session.commit()
+    result = await StatutoryService.generate_pf_ecr(db_session, period.id, company.id)
+    columns = result["ecr_text"].strip().split("#~#")
+    assert columns[4] == "0"  # EPS wages
+    assert columns[6:9] == ["1800", "0", "1800"]
 
 
 def test_pf_membership_eps_eligibility_and_custom_tenant_ceiling_are_separate():

@@ -113,6 +113,13 @@ def scenarios(count: int, seed: int) -> list[dict]:
         })
         if result[-1]["exit_attendance_override"] and edge_kind == "ordinary":
             result[-1]["lop_days"] = str(denominator - 15)
+        if pf_wage_boundary is not None:
+            # Actual engine boundary cases must retain these wages after all
+            # attendance and variable-pay overrides, not merely carry a label.
+            result[-1].update(lop_days="0", joining_date="2020-01-01",
+                              exit_attendance_override=False, overtime_paise=0,
+                              bonus_paise=0, arrear_paise=0,
+                              annual_ctc_paise=basic * 24, edge="pf_boundary")
     return result
 
 
@@ -320,6 +327,17 @@ async def main(args: argparse.Namespace) -> int:
                         expected_fy_start = payment_date.year - int(payment_date.month < 4)
                         assert deductions["tds_financial_year"] == f"{expected_fy_start}-{expected_fy_start + 1}"
                         assert deductions["salary_payment_date"] == item["payment_date"]
+                        if item["pf_wage_boundary_rupees"] is not None:
+                            wages = item["pf_wage_boundary_rupees"] * 100
+                            if (item["year"], item["month"]) == (2026, 9):
+                                base = (Decimal(min(wages, 1_500_000)) * 16
+                                        + Decimal(min(wages, 2_500_000)) * 14) / 30
+                            else:
+                                cap = 2_500_000 if (item["year"], item["month"]) > (2026, 9) else 1_500_000
+                                base = Decimal(min(wages, cap))
+                            expected_pf = int((base * Decimal("0.12") / 100).quantize(
+                                Decimal("1"), rounding=ROUND_HALF_UP)) * 100
+                            assert deductions["pf_paise"] == expected_pf, "PF boundary differs from independent dated oracle"
                         assert Decimal(slip.gross_earnings) * 100 == components
                         assert Decimal(slip.total_deductions) * 100 == deducted
                         assert Decimal(slip.net_pay) * 100 == row.net_pay_paise

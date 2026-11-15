@@ -1,0 +1,12 @@
+[
+  "py",
+  "-3.14",
+  "-m",
+  "pytest",
+  "-q",
+  "--tb=short",
+  "tests/test_statutory_pf_esi_pt_lwf_tds_form138_130.py",
+  "tests/test_payroll_engine_stress_scenarios.py",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\statutory-migrated-retry\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\statutory-migrated-retry-tmp"
+]
