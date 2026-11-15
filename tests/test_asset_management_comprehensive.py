@@ -73,10 +73,11 @@ async def test_company(db_session: AsyncSession) -> Company:
 @pytest_asyncio.fixture(scope="function")
 async def test_user(db_session: AsyncSession, test_company: Company) -> User:
     """Create a test user with HR_ADMIN role."""
+    unique_id = uuid.uuid4().hex[:8]
     user = User(
-        name="Test HR Admin",
-        email=f"hr_{uuid.uuid4().hex[:8]}@test.com",
-        phone="9999999999",
+        name=f"Test HR Admin {unique_id}",
+        email=f"hr_{unique_id}@test.com",
+        phone=f"999999{unique_id[:4]}",
         password_hash=hash_password("password123"),
         role=UserRole.HR_ADMIN,
         company_id=test_company.id,
@@ -92,12 +93,13 @@ async def test_user(db_session: AsyncSession, test_company: Company) -> User:
 @pytest_asyncio.fixture(scope="function")
 async def test_employee(db_session: AsyncSession, test_company: Company, test_user: User) -> Employee:
     """Create a test employee."""
+    unique_id = uuid.uuid4().hex[:6]
     employee = Employee(
-        employee_id=f"EMP{uuid.uuid4().hex[:6]}",
+        employee_id=f"EMP{unique_id}",
         first_name="John",
         last_name="Doe",
-        email=f"john.doe_{uuid.uuid4().hex[:6]}@test.com",
-        personal_email="john.doe@personal.com",
+        personal_email=f"john.doe_{unique_id}@personal.com",
+        company_email=f"john.doe_{unique_id}@test.com",
         phone="9876543210",
         department="Engineering",
         designation="Software Engineer",
@@ -116,10 +118,11 @@ async def test_employee(db_session: AsyncSession, test_company: Company, test_us
 @pytest_asyncio.fixture(scope="function")
 async def test_employee2(db_session: AsyncSession, test_company: Company) -> Employee:
     """Create a second test employee."""
+    unique_id = uuid.uuid4().hex[:8]
     user = User(
-        name="Jane Smith",
-        email=f"jane_{uuid.uuid4().hex[:8]}@test.com",
-        phone="9876543211",
+        name=f"Jane Smith {unique_id}",
+        email=f"jane_{unique_id}@test.com",
+        phone=f"987654{unique_id[:4]}",
         password_hash=hash_password("password123"),
         role=UserRole.EMPLOYEE,
         company_id=test_company.id,
@@ -131,12 +134,12 @@ async def test_employee2(db_session: AsyncSession, test_company: Company) -> Emp
     await db_session.refresh(user)
     
     employee = Employee(
-        employee_id=f"EMP{uuid.uuid4().hex[:6]}",
+        employee_id=f"EMP{unique_id[:6]}",
         first_name="Jane",
         last_name="Smith",
-        email=f"jane.smith_{uuid.uuid4().hex[:6]}@test.com",
         personal_email="jane.smith@personal.com",
-        phone="9876543211",
+        company_email=f"jane.smith_{unique_id[:6]}@test.com",
+        phone=f"987654{unique_id[:4]}",
         department="Marketing",
         designation="Marketing Manager",
         company_id=test_company.id,
