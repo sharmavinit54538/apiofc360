@@ -356,6 +356,26 @@ async def check_onboarding_rate_limit(request: Request) -> None:
         )
 
 
+async def rate_limit_check(scope: str, request: Request, limit: int = 30, window_seconds: int = 60) -> None:
+    """Generic rate limit check for custom endpoints.
+    
+    Args:
+        scope: Rate limit scope identifier (e.g., 'asset_public')
+        request: FastAPI Request object
+        limit: Maximum requests allowed in the window
+        window_seconds: Time window in seconds
+    """
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope=scope, limit=limit, window_seconds=window_seconds, fail_open=True
+    )
+    if not allowed:
+        logger.warning("Rate limit exceeded for %s | key=%s | retry_after=%ds", scope, rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Rate limit exceeded. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
 # ---------------------------------------------------------------------------
 # ASGI Middleware (replaces BaseHTTPMiddleware for lower overhead)
 # ---------------------------------------------------------------------------

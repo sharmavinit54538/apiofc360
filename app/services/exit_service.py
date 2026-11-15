@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
 from app.db.database import get_db_session
+from app.models.asset import Asset
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.employee_repository import EmployeeRepository
 from app.repositories.exit_repository import ExitRepository
@@ -35,6 +36,7 @@ from app.schemas.exit import (
     KTResponse,
     ResignationRequest,
 )
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +110,26 @@ class ExitService:
                 "is_completed": False,
             })
 
-            # Seed standard assets returns checklist
-            default_assets = ["Laptop", "Monitor", "Keyboard", "Mouse", "SIM Card", "Access Card", "ID Card"]
-            for asset in default_assets:
-                await self.repo.upsert_asset_return(exit_obj.id, asset, {"return_status": "PENDING"})
+            # Query actual assigned assets from Asset Management
+            assigned_assets_res = await self.session.execute(
+                select(Asset).where(
+                    Asset.employee_id == employee.id,
+                    Asset.status == "assigned",
+                    Asset.is_deleted == False
+                )
+            )
+            assigned_assets = assigned_assets_res.scalars().all()
+
+            # Create asset return entries from actual assignments
+            for asset in assigned_assets:
+                asset_name = f"{asset.name} ({asset.tag})"
+                if asset.category:
+                    asset_name += f" - {asset.category.title()}"
+                await self.repo.upsert_asset_return(exit_obj.id, asset_name, {"return_status": "PENDING"})
+
+            # If no assets assigned, still create a placeholder for tracking
+            if not assigned_assets:
+                await self.repo.upsert_asset_return(exit_obj.id, "No assets currently assigned", {"return_status": "N/A"})
 
             await self.session.commit()
 
@@ -552,9 +570,27 @@ class ExitService:
             if not kt or not kt.is_completed:
                 raise AppException(message="Knowledge Transfer must be completed first.", status_code=status.HTTP_400_BAD_REQUEST)
 
+            # Check exit clearance asset returns
             assets = await self.repo.get_asset_returns_by_exit_id(exit_uuid)
             if any(a.return_status == "PENDING" for a in assets):
                 raise AppException(message="All assigned assets must be returned first.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Also verify actual asset management assignments are returned
+            assigned_assets = await self.session.execute(
+                select(Asset).where(
+                    Asset.employee_id == exit_obj.employee_id,
+                    Asset.status == "assigned",
+                    Asset.is_deleted == False
+                )
+            )
+            still_assigned = assigned_assets.scalars().all()
+            if still_assigned:
+                asset_names = ", ".join([f"{a.name} ({a.tag})" for a in still_assigned])
+                raise AppException(
+                    message=f"Employee still has assigned assets in Asset Management: {asset_names}. "
+                            "All assets must be returned via Asset Management before exit completion.",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
 
             cl = await self.repo.get_clearance_by_exit_id(exit_uuid)
             if not cl or cl.overall_status != "CLEARED":

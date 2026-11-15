@@ -1,0 +1,16 @@
+[
+  "py",
+  "-3.14",
+  "-m",
+  "pytest",
+  "-q",
+  "--tb=short",
+  "tests/test_pf_ecr_compliance.py",
+  "tests/test_payroll_lock_arrears_ot_parallel.py",
+  "tests/test_payroll_postgres_concurrency.py",
+  "tests/test_payroll_worker_recovery.py",
+  "tests/test_cross_tenant_isolation_hrms.py",
+  "tests/test_multi_tenant_data_isolation.py",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\concurrency-initial\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\concurrency-initial-tmp"
+]

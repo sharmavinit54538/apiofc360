@@ -1,0 +1,14 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "-m",
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "database": "payroll_verify_stress",
+  "port": 55441,
+  "exit_code": 0,
+  "seconds": 37.518
+}

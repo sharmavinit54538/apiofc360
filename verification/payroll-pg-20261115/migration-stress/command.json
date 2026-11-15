@@ -1,0 +1,8 @@
+[
+  "py",
+  "-3.14",
+  "-m",
+  "alembic",
+  "upgrade",
+  "head"
+]

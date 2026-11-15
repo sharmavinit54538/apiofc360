@@ -239,7 +239,7 @@ class Employee(Base):
     education: Mapped[list[EmployeeEducation]] = relationship("EmployeeEducation", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     experience: Mapped[list[EmployeeExperience]] = relationship("EmployeeExperience", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     skills: Mapped[list[EmployeeSkill]] = relationship("EmployeeSkill", back_populates="employee", cascade="all, delete-orphan", lazy="select")
-    assets: Mapped[list[Asset]] = relationship("Asset", back_populates="employee", cascade="all, delete-orphan", lazy="select")
+    assets: Mapped[list[Asset]] = relationship("Asset", back_populates="employee", cascade="all, delete-orphan", lazy="select", foreign_keys="Asset.employee_id")
     emergency_contacts: Mapped[list[EmployeeEmergencyContact]] = relationship("EmployeeEmergencyContact", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     bank_accounts: Mapped[list[EmployeeBankAccount]] = relationship("EmployeeBankAccount", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     leave_policies: Mapped[list[EmployeeLeavePolicy]] = relationship("EmployeeLeavePolicy", back_populates="employee", cascade="all, delete-orphan", lazy="select")

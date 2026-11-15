@@ -32,7 +32,6 @@ from app.routers import (
     reports as core_reports_router,
     notifications as core_notifications_router,
     documents as core_documents_router,
-    assets as core_assets_router,
     holidays as core_holidays_router,
     dashboard as core_dashboard_router,
 )
@@ -183,7 +182,6 @@ def get_v1_router() -> APIRouter:
         core_reports_router.router,
         core_notifications_router.router,
         core_documents_router.router,
-        core_assets_router.router,
         core_holidays_router.router,
         core_dashboard_router.router,
     ):

@@ -219,22 +219,106 @@ class AssetUpdate(BaseModel):
     location: str | None = None
     notes: str | None = None
     description: str | None = None
-    status: str | None = None
     image_url: str | None = None  # Cloudinary image URL
 
 
 class AssetAssignRequest(BaseModel):
-    employee_name: str
-    department: str
+    employee_id: uuid.UUID
     expected_return_date: date | None = None
     notes: str | None = None
+
+
+class AssetTransferRequest(BaseModel):
+    target_employee_id: uuid.UUID
+    expected_return_date: date | None = None
+    notes: str | None = None
+
+
+class AssetLostRequest(BaseModel):
+    reason: str
+    lost_date: date | None = None
+
+
+class AssetRequestCreate(BaseModel):
+    request_type: str
+    category: str
+    justification: str
+    preferred_brand: str | None = None
+    preferred_model: str | None = None
+    estimated_cost: float | None = None
+
+
+class AssetRequestUpdate(BaseModel):
+    status: str | None = None
+    rejection_reason: str | None = None
+    approver_id: uuid.UUID | None = None
+
+
+class AssetRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: uuid.UUID
+    employee_id: uuid.UUID
+    employee_name: str
+    request_type: str
+    category: str
+    justification: str
+    preferred_brand: str | None = None
+    preferred_model: str | None = None
+    estimated_cost: float | None = None
+    status: str
+    approver_id: uuid.UUID | None = None
+    approved_at: datetime | None = None
+    rejection_reason: str | None = None
+    assigned_asset_id: uuid.UUID | None = None
+    fulfilled_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssetDamageReportCreate(BaseModel):
+    asset_id: uuid.UUID
+    damage_type: str
+    severity: str
+    description: str
+    location_of_incident: str | None = None
+    incident_date: date | None = None
+
+
+class AssetDamageReportResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: uuid.UUID
+    asset_id: uuid.UUID
+    asset_tag: str
+    asset_name: str
+    reported_by_id: uuid.UUID
+    reported_by_name: str
+    damage_type: str
+    severity: str
+    description: str
+    location_of_incident: str | None = None
+    incident_date: date | None = None
+    status: str
+    maintenance_record_id: uuid.UUID | None = None
+    resolved_at: datetime | None = None
+    resolution_notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class AssetMaintenanceCreate(BaseModel):
     request_date: date | None = None
     vendor: str
+    estimated_cost: Decimal | None = None
     cost: Decimal = Decimal("0.0")
     notes: str | None = None
+
+
+class AssetMaintenanceComplete(BaseModel):
+    completion_date: date | None = None
+    actual_cost: Decimal | None = None
+    completion_notes: str | None = None
 
 
 class CategoryCount(BaseModel):
@@ -253,7 +337,10 @@ class AssetAnalyticsResponse(BaseModel):
     assigned_assets: int
     under_repair_assets: int
     lost_assets: int
+    active_warranty_assets: int
     expiring_warranty_assets: int
+    expired_warranty_assets: int
+    unknown_warranty_assets: int
     category_distribution: list[CategoryCount]
     status_distribution: list[StatusCount]
     total_valuation: float
@@ -271,4 +358,52 @@ class AssetFilterOptionsResponse(BaseModel):
     vendors: list[str]
     locations: list[str]
     departments: list[str]
+
+
+class AssetPublicResponse(BaseModel):
+    """Public-facing asset schema for QR code scanning - limited fields only."""
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: uuid.UUID
+    tag: str
+    name: str
+    category: str
+    serial: str | None = None
+    brand: str | None = None
+    model: str | None = None
+    status: str
+    location: str | None = None
+    description: str | None = None
+    imageUrl: str | None = Field(None, serialization_alias="imageUrl")
+    qrCodeData: str | None = Field(None, serialization_alias="qrCodeData")
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_custom_fields(cls, data: any) -> any:
+        if hasattr(data, "image_url"):
+            data.imageUrl = data.image_url
+
+        # Generate backend QR code data URI
+        try:
+            from app.core.config import settings
+            import qrcode
+            import qrcode.image.svg
+            import io
+            import base64
+
+            # QR encodes the scannable URL
+            qr_content = f"{settings.FRONTEND_BASE_URL}/dashboard/assets?scan={data.id}"
+            factory = qrcode.image.svg.SvgImage
+            img = qrcode.make(qr_content, image_factory=factory)
+
+            stream = io.BytesIO()
+            img.save(stream)
+            svg_bytes = stream.getvalue()
+
+            base64_svg = base64.b64encode(svg_bytes).decode("utf-8")
+            data.qrCodeData = f"data:image/svg+xml;base64,{base64_svg}"
+        except Exception:
+            data.qrCodeData = None
+
+        return data
 

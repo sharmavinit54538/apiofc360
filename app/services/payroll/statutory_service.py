@@ -87,6 +87,7 @@ class StatutoryService:
         period_start: date | None,
         period_end: date | None,
         config: Optional[StatutoryComplianceConfig],
+        wages_paise: int | None = None,
     ) -> int:
         """Prorate a ceiling for a wage period crossing the statutory date."""
         if not period_start or not period_end or period_end < period_start:
@@ -97,6 +98,12 @@ class StatutoryService:
         new_days = days - old_days
         old_cap = cls._effective_pf_wage_ceiling_paise(date(2026, 9, 16), config)
         new_cap = cls._effective_pf_wage_ceiling_paise(date(2026, 9, 17), config)
+        if wages_paise is not None:
+            # EPFO wage-ceiling FAQ Q7, scenario C: cap each part before
+            # apportioning. At 20k this is 15k*16/30 + 20k*14/30, not
+            # min(20k, 15k*16/30 + 25k*14/30).
+            old_cap = min(wages_paise, old_cap)
+            new_cap = min(wages_paise, new_cap)
         return int((Decimal(old_cap * old_days + new_cap * new_days) / Decimal(days)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     """Business logic for Indian statutory calculations, compliance config, and filing reports."""
@@ -410,6 +417,9 @@ class StatutoryService:
         ceiling_paise = cls._pf_ceiling_for_period_paise(
             period_start_date, period_end_date, config,
         ) if period_start_date and period_end_date else cls._effective_pf_wage_ceiling_paise(as_of_date, config)
+        capped_wages_paise = cls._pf_ceiling_for_period_paise(
+            period_start_date, period_end_date, config, wages_paise,
+        ) if period_start_date and period_end_date else min(wages_paise, ceiling_paise)
         higher_wage = bool(pf_higher_wage_opted)
         eps_higher_wage = higher_wage if eps_higher_wage_opted is None else bool(eps_higher_wage_opted)
         eps_active = is_pf_eligible if eps_membership_active is None else bool(eps_membership_active)
@@ -417,12 +427,14 @@ class StatutoryService:
         if is_international_worker or higher_wage or not pf_wage_ceiling_applicable or full_basic:
             pf_wage_paise = wages_paise
         else:
-            pf_wage_paise = min(wages_paise, ceiling_paise)
+            pf_wage_paise = capped_wages_paise
         if is_international_worker or eps_higher_wage:
             eps_wage_paise = wages_paise
         else:
-            eps_wage_paise = min(wages_paise, ceiling_paise)
-        edli_wage_paise = min(wages_paise, ceiling_paise)
+            eps_wage_paise = capped_wages_paise
+        if not eps_active or (age is not None and age >= 58):
+            eps_wage_paise = 0
+        edli_wage_paise = capped_wages_paise
 
         employee_rate = as_decimal(getattr(config, "employee_pf_rate", Decimal("0.12")) if config else Decimal("0.12"))
         employer_rate = as_decimal(getattr(config, "employer_pf_rate", Decimal("0.12")) if config else Decimal("0.12"))
@@ -1810,6 +1822,7 @@ class StatutoryService:
                 pf_wage_ceiling_applicable=bool(getattr(emp, "pf_wage_ceiling_applicable", True)),
                 pf_higher_wage_opted=bool(getattr(emp, "pf_higher_wage_opted", False)),
                 eps_higher_wage_opted=bool(getattr(emp, "eps_higher_wage_opted", False)),
+                eps_membership_active=bool(getattr(emp, "is_eps_eligible", True)),
                 pf_membership_active=member_active,
                 vpf_rate=getattr(emp, "vpf_rate", Decimal("0")), age=age,
                 as_of_date=period.start_date,
