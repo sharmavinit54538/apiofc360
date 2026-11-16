@@ -205,10 +205,10 @@ class AssetService:
             "timestamp": datetime.now().isoformat(),
             "notes": "Asset archived (soft deleted). All history preserved.",
         }
-        current_timeline = asset.timeline or []
+current_timeline = asset.timeline or []
         current_timeline.append(timeline_event)
         asset.timeline = current_timeline
-        
+  
         await self.session.commit()
 
     async def assign_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
@@ -268,9 +268,9 @@ class AssetService:
             + (f" Notes: {payload.notes}" if payload.notes else ""),
         }
         current_timeline = asset.timeline or []
-        current_timeline.append(timeline_event)
+current_timeline.append(timeline_event)
         asset.timeline = current_timeline
-
+ 
         await self.session.commit()
         
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
@@ -306,7 +306,7 @@ class AssetService:
         asset.assigned_at = None
 
         # 3. Append timeline log
-        timeline_event = {
+timeline_event = {
             "id": str(uuid.uuid4()),
             "event": "Returned",
             "performed_by": user_name,
@@ -316,7 +316,7 @@ class AssetService:
         current_timeline = asset.timeline or []
         current_timeline.append(timeline_event)
         asset.timeline = current_timeline
-
+ 
         await self.session.commit()
 
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
@@ -387,7 +387,7 @@ class AssetService:
         asset.assigned_at = datetime.now()
 
         # 4. Append timeline log
-        timeline_event = {
+timeline_event = {
             "id": str(uuid.uuid4()),
             "event": "Transferred",
             "performed_by": user_name,
@@ -397,10 +397,15 @@ class AssetService:
         current_timeline = asset.timeline or []
         current_timeline.append(timeline_event)
         asset.timeline = current_timeline
-
+ 
         await self.session.commit()
-
+        
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
+        # Ensure employee relationship is loaded for assignedTo field
+        if full_asset and full_asset.employee_id:
+            stmt = select(Employee).where(Employee.id == full_asset.employee_id)
+            res = await self.session.execute(stmt)
+            full_asset.employee = res.scalar_one_or_none()
         return AssetResponse.model_validate(full_asset)
 
     async def mark_lost(self, asset_id: uuid.UUID, payload: AssetLostRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:

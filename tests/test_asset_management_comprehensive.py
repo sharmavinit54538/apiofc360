@@ -73,11 +73,11 @@ async def test_company(db_session: AsyncSession) -> Company:
 @pytest_asyncio.fixture(scope="function")
 async def test_user(db_session: AsyncSession, test_company: Company) -> User:
     """Create a test user with HR_ADMIN role."""
-    unique_id = uuid.uuid4().hex[:8]
+    unique_suffix = uuid.uuid4().hex[:4]
     user = User(
-        name=f"Test HR Admin {unique_id}",
-        email=f"hr_{unique_id}@test.com",
-        phone=f"999999{unique_id[:4]}",
+        name=f"Test HR Admin {unique_suffix}",
+        email=f"hr_{unique_suffix}@test.com",
+        phone=f"999999{unique_suffix}",
         password_hash=hash_password("password123"),
         role=UserRole.HR_ADMIN,
         company_id=test_company.id,
