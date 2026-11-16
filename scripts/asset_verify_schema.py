@@ -111,9 +111,12 @@ async def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, indent=2, default=str), encoding='utf-8')
         print(json.dumps({'revision': result['revision'], 'mismatches': {k: v.get('mismatches', v) for k, v in result['tables'].items()}, 'sql_errors': result['sql_errors'], 'pii_counts': result.get('pii_counts')}, indent=2))
+        return int(bool(result['sql_errors']) or any(
+            table.get('missing_table') or table.get('mismatches') for table in result['tables'].values()
+        ))
     finally:
         await engine.dispose()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))

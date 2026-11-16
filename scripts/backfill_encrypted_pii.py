@@ -9,7 +9,12 @@ Run after the additive schema migration and before removing old keys::
 
 The command intentionally uses lightweight Core tables instead of ORM encrypted
 columns so it can distinguish legacy plaintext from ciphertext.  No identifier
-values are logged.  Each batch commits independently and is safe to retry.
+values are logged. Each batch commits independently and is safe to retry.
+Unreadable or tenantless rows remain untouched and are counted as quarantined;
+the CLI exits 2 until resolved. --quarantine-report writes row IDs and reason
+codes only; keep this operator manifest outside source control. Retain the old
+key ring during rotation, review the manifest, restore missing keys or correct
+the source record, then rerun. Never replace unreadable ciphertext with NULL.
 """
 
 from __future__ import annotations
@@ -260,7 +265,8 @@ def main() -> None:
     if args.quarantine_report:
         args.quarantine_report.write_text(json.dumps(issues, indent=2), encoding="utf-8")
     # Aggregate counts only; plaintext/ciphertext identifiers are never printed.
-    print("Encrypted PII backfill completed" + (" (dry run)" if args.dry_run else ""))
+    outcome = "requires review" if stats["rows_quarantined"] else "completed"
+    print(f"Encrypted PII backfill {outcome}" + (" (dry run)" if args.dry_run else ""))
     for key in sorted(stats):
         print(f"{key}={stats[key]}")
     if stats["rows_quarantined"]:

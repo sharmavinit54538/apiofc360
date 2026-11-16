@@ -510,10 +510,10 @@ async def test_complete_crud_lifecycle_and_soft_delete():
 
 
 # ==============================================================================
-# 9. EmployeeListItem serialization includes CTC & Salary for table views
+# 9. EmployeeListItem keeps compensation out of directory views
 # ==============================================================================
 def test_employee_list_item_serialization_excludes_salary_from_directory():
-    """Verify EmployeeListItem serializes CTC, basic_salary, and salary aliases for table rendering."""
+    """Directory serialization must not expose compensation details."""
     from app.schemas.employee.update import EmployeeListItem
 
     emp_id = uuid.uuid4()

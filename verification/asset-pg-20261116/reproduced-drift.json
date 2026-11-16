@@ -71,6 +71,15 @@
       "expected": false
     },
     {
+      "index": "ix_employees_company_uan_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "uan_number_blind_idx"
+      ],
+      "unique": false
+    },
+    {
       "index": "ix_employees_company_aadhaar_blind_idx",
       "issue": "definition",
       "expected_columns": [
@@ -103,15 +112,6 @@
       "expected_columns": [
         "company_id",
         "voter_id_blind_idx"
-      ],
-      "unique": false
-    },
-    {
-      "index": "ix_employees_company_uan_blind_idx",
-      "issue": "definition",
-      "expected_columns": [
-        "company_id",
-        "uan_number_blind_idx"
       ],
       "unique": false
     }

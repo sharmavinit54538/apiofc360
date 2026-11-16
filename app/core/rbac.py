@@ -255,7 +255,7 @@ def require_employee_or_above(
 ) -> dict:
     """Ensure request is from an authenticated user with a recognized platform role."""
     user_role = (claims.get("role") or "").lower().strip()
-    normalized = RoleEnum.from_str(user_role)
+    normalized = RoleEnum.from_str(user_role, strict=True)
     all_valid_roles = {r.value for r in RoleEnum}
     if user_role in all_valid_roles or normalized is not None:
         if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and not _is_valid_super_admin_claims(claims):

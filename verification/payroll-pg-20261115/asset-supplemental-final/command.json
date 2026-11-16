@@ -1,0 +1,11 @@
+[
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_asset_release_security.py",
+  "tests/test_employee_schema_repair_postgres.py",
+  "-v",
+  "--tb=short",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-supplemental-final\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-supplemental-final-tmp"
+]

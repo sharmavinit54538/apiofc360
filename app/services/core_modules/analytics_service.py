@@ -126,7 +126,7 @@ class AnalyticsService:
         }
 
     async def get_payroll_metric(self, company_id: Optional[uuid.UUID]) -> Dict[str, Any]:
-        stmt = select(func.sum(PayrollRun.total_net_amount))
+        stmt = select(func.sum(PayrollRun.total_net))
         if company_id:
             stmt = stmt.where(PayrollRun.company_id == company_id)
         total_payroll = (await self.session.execute(stmt)).scalar() or 0
