@@ -274,6 +274,11 @@ class AssetService:
         await self.session.commit()
         
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
+        # Ensure employee relationship is loaded for assignedTo field
+        if full_asset and full_asset.employee_id:
+            stmt = select(Employee).where(Employee.id == full_asset.employee_id)
+            res = await self.session.execute(stmt)
+            full_asset.employee = res.scalar_one_or_none()
         return AssetResponse.model_validate(full_asset)
 
     async def return_asset(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
@@ -315,6 +320,8 @@ class AssetService:
         await self.session.commit()
 
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
+        # Ensure employee relationship is cleared for assignedTo field
+        full_asset.employee = None
         return AssetResponse.model_validate(full_asset)
 
     async def transfer_asset(self, asset_id: uuid.UUID, payload: AssetTransferRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:

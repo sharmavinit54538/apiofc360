@@ -98,10 +98,11 @@ class AssetResponse(BaseModel):
     location: str | None = None
     description: str | None = None
     imageUrl: str | None = Field(None, serialization_alias="imageUrl")
+    is_deleted: bool = False
     
     assignmentHistory: list[AssetAssignmentHistoryResponse] = Field([], serialization_alias="assignmentHistory")
     maintenanceHistory: list[AssetMaintenanceRecordResponse] = Field([], serialization_alias="maintenanceHistory")
-    timeline: list[AssetTimelineEventResponse] = Field([])
+    timeline: list[dict] = Field([])
     qrCodeData: str | None = Field(None, serialization_alias="qrCodeData")
 
     @model_validator(mode="before")
@@ -142,8 +143,15 @@ class AssetResponse(BaseModel):
                 data.maintenanceHistory = []
                 data.repairCost = 0.0
 
-            if "employee" in state.dict and data.employee:
-                data.assignedTo = f"{data.employee.first_name} {data.employee.last_name}"
+            # Check employee relationship - try multiple ways
+            employee_obj = None
+            if hasattr(data, "employee"):
+                employee_obj = data.employee
+            elif "employee" in state.dict:
+                employee_obj = state.dict["employee"]
+            
+            if employee_obj:
+                data.assignedTo = f"{employee_obj.first_name} {employee_obj.last_name}"
             else:
                 data.assignedTo = None
         else:
@@ -305,6 +313,16 @@ class AssetDamageReportResponse(BaseModel):
     resolution_notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_relationship_fields(cls, data: any) -> any:
+        if hasattr(data, "asset") and data.asset:
+            data.asset_tag = data.asset.tag
+            data.asset_name = data.asset.name
+        if hasattr(data, "reported_by") and data.reported_by:
+            data.reported_by_name = f"{data.reported_by.first_name} {data.reported_by.last_name}"
+        return data
 
 
 class AssetMaintenanceCreate(BaseModel):

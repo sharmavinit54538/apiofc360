@@ -32,6 +32,7 @@ class AssetRepository:
         """Retrieve asset with loaded relationships."""
         stmt = (
             select(Asset)
+            .outerjoin(Employee, Asset.employee_id == Employee.id)
             .where(Asset.id == asset_id)
             .options(
                 selectinload(Asset.employee),
@@ -363,8 +364,11 @@ class AssetRepository:
         return report
 
     async def get_damage_report_by_id(self, report_id: uuid.UUID, company_id: uuid.UUID | None = None) -> AssetDamageReport | None:
-        """Retrieve damage report by ID."""
-        stmt = select(AssetDamageReport).where(AssetDamageReport.id == report_id)
+        """Retrieve damage report by ID with relationships loaded."""
+        stmt = select(AssetDamageReport).options(
+            selectinload(AssetDamageReport.asset),
+            selectinload(AssetDamageReport.reported_by)
+        ).where(AssetDamageReport.id == report_id)
         if company_id is not None:
             stmt = stmt.where(AssetDamageReport.company_id == company_id)
         res = await self.session.execute(stmt)

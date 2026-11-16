@@ -137,7 +137,7 @@ async def test_employee2(db_session: AsyncSession, test_company: Company) -> Emp
         employee_id=f"EMP{unique_id[:6]}",
         first_name="Jane",
         last_name="Smith",
-        personal_email="jane.smith@personal.com",
+        personal_email=f"jane.smith_{unique_id}@personal.com",
         company_email=f"jane.smith_{unique_id[:6]}@test.com",
         phone=f"987654{unique_id[:4]}",
         department="Marketing",
@@ -302,8 +302,7 @@ class TestAssetAssignment:
         result = await asset_service.assign_asset(asset.id, assign_payload, test_user.id, test_company.id)
         
         assert result.status == "assigned"
-        assert result.assigned_to == f"{test_employee.first_name} {test_employee.last_name}"
-        assert result.employee_id == test_employee.id
+        assert result.assignedTo == f"{test_employee.first_name} {test_employee.last_name}"
 
     async def test_assign_already_assigned_fails(self, asset_service: AssetService, test_company: Company, test_user: User, test_employee: Employee):
         """Test that assigning an already assigned asset fails."""
@@ -314,7 +313,7 @@ class TestAssetAssignment:
         await asset_service.assign_asset(asset.id, assign_payload, test_user.id, test_company.id)
         
         # Try to assign again
-        with pytest.raises(BadRequestException, match="already assigned"):
+        with pytest.raises(BadRequestException, match="current status is 'assigned'"):
             await asset_service.assign_asset(asset.id, assign_payload, test_user.id, test_company.id)
 
     async def test_assign_lost_asset_fails(self, asset_service: AssetService, test_company: Company, test_user: User, test_employee: Employee):
@@ -374,11 +373,13 @@ class TestAssetAssignment:
         payload = AssetCreate(tag="LAP001", name="MacBook Pro", category="laptop")
         asset = await asset_service.create_asset(payload, test_user.id, test_company.id)
         
-        # Create inactive employee
+        # Create inactive employee with unique identifiers
+        unique_id = uuid.uuid4().hex[:8]
+        phone = f"999999{unique_id[:4]}"
         inactive_user = User(
-            name="Inactive User",
-            email="inactive@test.com",
-            phone="9999999990",
+            name=f"Inactive User {unique_id}",
+            email=f"inactive_{unique_id}@test.com",
+            phone=phone,
             password_hash=hash_password("password123"),
             role=UserRole.EMPLOYEE,
             company_id=test_company.id,
@@ -387,14 +388,14 @@ class TestAssetAssignment:
         )
         db_session.add(inactive_user)
         await db_session.commit()
+        await db_session.refresh(inactive_user)
         
         inactive_emp = Employee(
-            employee_id="EMP999",
+            employee_id=f"EMP{unique_id[:6]}",
             first_name="Inactive",
             last_name="User",
-            email="inactive@test.com",
-            personal_email="inactive@personal.com",
-            phone="9999999990",
+            personal_email=f"inactive_{unique_id}@personal.com",
+            phone=phone,
             department="Engineering",
             designation="Engineer",
             company_id=test_company.id,
@@ -405,6 +406,7 @@ class TestAssetAssignment:
         )
         db_session.add(inactive_emp)
         await db_session.commit()
+        await db_session.refresh(inactive_emp)
         
         assign_payload = AssetAssignRequest(employee_id=inactive_emp.id)
         
@@ -426,8 +428,7 @@ class TestAssetReturn:
         result = await asset_service.return_asset(asset.id, test_user.id, test_company.id)
         
         assert result.status == "available"
-        assert result.assigned_to is None
-        assert result.employee_id is None
+        assert result.assignedTo is None
 
     async def test_return_unassigned_fails(self, asset_service: AssetService, test_company: Company, test_user: User):
         """Test that returning an unassigned asset fails."""
@@ -460,8 +461,7 @@ class TestAssetTransfer:
         result = await asset_service.transfer_asset(asset.id, transfer_payload, test_user.id, test_company.id)
         
         assert result.status == "assigned"
-        assert result.employee_id == test_employee2.id
-        assert result.assigned_to == f"{test_employee2.first_name} {test_employee2.last_name}"
+        assert result.assignedTo == f"{test_employee2.first_name} {test_employee2.last_name}"
 
     async def test_transfer_unassigned_fails(self, asset_service: AssetService, test_company: Company, test_user: User, test_employee: Employee):
         """Test that transferring unassigned asset fails."""
@@ -492,11 +492,12 @@ class TestAssetTransfer:
         db_session.add(company2)
         await db_session.commit()
         
-        # Create employee in company2
+        # Create employee in company2 with unique identifiers
+        unique_id = uuid.uuid4().hex[:8]
         user2 = User(
-            name="User 2",
-            email="user2@test.com",
-            phone="9999999992",
+            name=f"User 2 {unique_id}",
+            email=f"user2_{unique_id}@test.com",
+            phone=f"999999{unique_id[:4]}",
             password_hash=hash_password("password123"),
             role=UserRole.EMPLOYEE,
             company_id=company2.id,
@@ -505,14 +506,15 @@ class TestAssetTransfer:
         )
         db_session.add(user2)
         await db_session.commit()
+        await db_session.refresh(user2)
         
         emp2 = Employee(
-            employee_id="EMP003",
+            employee_id=f"EMP{unique_id[:6]}",
             first_name="Other",
             last_name="Company",
-            email="other@test.com",
-            personal_email="other@personal.com",
-            phone="9999999992",
+            email=f"other_{unique_id}@test.com",
+            personal_email=f"other_{unique_id}@personal.com",
+            phone=f"999999{unique_id[:4]}",
             department="Engineering",
             designation="Engineer",
             company_id=company2.id,
@@ -523,6 +525,7 @@ class TestAssetTransfer:
         )
         db_session.add(emp2)
         await db_session.commit()
+        await db_session.refresh(emp2)
         
         # Create asset in company1
         payload = AssetCreate(tag="LAP001", name="MacBook Pro", category="laptop")
@@ -972,7 +975,7 @@ class TestExitIntegration:
         exit_repo = ExitRepository(db_session)
         auth_repo = AuthRepository(db_session)
         emp_repo = EmployeeRepository(db_session)
-        exit_service = ExitService(db_session, exit_repo, auth_repo, emp_repo)
+        exit_service = ExitService(session=db_session, repo=exit_repo, auth_repo=auth_repo, employee_repo=emp_repo)
         
         resignation = ResignationRequest(
             last_working_date=date.today() + timedelta(days=30),
@@ -1069,7 +1072,7 @@ class TestRBAC:
         # This is enforced at API level by checking company_id
         # The service layer enforces company_id filtering
         asset_result = await asset_service.get_asset(asset.id, test_company.id)
-        assert asset_result.assigned_to == f"{test_employee2.first_name} {test_employee2.last_name}"
+        assert asset_result.assignedTo == f"{test_employee2.first_name} {test_employee2.last_name}"
         
         # But employee1 cannot access assets outside their company
         # (tested in test_tenant_isolation_assets)

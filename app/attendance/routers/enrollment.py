@@ -18,7 +18,8 @@ from app.attendance.repositories.attendance_repository import AttendanceReposito
 from app.attendance.schemas.face import FaceEnrollRequest, FaceStatusResponse
 from app.attendance.services.face_service import FaceRecognitionService
 from app.attendance.utils.biometric_crypto import encrypt_face_embedding
-from app.attendance.utils.helpers import save_base64_image, write_audit_log
+from app.attendance.utils.helpers import write_audit_log
+from app.attendance.utils.biometric_storage import save_biometric_image_base64
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,9 @@ async def face_enroll(
     # 6. Encrypt biometric embedding at rest
     encrypted_payload = encrypt_face_embedding(raw_embedding)
 
-    # 7. Save reference photo to disk
-    image_url = await save_base64_image(payload.image_base64, prefix="enroll")
+    # 7. Save reference photo to secure biometric storage
+    image_result = await save_biometric_image_base64(payload.image_base64, prefix="enroll")
+    image_url = image_result["object_key"]
 
     # 8. Persist to employee record
     now = datetime.now(timezone.utc)

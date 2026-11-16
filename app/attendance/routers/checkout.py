@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.checkout_service import AttendanceCheckOutService
+from app.attendance.utils.biometric_storage import enrich_attendance_with_presigned_urls
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -106,10 +107,13 @@ async def _handle_checkout_request(
         work_mode=work_mode,
     )
 
+    attendance_data = AttendanceResponse.model_validate(record).model_dump(mode="json")
+    attendance_data = enrich_attendance_with_presigned_urls(attendance_data)
+
     return {
         "success": True,
         "message": "Checked out successfully.",
-        "data": AttendanceResponse.model_validate(record).model_dump(mode="json"),
+        "data": attendance_data,
         "error": None,
     }
 

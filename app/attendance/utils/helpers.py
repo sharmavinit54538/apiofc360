@@ -1,128 +1,81 @@
-"""Helpers for Face Attendance local storage writes and audit logs."""
+"""Helpers for Face Attendance biometric storage and audit logs."""
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.attendance.utils.biometric_storage import (
+    save_biometric_image_base64,
+    save_biometric_image_file,
+    BiometricStorageError,
+)
 from app.models.user import User
 from app.models.audit_log import AuditLog
 
-UPLOAD_DIR = os.path.join("uploads", "face_attendance")
 
-
-async def save_face_image(file: UploadFile) -> str:
-    """Saves the uploaded file locally and returns its relative path URL."""
-    filename = file.filename or "face.jpg"
-    _, ext = os.path.splitext(filename.lower())
+async def save_face_image(file: UploadFile, prefix: str = "face") -> str:
+    """Saves the uploaded face image to secure biometric storage.
     
-    # Save to local storage
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    unique_filename = f"{uuid.uuid4().hex}{ext}"
-    relative_path = os.path.join("uploads", "face_attendance", unique_filename).replace("\\", "/")
-    save_path = os.path.join(UPLOAD_DIR, unique_filename)
-
-    image_data = await file.read()
-    with open(save_path, "wb") as f:
-        f.write(image_data)
-
-    return relative_path
+    Args:
+        file: UploadFile from multipart/form-data
+        prefix: Object key prefix (checkin, checkout, enroll, break_start, break_end)
+        
+    Returns:
+        Object key in biometric storage (not a public URL)
+        
+    Raises:
+        HTTPException: If image validation fails or storage is unavailable
+    """
+    filename = file.filename or "face.jpg"
+    file_obj = file.file
+    
+    try:
+        result = await save_biometric_image_file(
+            file_obj=file_obj,
+            prefix=prefix,
+            filename=filename,
+        )
+        return result["object_key"]
+    except HTTPException:
+        raise
+    except BiometricStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "STORAGE_ERROR", "message": f"Biometric storage error: {exc}"},
+        )
 
 
 async def save_base64_image(image_base64: str, prefix: str = "face") -> str:
-    """Saves a base64 encoded image to disk and returns its relative path URL.
+    """Saves a base64 encoded biometric image to secure object storage.
     
-    Includes robust error handling and fallback paths so storage/permission
-    issues never abort database transactions or trigger HTTP 500 errors.
-    
+    Args:
+        image_base64: Base64 encoded image (raw or data URI)
+        prefix: Object key prefix (checkin, checkout, enroll, break_start, break_end)
+        
+    Returns:
+        Object key in biometric storage (not a public URL)
+        
     Raises:
-        HTTPException: If image cannot be decoded or saved.
+        HTTPException: If image cannot be decoded, validated, or stored
     """
-    import base64
-    import logging
-    import tempfile
-    from fastapi import HTTPException, status
-    from PIL import Image
-    import io
-
-    _logger = logging.getLogger(__name__)
-
-    clean_base64 = image_base64.strip()
-    if "," in clean_base64:
-        clean_base64 = clean_base64.split(",", 1)[1].strip()
-
-    unique_filename = f"{prefix}_{uuid.uuid4().hex}.jpg"
-    relative_path = f"/uploads/face_attendance/{unique_filename}"
-    save_path = os.path.join(UPLOAD_DIR, unique_filename)
-
-    # Decode base64
     try:
-        missing_padding = len(clean_base64) % 4
-        if missing_padding:
-            clean_base64 += "=" * (4 - missing_padding)
-        image_data = base64.b64decode(clean_base64, validate=False)
-        if not image_data:
-            raise ValueError("Decoded image data is empty")
-    except Exception as exc:
-        _logger.warning("save_base64_image: failed to decode image bytes: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "FACE_QUALITY_LOW", "message": "Malformed base64 image data."},
+        result = await save_biometric_image_base64(
+            image_base64=image_base64,
+            prefix=prefix,
         )
-
-    # Verify it's a valid image using PIL
-    try:
-        pil_image = Image.open(io.BytesIO(image_data))
-        pil_image.verify()  # Verify integrity
-        # Re-open after verify (verify() consumes the stream)
-        pil_image = Image.open(io.BytesIO(image_data))
-        pil_image.load()  # Force load to detect corruption
-        width, height = pil_image.size
-        if width < 80 or height < 80:
-            raise ValueError("Image resolution too low")
-        if width > 4096 or height > 4096:
-            raise ValueError("Image resolution too high")
-    except Exception as exc:
-        _logger.warning("save_base64_image: invalid image format: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "FACE_QUALITY_LOW", "message": "Invalid or corrupted image file."},
-        )
-
-    # Save with fallback
-    saved = False
-    try:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        with open(save_path, "wb") as f:
-            f.write(image_data)
-        saved = True
-    except Exception as exc:
-        _logger.warning("save_base64_image: primary write failed (%s). Attempting temp fallback.", exc)
-        try:
-            tmp_dir = os.path.join(tempfile.gettempdir(), "face_attendance")
-            os.makedirs(tmp_dir, exist_ok=True)
-            tmp_path = os.path.join(tmp_dir, unique_filename)
-            with open(tmp_path, "wb") as f:
-                f.write(image_data)
-            saved = True
-            # Note: In production with multiple instances, this would need shared storage
-            # For now, we return the path but log the fallback
-            _logger.warning("save_base64_image: saved to temp fallback, may not be accessible across instances")
-        except Exception as tmp_exc:
-            _logger.error("save_base64_image: temp fallback write also failed: %s", tmp_exc)
-
-    if not saved:
+        return result["object_key"]
+    except HTTPException:
+        raise
+    except BiometricStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "STORAGE_ERROR", "message": "Failed to save image to storage."},
+            detail={"code": "STORAGE_ERROR", "message": f"Biometric storage error: {exc}"},
         )
-
-    return relative_path
 
 
 async def write_audit_log(
@@ -248,4 +201,3 @@ async def parse_face_request(
         )
 
     return image_b64, location_dict, notes, device_info
-

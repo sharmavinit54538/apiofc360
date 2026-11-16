@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -252,8 +252,8 @@ class RosterService:
 
         # Only show approved entries from published plans
         stmt = stmt.join(ShiftPlanEntry.plan).where(
-            ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
-            ShiftPlanEntry.plan.has(status="PUBLISHED"),
+            text("shift_plan_entries.approval_status = 'APPROVED'"),
+            text("shift_plans.status = 'PUBLISHED'"),
         )
 
         # Total count

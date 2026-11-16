@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.attendance.schemas.face import BreakEndRequest, BreakSessionResponse, BreakStartRequest
 from app.attendance.services.break_service import BreakService
 from app.attendance.utils.helpers import parse_face_request
+from app.attendance.utils.biometric_storage import enrich_break_with_presigned_urls
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -64,20 +65,24 @@ async def start_break(
         ip_address=ip_address,
     )
 
+    break_data = {
+        "id": str(break_session.id),
+        "attendance_id": str(break_session.attendance_id),
+        "break_start": break_session.break_start.isoformat(),
+        "status": break_session.status,
+        "notes": break_session.notes,
+        "face_distance": break_session.start_face_distance,
+        "liveness_score": break_session.start_liveness_score,
+        "image_url": break_session.start_image_url,
+        "start_image_url": break_session.start_image_url,
+        "end_image_url": break_session.end_image_url,
+    }
+    break_data = enrich_break_with_presigned_urls(break_data)
+
     return {
         "success": True,
         "message": "Break session started successfully.",
-        "data": {
-            "id": str(break_session.id),
-            "attendance_id": str(break_session.attendance_id),
-            "break_start": break_session.break_start.isoformat(),
-            "status": break_session.status,
-            "notes": break_session.notes,
-            "face_distance": break_session.start_face_distance,
-            "liveness_score": break_session.start_liveness_score,
-            "image_url": break_session.start_image_url,
-            "start_image_url": break_session.start_image_url,
-        },
+        "data": break_data,
         "error": None,
     }
 
@@ -114,21 +119,25 @@ async def end_break(
         ip_address=ip_address,
     )
 
+    break_data = {
+        "id": str(break_session.id),
+        "attendance_id": str(break_session.attendance_id),
+        "break_start": break_session.break_start.isoformat(),
+        "break_end": break_session.break_end.isoformat() if break_session.break_end else None,
+        "duration_minutes": break_session.duration_minutes,
+        "status": break_session.status,
+        "notes": break_session.notes,
+        "face_distance": break_session.end_face_distance,
+        "liveness_score": break_session.end_liveness_score,
+        "image_url": break_session.end_image_url,
+        "start_image_url": break_session.start_image_url,
+        "end_image_url": break_session.end_image_url,
+    }
+    break_data = enrich_break_with_presigned_urls(break_data)
+
     return {
         "success": True,
         "message": "Break session ended successfully.",
-        "data": {
-            "id": str(break_session.id),
-            "attendance_id": str(break_session.attendance_id),
-            "break_start": break_session.break_start.isoformat(),
-            "break_end": break_session.break_end.isoformat() if break_session.break_end else None,
-            "duration_minutes": break_session.duration_minutes,
-            "status": break_session.status,
-            "notes": break_session.notes,
-            "face_distance": break_session.end_face_distance,
-            "liveness_score": break_session.end_liveness_score,
-            "image_url": break_session.end_image_url,
-            "end_image_url": break_session.end_image_url,
-        },
+        "data": break_data,
         "error": None,
     }

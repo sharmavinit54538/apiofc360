@@ -8,6 +8,32 @@ from app.core.config import settings
 
 USE_REAL_DB = bool(os.getenv("DATABASE_URL") or getattr(settings, "DATABASE_URL", None))
 
+# Mock biometric storage for tests
+@pytest.fixture(autouse=True)
+def mock_biometric_storage():
+    """Mock biometric storage for all tests."""
+    with patch("app.attendance.utils.biometric_storage.get_biometric_storage") as mock_get_storage:
+        mock_storage = MagicMock()
+        mock_storage.upload_base64 = AsyncMock(return_value={
+            "object_key": "biometric/face_attendance/2026/11/16/test_abc123.jpg",
+            "bucket": "test-bucket",
+            "size_bytes": 1024,
+            "format": "JPEG",
+            "dimensions": (100, 100),
+            "uploaded_at": "2026-11-16T00:00:00+00:00",
+        })
+        mock_storage.upload_file = AsyncMock(return_value={
+            "object_key": "biometric/face_attendance/2026/11/16/test_abc123.jpg",
+            "bucket": "test-bucket",
+            "size_bytes": 1024,
+            "format": "JPEG",
+            "dimensions": (100, 100),
+            "uploaded_at": "2026-11-16T00:00:00+00:00",
+        })
+        mock_storage.generate_presigned_url = MagicMock(return_value="https://test-bucket.s3.amazonaws.com/presigned-url")
+        mock_get_storage.return_value = mock_storage
+        yield mock_storage
+
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
