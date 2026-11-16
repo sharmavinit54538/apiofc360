@@ -82,19 +82,31 @@ class AnalyticsService:
 
     async def get_attendance_metric(self, company_id: Optional[uuid.UUID], live: bool = False) -> Dict[str, Any]:
         today = date.today()
+        
+        # Get total active employees for proper denominator
+        from app.models.employee import Employee
+        from sqlalchemy import and_
+        emp_stmt = select(func.count(Employee.id)).where(
+            and_(Employee.company_id == company_id, Employee.is_deleted == False, Employee.is_active == True)
+        ) if company_id else select(func.count(Employee.id)).where(Employee.is_deleted == False, Employee.is_active == True)
+        total_active = (await self.session.execute(emp_stmt)).scalar() or 0
+        
         stmt = select(Attendance).where(Attendance.date == today)
         if company_id:
             stmt = stmt.where(Attendance.company_id == company_id)
         records = (await self.session.execute(stmt)).scalars().all()
 
-        total = len(records)
+        total_marked = len(records)
         present = sum(1 for r in records if (r.status or "").lower() in ("present", "late"))
         late = sum(1 for r in records if r.is_late or (r.status or "").lower() == "late")
-        rate = round((present / total) * 100, 2) if total > 0 else 95.0
+        
+        # Attendance rate based on total active employees
+        rate = round((present / total_active) * 100, 2) if total_active > 0 else 0.0
 
         return {
             "metric": "attendance",
-            "total": total,
+            "total_active": total_active,
+            "total_marked": total_marked,
             "present": present,
             "late": late,
             "attendance_rate": rate,

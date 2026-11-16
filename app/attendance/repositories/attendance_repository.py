@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy import select, and_, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.models.employee import Employee
 
 
@@ -91,6 +91,7 @@ class AttendanceRepository:
         ).values(
             check_out_time=auto_close_time,
             status="Auto-Checked Out",
+            attendance_state=AttendanceState.AUTO_CHECKED_OUT,
             notes=(active_session.notes or "") + f" [Auto-closed: stale session from {session_date.isoformat()}]",
             auto_closed=True,
             auto_closed_at=now_utc,

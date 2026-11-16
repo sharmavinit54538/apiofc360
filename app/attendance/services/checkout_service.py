@@ -11,7 +11,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.break_service import BreakService
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
@@ -188,6 +188,8 @@ class AttendanceCheckOutService:
         record.is_early_checkout = eval_result.is_early_checkout
         record.early_minutes = eval_result.early_minutes
         record.overtime_hours = eval_result.overtime_hours
+        record.attendance_state = AttendanceState.CHECKED_OUT
+        record.punch_type = "OUT"
         if lat_val is not None:
             record.latitude = lat_val
         if lng_val is not None:

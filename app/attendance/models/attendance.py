@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
@@ -21,15 +22,30 @@ if TYPE_CHECKING:
     from app.models.company import Company
 
 
+class AttendanceState(str, enum.Enum):
+    """Attendance state machine states."""
+    CHECKED_IN = "CHECKED_IN"
+    ON_BREAK = "ON_BREAK"
+    CHECKED_OUT = "CHECKED_OUT"
+    AUTO_CHECKED_OUT = "AUTO_CHECKED_OUT"
+    CORRECTION_PENDING = "CORRECTION_PENDING"
+    CORRECTED = "CORRECTED"
+
+
 class Attendance(Base):
     """Daily face attendance log record."""
 
     __tablename__ = "attendances"
     __table_args__ = (
         UniqueConstraint("employee_id", "date", name="uq_employee_date_attendance"),
+        # Partial unique index: prevent multiple active sessions (no check_out_time) per employee
+        Index("uq_attendance_open_session", "employee_id", unique=True, 
+              postgresql_where=text("check_out_time IS NULL")),
         Index("ix_attendances_employee_id", "employee_id"),
         Index("ix_attendances_company_id", "company_id"),
         Index("ix_attendances_date", "date"),
+        Index("ix_attendances_state", "attendance_state"),
+        Index("ix_attendances_check_out_time", "check_out_time"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -52,6 +68,9 @@ class Attendance(Base):
     punch_type: Mapped[str] = mapped_column(String(10), nullable=False, default="IN", server_default=text("'IN'"))
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     punch_verified_by: Mapped[str | None] = mapped_column(String(20), nullable=True, default="FACE", server_default=text("'FACE'"))
+    attendance_state: Mapped[AttendanceState] = mapped_column(
+        String(30), nullable=False, default=AttendanceState.CHECKED_IN, server_default=text("'CHECKED_IN'")
+    )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     latitude: Mapped[float | None] = mapped_column(nullable=True)

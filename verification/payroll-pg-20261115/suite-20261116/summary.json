@@ -1,0 +1,21 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\suite-20261116\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\suite-20261116-tmp"
+  ],
+  "database": "payroll_verify_suite",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 1286.689,
+  "tests": 1235,
+  "failed": 118,
+  "errors": 6,
+  "skipped": 4,
+  "passed": 1107
+}

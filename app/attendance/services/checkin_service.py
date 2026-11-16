@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from zoneinfo import ZoneInfo
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.attendance.services.geofence_service import GeofenceService
@@ -183,6 +183,7 @@ class AttendanceCheckInService:
             punch_type="IN",
             verified=True,
             punch_verified_by="FACE",
+            attendance_state=AttendanceState.CHECKED_IN,
             notes=notes,
             latitude=lat_val,
             longitude=lng_val,
