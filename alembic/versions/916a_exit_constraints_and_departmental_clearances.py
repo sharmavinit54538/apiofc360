@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "916a"
-down_revision = "915a"
+down_revision = "915a_payroll_processing_lease"
 branch_labels = None
 depends_on = None
 

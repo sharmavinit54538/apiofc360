@@ -117,6 +117,10 @@ class ExitResponse(BaseModel):
     hr_remarks: str | None
     created_at: datetime
     updated_at: datetime
+    exit_type: str = "resignation"
+    effective_date: date | None = None
+    initiated_by: uuid.UUID | None = None
+    initiated_by_role: str | None = None
 
 
 class ExitListItem(BaseModel):
