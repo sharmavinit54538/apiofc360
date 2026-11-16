@@ -57,9 +57,39 @@ def _timestamps():
     ]
 
 
+def _create_table_if_missing(name, *elements):
+    inspector = sa.inspect(op.get_bind())
+    if inspector.has_table(name):
+        expected = {item.name for item in elements if isinstance(item, sa.Column)}
+        existing = {item['name'] for item in inspector.get_columns(name)}
+        if expected - existing:
+            raise RuntimeError(f"Existing {name} is missing columns: {sorted(expected - existing)}")
+        return
+    op.create_table(name, *elements)
+
+
+def _create_fk_if_missing(name, table, target, columns, target_columns, **kwargs):
+    for foreign_key in sa.inspect(op.get_bind()).get_foreign_keys(table):
+        if foreign_key['constrained_columns'] == columns:
+            if (foreign_key['referred_table'] != target
+                    or foreign_key['referred_columns'] != target_columns):
+                raise RuntimeError(f"Existing foreign key for {table}.{columns} has a different target")
+            return
+    op.create_foreign_key(name, table, target, columns, target_columns, **kwargs)
+
+
+def _create_index_if_missing(name, table, columns, unique=False):
+    for index in sa.inspect(op.get_bind()).get_indexes(table):
+        if index['name'] == name:
+            if index['column_names'] != columns or bool(index['unique']) != unique:
+                raise RuntimeError(f"Existing index {name} has an incompatible definition")
+            return
+    op.create_index(name, table, columns, unique=unique)
+
+
 def upgrade() -> None:
     # Create legal_entities table
-    op.create_table(
+    _create_table_if_missing(
         "legal_entities",
         sa.Column("id", _uuid(), nullable=False),
         sa.Column("company_id", _uuid(), nullable=True),
@@ -77,7 +107,7 @@ def upgrade() -> None:
     )
 
     # Create branches table
-    op.create_table(
+    _create_table_if_missing(
         "branches",
         sa.Column("id", _uuid(), nullable=False),
         sa.Column("company_id", _uuid(), nullable=True),
@@ -106,21 +136,21 @@ def upgrade() -> None:
         op.add_column('employees', sa.Column('legal_entity_id', _uuid(), nullable=True))
 
     # Add foreign keys
-    op.create_foreign_key(
+    _create_fk_if_missing(
         "fk_employees_branch_id_branches", "employees", "branches",
         ["branch_id"], ["id"], ondelete="SET NULL"
     )
-    op.create_foreign_key(
+    _create_fk_if_missing(
         "fk_employees_legal_entity_id_legal_entities", "employees", "legal_entities",
         ["legal_entity_id"], ["id"], ondelete="SET NULL"
     )
 
     # Add indexes
-    op.create_index("ix_employees_branch_id", "employees", ["branch_id"], unique=False)
-    op.create_index("ix_employees_legal_entity_id", "employees", ["legal_entity_id"], unique=False)
-    op.create_index("ix_branches_company_id", "branches", ["company_id"], unique=False)
-    op.create_index("ix_branches_legal_entity_id", "branches", ["legal_entity_id"], unique=False)
-    op.create_index("ix_legal_entities_company_id", "legal_entities", ["company_id"], unique=False)
+    _create_index_if_missing("ix_employees_branch_id", "employees", ["branch_id"], unique=False)
+    _create_index_if_missing("ix_employees_legal_entity_id", "employees", ["legal_entity_id"], unique=False)
+    _create_index_if_missing("ix_branches_company_id", "branches", ["company_id"], unique=False)
+    _create_index_if_missing("ix_branches_legal_entity_id", "branches", ["legal_entity_id"], unique=False)
+    _create_index_if_missing("ix_legal_entities_company_id", "legal_entities", ["company_id"], unique=False)
 
 
 def downgrade() -> None:

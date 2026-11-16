@@ -100,6 +100,8 @@ async def _seed_payroll(db_session):
     )
     db_session.add_all([company, employee, period, run, payslip])
     await db_session.commit()
+    from payroll_migrated_db import seed_payroll_actor
+    db_session.info["payroll_actor_id"] = await seed_payroll_actor(db_session, company.id)
     return company, employee, period, run, payslip
 
 
@@ -269,7 +271,7 @@ async def test_pf_ecr_v2_download_has_eleven_hash_tilde_columns(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/api/v2/payroll/statutory/pf-ecr/download?period_id={period.id}")
@@ -426,7 +428,7 @@ async def test_esi_and_lwf_summary_routes(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             esi = await client.get(f"/api/v2/payroll/statutory/esi-return?period_id={period.id}&format=json")
@@ -457,7 +459,7 @@ async def test_form138_draft_and_form130_pdf_download(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/api/v2/payroll/statutory/form-130/download?employee_id={employee.id}&financial_year=2026-2027")
@@ -513,7 +515,7 @@ async def test_declaration_proof_upload_and_verification_workflow(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             created = await client.post(f"/api/v2/tax/declarations/{employee.id}", json={"financial_year": "2026-2027", "tax_regime": "OLD", "section_80c": "150000"})

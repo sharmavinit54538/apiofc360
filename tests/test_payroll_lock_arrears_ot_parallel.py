@@ -492,7 +492,9 @@ async def test_negative_net_rolls_back_loan_and_arrear_then_retry_succeeds(db_se
     await db_session.refresh(loan_before)
     assert loan_before.outstanding_balance == Decimal("1200.00")
     assert loan_before.installments_paid == 0
-    assert await db_session.scalar(select(func.count(AdvanceLoanInstallment.id))) == 0
+    assert await db_session.scalar(select(func.count(AdvanceLoanInstallment.id)).where(
+        AdvanceLoanInstallment.loan_id == loan_before.id,
+    )) == 0
     arrear = (await db_session.execute(
         select(ArrearLedger).where(ArrearLedger.target_period_id == period_id)
     )).scalar_one()
@@ -604,7 +606,7 @@ async def test_engine_prorates_lop_and_consumes_advance_and_attendance_inputs(db
     assert run_emp.earnings_breakup["one_time_bonus_paise"] == 25000
     assert run_emp.deductions_breakup["advance_recovery_paise"] == 250000
     assert run_emp.net_pay_paise == run_emp.gross_earnings_paise - run_emp.total_deductions_paise
-    loan = (await db_session.execute(select(AdvanceLoan))).scalar_one()
+    loan = (await db_session.execute(select(AdvanceLoan).where(AdvanceLoan.employee_id == employee.id))).scalar_one()
     assert loan.outstanding_balance == Decimal("7500.00")
     assert loan.installments_paid == 1
     assert await PayrollRunService._advance_deduction_for_employee(db_session, run, employee.id) == 0
@@ -643,17 +645,19 @@ async def test_engine_uses_effective_lop_basis_and_period_days(
 @pytest.mark.asyncio
 async def test_canonical_run_transitions(db_session):
     company, employee, period, run = await _seed_calculated_run(db_session)
+    from payroll_migrated_db import seed_payroll_actor
+    actor_id = await seed_payroll_actor(db_session, company.id)
     assert run.status == "PROCESSED"
     await PayrollRunService.submit_for_approval(db_session, run.id)
     assert run.status == "PENDING_APPROVAL"
-    await PayrollRunService.approve_run(db_session, run.id, user_id=uuid.uuid4(), user_role="hr_admin")
+    await PayrollRunService.approve_run(db_session, run.id, user_id=actor_id, user_role="hr_admin")
     assert run.status == "APPROVED"
-    await PayrollRunService.finalize_run(db_session, run.id, user_id=uuid.uuid4(), user_role="hr_admin")
+    await PayrollRunService.finalize_run(db_session, run.id, user_id=actor_id, user_role="hr_admin")
     assert run.status == "LOCKED" and run.is_locked
     with pytest.raises(Exception) as locked_retry:
         await PayrollRunService.retry_run(db_session, run.id)
     assert getattr(locked_retry.value, "status_code", None) == 409
-    await PayrollRunService.mark_paid(db_session, run.id, user_id=uuid.uuid4(), user_role="hr_admin")
+    await PayrollRunService.mark_paid(db_session, run.id, user_id=actor_id, user_role="hr_admin")
     assert run.status == "PAID" and run.paid_at is not None
 
 
@@ -696,6 +700,8 @@ async def test_parallel_csv_comparison_persists_paise_variances(db_session):
 @pytest.mark.asyncio
 async def test_parallel_comparison_http_routes(db_session):
     company, employee, period, run = await _seed_calculated_run(db_session)
+    from payroll_migrated_db import seed_payroll_actor
+    actor_id = await seed_payroll_actor(db_session, company.id)
     run_emp = (await db_session.execute(select(PayrollRunEmployee).where(PayrollRunEmployee.run_id == run.id))).scalar_one()
     values = {
         "gross": run_emp.gross_earnings_paise,
@@ -713,7 +719,7 @@ async def test_parallel_comparison_http_routes(db_session):
     app = create_app()
     async def override_db():
         yield db_session
-    claims = {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    claims = {"sub": str(actor_id), "role": "hr_admin", "company_id": str(company.id)}
     app.dependency_overrides[get_db_session] = override_db
     app.dependency_overrides[get_current_user_claims] = lambda: claims
     try:

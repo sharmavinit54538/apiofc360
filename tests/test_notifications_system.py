@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import uuid
-import asyncio
 import pytest
 from httpx import ASGITransport, AsyncClient
 

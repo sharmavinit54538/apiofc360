@@ -235,7 +235,7 @@ async def main(args: argparse.Namespace) -> int:
                             # The production column is VARCHAR(20); UUID hex is
                             # 32 characters and fails before the engine runs.
                             id=eid, company_id=company_id,
-                            employee_id=f"R{repetition}{item['scenario']:08d}",
+                            employee_id=f"S{namespace.hex[:8]}{repetition}{item['scenario']:08d}",
                             first_name="Synthetic", last_name="Payroll", personal_email=f"{eid.hex}@example.test",
                             phone="9876543210", department="Verification", designation="Test",
                             joining_date=date.fromisoformat(item["joining_date"]), work_location=item["state"],

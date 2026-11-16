@@ -724,10 +724,10 @@ async def list_damage_reports(
 )
 async def update_damage_report_status(
     report_id: uuid.UUID,
-    status: str = Query(..., description="New status: UNDER_REVIEW, MAINTENANCE_SCHEDULED, REPAIRED, REPLACED, CLOSED"),
-    resolution_notes: str | None = Query(None, description="Resolution notes"),
     claims: Annotated[dict, Depends(require_admin_or_hr)],
     service: Annotated[AssetService, Depends(get_asset_service)],
+    status: str = Query(..., description="New status: UNDER_REVIEW, MAINTENANCE_SCHEDULED, REPAIRED, REPLACED, CLOSED"),
+    resolution_notes: str | None = Query(None, description="Resolution notes"),
 ) -> APIResponse[AssetDamageReportResponse]:
     """Update damage report status (Admin/HR/IT only)."""
     cid = _get_cid(claims)

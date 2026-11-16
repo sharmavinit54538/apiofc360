@@ -4,7 +4,7 @@ Verifies:
 1. Exactly one head exists (no branches / multiple heads).
 2. Exactly one base exists (no multiple disconnected roots).
 3. Every migration's down_revision resolves to a valid existing revision.
-4. Every revision and down_revision identifier is at most 28 characters.
+4. Revision identifiers fit the version table at that point in the chain.
 """
 
 from pathlib import Path
@@ -70,11 +70,13 @@ def test_alembic_migration_graph_continuity():
 
 
 def test_alembic_revision_ids_fit_legacy_version_table():
-    """Keep all revision references within the 28-character safety limit."""
+    """Respect the legacy width until 902a widens version_num to VARCHAR(128)."""
     script_dir = get_alembic_script_dir()
     oversized = []
 
     for rev in script_dir.walk_revisions():
+        ancestors = {item.revision for item in script_dir.iterate_revisions(rev.revision, "base")}
+        limit = 128 if "902a_sync_drift" in ancestors else 28
         down_revs = rev.down_revision
         if down_revs is None:
             down_revs = ()
@@ -84,10 +86,10 @@ def test_alembic_revision_ids_fit_legacy_version_table():
         for kind, revision_id in [("revision", rev.revision)] + [
             ("down_revision", parent_id) for parent_id in down_revs
         ]:
-            if len(revision_id) > 28:
+            if len(revision_id) > limit:
                 oversized.append((rev.revision, kind, revision_id, len(revision_id)))
 
     assert not oversized, (
-        "Every Alembic revision/down_revision must be <= 28 characters; "
+        "Alembic revision/down_revision exceeds its migration-time version column width; "
         f"found: {oversized}"
     )

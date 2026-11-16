@@ -140,7 +140,7 @@ def require_hr_admin(
 ) -> dict:
     """Allow users with hr_admin or official super_admin roles."""
     user_role = (claims.get("role") or "").lower().strip()
-    normalized = RoleEnum.from_str(user_role)
+    normalized = RoleEnum.from_str(user_role, strict=True)
     if user_role == ROLE_HR_ADMIN or normalized == RoleEnum.HR_ADMIN:
         return claims
     if (user_role == ROLE_SUPER_ADMIN or normalized == RoleEnum.SUPER_ADMIN) and _is_valid_super_admin_claims(claims):
@@ -287,7 +287,8 @@ def require_roles(*allowed_roles: RoleEnum | str) -> Callable[[dict], dict]:
 
     def _role_checker(claims: Annotated[dict, Depends(get_current_user_claims)]) -> dict:
         raw_role = (claims.get("role") or "").lower().strip()
-        normalized_role = RoleEnum.from_str(raw_role).value
+        parsed_role = RoleEnum.from_str(raw_role, strict=True)
+        normalized_role = parsed_role.value if parsed_role is not None else None
         if raw_role in normalized_allowed or normalized_role in normalized_allowed:
             if normalized_role == ROLE_SUPER_ADMIN and not _is_valid_super_admin_claims(claims):
                 raise HTTPException(

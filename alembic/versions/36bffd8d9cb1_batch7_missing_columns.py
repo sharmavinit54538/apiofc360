@@ -53,6 +53,17 @@ def _create_table_if_not_exists(table_name, *columns, **kwargs):
         op.create_table(table_name, *columns, **kwargs)
 
 
+def _create_index_if_missing(name, table, columns, unique=False):
+    """Earlier full-schema migrations may already own these exact indexes."""
+    existing = next((index for index in sa.inspect(op.get_bind()).get_indexes(table)
+                     if index['name'] == name), None)
+    if existing is not None:
+        if existing['column_names'] != columns or bool(existing['unique']) != unique:
+            raise RuntimeError(f"Existing index {name} has an incompatible definition")
+        return
+    op.create_index(name, table, columns, unique=unique)
+
+
 def upgrade() -> None:
     # =========================================================================
     # attendance_regularization_requests
@@ -264,7 +275,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_workforce_plans")),
         sa.UniqueConstraint("company_id", "fiscal_year", "department", name="uq_workforce_plan_company_year_department"),
     )
-    op.create_index("ix_workforce_plans_company_year", "workforce_plans", ["company_id", "fiscal_year"], unique=False)
+    _create_index_if_missing("ix_workforce_plans_company_year", "workforce_plans", ["company_id", "fiscal_year"], unique=False)
 
     # org_twin_simulations
     _create_table_if_not_exists("org_twin_simulations",
@@ -282,7 +293,7 @@ def upgrade() -> None:
         _fk("org_twin_simulations", "created_by", "users", "SET NULL"),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_org_twin_simulations")),
     )
-    op.create_index("ix_org_twin_simulations_company_created", "org_twin_simulations", ["company_id", "created_at"], unique=False)
+    _create_index_if_missing("ix_org_twin_simulations_company_created", "org_twin_simulations", ["company_id", "created_at"], unique=False)
 
     # marketplace_integrations
     _create_table_if_not_exists("marketplace_integrations",
@@ -302,7 +313,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_marketplace_integrations")),
         sa.UniqueConstraint("company_id", "connector_code", name="uq_marketplace_integration_company_connector"),
     )
-    op.create_index("ix_marketplace_integrations_company_status", "marketplace_integrations", ["company_id", "status"], unique=False)
+    _create_index_if_missing("ix_marketplace_integrations_company_status", "marketplace_integrations", ["company_id", "status"], unique=False)
 
     # integration_sync_logs
     _create_table_if_not_exists("integration_sync_logs",
@@ -325,8 +336,8 @@ def upgrade() -> None:
         _fk("integration_sync_logs", "company_id", "companies", "CASCADE"),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_integration_sync_logs")),
     )
-    op.create_index("ix_integration_sync_logs_company_connector", "integration_sync_logs", ["company_id", "connector_code", "created_at"], unique=False)
-    op.create_index("ix_integration_sync_logs_integration", "integration_sync_logs", ["integration_id", "created_at"], unique=False)
+    _create_index_if_missing("ix_integration_sync_logs_company_connector", "integration_sync_logs", ["company_id", "connector_code", "created_at"], unique=False)
+    _create_index_if_missing("ix_integration_sync_logs_integration", "integration_sync_logs", ["integration_id", "created_at"], unique=False)
 
     # Backfill payroll data for existing INR rows
     op.execute("""

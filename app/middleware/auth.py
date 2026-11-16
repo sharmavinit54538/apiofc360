@@ -100,7 +100,7 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
 async def invalidate_auth_active_cache(user_id: uuid.UUID, company_id: uuid.UUID | None) -> None:
     """Invalidate the cached auth active state for a user."""
     cache_key = _auth_active_cache_key(user_id, company_id)
-    await cache_delete(cache_key)
+    await redis_client.delete(cache_key)
     # Also delete from in-memory store
     cache_delete(cache_key)
 

@@ -2,8 +2,11 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 
 import asyncpg
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 
 async def main():
@@ -21,7 +24,10 @@ async def main():
                 "column_name IN ('is_pf_eligible','pf_membership_active','is_eps_eligible',"
                 "'pf_higher_wage_opted','eps_higher_wage_opted','pf_wage_ceiling_applicable') ORDER BY column_name")],
         }
-        assert result["revisions"] == ["e1f2a3b4c5d6"], result
+        scripts = ScriptDirectory.from_config(Config(str(Path(__file__).resolve().parents[1] / "alembic.ini")))
+        assert len(result["revisions"]) == 1, result
+        lineage = {item.revision for item in scripts.iterate_revisions(result["revisions"][0], "base")}
+        assert "e1f2a3b4c5d6" in lineage, result
         assert len(result["columns"]) == 6, result
         assert all(row["is_nullable"] == "NO" and row["data_type"] == "boolean" for row in result["columns"])
         print(json.dumps(result, indent=2))

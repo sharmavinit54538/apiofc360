@@ -102,7 +102,6 @@ class HRAdminService:
             account_status=UserAccountStatus.INVITED.value,
             email_verification_token=token,
             email_verification_expires_at=expires_at,
-            created_by=admin_id,
             is_active=False,
             is_verified=False,
             must_change_password=True,

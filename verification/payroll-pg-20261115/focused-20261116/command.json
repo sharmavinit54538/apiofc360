@@ -1,0 +1,14 @@
+[
+  "py",
+  "-3.14",
+  "-m",
+  "pytest",
+  "-q",
+  "--tb=short",
+  "tests/test_statutory_pf_esi_pt_lwf_tds_form138_130.py",
+  "tests/test_payroll_engine_stress_scenarios.py",
+  "tests/test_payroll_lock_arrears_ot_parallel.py",
+  "tests/test_notifications_system.py::test_notifications_sse_stream",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\focused-20261116\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\focused-20261116-tmp"
+]

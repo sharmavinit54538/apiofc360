@@ -14,6 +14,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.company import Company
 from app.models.user import User, UserRole
 from app.models.employee import Employee
+from app.attendance.models.attendance import Attendance
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.utils.jwt import create_access_token
 from sqlalchemy import insert
