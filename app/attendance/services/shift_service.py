@@ -36,7 +36,7 @@ from app.attendance.utils.timezone import (
 from app.models.calendar.holiday import HolidayCalendar
 from app.models.employee import Employee
 from app.models.shift import EmployeeShiftAssignment, Shift
-from app.models.shift_plan import EntryApprovalStatus, ShiftPlanEntry, ShiftType
+from app.models.shift_plan import EntryApprovalStatus, ShiftPlan, ShiftPlanEntry, ShiftPlanStatus, ShiftType
 
 logger = logging.getLogger(__name__)
 
@@ -301,11 +301,11 @@ class ShiftService:
             and_(
                 ShiftPlanEntry.employee_id == employee_id,
                 ShiftPlanEntry.shift_date == business_date,
-                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED.value,
                 ShiftPlanEntry.company_id == company_id,
             )
         ).join(ShiftPlanEntry.plan).where(
-            ShiftPlanEntry.plan.has(status="PUBLISHED")
+            ShiftPlan.status == ShiftPlanStatus.PUBLISHED.value
         )
         result = await self.db.execute(stmt)
         return result.scalars().first()
@@ -318,11 +318,11 @@ class ShiftService:
                 ShiftPlanEntry.employee_id == employee_id,
                 ShiftPlanEntry.shift_date >= start,
                 ShiftPlanEntry.shift_date <= end,
-                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED.value,
                 ShiftPlanEntry.company_id == company_id,
             )
         ).join(ShiftPlanEntry.plan).where(
-            ShiftPlanEntry.plan.has(status="PUBLISHED")
+            ShiftPlan.status == ShiftPlanStatus.PUBLISHED.value
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
