@@ -11,10 +11,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exit_state_machine import ExitStatus, validate_transition
 from app.models.asset import Asset
 from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
-from app.models.exit import AssetReturn, ClearanceRequest, EmployeeExit, ExitDocument, FnfSettlement
+from app.models.exit import AssetReturn, ClearanceRequest, DepartmentalClearance, EmployeeExit, ExitDocument, FnfSettlement
 from app.models.payroll_models import FullAndFinalSettlement
 from app.services.fnf_calculation_service import FnfCalculationService
 from app.services.letter_service import LetterService
@@ -36,6 +37,12 @@ class FnFWorkflowService:
             raise ValueError("Exit request not found.")
         return exit_obj
 
+    def _validate_exit_transition(self, current_status: str, new_status: str) -> None:
+        """Validate exit status transition using centralized state machine."""
+        result = validate_transition(current_status, new_status)
+        if not result.allowed:
+            raise ValueError(result.reason or f"Invalid status transition from {current_status} to {new_status}")
+
     async def clearance_status(self, exit_id: uuid.UUID) -> dict[str, Any]:
         exit_obj = await self._exit(exit_id)
         returns = (await self.session.execute(select(AssetReturn).where(
@@ -51,18 +58,40 @@ class FnFWorkflowService:
             asset_percentage = round(returned * 100 / len(returns), 2)
         else:
             asset_percentage = 100.0
+        
+        # Check new auditable departmental clearances
+        dept_clearances = (await self.session.execute(select(DepartmentalClearance).where(
+            DepartmentalClearance.exit_id == exit_id
+        ))).scalars().all()
+        
+        required_departments = DepartmentalClearance.get_required_departments()
+        completed_departments = sum(1 for dc in dept_clearances if dc.status in {"APPROVED", "NOT_APPLICABLE"})
+        department_percentage = round(completed_departments * 100 / len(required_departments), 2) if required_departments else 100.0
+        
+        # Also check legacy for backward compatibility
         clearance = (await self.session.execute(select(ClearanceRequest).where(
             ClearanceRequest.exit_id == exit_id
         ))).scalars().first()
-        completed_departments = sum(1 for field in CLEARANCE_FIELDS if clearance and getattr(clearance, field))
-        department_percentage = round(completed_departments * 100 / len(CLEARANCE_FIELDS), 2)
+        legacy_completed = sum(1 for field in CLEARANCE_FIELDS if clearance and getattr(clearance, field))
+        legacy_percentage = round(legacy_completed * 100 / len(CLEARANCE_FIELDS), 2)
+        
+        # Use new system if available, fallback to legacy
+        use_new = len(dept_clearances) > 0
+        final_department_percentage = department_percentage if use_new else legacy_percentage
+        final_completed = completed_departments if use_new else legacy_completed
+        final_total = len(required_departments) if use_new else len(CLEARANCE_FIELDS)
+        
         return {
             "exit_id": str(exit_id), "asset_clearance_percentage": asset_percentage,
-            "department_clearance_percentage": department_percentage,
+            "department_clearance_percentage": final_department_percentage,
             "asset_returns_completed": returned, "asset_returns_total": len(returns),
             "outstanding_asset_ids": [str(asset.id) for asset in outstanding_assets],
-            "departments_completed": completed_departments, "departments_total": len(CLEARANCE_FIELDS),
-            "clearance_complete": asset_percentage == 100.0 and department_percentage == 100.0,
+            "departments_completed": final_completed, "departments_total": final_total,
+            "clearance_complete": asset_percentage == 100.0 and final_department_percentage == 100.0,
+            "departmental_details": [
+                {"department": dc.department, "status": dc.status, "approver_id": str(dc.approver_id) if dc.approver_id else None, "actioned_at": dc.actioned_at.isoformat() if dc.actioned_at else None}
+                for dc in dept_clearances
+            ] if use_new else None,
         }
 
     async def assert_clearances(self, exit_id: uuid.UUID) -> dict[str, Any]:
@@ -99,6 +128,9 @@ class FnFWorkflowService:
         exit_obj.notice_shortfall_days = preview["notice_shortfall_days"]
         exit_obj.notice_waived = preview["notice_waived"]
         exit_obj.notice_buyout = preview["notice_buyout"]
+        # Validate and update exit status
+        self._validate_exit_transition(exit_obj.status, ExitStatus.FNF_FINALIZED.value)
+        exit_obj.status = ExitStatus.FNF_FINALIZED.value
         await self.session.commit()
         return fnf
 
@@ -189,7 +221,9 @@ class FnFWorkflowService:
             fnf.status = "SETTLED"
             fnf.settled_at = datetime.now(timezone.utc)
             exit_obj.fnf_status = "SETTLED"
-            exit_obj.status = "SETTLED"
+            # Validate and update exit status
+            self._validate_exit_transition(exit_obj.status, ExitStatus.SETTLED.value)
+            exit_obj.status = ExitStatus.SETTLED.value
             employee.status = "EXITED"
             employee.is_active = False
             await self.session.commit()
@@ -210,7 +244,7 @@ class FnFWorkflowService:
         settlement = await self.session.get(FullAndFinalSettlement, fnf_id)
         if settlement is None:
             raise ValueError("Payroll FnF settlement not found.")
-        if settlement.status != "SETTLED" and settlement.status != "FINALIZED":
+        if settlement.status not in {"SETTLED", "FINALIZED"}:
             raise ValueError("Payroll FnF must be FINALIZED before it can be SETTLED.")
         exit_obj = await self.session.get(EmployeeExit, settlement.exit_id) if settlement.exit_id else None
         if exit_obj is None:
@@ -241,7 +275,9 @@ class FnFWorkflowService:
             settlement.status = "SETTLED"
             settlement.settled_at = datetime.now(timezone.utc)
             settlement.exit_id = exit_obj.id
-            exit_obj.status = "SETTLED"
+            # Validate and update exit status
+            self._validate_exit_transition(exit_obj.status, ExitStatus.SETTLED.value)
+            exit_obj.status = ExitStatus.SETTLED.value
             exit_obj.fnf_status = "SETTLED"
             employee.status = "EXITED"
             employee.is_active = False
