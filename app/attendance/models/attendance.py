@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func, text,
+    Boolean, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func, text, CheckConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,6 +46,11 @@ class Attendance(Base):
         Index("ix_attendances_date", "date"),
         Index("ix_attendances_state", "attendance_state"),
         Index("ix_attendances_check_out_time", "check_out_time"),
+        # Check constraint for valid attendance states
+        CheckConstraint(
+            "attendance_state IN ('CHECKED_IN', 'ON_BREAK', 'CHECKED_OUT', 'AUTO_CHECKED_OUT', 'CORRECTION_PENDING', 'CORRECTED')",
+            name="ck_attendance_state_valid"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

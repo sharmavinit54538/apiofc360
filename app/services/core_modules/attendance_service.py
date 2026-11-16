@@ -19,6 +19,7 @@ from app.attendance.services.validation_service import (
     assert_attendance_period_editable, attendance_period_block_reason,
 )
 from app.attendance.utils.timezone import get_company_tz
+from app.attendance.utils.helpers import write_audit_log
 from app.schemas.core_modules.attendance import (
     AttendanceCheckInRequest,
     AttendanceCheckOutRequest,
@@ -136,6 +137,17 @@ class AttendanceCoreService:
 
         await self.session.commit()
         await self.session.refresh(record)
+        
+        # Audit log
+        try:
+            await write_audit_log(
+                self.session, emp.user_id, "CHECK_IN", payload.ip_address,
+                f"Check-In: Date={business_date} | Source={source} | Late={eval_result.is_late} ({eval_result.late_minutes}m) | GPS={payload.latitude},{payload.longitude}",
+                company_id=actual_company_id
+            )
+        except Exception:
+            pass
+        
         return record
 
     async def notify_missed_checkout(self, attendance_id: uuid.UUID) -> None:
@@ -277,6 +289,18 @@ class AttendanceCoreService:
 
         await self.session.commit()
         await self.session.refresh(record)
+        
+        # Audit log
+        try:
+            user_id_for_audit = emp.user_id if emp else None
+            await write_audit_log(
+                self.session, user_id_for_audit, "CHECK_OUT", payload.ip_address,
+                f"Check-Out: Date={record.date} | NetHours={eval_result.working_hours} | Overtime={eval_result.overtime_hours}h | Early={eval_result.is_early_checkout} ({eval_result.early_minutes}m) | GPS={payload.latitude},{payload.longitude}",
+                company_id=actual_company_id
+            )
+        except Exception:
+            pass
+        
         return record
 
     async def update_attendance(
@@ -314,6 +338,17 @@ class AttendanceCoreService:
         record.notes = f"{record.notes or ''}; Edited by {editor_id or 'admin'}: {payload.audit_reason}"
         await self.session.commit()
         await self.session.refresh(record)
+        
+        # Audit log
+        try:
+            await write_audit_log(
+                self.session, editor_id, "ATTENDANCE_UPDATE", None,
+                f"Attendance updated: ID={attendance_id} | Reason={payload.audit_reason}",
+                company_id=record.company_id
+            )
+        except Exception:
+            pass
+        
         return record
 
     async def delete_attendance(
@@ -334,8 +369,20 @@ class AttendanceCoreService:
         await assert_attendance_period_editable(
             self.session, record.company_id, record.date, action="delete locked attendance"
         )
+        company_id = record.company_id
         await self.session.delete(record)
         await self.session.commit()
+        
+        # Audit log
+        try:
+            await write_audit_log(
+                self.session, None, "ATTENDANCE_DELETE", None,
+                f"Attendance deleted: ID={attendance_id}",
+                company_id=company_id
+            )
+        except Exception:
+            pass
+        
         return True
 
     async def list_records(

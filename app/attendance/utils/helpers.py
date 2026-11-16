@@ -39,10 +39,16 @@ async def save_base64_image(image_base64: str, prefix: str = "face") -> str:
     
     Includes robust error handling and fallback paths so storage/permission
     issues never abort database transactions or trigger HTTP 500 errors.
+    
+    Raises:
+        HTTPException: If image cannot be decoded or saved.
     """
     import base64
     import logging
     import tempfile
+    from fastapi import HTTPException, status
+    from PIL import Image
+    import io
 
     _logger = logging.getLogger(__name__)
 
@@ -54,28 +60,67 @@ async def save_base64_image(image_base64: str, prefix: str = "face") -> str:
     relative_path = f"/uploads/face_attendance/{unique_filename}"
     save_path = os.path.join(UPLOAD_DIR, unique_filename)
 
+    # Decode base64
     try:
         missing_padding = len(clean_base64) % 4
         if missing_padding:
             clean_base64 += "=" * (4 - missing_padding)
         image_data = base64.b64decode(clean_base64, validate=False)
+        if not image_data:
+            raise ValueError("Decoded image data is empty")
     except Exception as exc:
         _logger.warning("save_base64_image: failed to decode image bytes: %s", exc)
-        return relative_path
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "FACE_QUALITY_LOW", "message": "Malformed base64 image data."},
+        )
 
+    # Verify it's a valid image using PIL
+    try:
+        pil_image = Image.open(io.BytesIO(image_data))
+        pil_image.verify()  # Verify integrity
+        # Re-open after verify (verify() consumes the stream)
+        pil_image = Image.open(io.BytesIO(image_data))
+        pil_image.load()  # Force load to detect corruption
+        width, height = pil_image.size
+        if width < 80 or height < 80:
+            raise ValueError("Image resolution too low")
+        if width > 4096 or height > 4096:
+            raise ValueError("Image resolution too high")
+    except Exception as exc:
+        _logger.warning("save_base64_image: invalid image format: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "FACE_QUALITY_LOW", "message": "Invalid or corrupted image file."},
+        )
+
+    # Save with fallback
+    saved = False
     try:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         with open(save_path, "wb") as f:
             f.write(image_data)
+        saved = True
     except Exception as exc:
         _logger.warning("save_base64_image: primary write failed (%s). Attempting temp fallback.", exc)
         try:
             tmp_dir = os.path.join(tempfile.gettempdir(), "face_attendance")
             os.makedirs(tmp_dir, exist_ok=True)
-            with open(os.path.join(tmp_dir, unique_filename), "wb") as f:
+            tmp_path = os.path.join(tmp_dir, unique_filename)
+            with open(tmp_path, "wb") as f:
                 f.write(image_data)
+            saved = True
+            # Note: In production with multiple instances, this would need shared storage
+            # For now, we return the path but log the fallback
+            _logger.warning("save_base64_image: saved to temp fallback, may not be accessible across instances")
         except Exception as tmp_exc:
-            _logger.warning("save_base64_image: temp fallback write also failed: %s", tmp_exc)
+            _logger.error("save_base64_image: temp fallback write also failed: %s", tmp_exc)
+
+    if not saved:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "STORAGE_ERROR", "message": "Failed to save image to storage."},
+        )
 
     return relative_path
 
