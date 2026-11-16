@@ -932,7 +932,8 @@ class TestConcurrentAssignment:
             async with AsyncSessionLocal() as session:
                 competing = AssetService(session)
                 # Preload stale state deliberately; the lock must refresh it.
-                await competing.get_asset(asset.id, test_company.id)
+                preloaded = await competing.repo.get_asset_by_id(asset.id, test_company.id)
+                assert preloaded.status == "available"
                 arrivals += 1
                 if arrivals == 2:
                     ready.set()

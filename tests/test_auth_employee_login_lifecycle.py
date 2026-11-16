@@ -154,7 +154,7 @@ async def test_auth_login_wrong_password(test_app):
 
 @pytest.mark.asyncio
 async def test_auth_login_unverified_user(test_app):
-    """Scenario 3: Unverified email user login attempt returns 403 EMAIL_NOT_VERIFIED."""
+    """Unverified login starts OTP verification without issuing authentication tokens."""
     transport = ASGITransport(app=test_app)
     raw_pass = "UnverifiedPass@2026"
     test_id = uuid.uuid4().hex[:8]
@@ -186,10 +186,14 @@ async def test_auth_login_unverified_user(test_app):
                 "/api/v1/auth/login",
                 json={"identifier": email, "password": raw_pass},
             )
-            assert resp.status_code == 403
+            assert resp.status_code == 200
             data = resp.json()
-            assert data["success"] is False
-            assert data["code"] == "EMAIL_NOT_VERIFIED"
+            assert data["requires_email_verification"] is True
+            assert data["verification_id"]
+            assert data["data"]["access_token"] is None
+            assert data["data"]["refresh_token"] is None
+            assert data["data"]["user"] is None
+            assert not resp.cookies
     finally:
         async with AsyncSessionLocal() as session:
             u = await session.get(User, user_id)
@@ -446,7 +450,7 @@ async def test_auth_complete_invitation_activation_login_flow(test_app):
             department="Design",
             designation="UI/UX Designer",
         )
-        user_resp = await hr_svc.create_internal_user(comp_id, admin_id, create_payload)
+        user_resp = await hr_svc.create_user(admin_id=admin_id, company_id=comp_id, payload=create_payload)
         assert user_resp.email == email
         assert user_resp.account_status == "INVITED"
 

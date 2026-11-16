@@ -1,0 +1,23 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_employee_salary_and_crud_lifecycle.py",
+    "tests/test_auth_employee_login_lifecycle.py",
+    "tests/test_token_revocation_and_rotation.py",
+    "-v",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-regression-contracts\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-regression-contracts-tmp"
+  ],
+  "database": "asset_verify_regression",
+  "port": 55442,
+  "exit_code": 0,
+  "seconds": 41.976,
+  "tests": 29,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "passed": 29
+}

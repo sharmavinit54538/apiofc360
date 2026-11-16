@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from alembic.migration import MigrationContext
-from sqlalchemy import inspect, select, text
+from sqlalchemy import Column, inspect, select, text
 from sqlalchemy.exc import DBAPIError
 
 import app.models
@@ -39,7 +39,7 @@ def audit(conn):
             if actual is None:
                 mismatches.append({"column": col.name, "issue": "missing"})
                 continue
-            if context.impl.compare_type(__import__('sqlalchemy').Column(col.name, actual['type']), col):
+            if context.impl.compare_type(Column(col.name, actual['type']), col):
                 mismatches.append({"column": col.name, "issue": "type", "actual": str(actual['type']), "expected": str(col.type)})
             if actual['nullable'] != col.nullable:
                 mismatches.append({"column": col.name, "issue": "nullable", "actual": actual['nullable'], "expected": col.nullable})
@@ -48,6 +48,9 @@ def audit(conn):
             expected = [c.name for c in idx.columns]
             if actual is None or actual['column_names'] != expected or bool(actual['unique']) != idx.unique:
                 mismatches.append({"index": idx.name, "issue": "definition", "expected_columns": expected, "unique": idx.unique})
+        actual_pk = inspector.get_pk_constraint(name)
+        if actual_pk['constrained_columns'] != [c.name for c in model.primary_key.columns]:
+            mismatches.append({'primary_key': name, 'issue': 'definition'})
         for fk in model.foreign_key_constraints:
             signature = ([c.name for c in fk.columns], fk.referred_table.name,
                          [e.column.name for e in fk.elements], fk.ondelete)
@@ -68,12 +71,32 @@ def audit(conn):
     return result
 
 
+async def pii_counts(conn):
+    from app.models.employee import ENCRYPTED_EMPLOYEE_PII_FIELDS
+    from app.core.field_encryption import ENCRYPTED_VALUE_PREFIX
+    result = {}
+    for field in ENCRYPTED_EMPLOYEE_PII_FIELDS:
+        result[field] = dict((await conn.execute(text(
+            f'SELECT count(*) FILTER (WHERE {field} IS NOT NULL AND {field} NOT LIKE :prefix) AS legacy_unencrypted, '
+            f'count(*) FILTER (WHERE {field} IS NOT NULL AND {field}_blind_idx IS NULL) AS missing_index, '
+            f'count(*) FILTER (WHERE {field} IS NOT NULL AND company_id IS NULL) AS missing_tenant FROM employees'
+        ), {'prefix': ENCRYPTED_VALUE_PREFIX + '%'})).mappings().one())
+    result['null_statutory_flags'] = dict((await conn.execute(text(
+        'SELECT count(*) FILTER (WHERE is_pf_eligible IS NULL) AS is_pf_eligible, '
+        'count(*) FILTER (WHERE is_international_worker IS NULL) AS is_international_worker, '
+        'count(*) FILTER (WHERE pf_wage_ceiling_applicable IS NULL) AS pf_wage_ceiling_applicable FROM employees'
+    ))).mappings().one())
+    return result
+
+
 async def main():
     try:
         async with engine.connect() as conn:
             await conn.execute(text('SET TRANSACTION READ ONLY'))
             result = {"revision": list((await conn.execute(text('SELECT version_num FROM alembic_version'))).scalars()),
                       "tables": await conn.run_sync(audit), "sql_errors": []}
+            if not any(m.get('issue') == 'missing' for m in result['tables']['employees']['mismatches']):
+                result['pii_counts'] = await pii_counts(conn)
             await conn.rollback()
             for name in ('companies', 'employees', 'assets'):
                 await conn.execute(text('SET TRANSACTION READ ONLY'))
@@ -87,7 +110,7 @@ async def main():
         path = Path(sys.argv[1])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, indent=2, default=str), encoding='utf-8')
-        print(json.dumps({'revision': result['revision'], 'mismatches': {k: v.get('mismatches', v) for k, v in result['tables'].items()}, 'sql_errors': result['sql_errors']}, indent=2))
+        print(json.dumps({'revision': result['revision'], 'mismatches': {k: v.get('mismatches', v) for k, v in result['tables'].items()}, 'sql_errors': result['sql_errors'], 'pii_counts': result.get('pii_counts')}, indent=2))
     finally:
         await engine.dispose()
 

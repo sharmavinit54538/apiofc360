@@ -114,8 +114,7 @@ async def test_repair_refuses_incompatible_existing_index(isolated_schema):
 async def test_backfill_dry_run_quarantines_bad_ciphertext_without_partial_row_write(isolated_schema):
     conn = isolated_schema
     employee = await seed(conn)
-    await conn.execute(text('UPDATE employees SET aadhaar_number_blind_idx=NULL, passport_number=:bad WHERE id=:id'),
-                       {'bad': 'enc:v1:missing-key:invalid', 'id': employee.id})
+    await conn.execute(text('UPDATE employees SET aadhaar_number_blind_idx=NULL WHERE id=:id'), {'id': employee.id})
     # Use the exact version prefix from the existing encryption implementation.
     from app.core.field_encryption import ENCRYPTED_VALUE_PREFIX
     corrupt = ENCRYPTED_VALUE_PREFIX + 'missing-key:invalid'
