@@ -46,6 +46,7 @@ class AttendanceCheckInService:
         device_info: Optional[str] = None,
         ip_address: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        work_mode: Optional[str] = None,
     ) -> Attendance:
         """Execute AI face verification check-in.
 
@@ -108,6 +109,7 @@ class AttendanceCheckInService:
         lat_val: Optional[float] = None
         lng_val: Optional[float] = None
         accuracy_val: Optional[float] = None
+        work_mode: Optional[str] = None
         if location and isinstance(location, dict):
             try:
                 lat_raw = location.get("latitude") or location.get("lat")
@@ -121,6 +123,9 @@ class AttendanceCheckInService:
                     accuracy_val = float(acc_raw)
             except (ValueError, TypeError):
                 pass
+        
+        # Extract work_mode from payload (passed via request body, not location dict)
+        # This will be set by the router from the request body
 
         geofence_res = await self.geofence_service.verify_geofence(
             employee=employee,
@@ -128,17 +133,21 @@ class AttendanceCheckInService:
             latitude=lat_val,
             longitude=lng_val,
             accuracy=accuracy_val,
+            work_mode=work_mode,
         )
 
-        if not geofence_res["inside_geofence"] and geofence_res["status"] == "OUTSIDE_GEOFENCE":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": "OUTSIDE_GEOFENCE",
-                    "message": geofence_res["message"],
-                    "data": geofence_res,
-                },
-            )
+        # Handle geofence results based on status
+        if not geofence_res["inside_geofence"]:
+            # Block punch for strict mode outside geofence or missing coordinates
+            if geofence_res["status"] in ("OUTSIDE_GEOFENCE", "LOCATION_MISSING", "INVALID_COORDINATES", "GEOFENCE_REQUIRED_NOT_CONFIGURED"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": geofence_res["status"],
+                        "message": geofence_res["message"],
+                        "data": geofence_res,
+                    },
+                )
         if geofence_res["status"] == "ACCURACY_LOW":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -148,6 +157,10 @@ class AttendanceCheckInService:
                     "data": geofence_res,
                 },
             )
+        
+        # Log flexible mode warnings
+        if geofence_res.get("flexible_mode_warning"):
+            logger.warning("Flexible geofence mode: employee %s checked in outside geofence (distance: %.0fm)", employee.id, geofence_res.get("distance", 0))
 
         # 9. Shift engine evaluation (timezone-aware)
         resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)

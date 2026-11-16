@@ -44,6 +44,7 @@ class AttendanceCheckOutService:
         notes: Optional[str] = None,
         device_info: Optional[str] = None,
         ip_address: Optional[str] = None,
+        work_mode: Optional[str] = None,
     ) -> Attendance:
         """Execute AI face verification check-out.
 
@@ -112,8 +113,17 @@ class AttendanceCheckOutService:
                 latitude=lat_val,
                 longitude=lng_val,
                 accuracy=accuracy_val,
+                work_mode=work_mode,
             )
             logger.info("Checkout Geofence: %s", geofence_res)
+            
+            # Handle geofence results for checkout (less strict than check-in)
+            if not geofence_res["inside_geofence"]:
+                if geofence_res["status"] in ("OUTSIDE_GEOFENCE", "LOCATION_MISSING", "INVALID_COORDINATES", "GEOFENCE_REQUIRED_NOT_CONFIGURED"):
+                    # For checkout, we log but don't block - employee needs to check out
+                    logger.warning("Checkout geofence issue for employee %s: %s", employee.id, geofence_res["message"])
+            if geofence_res["status"] == "ACCURACY_LOW":
+                logger.warning("Checkout GPS accuracy low for employee %s: %s", employee.id, geofence_res["message"])
 
         # 7. Auto-complete open break session if active
         now_dt = now_utc()

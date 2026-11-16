@@ -1,4 +1,9 @@
-"""Attendance router for OFC360 / Aurix HRMS Core Modules."""
+"""Attendance router for OFC360 / Aurix HRMS Core Modules.
+
+Note: Face biometric check-in/check-out endpoints have been moved to
+/app/attendance/routers/ for real biometric verification with liveness detection.
+This router provides non-biometric attendance operations only.
+"""
 
 from __future__ import annotations
 
@@ -310,38 +315,6 @@ async def check_out(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
     record = await srv.check_out(emp.id, cid, payload)
     return _ok({"id": str(record.id), "status": record.status, "check_out_time": record.check_out_time.isoformat() if record.check_out_time else None})
-
-
-@router.post("/face/check-in")
-async def face_check_in(
-    payload: AttendanceCheckInRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    uid = _uid(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    emp = await srv.get_employee_by_user_id(uid)
-    if not emp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
-    record = await srv.face_check_in(emp.id, cid, payload)
-    return _ok({"id": str(record.id), "verified": True, "punch_type": "IN"})
-
-
-@router.post("/face/check-out")
-async def face_check_out(
-    payload: AttendanceCheckInRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    uid = _uid(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    emp = await srv.get_employee_by_user_id(uid)
-    if not emp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
-    record = await srv.face_check_out(emp.id, cid, payload)
-    return _ok({"id": str(record.id), "verified": True, "punch_type": "OUT"})
 
 
 @router.put("/{attendance_id}")

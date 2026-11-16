@@ -22,8 +22,6 @@ from app.schemas.core_modules.attendance import (
     AttendanceCheckOutRequest,
     AttendanceManualUpdateRequest,
     AttendanceRegularizationCreateRequest,
-    FaceCheckInRequest,
-    FaceEnrollRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,58 +192,6 @@ class AttendanceCoreService:
         await self.session.commit()
         await self.session.refresh(record)
         return record
-
-    async def face_check_in(
-        self,
-        employee_id: uuid.UUID,
-        company_id: uuid.UUID | None,
-        payload: FaceCheckInRequest,
-    ) -> Attendance:
-        checkin_req = AttendanceCheckInRequest(
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            notes="Biometric face verification check-in",
-        )
-        record = await self.check_in(employee_id, company_id, checkin_req, source="face")
-        if payload.image_url:
-            record.captured_face_url = payload.image_url
-            record.punch_verified_by = "FACE"
-            await self.session.commit()
-        return record
-
-    async def face_check_out(
-        self,
-        employee_id: uuid.UUID,
-        company_id: uuid.UUID | None,
-        payload: FaceCheckInRequest,
-    ) -> Attendance:
-        checkout_req = AttendanceCheckOutRequest(
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            notes="Biometric face verification check-out",
-        )
-        record = await self.check_out(employee_id, company_id, checkout_req)
-        if payload.image_url:
-            record.checkout_image_url = payload.image_url
-            await self.session.commit()
-        return record
-
-    async def face_enroll(self, company_id: uuid.UUID | None, payload: FaceEnrollRequest) -> dict[str, Any]:
-        stmt = select(Employee).where(Employee.id == payload.employee_id)
-        res = await self.session.execute(stmt)
-        emp = res.scalar_one_or_none()
-        if not emp:
-            raise ValueError("Employee not found for face enrollment")
-
-        emp.is_face_enrolled = True
-        emp.face_enrolled_at = datetime.now(UTC)
-        await self.session.commit()
-        return {
-            "success": True,
-            "employee_id": str(emp.id),
-            "enrolled": True,
-            "message": "Face biometrics enrolled securely.",
-        }
 
     async def update_attendance(
         self,

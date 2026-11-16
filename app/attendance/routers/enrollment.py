@@ -39,11 +39,6 @@ def _get_company_id(claims: dict) -> Optional[uuid.UUID]:
     status_code=status.HTTP_200_OK,
     summary="Check if current employee face is enrolled",
 )
-@router.get(
-    "/face/status",
-    status_code=status.HTTP_200_OK,
-    include_in_schema=False,
-)
 async def get_face_status(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
@@ -94,11 +89,6 @@ async def get_face_status(
     "/face-enroll",
     status_code=status.HTTP_200_OK,
     summary="Register employee face embedding for attendance",
-)
-@router.post(
-    "/face/enroll",
-    status_code=status.HTTP_200_OK,
-    include_in_schema=False,
 )
 async def face_enroll(
     payload: FaceEnrollRequest,
