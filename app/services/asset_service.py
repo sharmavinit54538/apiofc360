@@ -47,6 +47,24 @@ class AssetService:
         self.session = session
         self.repo = AssetRepository(session)
 
+    async def _require_employee(self, employee_id: uuid.UUID, company_id: uuid.UUID) -> Employee:
+        employee = (await self.session.execute(select(Employee).where(
+            Employee.id == employee_id, Employee.company_id == company_id,
+            Employee.is_deleted.is_(False), Employee.is_active.is_(True),
+        ))).scalar_one_or_none()
+        if employee is None or employee.is_deactivated:
+            raise NotFoundException("Active employee not found.")
+        return employee
+
+    async def employee_for_user(self, user_id: uuid.UUID, company_id: uuid.UUID) -> Employee:
+        employee = (await self.session.execute(select(Employee).where(
+            Employee.user_id == user_id, Employee.company_id == company_id,
+            Employee.is_deleted.is_(False), Employee.is_active.is_(True),
+        ))).scalar_one_or_none()
+        if employee is None or employee.is_deactivated:
+            raise NotFoundException("Active employee not found for authenticated user.")
+        return employee
+
     async def _get_user_name(self, user_id: uuid.UUID) -> str:
         """Resolve full name of administrative user performing actions."""
         res = await self.session.execute(select(User).where(User.id == user_id))
@@ -140,6 +158,7 @@ class AssetService:
         await self.session.commit()
         
         # Re-fetch with relationships
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
@@ -148,7 +167,7 @@ class AssetService:
         
         Note: Status changes are not allowed through this method. Use explicit transition endpoints.
         """
-        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
+        asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -178,12 +197,13 @@ class AssetService:
         await self.repo.update_asset(asset, **update_data)
         await self.session.commit()
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
     async def delete_asset(self, asset_id: uuid.UUID, company_id: uuid.UUID, user_id: uuid.UUID) -> None:
         """Soft delete an asset record (archive) - preserves all history."""
-        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
+        asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
         
@@ -205,13 +225,13 @@ class AssetService:
             "timestamp": datetime.now().isoformat(),
             "notes": "Asset archived (soft deleted). All history preserved.",
         }
-current_timeline = asset.timeline or []
+        current_timeline = asset.timeline or []
         current_timeline.append(timeline_event)
         asset.timeline = current_timeline
   
         await self.session.commit()
 
-    async def assign_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
+    async def assign_asset(self, asset_id: uuid.UUID, payload: AssetAssignRequest, user_id: uuid.UUID, company_id: uuid.UUID, *, _commit: bool = True) -> AssetResponse:
         """Assign an asset to an employee, writing history and timeline events."""
         # Use row-level locking to prevent concurrent assignment
         asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
@@ -219,8 +239,7 @@ current_timeline = asset.timeline or []
             raise NotFoundException("Asset not found.")
 
         # Validate asset is in an eligible state for assignment
-        ineligible_statuses = {"assigned", "lost", "retired", "under-repair", "disposed", "maintenance"}
-        if asset.status in ineligible_statuses:
+        if asset.status != "available" or asset.is_deleted:
             raise BadRequestException(f"Asset cannot be assigned: current status is '{asset.status}'. Only 'available' assets can be assigned.")
 
         # Find employee within the same company using immutable employee_id
@@ -246,6 +265,7 @@ current_timeline = asset.timeline or []
         # 1. Update Asset properties
         asset.status = "assigned"
         asset.employee_id = emp.id
+        asset.employee = emp
         asset.assigned_at = datetime.now()
 
         # 2. Add history record
@@ -268,11 +288,15 @@ current_timeline = asset.timeline or []
             + (f" Notes: {payload.notes}" if payload.notes else ""),
         }
         current_timeline = asset.timeline or []
-current_timeline.append(timeline_event)
+        current_timeline.append(timeline_event)
         asset.timeline = current_timeline
  
-        await self.session.commit()
+        if _commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         # Ensure employee relationship is loaded for assignedTo field
         if full_asset and full_asset.employee_id:
@@ -283,7 +307,7 @@ current_timeline.append(timeline_event)
 
     async def return_asset(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Return an asset back to inventory, closing active assignment history and logging timeline."""
-        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
+        asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -303,10 +327,11 @@ current_timeline.append(timeline_event)
         # 2. Reset asset properties
         asset.status = "available"
         asset.employee_id = None
+        asset.employee = None
         asset.assigned_at = None
 
         # 3. Append timeline log
-timeline_event = {
+        timeline_event = {
             "id": str(uuid.uuid4()),
             "event": "Returned",
             "performed_by": user_name,
@@ -319,6 +344,7 @@ timeline_event = {
  
         await self.session.commit()
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         # Ensure employee relationship is cleared for assignedTo field
         full_asset.employee = None
@@ -334,10 +360,6 @@ timeline_event = {
         # Validate asset is currently assigned
         if asset.status != "assigned" or not asset.employee_id:
             raise BadRequestException("Asset is not currently assigned to any employee.")
-
-        # Validate source employee matches current holder
-        if asset.employee_id != asset.employee_id:  # This is always true, we need to check the request context
-            pass  # The asset.employee_id is the current holder
 
         # Find target employee within the same company
         res = await self.session.execute(
@@ -384,10 +406,11 @@ timeline_event = {
         # 3. Update Asset
         asset.status = "assigned"
         asset.employee_id = target_emp.id
+        asset.employee = target_emp
         asset.assigned_at = datetime.now()
 
         # 4. Append timeline log
-timeline_event = {
+        timeline_event = {
             "id": str(uuid.uuid4()),
             "event": "Transferred",
             "performed_by": user_name,
@@ -400,6 +423,7 @@ timeline_event = {
  
         await self.session.commit()
         
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         # Ensure employee relationship is loaded for assignedTo field
         if full_asset and full_asset.employee_id:
@@ -427,6 +451,7 @@ timeline_event = {
         asset.lost_reason = payload.reason
         asset.last_known_holder_id = last_holder_id
         asset.employee_id = None
+        asset.employee = None
         asset.assigned_at = None
 
         # Close active assignment history
@@ -449,6 +474,7 @@ timeline_event = {
 
         await self.session.commit()
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
@@ -480,12 +506,13 @@ timeline_event = {
 
         await self.session.commit()
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
     async def mark_retired(self, asset_id: uuid.UUID, user_id: uuid.UUID, company_id: uuid.UUID) -> AssetResponse:
         """Decommission asset, release active assignment, and log to timeline."""
-        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
+        asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
 
@@ -499,6 +526,7 @@ timeline_event = {
 
         asset.status = "retired"
         asset.employee_id = None
+        asset.employee = None
         asset.assigned_at = None
 
         timeline_event = {
@@ -514,6 +542,7 @@ timeline_event = {
 
         await self.session.commit()
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
@@ -567,6 +596,7 @@ timeline_event = {
         await self.session.commit()
         self.session.expire(asset, ["maintenance_history"])
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
@@ -577,9 +607,6 @@ timeline_event = {
         asset = await self.repo.get_asset_by_id_for_update(asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
-
-        if asset.status != "under-repair":
-            raise BadRequestException(f"Asset is not under repair. Current status: '{asset.status}'.")
 
         # Find the maintenance record
         from app.models.asset import AssetMaintenanceRecord
@@ -595,6 +622,9 @@ timeline_event = {
 
         if maintenance.status == "COMPLETED":
             raise BadRequestException("Maintenance already completed.")
+
+        if asset.status != "under-repair":
+            raise BadRequestException(f"Asset is not under repair. Current status: '{asset.status}'.")
 
         user_name = await self._get_user_name(user_id)
         
@@ -625,6 +655,7 @@ timeline_event = {
         await self.session.commit()
         self.session.expire(asset, ["maintenance_history"])
 
+        self.session.expire(asset, ["employee", "assignment_history", "maintenance_history"])
         full_asset = await self.repo.get_asset_by_id(asset.id, company_id=company_id)
         return AssetResponse.model_validate(full_asset)
 
@@ -668,7 +699,7 @@ timeline_event = {
     # Asset Request methods
     async def create_asset_request(self, payload: AssetRequestCreate, employee_id: uuid.UUID, company_id: uuid.UUID) -> AssetRequestResponse:
         """Create a new asset request from employee."""
-        user_name = await self._get_user_name(employee_id)
+        await self._require_employee(employee_id, company_id)
         
         request = await self.repo.create_asset_request(
             company_id=company_id,
@@ -707,18 +738,18 @@ timeline_event = {
 
     async def approve_asset_request(self, request_id: uuid.UUID, approver_id: uuid.UUID, company_id: uuid.UUID) -> AssetRequestResponse:
         """Approve an asset request."""
-        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id)
+        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id, for_update=True)
         if not request:
             raise NotFoundException("Asset request not found.")
         
         if request.status != "PENDING":
             raise BadRequestException(f"Request cannot be approved: current status is '{request.status}'.")
 
-        user_name = await self._get_user_name(approver_id)
+        approver = await self.employee_for_user(approver_id, company_id)
         await self.repo.update_asset_request(
             request,
             status="APPROVED",
-            approver_id=approver_id,
+            approver_id=approver.id,
             approved_at=datetime.now(),
         )
         await self.session.commit()
@@ -728,18 +759,18 @@ timeline_event = {
 
     async def reject_asset_request(self, request_id: uuid.UUID, approver_id: uuid.UUID, rejection_reason: str, company_id: uuid.UUID) -> AssetRequestResponse:
         """Reject an asset request."""
-        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id)
+        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id, for_update=True)
         if not request:
             raise NotFoundException("Asset request not found.")
         
         if request.status != "PENDING":
             raise BadRequestException(f"Request cannot be rejected: current status is '{request.status}'.")
 
-        user_name = await self._get_user_name(approver_id)
+        approver = await self.employee_for_user(approver_id, company_id)
         await self.repo.update_asset_request(
             request,
             status="REJECTED",
-            approver_id=approver_id,
+            approver_id=approver.id,
             approved_at=datetime.now(),
             rejection_reason=rejection_reason,
         )
@@ -750,19 +781,15 @@ timeline_event = {
 
     async def fulfill_asset_request(self, request_id: uuid.UUID, asset_id: uuid.UUID, company_id: uuid.UUID) -> AssetRequestResponse:
         """Mark an asset request as fulfilled by assigning an asset."""
-        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id)
+        request = await self.repo.get_asset_request_by_id(request_id, company_id=company_id, for_update=True)
         if not request:
             raise NotFoundException("Asset request not found.")
         
         if request.status != "APPROVED":
             raise BadRequestException(f"Request cannot be fulfilled: current status is '{request.status}'. Must be APPROVED first.")
 
-        # Verify asset exists and is available
-        asset = await self.repo.get_asset_by_id(asset_id, company_id=company_id)
-        if not asset:
-            raise NotFoundException("Asset not found.")
-        if asset.status != "available":
-            raise BadRequestException(f"Asset is not available for assignment: current status is '{asset.status}'.")
+        await self.assign_asset(asset_id, AssetAssignRequest(employee_id=request.employee_id),
+                                request.employee.user_id, company_id, _commit=False)
 
         await self.repo.update_asset_request(
             request,
@@ -779,7 +806,7 @@ timeline_event = {
     async def create_damage_report(self, payload: AssetDamageReportCreate, reported_by_id: uuid.UUID, company_id: uuid.UUID) -> AssetDamageReportResponse:
         """Create a damage report for an asset."""
         # Verify asset exists and belongs to company
-        asset = await self.repo.get_asset_by_id(payload.asset_id, company_id=company_id)
+        asset = await self.repo.get_asset_by_id_for_update(payload.asset_id, company_id=company_id)
         if not asset:
             raise NotFoundException("Asset not found.")
         
@@ -791,6 +818,10 @@ timeline_event = {
         reporter = res.scalars().first()
         if not reporter:
             raise NotFoundException("Reporting employee not found.")
+
+        if asset.employee_id != reporter.id:
+            from app.core.exceptions import ForbiddenException
+            raise ForbiddenException("Only the assigned employee can report damage to this asset.")
 
         # Check for duplicate active damage report
         existing = await self.repo.get_damage_report_by_asset_and_employee(payload.asset_id, reported_by_id, company_id)

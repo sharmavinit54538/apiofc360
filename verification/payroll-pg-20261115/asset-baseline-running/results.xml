@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="16" skipped="0" tests="41" time="15.352" timestamp="2026-11-16T11:18:45.478251+05:30" hostname="DESKTOP-38AQMEN"><testcase classname="tests.test_asset_management_comprehensive.TestAssetInventory" name="test_create_asset" time="1.468" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetInventory" name="test_create_duplicate_tag_same_company_fails" time="0.224" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetInventory" name="test_create_same_tag_different_company_succeeds" time="0.247" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetInventory" name="test_list_assets_with_pagination" time="1.023" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetInventory" name="test_filter_assets_by_status" time="0.309" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_valid_assignment" time="0.263" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_already_assigned_fails" time="0.253" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_lost_asset_fails" time="0.248" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_retired_asset_fails" time="0.250" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_under_repair_asset_fails" time="0.251" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_invalid_employee_fails" time="0.248" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetAssignment" name="test_assign_inactive_employee_fails" time="0.443" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetReturn" name="test_valid_return" time="0.276" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetReturn" name="test_return_unassigned_fails" time="0.228" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetTransfer" name="test_valid_transfer" time="0.481"><failure message="AssertionError: assert 'John Doe' == 'Jane Smith'&#10;  &#10;  - Jane Smith&#10;  + John Doe">tests\test_asset_management_comprehensive.py:464: in test_valid_transfer
+    assert result.assignedTo == f"{test_employee2.first_name} {test_employee2.last_name}"
+E   AssertionError: assert 'John Doe' == 'Jane Smith'
+E     
+E     - Jane Smith
+E     + John Doe</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetTransfer" name="test_transfer_unassigned_fails" time="0.229" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetTransfer" name="test_transfer_same_employee_fails" time="0.255" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetTransfer" name="test_transfer_cross_tenant_fails" time="0.405"><failure message="TypeError: 'email' is an invalid keyword argument for Employee">tests\test_asset_management_comprehensive.py:511: in test_transfer_cross_tenant_fails
+    emp2 = Employee(
+&lt;string&gt;:4: in __init__
+    ???
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state.py:596: in _initialize_instance
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\state.py:594: in _initialize_instance
+    manager.original_init(*mixed[1:], **kwargs)
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\sqlalchemy\orm\decl_base.py:2179: in _declarative_constructor
+    raise TypeError(
+E   TypeError: 'email' is an invalid keyword argument for Employee</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetStatusTransitions" name="test_mark_lost_captures_last_holder" time="0.271"><failure message="AttributeError: 'AssetResponse' object has no attribute 'lost_reason'">tests\test_asset_management_comprehensive.py:559: in test_mark_lost_captures_last_holder
+    assert result.lost_reason == "Left in taxi"
+           ^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'lost_reason'</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetStatusTransitions" name="test_recover_lost_asset" time="0.295"><failure message="AttributeError: 'AssetResponse' object has no attribute 'lost_date'">tests\test_asset_management_comprehensive.py:577: in test_recover_lost_asset
+    assert result.lost_date is None
+           ^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'lost_date'</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetStatusTransitions" name="test_recover_non_lost_fails" time="0.229" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetStatusTransitions" name="test_direct_status_update_blocked" time="0.242"><failure message="Failed: DID NOT RAISE &lt;class 'app.core.exceptions.BadRequestException'&gt;">tests\test_asset_management_comprehensive.py:597: in test_direct_status_update_blocked
+    with pytest.raises(BadRequestException, match="Direct status updates are not allowed"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE &lt;class 'app.core.exceptions.BadRequestException'&gt;</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetMaintenance" name="test_add_maintenance_marks_under_repair" time="0.249"><failure message="AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?">tests\test_asset_management_comprehensive.py:621: in test_add_maintenance_marks_under_repair
+    records = result.maintenance_history
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetMaintenance" name="test_complete_maintenance" time="0.242"><failure message="AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?">tests\test_asset_management_comprehensive.py:635: in test_complete_maintenance
+    maintenance_id = result.maintenance_history[0].id
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetMaintenance" name="test_complete_maintenance_twice_fails" time="0.242"><failure message="AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?">tests\test_asset_management_comprehensive.py:662: in test_complete_maintenance_twice_fails
+    maintenance_id = result.maintenance_history[0].id
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'maintenance_history'. Did you mean: 'maintenanceHistory'?</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetRequests" name="test_create_asset_request" time="0.214"><failure message="pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse&#10;employee_name&#10;  Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB8E8440&gt;, input_type=AssetRequest]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing">tests\test_asset_management_comprehensive.py:686: in test_create_asset_request
+    result = await asset_service.create_asset_request(payload, test_employee.id, test_company.id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\asset_service.py:687: in create_asset_request
+    return AssetRequestResponse.model_validate(full_request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse
+E   employee_name
+E     Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB8E8440&gt;, input_type=AssetRequest]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetRequests" name="test_approve_asset_request" time="0.208"><failure message="pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse&#10;employee_name&#10;  Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB61F890&gt;, input_type=AssetRequest]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing">tests\test_asset_management_comprehensive.py:700: in test_approve_asset_request
+    request = await asset_service.create_asset_request(payload, test_employee.id, test_company.id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\asset_service.py:687: in create_asset_request
+    return AssetRequestResponse.model_validate(full_request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse
+E   employee_name
+E     Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB61F890&gt;, input_type=AssetRequest]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetRequests" name="test_reject_asset_request" time="0.207"><failure message="pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse&#10;employee_name&#10;  Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCA4A39D0&gt;, input_type=AssetRequest]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing">tests\test_asset_management_comprehensive.py:715: in test_reject_asset_request
+    request = await asset_service.create_asset_request(payload, test_employee.id, test_company.id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\asset_service.py:687: in create_asset_request
+    return AssetRequestResponse.model_validate(full_request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse
+E   employee_name
+E     Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCA4A39D0&gt;, input_type=AssetRequest]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetRequests" name="test_fulfill_asset_request" time="0.227"><failure message="pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse&#10;employee_name&#10;  Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB8A90F0&gt;, input_type=AssetRequest]&#10;    For further information visit https://errors.pydantic.dev/2.13/v/missing">tests\test_asset_management_comprehensive.py:726: in test_fulfill_asset_request
+    request = await asset_service.create_asset_request(payload, test_employee.id, test_company.id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\asset_service.py:687: in create_asset_request
+    return AssetRequestResponse.model_validate(full_request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for AssetRequestResponse
+E   employee_name
+E     Field required [type=missing, input_value=&lt;app.models.asset.request...t at 0x0000018FCB8A90F0&gt;, input_type=AssetRequest]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestAssetDamageReports" name="test_create_damage_report" time="0.276" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetDamageReports" name="test_duplicate_damage_report_fails" time="0.265" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetDamageReports" name="test_damage_report_invalid_asset_fails" time="0.204" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetSoftDelete" name="test_archive_asset" time="0.243" /><testcase classname="tests.test_asset_management_comprehensive.TestAssetSoftDelete" name="test_archive_assigned_asset_fails" time="0.256" /><testcase classname="tests.test_asset_management_comprehensive.TestWarrantyAnalytics" name="test_warranty_analytics_separation" time="0.293"><failure message="AssertionError: assert 2 == 1&#10; +  where 2 = AssetAnalyticsResponse(total_assets=4, available_assets=4, assigned_assets=0, under_repair_assets=0, lost_assets=0, active_warranty_assets=2, expiring_warranty_assets=1, expired_warranty_assets=1, unknown_warranty_assets=1, category_distribution=[CategoryCount(name='laptop', value=4)], status_distribution=[StatusCount(name='available', value=4)], total_valuation=0.0, repair_costs_by_category=[{'category': 'LAPTOP', 'Total Repair Cost ($)': 0.0}]).active_warranty_assets">tests\test_asset_management_comprehensive.py:874: in test_warranty_analytics_separation
+    assert analytics.active_warranty_assets == 1  # LAP001
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert 2 == 1
+E    +  where 2 = AssetAnalyticsResponse(total_assets=4, available_assets=4, assigned_assets=0, under_repair_assets=0, lost_assets=0, active_warranty_assets=2, expiring_warranty_assets=1, expired_warranty_assets=1, unknown_warranty_assets=1, category_distribution=[CategoryCount(name='laptop', value=4)], status_distribution=[StatusCount(name='available', value=4)], total_valuation=0.0, repair_costs_by_category=[{'category': 'LAPTOP', 'Total Repair Cost ($)': 0.0}]).active_warranty_assets</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestPublicAssetEndpoint" name="test_public_asset_exposes_limited_fields" time="0.238" /><testcase classname="tests.test_asset_management_comprehensive.TestConcurrentAssignment" name="test_concurrent_assignment_only_one_succeeds" time="0.448"><failure message="AttributeError: 'AssetResponse' object has no attribute 'employee_id'">tests\test_asset_management_comprehensive.py:943: in test_concurrent_assignment_only_one_succeeds
+    assert result1.employee_id == test_employee.id
+           ^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py:1042: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'AssetResponse' object has no attribute 'employee_id'</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestExitIntegration" name="test_exit_creates_actual_asset_returns" time="0.417"><failure message="AssertionError: assert 'MacBook Pro (LAP001)' in ['MacBook Pro (LAP001) - Laptop', 'Dell Monitor (MON001) - Monitor']">tests\test_asset_management_comprehensive.py:994: in test_exit_creates_actual_asset_returns
+    assert "MacBook Pro (LAP001)" in asset_names
+E   AssertionError: assert 'MacBook Pro (LAP001)' in ['MacBook Pro (LAP001) - Laptop', 'Dell Monitor (MON001) - Monitor']</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestTimelinePersistence" name="test_timeline_events_persist" time="0.296"><failure message="AttributeError: 'NoneType' object has no attribute 'assignmentHistory' and no __dict__ for setting new attributes">tests\test_asset_management_comprehensive.py:1024: in test_timeline_events_persist
+    asset = await asset_service.mark_lost(asset.id, lost_payload, test_user.id, test_company.id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\asset_service.py:452: in mark_lost
+    return AssetResponse.model_validate(full_asset)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\schemas\asset.py:161: in populate_custom_fields
+    data.assignmentHistory = []
+    ^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'assignmentHistory' and no __dict__ for setting new attributes</failure></testcase><testcase classname="tests.test_asset_management_comprehensive.TestRBAC" name="test_tenant_isolation_assets" time="0.224" /><testcase classname="tests.test_asset_management_comprehensive.TestRBAC" name="test_employee_cannot_access_other_employee_assets" time="0.470" /></testsuite></testsuites>

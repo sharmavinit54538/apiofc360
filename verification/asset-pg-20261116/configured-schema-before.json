@@ -1,0 +1,2749 @@
+{
+  "revision": [
+    "40d7b5c909b3"
+  ],
+  "tables": {
+    "companies": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "onboarding_completed",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "onboarding_step",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_profile",
+          "type": "JSON",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "hr_settings",
+          "type": "JSON",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": "'PENDING'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "feature_entitlements",
+          "type": "JSON",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "office_latitude",
+          "type": "DOUBLE PRECISION",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "office_longitude",
+          "type": "DOUBLE PRECISION",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "geofence_radius_meters",
+          "type": "DOUBLE PRECISION",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "timezone",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": "'Asia/Kolkata'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "currency",
+          "type": "VARCHAR(10)",
+          "nullable": true,
+          "default": "'INR'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "custom_domain",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "whitelabel_enabled",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand_display_name",
+          "type": "VARCHAR(150)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand_primary_color",
+          "type": "VARCHAR(7)",
+          "nullable": false,
+          "default": "'#17365D'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand_secondary_color",
+          "type": "VARCHAR(7)",
+          "nullable": false,
+          "default": "'#EAF2F8'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand_logo_url",
+          "type": "VARCHAR(500)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand_favicon_url",
+          "type": "VARCHAR(500)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email_sender_name",
+          "type": "VARCHAR(150)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email_sender_address",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email_reply_to",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "branded_pdf_header_text",
+          "type": "VARCHAR(300)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "uq_companies_custom_domain",
+          "unique": true,
+          "column_names": [
+            "custom_domain"
+          ],
+          "duplicates_constraint": "uq_companies_custom_domain",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "custom_domain"
+          ],
+          "name": "uq_companies_custom_domain",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_companies",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "employees": {
+      "mismatches": [
+        {
+          "column": "is_pf_eligible",
+          "issue": "nullable",
+          "actual": true,
+          "expected": false
+        },
+        {
+          "column": "is_international_worker",
+          "issue": "nullable",
+          "actual": true,
+          "expected": false
+        },
+        {
+          "column": "pf_wage_ceiling_applicable",
+          "issue": "nullable",
+          "actual": true,
+          "expected": false
+        }
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_id",
+          "type": "VARCHAR(20)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "first_name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "profile_photo_url",
+          "type": "VARCHAR(500)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "gender",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "date_of_birth",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "personal_email",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_email",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(15)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "alternate_phone",
+          "type": "VARCHAR(15)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "blood_group",
+          "type": "VARCHAR(10)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "marital_status",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "department",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "designation",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "team",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reporting_manager_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "branch",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "work_location",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employment_type",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'FULL_TIME'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employment_status",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'PROBATION'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "joining_date",
+          "type": "DATE",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "probation_end_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "shift",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "ctc",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "basic_salary",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "hra",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "bonus",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pf",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "esi",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "professional_tax",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "role",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": "'employee'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "leave_group",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'DRAFT'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "activation_token",
+          "type": "VARCHAR(128)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "activation_token_expires_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_deleted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "department_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "invited_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "invited_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pan_number",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "uan_number",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pf_number",
+          "type": "VARCHAR(30)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "esi_number",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "manager_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "role_metadata",
+          "type": "JSONB",
+          "nullable": true,
+          "default": "'{}'::jsonb",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "verification_status",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": "'PENDING_ADMIN_CREATED'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deactivated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deactivated_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deactivation_reason",
+          "type": "VARCHAR(1000)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_capacity",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": "100",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "cost_center_id",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "middle_name",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "father_name",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "mother_name",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "spouse_name",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "nationality",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "preferred_language",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "aadhaar_number",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "passport_number",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "driving_license",
+          "type": "VARCHAR(30)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "voter_id",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "tax_regime",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "upi_id",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "esic_number",
+          "type": "VARCHAR(30)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "work_mode",
+          "type": "VARCHAR(30)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "business_unit",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_category",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "probation_period_months",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "onboarding_data",
+          "type": "JSONB",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_onboarding_completed",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_onboarding_step",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "face_embedding",
+          "type": "JSONB",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_face_enrolled",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "face_enrolled_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "shift_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_pf_eligible",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_international_worker",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pf_wage_ceiling_applicable",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_promotion_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "aadhaar_number_blind_idx",
+          "type": "VARCHAR(64)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pan_number_blind_idx",
+          "type": "VARCHAR(64)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "uan_number_blind_idx",
+          "type": "VARCHAR(64)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "passport_number_blind_idx",
+          "type": "VARCHAR(64)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "voter_id_blind_idx",
+          "type": "VARCHAR(64)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "branch_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "legal_entity_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "state_code",
+          "type": "VARCHAR(2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pf_membership_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_eps_eligible",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "pf_higher_wage_opted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "eps_higher_wage_opted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "vpf_rate",
+          "type": "NUMERIC(7, 6)",
+          "nullable": false,
+          "default": "0",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_pwd",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "esi_covered_at_period_start",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_employees_branch_id",
+          "unique": false,
+          "column_names": [
+            "branch_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_aadhaar_blind_idx",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "aadhaar_number_blind_idx"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_department",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "department",
+            "is_deleted"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_email",
+          "unique": false,
+          "column_names": [
+            "company_email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_id",
+          "unique": false,
+          "column_names": [
+            "company_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_joining",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "joining_date"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_pan_blind_idx",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "pan_number_blind_idx"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_passport_blind_idx",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "passport_number_blind_idx"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_status",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "status",
+            "is_deleted"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_uan_blind_idx",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "uan_number_blind_idx"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_company_voter_blind_idx",
+          "unique": false,
+          "column_names": [
+            "company_id",
+            "voter_id_blind_idx"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_department",
+          "unique": false,
+          "column_names": [
+            "department"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_employee_id",
+          "unique": true,
+          "column_names": [
+            "employee_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_is_deleted",
+          "unique": false,
+          "column_names": [
+            "is_deleted"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_legal_entity_id",
+          "unique": false,
+          "column_names": [
+            "legal_entity_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_manager_id",
+          "unique": false,
+          "column_names": [
+            "manager_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_personal_email",
+          "unique": true,
+          "column_names": [
+            "personal_email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_employees_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_employees_branch_id_branches",
+          "constrained_columns": [
+            "branch_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "branches",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_company_id_companies",
+          "constrained_columns": [
+            "company_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "companies",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_created_by_users",
+          "constrained_columns": [
+            "created_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_deactivated_by_users",
+          "constrained_columns": [
+            "deactivated_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_department_id_departments",
+          "constrained_columns": [
+            "department_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "departments",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_invited_by_users",
+          "constrained_columns": [
+            "invited_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_legal_entity_id_legal_entities",
+          "constrained_columns": [
+            "legal_entity_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "legal_entities",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_manager_id_employees",
+          "constrained_columns": [
+            "manager_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_reporting_manager_id_employees",
+          "constrained_columns": [
+            "reporting_manager_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_shift_id",
+          "constrained_columns": [
+            "shift_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "shifts",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_employees_user_id_users",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [
+        {
+          "name": "ck_employees_ck_employees_manager_self_report",
+          "sqltext": "id <> manager_id",
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_employees",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "employee_bank_accounts": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "bank_name",
+          "type": "VARCHAR(150)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "account_number",
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "ifsc_code",
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "account_type",
+          "type": "VARCHAR(20)",
+          "nullable": false,
+          "default": "'SAVINGS'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_primary",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "account_holder_name",
+          "type": "VARCHAR(150)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "branch",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "upi_id",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "cancelled_cheque_url",
+          "type": "VARCHAR(500)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "passbook_url",
+          "type": "VARCHAR(500)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_employee_bank_accounts_employee_id",
+          "unique": false,
+          "column_names": [
+            "employee_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_employee_bank_accounts_employee_id_employees",
+          "constrained_columns": [
+            "employee_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_employee_bank_accounts",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "assets": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "tag",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(150)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "category",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "serial",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "vendor",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "purchase_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "warranty_until",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'available'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assigned_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "next_maintenance",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "notes",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "brand",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "model",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "purchase_cost",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "location",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "image_url",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "timeline",
+          "type": "JSON",
+          "nullable": true,
+          "default": "'[]'::json",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_deleted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "lost_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "lost_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_known_holder_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_assets_company_id",
+          "unique": false,
+          "column_names": [
+            "company_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_assets_company_tag",
+          "unique": true,
+          "column_names": [
+            "company_id",
+            "tag"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_assets_is_deleted",
+          "unique": false,
+          "column_names": [
+            "is_deleted"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_assets_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_assets_company_id_companies",
+          "constrained_columns": [
+            "company_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "companies",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_assets_employee_id_employees",
+          "constrained_columns": [
+            "employee_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_assets_last_known_holder_id_employees",
+          "constrained_columns": [
+            "last_known_holder_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_assets",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "asset_assignment_history": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "asset_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_name",
+          "type": "VARCHAR(150)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "department",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assign_date",
+          "type": "DATE",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "expected_return_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "actual_return_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "notes",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": [
+        {
+          "name": "fk_asset_assignment_history_asset_id_assets",
+          "constrained_columns": [
+            "asset_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "assets",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_asset_assignment_history",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "asset_maintenance_records": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "asset_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "request_date",
+          "type": "DATE",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "service_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "vendor",
+          "type": "VARCHAR(150)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "cost",
+          "type": "NUMERIC(14, 2)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "notes",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "completion_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "estimated_cost",
+          "type": "NUMERIC(14, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "completion_notes",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(11)",
+          "nullable": false,
+          "default": "'REQUESTED'::maintenance_status",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": [
+        {
+          "name": "fk_asset_maintenance_records_asset_id_assets",
+          "constrained_columns": [
+            "asset_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "assets",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_asset_maintenance_records",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "asset_requests": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "employee_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "request_type",
+          "type": "VARCHAR(11)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "category",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "justification",
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "preferred_brand",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "preferred_model",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "estimated_cost",
+          "type": "DOUBLE PRECISION",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(9)",
+          "nullable": false,
+          "default": "'PENDING'::asset_request_status",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "approver_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "approved_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "rejection_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assigned_asset_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "fulfilled_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_asset_requests_company_id",
+          "unique": false,
+          "column_names": [
+            "company_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_asset_requests_employee_id",
+          "unique": false,
+          "column_names": [
+            "employee_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_asset_requests_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_asset_requests_approver_id_employees",
+          "constrained_columns": [
+            "approver_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_requests_assigned_asset_id_assets",
+          "constrained_columns": [
+            "assigned_asset_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "assets",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_requests_company_id_companies",
+          "constrained_columns": [
+            "company_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "companies",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_requests_employee_id_employees",
+          "constrained_columns": [
+            "employee_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_asset_requests",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    },
+    "asset_damage_reports": {
+      "mismatches": [],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "company_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "asset_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reported_by_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "damage_type",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "severity",
+          "type": "VARCHAR(20)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "location_of_incident",
+          "type": "VARCHAR(200)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "incident_date",
+          "type": "DATE",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'REPORTED'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "maintenance_record_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "resolved_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "resolution_notes",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_asset_damage_reports_asset_id",
+          "unique": false,
+          "column_names": [
+            "asset_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_asset_damage_reports_company_id",
+          "unique": false,
+          "column_names": [
+            "company_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_asset_damage_reports_reported_by_id",
+          "unique": false,
+          "column_names": [
+            "reported_by_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_asset_damage_reports_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_asset_damage_reports_asset_id_assets",
+          "constrained_columns": [
+            "asset_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "assets",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_damage_reports_company_id_companies",
+          "constrained_columns": [
+            "company_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "companies",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_damage_reports_maintenance_record_id_asset_mai_de27",
+          "constrained_columns": [
+            "maintenance_record_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "asset_maintenance_records",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_asset_damage_reports_reported_by_id_employees",
+          "constrained_columns": [
+            "reported_by_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "employees",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "check_constraints": [],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "pk_asset_damage_reports",
+        "comment": null,
+        "dialect_options": {
+          "postgresql_include": []
+        }
+      }
+    }
+  },
+  "sql_errors": []
+}

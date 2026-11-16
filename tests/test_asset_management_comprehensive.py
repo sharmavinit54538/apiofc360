@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import uuid
+import os
+import asyncio
+from sqlalchemy.engine import make_url
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -43,7 +46,12 @@ from app.db.database import AsyncSessionLocal
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncSession:
-    """Get a database session for testing."""
+    """Only write to the explicit disposable local verification database."""
+    from app.core.config import settings
+    url = make_url(settings.DATABASE_URL)
+    if (os.environ.get("ASSET_TEST_DISPOSABLE") != "1" or url.host != "127.0.0.1"
+            or not url.database.startswith("asset_verify_") or url.port != 55442):
+        pytest.fail("Asset integration tests require the disposable asset verification runner")
     async with AsyncSessionLocal() as session:
         yield session
         # Rollback any changes
@@ -52,14 +60,7 @@ async def db_session() -> AsyncSession:
 
 @pytest_asyncio.fixture(scope="function")
 async def test_company(db_session: AsyncSession) -> Company:
-    """Get or create a test company."""
-    # Try to find an existing company first
-    result = await db_session.execute(select(Company).limit(1))
-    company = result.scalar_one_or_none()
-    if company:
-        return company
-    
-    # Create a minimal company with only required fields
+    """Create an independent tenant for each test."""
     company = Company(
         name=f"Test Company {uuid.uuid4().hex[:8]}",
         status="PENDING",
@@ -152,18 +153,6 @@ async def test_employee2(db_session: AsyncSession, test_company: Company) -> Emp
     await db_session.commit()
     await db_session.refresh(employee)
     return employee
-
-
-@pytest_asyncio.fixture(scope="function", autouse=True)
-async def cleanup_assets(db_session: AsyncSession):
-    """Clean up test assets before and after each test."""
-    # Clean up before test
-    await db_session.execute(text('DELETE FROM assets WHERE tag LIKE \'LAP%\' OR tag LIKE \'MON%\' OR tag LIKE \'TEST%\' OR tag LIKE \'LAP00%\' OR tag LIKE \'LAP000%\' OR tag LIKE \'LAP000%\' OR tag LIKE \'LAP0000%\' OR tag LIKE \'LAP00000%\' OR tag LIKE \'LAP000000%\' OR tag LIKE \'LAP0000000%\' OR tag LIKE \'LAP00000000%\' OR tag LIKE \'LAP000000000%\' OR tag LIKE \'LAP0000000000%\' OR tag LIKE \'LAP00000000000%\' OR tag LIKE \'LAP000000000000%\' OR tag LIKE \'LAP0000000000000%\' OR tag LIKE \'LAP00000000000000%\' OR tag LIKE \'LAP000000000000000%\''))
-    await db_session.commit()
-    yield
-    # Clean up after test
-    await db_session.execute(text('DELETE FROM assets WHERE tag LIKE \'LAP%\' OR tag LIKE \'MON%\' OR tag LIKE \'TEST%\' OR tag LIKE \'LAP00%\' OR tag LIKE \'LAP000%\' OR tag LIKE \'LAP000%\' OR tag LIKE \'LAP0000%\' OR tag LIKE \'LAP00000%\' OR tag LIKE \'LAP000000%\' OR tag LIKE \'LAP0000000%\' OR tag LIKE \'LAP00000000%\' OR tag LIKE \'LAP000000000%\' OR tag LIKE \'LAP0000000000%\' OR tag LIKE \'LAP00000000000%\' OR tag LIKE \'LAP000000000000%\' OR tag LIKE \'LAP0000000000000%\' OR tag LIKE \'LAP00000000000000%\' OR tag LIKE \'LAP000000000000000%\''))
-    await db_session.commit()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -486,7 +475,7 @@ class TestAssetTransfer:
         with pytest.raises(BadRequestException, match="cannot be identical"):
             await asset_service.transfer_asset(asset.id, transfer_payload, test_user.id, test_company.id)
 
-    async def test_transfer_cross_tenant_fails(self, asset_service: AssetService, db_session: AsyncSession, test_user: User, test_employee: Employee):
+    async def test_transfer_cross_tenant_fails(self, asset_service: AssetService, db_session: AsyncSession, test_company: Company, test_user: User, test_employee: Employee):
         """Test that transferring to employee in different company fails."""
         company2 = Company(name="Company 2")
         db_session.add(company2)
@@ -512,7 +501,7 @@ class TestAssetTransfer:
             employee_id=f"EMP{unique_id[:6]}",
             first_name="Other",
             last_name="Company",
-            email=f"other_{unique_id}@test.com",
+            company_email=f"other_{unique_id}@test.com",
             personal_email=f"other_{unique_id}@personal.com",
             phone=f"999999{unique_id[:4]}",
             department="Engineering",
@@ -618,7 +607,7 @@ class TestAssetMaintenance:
         assert result.status == "under-repair"
         
         # Check maintenance record
-        records = result.maintenance_history
+        records = result.maintenanceHistory
         assert len(records) == 1
         assert records[0].vendor == "Apple Store"
         assert records[0].status == "REQUESTED"
@@ -632,7 +621,7 @@ class TestAssetMaintenance:
         maint_payload = AssetMaintenanceCreate(vendor="Apple Store", estimated_cost=Decimal("5000"))
         result = await asset_service.add_maintenance(asset.id, maint_payload, test_user.id, test_company.id)
         
-        maintenance_id = result.maintenance_history[0].id
+        maintenance_id = result.maintenanceHistory[0].id
         
         # Complete maintenance
         complete_payload = AssetMaintenanceComplete(
@@ -646,7 +635,7 @@ class TestAssetMaintenance:
         assert result.status == "available"
         
         # Check maintenance record updated
-        records = result.maintenance_history
+        records = result.maintenanceHistory
         assert records[0].status == "COMPLETED"
         assert records[0].completion_date is not None
         assert records[0].cost == Decimal("4500")
@@ -659,7 +648,7 @@ class TestAssetMaintenance:
         maint_payload = AssetMaintenanceCreate(vendor="Apple Store")
         result = await asset_service.add_maintenance(asset.id, maint_payload, test_user.id, test_company.id)
         
-        maintenance_id = result.maintenance_history[0].id
+        maintenance_id = result.maintenanceHistory[0].id
         
         complete_payload = AssetMaintenanceComplete()
         await asset_service.complete_maintenance(asset.id, maintenance_id, complete_payload, test_user.id, test_company.id)
@@ -702,7 +691,7 @@ class TestAssetRequests:
         result = await asset_service.approve_asset_request(request.id, test_user.id, test_company.id)
         
         assert result.status == "APPROVED"
-        assert result.approver_id == test_user.id
+        assert result.approver_id == test_employee.id
         assert result.approved_at is not None
 
     async def test_reject_asset_request(self, asset_service: AssetService, test_company: Company, test_user: User, test_employee: Employee):
@@ -738,6 +727,11 @@ class TestAssetRequests:
         assert result.status == "FULFILLED"
         assert result.assigned_asset_id == asset.id
         assert result.fulfilled_at is not None
+        async with AsyncSessionLocal() as session:
+            assigned = await AssetService(session).get_asset(asset.id, test_company.id)
+            assert assigned.status == "assigned"
+            assert assigned.employee_id == test_employee.id
+            assert len(assigned.assignmentHistory) == 1
 
 
 class TestAssetDamageReports:
@@ -928,24 +922,34 @@ class TestConcurrentAssignment:
 
     async def test_concurrent_assignment_only_one_succeeds(self, db_session: AsyncSession, test_company: Company, test_user: User, test_employee: Employee, test_employee2: Employee):
         """Test that only one of two concurrent assignments succeeds."""
-        # This test simulates concurrent access by using separate sessions
-        # In real scenario, this would be tested with actual concurrent requests
-        
-        # Create asset
-        payload = AssetCreate(tag="LAP001", name="MacBook Pro", category="laptop")
-        asset_service = AssetService(db_session)
-        asset = await asset_service.create_asset(payload, test_user.id, test_company.id)
-        
-        # First assignment
-        assign_payload1 = AssetAssignRequest(employee_id=test_employee.id)
-        result1 = await asset_service.assign_asset(asset.id, assign_payload1, test_user.id, test_company.id)
-        assert result1.status == "assigned"
-        assert result1.employee_id == test_employee.id
-        
-        # Second assignment should fail
-        assign_payload2 = AssetAssignRequest(employee_id=test_employee2.id)
-        with pytest.raises(BadRequestException):
-            await asset_service.assign_asset(asset.id, assign_payload2, test_user.id, test_company.id)
+        service = AssetService(db_session)
+        asset = await service.create_asset(AssetCreate(tag="RACE", name="Race", category="laptop"), test_user.id, test_company.id)
+        ready = asyncio.Event()
+        arrivals = 0
+
+        async def assign(employee_id):
+            nonlocal arrivals
+            async with AsyncSessionLocal() as session:
+                competing = AssetService(session)
+                # Preload stale state deliberately; the lock must refresh it.
+                await competing.get_asset(asset.id, test_company.id)
+                arrivals += 1
+                if arrivals == 2:
+                    ready.set()
+                await ready.wait()
+                try:
+                    return await competing.assign_asset(asset.id, AssetAssignRequest(employee_id=employee_id), test_user.id, test_company.id)
+                except BadRequestException as exc:
+                    await session.rollback()
+                    return exc
+
+        results = await asyncio.wait_for(asyncio.gather(assign(test_employee.id), assign(test_employee2.id)), timeout=10)
+        assert sum(isinstance(r, BadRequestException) for r in results) == 1
+        async with AsyncSessionLocal() as session:
+            stored = await AssetService(session).get_asset(asset.id, test_company.id)
+            assert stored.employee_id in {test_employee.id, test_employee2.id}
+            assert len(stored.assignmentHistory) == 1
+            assert [e["event"] for e in stored.timeline].count("Assigned") == 1
 
 
 class TestExitIntegration:
@@ -991,8 +995,8 @@ class TestExitIntegration:
         
         # Should have 2 assets from actual assignments
         asset_names = [a.asset_name for a in assets]
-        assert "MacBook Pro (LAP001)" in asset_names
-        assert "Dell Monitor (MON001)" in asset_names
+        assert "MacBook Pro (LAP001) - Laptop" in asset_names
+        assert "Dell Monitor (MON001) - Monitor" in asset_names
         
         # Should NOT have default hardcoded assets
         assert "Keyboard" not in str(asset_names)
@@ -1028,7 +1032,10 @@ class TestTimelinePersistence:
         asset = await asset_service.recover_lost_asset(asset.id, test_user.id, test_company.id)
         assert len(asset.timeline) == initial_timeline_count + 4
         
-        # Verify event types
+        # Read from a separate session to prove persistence, not identity-map state.
+        async with AsyncSessionLocal() as session:
+            asset = await AssetService(session).get_asset(asset.id, test_company.id)
+        assert len(asset.timeline) == initial_timeline_count + 4
         events = [e["event"] for e in asset.timeline]
         assert "Created" in events
         assert "Assigned" in events
@@ -1068,14 +1075,21 @@ class TestRBAC:
         assign_payload = AssetAssignRequest(employee_id=test_employee2.id)
         await asset_service.assign_asset(asset.id, assign_payload, test_employee2.user_id, test_company.id)
         
-        # Employee1 tries to access (would need employee1's user context)
-        # This is enforced at API level by checking company_id
-        # The service layer enforces company_id filtering
-        asset_result = await asset_service.get_asset(asset.id, test_company.id)
-        assert asset_result.assignedTo == f"{test_employee2.first_name} {test_employee2.last_name}"
-        
-        # But employee1 cannot access assets outside their company
-        # (tested in test_tenant_isolation_assets)
+        from fastapi import FastAPI
+        import httpx
+        from app.api.assets import router
+        from app.core.exceptions import install_exception_handlers
+        from app.middleware.auth import get_current_user_claims
+        api = FastAPI()
+        api.include_router(router)
+        install_exception_handlers(api)
+        api.dependency_overrides[get_current_user_claims] = lambda: {
+            "sub": str(test_employee.user_id), "company_id": str(test_company.id), "role": "employee",
+        }
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://test") as client:
+            response = await client.get(f"/assets/{asset.id}")
+        assert response.status_code == 403
+
 
 
 if __name__ == "__main__":

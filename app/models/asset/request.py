@@ -84,6 +84,10 @@ class AssetRequest(Base):
     approver: Mapped[Employee | None] = relationship("Employee", foreign_keys=[approver_id], lazy="select")
     assigned_asset: Mapped[Asset | None] = relationship("Asset", foreign_keys=[assigned_asset_id], lazy="select")
 
+    @property
+    def employee_name(self) -> str:
+        return f"{self.employee.first_name} {self.employee.last_name}"
+
 
 class AssetDamageReport(Base):
     """Asset damage report for maintenance tracking."""

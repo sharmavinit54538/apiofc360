@@ -41,6 +41,10 @@ class AssetMaintenanceRecordResponse(BaseModel):
     vendor: str
     cost: float
     notes: str | None = None
+    status: str
+    completion_date: date | None = None
+    estimated_cost: Decimal | None = None
+    completion_notes: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -99,6 +103,10 @@ class AssetResponse(BaseModel):
     description: str | None = None
     imageUrl: str | None = Field(None, serialization_alias="imageUrl")
     is_deleted: bool = False
+    employee_id: uuid.UUID | None = None
+    lost_date: date | None = None
+    lost_reason: str | None = None
+    last_known_holder_id: uuid.UUID | None = None
     
     assignmentHistory: list[AssetAssignmentHistoryResponse] = Field([], serialization_alias="assignmentHistory")
     maintenanceHistory: list[AssetMaintenanceRecordResponse] = Field([], serialization_alias="maintenanceHistory")
@@ -215,6 +223,8 @@ class AssetCreate(BaseModel):
 
 
 class AssetUpdate(BaseModel):
+    # Retain supplied status so the service rejects lifecycle bypasses explicitly.
+    status: str | None = None
     name: str | None = None
     category: str | None = None
     serial: str | None = None

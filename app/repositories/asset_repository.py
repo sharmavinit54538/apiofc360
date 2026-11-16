@@ -55,7 +55,8 @@ class AssetRepository:
                 selectinload(Asset.assignment_history),
                 selectinload(Asset.maintenance_history),
             )
-            .with_for_update(nowait=True)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if company_id is not None:
             stmt = stmt.where(Asset.company_id == company_id)
@@ -240,8 +241,8 @@ class AssetRepository:
         
         cid_cond = [Asset.company_id == company_id] if company_id is not None else []
         
-        # Active warranty: warranty_until > today (not expired yet)
-        active_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until > today] + cid_cond
+        # Active excludes the separate 30-day expiring-soon bucket.
+        active_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until > thirty_days_later] + cid_cond
         active_stmt = select(func.count(Asset.id)).where(and_(*active_conditions))
         active_res = await self.session.execute(active_stmt)
         active_warranty_count = active_res.scalar_one()
@@ -313,9 +314,11 @@ class AssetRepository:
         self.session.add(request)
         return request
 
-    async def get_asset_request_by_id(self, request_id: uuid.UUID, company_id: uuid.UUID | None = None) -> AssetRequest | None:
+    async def get_asset_request_by_id(self, request_id: uuid.UUID, company_id: uuid.UUID | None = None, *, for_update: bool = False) -> AssetRequest | None:
         """Retrieve asset request by ID."""
-        stmt = select(AssetRequest).where(AssetRequest.id == request_id)
+        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.id == request_id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         if company_id is not None:
             stmt = stmt.where(AssetRequest.company_id == company_id)
         res = await self.session.execute(stmt)
@@ -330,7 +333,7 @@ class AssetRepository:
         limit: int = 20,
     ) -> tuple[list[AssetRequest], int]:
         """List asset requests with filters."""
-        stmt = select(AssetRequest).where(AssetRequest.company_id == company_id)
+        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.company_id == company_id)
         count_stmt = select(func.count(AssetRequest.id)).where(AssetRequest.company_id == company_id)
 
         if employee_id:

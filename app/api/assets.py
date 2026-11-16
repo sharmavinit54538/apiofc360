@@ -560,7 +560,7 @@ async def create_asset_request(
 ) -> APIResponse[AssetRequestResponse]:
     """Employee creates an asset request (NEW_ASSET, REPLACEMENT, PERIPHERAL, UPGRADE, ACCESSORY)."""
     cid = _get_cid(claims)
-    employee_id = uuid.UUID(claims["sub"])
+    employee_id = (await service.employee_for_user(uuid.UUID(claims["sub"]), cid)).id
     result = await service.create_asset_request(payload, employee_id, cid)
     return APIResponse[AssetRequestResponse](
         success=True,
@@ -586,7 +586,9 @@ async def list_asset_requests(
     """List asset requests. Employees see own requests; admins see all."""
     cid = _get_cid(claims)
     role = claims.get("role", "").lower()
-    employee_id = uuid.UUID(claims["sub"]) if role not in {"super_admin", "hr_admin", "it_admin", "manager", "executive"} else None
+    employee_id = None
+    if role not in {"super_admin", "hr_admin", "it_admin"}:
+        employee_id = (await service.employee_for_user(uuid.UUID(claims["sub"]), cid)).id
     items, total = await service.list_asset_requests(cid, employee_id=employee_id, status=status_filter, page=page, limit=limit)
     return APIResponse[list[AssetRequestResponse]](
         success=True,
@@ -681,7 +683,7 @@ async def create_damage_report(
 ) -> APIResponse[AssetDamageReportResponse]:
     """Employee reports damage to an assigned asset."""
     cid = _get_cid(claims)
-    reported_by_id = uuid.UUID(claims["sub"])
+    reported_by_id = (await service.employee_for_user(uuid.UUID(claims["sub"]), cid)).id
     result = await service.create_damage_report(payload, reported_by_id, cid)
     return APIResponse[AssetDamageReportResponse](
         success=True,
@@ -738,3 +740,7 @@ async def update_damage_report_status(
         data=result,
         errors=None,
     )
+
+
+# Register static collection routes before the asset UUID route.
+router.routes.sort(key=lambda route: "{" in route.path)
