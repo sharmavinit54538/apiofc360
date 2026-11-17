@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from app.api.v2.document_intelligence import router as doc_intel_router
 from app.api.v2.employee_support import router as emp_support_router
 from app.api.v2.interview_bot import router as interview_bot_router
+from app.api.v2.interview_ws import router as interview_ws_router
 from app.api.v2.hr_analytics_api import router as hr_analytics_router
 from app.api.v2.hr_workflow_api import router as hr_workflow_router
 from app.api.v2.payroll_api import router as payroll_router
@@ -92,6 +93,7 @@ def get_v2_router() -> APIRouter:
         doc_intel_router,
         emp_support_router,
         interview_bot_router,
+        interview_ws_router,
         hr_analytics_router,
         hr_workflow_router,
         payroll_router,
