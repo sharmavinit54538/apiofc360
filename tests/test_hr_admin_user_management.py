@@ -61,7 +61,9 @@ async def test_hr_admin_can_create_employee():
     user_obj = next(o for o in added_objects if isinstance(o, User))
     assert user_obj.company_id == company_id
     assert user_obj.role == UserRole.EMPLOYEE
-    assert user_obj.created_by == admin_id
+    employee_obj = next(o for o in added_objects if isinstance(o, Employee))
+    assert employee_obj.created_by == admin_id
+    assert employee_obj.invited_by == admin_id
 
 
 @pytest.mark.asyncio(loop_scope="session")

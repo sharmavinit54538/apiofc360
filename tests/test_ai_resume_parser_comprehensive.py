@@ -35,7 +35,7 @@ async def test_storage_validation_allowed_extensions():
     mock_pdf = MagicMock()
     mock_pdf.filename = "resume.pdf"
     mock_pdf.content_type = "application/pdf"
-    mock_pdf.read = AsyncMock(return_value=b"%PDF-1.4 test pdf content stream")
+    mock_pdf.read = AsyncMock(side_effect=[b"%PDF-1.4 test pdf content stream", b""])
     res_pdf = await service.save_file(mock_pdf)
     assert res_pdf["original_filename"] == "resume.pdf"
 
@@ -43,7 +43,7 @@ async def test_storage_validation_allowed_extensions():
     mock_docx = MagicMock()
     mock_docx.filename = "resume.docx"
     mock_docx.content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    mock_docx.read = AsyncMock(return_value=b"PK\x03\x04test docx zip stream")
+    mock_docx.read = AsyncMock(side_effect=[b"PK\x03\x04test docx zip stream", b""])
     res_docx = await service.save_file(mock_docx)
     assert res_docx["original_filename"] == "resume.docx"
 
@@ -51,7 +51,7 @@ async def test_storage_validation_allowed_extensions():
     mock_txt = MagicMock()
     mock_txt.filename = "resume.txt"
     mock_txt.content_type = "text/plain"
-    mock_txt.read = AsyncMock(return_value="Candidate Experience: 5 years in Python".encode("utf-8"))
+    mock_txt.read = AsyncMock(side_effect=["Candidate Experience: 5 years in Python".encode("utf-8"), b""])
     res_txt = await service.save_file(mock_txt)
     assert res_txt["original_filename"] == "resume.txt"
 

@@ -75,26 +75,32 @@ def sample_exit_id():
     return uuid.uuid4()
 
 
+class MockEmployee:
+    """Simple mock class for Employee with real attribute values."""
+    def __init__(self, employee_id, company_id, user_id):
+        self.id = employee_id
+        self.company_id = company_id
+        self.user_id = user_id
+        self.first_name = "John"
+        self.last_name = "Doe"
+        self.employee_id = "EMP001"
+        self.department = "Engineering"
+        self.designation = "Software Engineer"
+        self.joining_date = date(2020, 1, 15)
+        self.basic_salary = Decimal("50000")
+        self.ctc = Decimal("1200000")
+        self.notice_period_days = 30
+        self.employment_type = "FULL_TIME"
+        self.is_active = True
+        self.status = "ACTIVE"
+        self.manager_id = None
+        self.hra = Decimal("20000")
+        self.ctc = Decimal("1200000")
+
+
 @pytest.fixture
 def sample_employee(sample_employee_id, sample_company_id, sample_user_id):
-    emp = MagicMock(spec=Employee)
-    emp.id = sample_employee_id
-    emp.company_id = sample_company_id
-    emp.user_id = sample_user_id
-    emp.first_name = "John"
-    emp.last_name = "Doe"
-    emp.employee_id = "EMP001"
-    emp.department = "Engineering"
-    emp.designation = "Software Engineer"
-    emp.joining_date = date(2020, 1, 15)
-    emp.basic_salary = Decimal("50000")
-    emp.ctc = Decimal("1200000")
-    emp.notice_period_days = 30
-    emp.employment_type = "FULL_TIME"
-    emp.is_active = True
-    emp.status = "ACTIVE"
-    emp.manager_id = None
-    return emp
+    return MockEmployee(sample_employee_id, sample_company_id, sample_user_id)
 
 
 @pytest.fixture
@@ -131,10 +137,10 @@ class MockEmployeeExit:
         self.initiated_by = kwargs.get("initiated_by", None)
         self.initiated_by_role = kwargs.get("initiated_by_role", None)
         # Add employee relation for ExitResponse
-        self.employee = MockEmployee()
+        self.employee = MockEmployeeExitData()
 
 
-class MockEmployee:
+class MockEmployeeExitData:
     """Simple mock class for Employee with required fields for ExitResponse."""
     def __init__(self):
         self.first_name = "John"
@@ -766,6 +772,9 @@ class TestNoticeDaysCalculation:
         mock_sal_result = MagicMock()
         mock_sal_result.scalars.return_value.first.return_value = mock_sal_struct
         
+        mock_statutory_result = MagicMock()
+        mock_statutory_result.scalars.return_value.first.return_value = None
+        
         mock_empty_result = MagicMock()
         mock_empty_result.scalars.return_value.all.return_value = []
         mock_empty_result.scalar_one_or_none.return_value = None
@@ -774,23 +783,35 @@ class TestNoticeDaysCalculation:
         mock_attendance_result.scalar.return_value = 22
         
         mock_session.execute.side_effect = [
-            mock_exit_result,      # Exit query
-            mock_sal_result,       # SalaryStructure query
-            mock_empty_result,     # LeaveBalance query
-            mock_empty_result,     # AdvanceLoan query
-            mock_empty_result,     # PayrollAttendanceInput query
-            mock_attendance_result,  # Attendance count
+            mock_exit_result,          # Exit query
+            mock_sal_result,           # SalaryStructure query
+            mock_statutory_result,     # StatutoryComplianceConfig query
+            mock_empty_result,         # LeaveBalance query
+            mock_empty_result,         # EmployeeLeavePolicy query (fallback)
+            mock_empty_result,         # AdvanceLoan query
+            mock_empty_result,         # PayrollAttendanceInput query
+            mock_attendance_result,    # Attendance count
         ]
         
-        # Patch the Attendance model in the attendance module to have employee_id attribute
-        import app.models.attendance as attendance_module
-        original_Attendance = getattr(attendance_module, 'Attendance', None)
-        mock_Attendance = MagicMock()
-        mock_Attendance.employee_id = MagicMock()
-        mock_Attendance.date = MagicMock()
-        mock_Attendance.status = MagicMock()
-        mock_Attendance.id = MagicMock()
-        attendance_module.Attendance = mock_Attendance
+        # Patch the EmployeeAttendance model in the attendance module to have correct attributes
+        import app.attendance.models.attendance as emp_attendance_module
+        from app.attendance.models.attendance import AttendanceState
+        from sqlalchemy import column
+        original_Attendance = getattr(emp_attendance_module, 'Attendance', None)
+        
+        # Use real SQLAlchemy column objects that support all operators
+        class MockEmployeeAttendance:
+            employee_id = column('employee_id')
+            date = column('date')
+            attendance_state = column('attendance_state')
+            id = column('id')
+            
+            # Make the enum values accessible
+            CHECKED_OUT = AttendanceState.CHECKED_OUT
+            AUTO_CHECKED_OUT = AttendanceState.AUTO_CHECKED_OUT
+            CORRECTED = AttendanceState.CORRECTED
+        
+        emp_attendance_module.Attendance = MockEmployeeAttendance
         
         try:
             with patch.object(calc_service, 'compute_gratuity', return_value=Decimal("0")):
@@ -799,9 +820,9 @@ class TestNoticeDaysCalculation:
                         preview = await calc_service.calculate_fnf_preview(sample_exit_id)
         finally:
             if original_Attendance is not None:
-                attendance_module.Attendance = original_Attendance
+                emp_attendance_module.Attendance = original_Attendance
             else:
-                delattr(attendance_module, 'Attendance')
+                delattr(emp_attendance_module, 'Attendance')
         
         assert preview["actual_notice_days"] == 22
 

@@ -1,0 +1,46 @@
+{
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "packages": {
+    "numpy": {
+      "version": "1.26.4",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\numpy\\__init__.py"
+    },
+    "cv2": {
+      "version": "4.11.0",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\cv2\\__init__.py"
+    },
+    "dlib": {
+      "version": "20.0.1",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\dlib\\__init__.py"
+    },
+    "face_recognition": {
+      "version": "1.2.3",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\face_recognition\\__init__.py"
+    },
+    "celery": {
+      "version": "5.7.0",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\celery\\__init__.py"
+    },
+    "sqlalchemy": {
+      "version": "2.0.48",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\sqlalchemy\\__init__.py"
+    },
+    "asyncpg": {
+      "version": "0.31.0",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\asyncpg\\__init__.py"
+    },
+    "pytest": {
+      "version": "9.0.3",
+      "import": "passed",
+      "path": "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Lib\\site-packages\\pytest\\__init__.py"
+    }
+  },
+  "pip_check": "No broken requirements found.\n"
+}

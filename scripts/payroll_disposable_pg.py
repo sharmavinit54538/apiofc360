@@ -125,6 +125,11 @@ def main():
             command += ["--junitxml=" + str(evidence / "results.xml"),
                         "--basetemp=" + str(STATE / (args.label + "-tmp"))]
         (evidence / "command.json").write_text(json.dumps(command, indent=2))
+        tracked_state = {
+            "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "status": subprocess.check_output(["git", "status", "--short", "-uno"], cwd=ROOT, text=True),
+        }
+        (evidence / "git-state.json").write_text(json.dumps(tracked_state, indent=2))
         start = time.monotonic()
         with (evidence / "execution.log").open("w", encoding="utf-8") as output:
             result = subprocess.call(command, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
@@ -132,10 +137,10 @@ def main():
                    "exit_code": result, "seconds": round(time.monotonic() - start, 3)}
         if (evidence / "results.xml").exists():
             cases = list(ET.parse(evidence / "results.xml").iter("testcase"))
-            summary.update(tests=len(cases), failed=sum(c.find("failure") is not None for c in cases),
-                           errors=sum(c.find("error") is not None for c in cases),
+            summary.update(tests=len(cases), failed=sum(len(c.findall("failure")) for c in cases),
+                           errors=sum(len(c.findall("error")) for c in cases),
                            skipped=sum(c.find("skipped") is not None for c in cases))
-            summary["passed"] = summary["tests"] - summary["failed"] - summary["errors"] - summary["skipped"]
+            summary["passed"] = sum(not any(c.find(tag) is not None for tag in ("failure", "error", "skipped")) for c in cases)
         (evidence / "summary.json").write_text(json.dumps(summary, indent=2))
         print(json.dumps(summary, indent=2))
         return result

@@ -294,15 +294,20 @@ class FnfCalculationService:
         if actual_notice_days is None or actual_notice_days == 0:
             # Fallback: calculate from approved attendance during notice period
             # This should be derived from actual working days, not calendar days
-            from app.models.attendance import Attendance
+            from app.attendance.models.attendance import Attendance as EmployeeAttendance
+            from app.attendance.models.attendance import AttendanceState
             from sqlalchemy import and_
             attendance_res = await self.db.execute(
-                select(func.count(Attendance.id)).where(
+                select(func.count(EmployeeAttendance.id)).where(
                     and_(
-                        Attendance.employee_id == emp.id,
-                        Attendance.date >= exit_obj.created_at.date(),
-                        Attendance.date <= exit_obj.last_working_date,
-                        Attendance.status.in_(["PRESENT", "WORK_FROM_HOME", "ON_DUTY"])
+                        EmployeeAttendance.employee_id == emp.id,
+                        EmployeeAttendance.date >= exit_obj.created_at.date(),
+                        EmployeeAttendance.date <= exit_obj.last_working_date,
+                        EmployeeAttendance.attendance_state.in_([
+                            AttendanceState.CHECKED_OUT,
+                            AttendanceState.AUTO_CHECKED_OUT,
+                            AttendanceState.CORRECTED
+                        ])
                     )
                 )
             )
