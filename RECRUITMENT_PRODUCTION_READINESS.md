@@ -99,6 +99,42 @@ RECORDING_MAX_DURATION_HOURS=2
 RECORDING_RETENTION_DAYS=90
 ```
 
+### STT Providers
+```bash
+# Deepgram (recommended for real-time)
+DEEPGRAM_API_KEY=xxx
+DEEPGRAM_MODEL=nova-2
+
+# OpenAI Whisper
+OPENAI_API_KEY=xxx
+WHISPER_MODEL=whisper-1
+
+# Google Cloud Speech
+GOOGLE_CLOUD_CREDENTIALS_PATH=/path/to/credentials.json
+GOOGLE_CLOUD_PROJECT_ID=my-project
+```
+
+### TTS Providers
+```bash
+# ElevenLabs (recommended for quality)
+ELEVENLABS_API_KEY=xxx
+ELEVENLABS_MODEL=eleven_multilingual_v2
+
+# OpenAI TTS
+OPENAI_API_KEY=xxx
+OPENAI_TTS_MODEL=tts-1
+
+# Azure TTS
+AZURE_TTS_API_KEY=xxx
+AZURE_TTS_REGION=eastus
+
+# Google Cloud TTS
+GOOGLE_CLOUD_CREDENTIALS_PATH=/path/to/credentials.json
+
+# Coqui TTS (local, open-source)
+# Requires GPU for good performance
+```
+
 ### Security
 ```bash
 # Rate Limiting
@@ -147,14 +183,14 @@ PII_ENCRYPTION_ENABLED=true
 ### Migration Steps
 ```bash
 # 1. Set target revision
-export ALEMBIC_TARGET=383fd82fdc00
+export ALEMBIC_TARGET=2d99d31e460b
 
 # 2. Run migration
 alembic upgrade head
 
 # 3. Verify migration
 alembic current
-# Should show: 383fd82fdc00 (head)
+# Should show: 2d99d31e460b (head)
 
 # 4. Run post-migration validation
 python -m scripts/verify_live_db_schema
@@ -171,7 +207,7 @@ redis-cli FLUSHDB
 ### Rollback Procedure
 ```bash
 # If critical issues detected
-alembic downgrade a7dd8d9bc88f
+alembic downgrade 383fd82fdc00
 
 # Restore database from backup if needed
 pg_restore -d ofc360 backup.dump
@@ -185,6 +221,10 @@ pg_restore -d ofc360 backup.dump
 - `interview_schedules.invitation_expires_at` column added
 - `interview_schedules.invitation_used_at` column added
 - `interview_invitations` table created with full lifecycle management
+- `interview_recordings` table created with full media metadata
+- `recording_chunks` table created for chunked upload
+- `recording_access_logs` table created for audit trail
+- Enum types for MediaType, RecordingStatus, RecordingAction
 
 ---
 
@@ -315,6 +355,18 @@ screening_auto_action_rate
 auth_cross_tenant_attempts_total (should be 0)
 auth_token_revocation_rate
 rate_limit_exceeded_total
+
+# STT/TTS
+stt_transcription_latency_seconds
+stt_transcription_accuracy
+tts_synthesis_latency_seconds
+tts_audio_quality_score
+
+# Recording
+recording_upload_success_rate
+recording_processing_duration_seconds
+recording_storage_size_bytes
+recording_access_total
 ```
 
 ### Alert Rules
@@ -337,6 +389,22 @@ groups:
       - alert: InterviewInvitationExpiryHigh
         expr: count(interview_invitations{status="EXPIRED"}) > 50
         severity: info
+        
+      - alert: STTProviderDown
+        expr: up{job="stt-provider"} == 0
+        severity: critical
+        
+      - alert: TTSProviderDown
+        expr: up{job="tts-provider"} == 0
+        severity: critical
+        
+      - alert: RecordingStorageFull
+        expr: recording_storage_usage_bytes / recording_storage_capacity_bytes > 0.85
+        severity: warning
+        
+      - alert: LLMHighLatency
+        expr: histogram_quantile(0.95, rate(llm_request_duration_seconds_bucket[5m])) > 30
+        severity: warning
 ```
 
 ### Log Aggregation

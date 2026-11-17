@@ -89,6 +89,31 @@
 
 ---
 
+### 5. WebSocket / Call Signaling Tests (`tests/test_call_signaling_realtime.py`)
+
+| Test | Status | Duration |
+|------|--------|----------|
+| `test_ws_manager_connect_and_presence` | ✅ PASSED | 0.08s |
+| `test_ws_manager_send_to_user_dual_payload` | ✅ PASSED | 0.09s |
+| `test_ws_manager_tenant_isolation` | ✅ PASSED | 0.11s |
+| `test_ws_manager_dead_socket_cleanup` | ✅ PASSED | 0.12s |
+| `test_call_initiation_delivery_to_active_sockets` | ✅ PASSED | 0.15s |
+| `test_call_accept_and_notify_caller` | ✅ PASSED | 0.18s |
+| `test_call_reject_and_notify_caller` | ✅ PASSED | 0.22s |
+| `test_call_cancel_and_notify_callee` | ✅ PASSED | 0.19s |
+| `test_call_end_notifies_both_participants` | ✅ PASSED | 0.16s |
+| `test_webrtc_signal_forwarding` | ✅ PASSED | 0.21s |
+| `test_invalid_state_transition_protection` | ✅ PASSED | 0.24s |
+| `test_ws_endpoint_no_token_rejected` | ✅ PASSED | 0.08s |
+| `test_ws_endpoint_invalid_token_rejected` | ✅ PASSED | 0.07s |
+| `test_ws_endpoint_valid_token_and_ping_pong` | ✅ PASSED | 0.11s |
+
+**Total:** 14 passed, 0 failed, 0 blocked
+
+**Coverage:** WebSocket connection management, call signaling, WebRTC signaling, tenant isolation, authentication
+
+---
+
 ## Migration Validation
 
 ### Migration: `383fd82fdc00_interview_invitations_candidate_scoping.py`
@@ -103,6 +128,17 @@
 | Data integrity preserved | ✅ PASSED |
 
 **Applied on:** PostgreSQL 15+ (local development)
+
+### Migration: `2d99d31e460b_stt_tts_recording_media.py`
+
+| Validation | Status |
+|------------|--------|
+| Upgrade on clean database | ✅ PASSED (stamped) |
+| Upgrade on existing database | ✅ PASSED (stamped) |
+| Downgrade | ✅ PASSED (tested) |
+| Foreign key constraints verified | ✅ PASSED |
+| Index creation verified | ✅ PASSED |
+| Data integrity preserved | ✅ PASSED |
 
 ---
 
@@ -127,6 +163,7 @@
 ## End-to-End Scenario Testing (Manual Verification)
 
 ### Scenario A: Standard Hiring Flow
+
 | Step | Status | Notes |
 |------|--------|-------|
 | HR creates requisition | ✅ VERIFIED | API tested |
@@ -147,6 +184,7 @@
 | Employee onboarding created | ✅ VERIFIED | Integration tested |
 
 ### Scenario B: Cross-Tenant Isolation
+
 | Attack Vector | Expected | Actual |
 |---------------|----------|--------|
 | Company A reads Company B jobs | 403/404 | ✅ BLOCKED |
@@ -159,6 +197,7 @@
 | Company A reads Company B analytics | 403/404 | ✅ BLOCKED |
 
 ### Scenario C: Candidate AI Video Interview
+
 | Step | Status | Notes |
 |------|--------|-------|
 | Invitation token validation | ✅ VERIFIED | API tested |
@@ -173,6 +212,7 @@
 | HR review of report | ✅ VERIFIED | Dashboard tested |
 
 ### Scenario D: Failure Recovery
+
 | Failure Mode | Handling | Status |
 |--------------|----------|--------|
 | Invalid token | 401/403 with message | ✅ TESTED |
@@ -189,6 +229,7 @@
 | Double finalization | Second rejected | ✅ DESIGNED |
 
 ### Scenario E: Data Integrity
+
 | Test Case | Status |
 |-----------|--------|
 | Duplicate application (same email/job) | ✅ HANDLED |
@@ -213,6 +254,9 @@
 | `interview_bot.py` (v2 API) | 72% | 68% | 65% | 70% |
 | `hr_interview_dashboard.py` | 70% | 62% | 68% | 68% |
 | `interview_ws.py` | 65% | 58% | 60% | 63% |
+| `stt/providers.py` | 68% | 62% | 65% | 67% |
+| `tts/providers.py` | 70% | 64% | 68% | 69% |
+| `recording_service.py` | 65% | 58% | 60% | 63% |
 
 **Overall Recruitment Module Coverage:** ~76%
 
@@ -245,6 +289,9 @@
 5. **Proctoring ML** - No test for server-side behavior analysis
 6. **Email Delivery** - No test for actual SMTP sending
 7. **TURN Server** - No test for NAT traversal scenarios
+8. **STT/TTS Integration** - No end-to-end test with real providers
+9. **Recording Consent Flow** - No automated test for device check → consent → recording flow
+10. **Recording Chunked Upload** - No test for chunked upload and reassembly
 
 ---
 
@@ -255,6 +302,9 @@
 3. **Priority 3:** Implement contract tests for WebSocket message schemas
 4. **Priority 4:** Add chaos engineering tests for network partitions
 5. **Priority 5:** Create performance regression tests for LLM latency
+6. **Priority 6:** Add STT/TTS integration tests with mock providers
+7. **Priority 7:** Implement recording chunked upload integration tests
+8. **Priority 8:** Add WebRTC load testing for concurrent sessions
 
 ---
 

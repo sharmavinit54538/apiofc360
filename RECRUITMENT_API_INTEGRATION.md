@@ -384,7 +384,7 @@ Response:
 }
 ```
 
-### Submit Answer (Candidate)
+### Submit Answer (Candidate - Text)
 ```
 POST /api/v2/interview-bot/sessions/{session_id}/answer?invitation_token=xxx
 Content-Type: application/json
@@ -444,16 +444,86 @@ Response:
 
 ---
 
-## WebSocket Real-Time Interview
+## WebSocket Real-Time Interview (Audio/Video Pipeline)
 
 ### Connect
 ```
 WS /api/v2/interview-ws/session/{invitation_token}
 ```
 
+### Message Types
+
+**Client → Server**
+| Type | Description |
+|------|-------------|
+| `audio_chunk` | Binary audio data (opus/webm) |
+| `answer_text` | Text fallback for answer |
+| `device_check` | Camera/microphone test results |
+| `consent` | Recording consent |
+| `proctor_alert` | Tab switch, gaze deviation, etc. |
+| `ping` | Heartbeat |
+| `reconnect` | Explicit reconnection |
+
+**Server → Client**
+| Type | Description |
+|------|-------------|
+| `session_started` | Session info + first question |
+| `question_audio` | Base64-encoded TTS audio |
+| `question_text` | Question text |
+| `answer_evaluated` | Score + feedback + next question |
+| `transcription_partial` | Interim STT result |
+| `transcription_final` | Final STT result |
+| `tts_audio` | Base64-encoded TTS audio |
+| `tts_complete` | TTS finished |
+| `session_completed` | Final scorecard |
+| `proctor_ack` | Proctor alert acknowledged |
+| `pong` | Heartbeat response |
+| `reconnected` | Reconnection confirmed |
+| `error` | Error message |
+| `device_check_result` | Device check outcome |
+| `consent_result` | Consent outcome |
+
 ### Message Flow
 
-**Server → Client: Session Started**
+**1. Client → Server: Device Check**
+```json
+{
+  "type": "device_check",
+  "has_camera": true,
+  "has_microphone": true,
+  "camera_test_passed": true,
+  "microphone_test_passed": true,
+  "browser_info": "Chrome/120.0.0"
+}
+```
+
+**Server → Client: Device Check Result**
+```json
+{
+  "type": "device_check_result",
+  "success": true,
+  "message": "Device check passed. You may proceed."
+}
+```
+
+**2. Client → Server: Consent**
+```json
+{
+  "type": "consent",
+  "consent_given": true
+}
+```
+
+**Server → Client: Consent Result**
+```json
+{
+  "type": "consent_result",
+  "success": true,
+  "message": "Consent recorded. You may now start the interview."
+}
+```
+
+**3. Server → Client: Session Started**
 ```json
 {
   "type": "session_started",
@@ -474,16 +544,42 @@ WS /api/v2/interview-ws/session/{invitation_token}
 }
 ```
 
-**Client → Server: Answer**
+**4. Server → Client: Question Audio (TTS)**
 ```json
 {
-  "type": "answer",
+  "type": "question_audio",
   "question_id": "uuid",
-  "candidate_response": "My response...",
-  "duration_seconds": 90,
-  "emotion": {"calm": 0.8},
-  "communication": {"pace_wpm": 120},
-  "proctoring": {"tab_switches": 0}
+  "audio_data": "base64_encoded_mp3",
+  "format": "mp3",
+  "sample_rate": 22050
+}
+```
+
+**5. Client → Server: Audio Chunk**
+```json
+// Binary message (WebSocket binary frame)
+// Raw opus/webm audio data
+```
+
+**Server → Client: Partial Transcription (Interim)**
+```json
+{
+  "type": "transcription_partial",
+  "question_id": "uuid",
+  "text": "I think the answer is...",
+  "is_final": false,
+  "confidence": 0.7
+}
+```
+
+**Server → Client: Final Transcription**
+```json
+{
+  "type": "transcription_final",
+  "question_id": "uuid",
+  "text": "I think the answer is async await...",
+  "confidence": 0.92,
+  "language": "en"
 }
 ```
 
@@ -505,7 +601,17 @@ WS /api/v2/interview-ws/session/{invitation_token}
 }
 ```
 
-**Server → Client: Session Completed**
+**Server → Client: TTS Audio for Feedback/Next Question**
+```json
+{
+  "type": "tts_audio",
+  "audio_data": "base64_encoded_mp3",
+  "format": "mp3",
+  "sample_rate": 22050
+}
+```
+
+**6. Server → Client: Session Completed**
 ```json
 {
   "type": "session_completed",
@@ -515,31 +621,27 @@ WS /api/v2/interview-ws/session/{invitation_token}
 }
 ```
 
-**Client → Server: Proctor Alert**
+### Reconnection
 ```json
-{
-  "type": "proctor_alert",
-  "alert_type": "TAB_SWITCH",
-  "details": "Tab switched at 10:15:30"
-}
+// Client → Server
+{"type": "reconnect"}
+
+// Server → Client
+{"type": "reconnected", "grace_period_ends_at": "2026-11-17T12:30:00Z"}
 ```
 
-**Server → Client: Proctor Acknowledged**
+### Proctoring
 ```json
-{
-  "type": "proctor_ack",
-  "alert_type": "TAB_SWITCH"
-}
+// Client → Server
+{"type": "proctor_alert", "alert_type": "TAB_SWITCH", "details": "Tab switched at 10:15:30"}
+
+// Server → Client
+{"type": "proctor_ack", "alert_type": "TAB_SWITCH"}
 ```
 
-**Ping/Pong**
+### Ping/Pong
 ```json
 {"type": "ping"} → {"type": "pong"}
-```
-
-**Reconnection**
-```json
-{"type": "reconnect"} → {"type": "reconnected", "grace_period_ends_at": "..."}
 ```
 
 ---
@@ -560,7 +662,7 @@ Authorization: Bearer <token> (hr_admin, manager)
 ```
 Response includes:
 - Traditional: rounds, schedules, feedback
-- AI Video: questions, responses, scores, scorecard, transcript
+- AI Video: questions, responses, scores, transcript, scorecard
 
 ### Add HR Feedback
 ```
@@ -650,6 +752,37 @@ Authorization: Bearer <token> (hr_admin, manager)
 
 ---
 
+## Interview Recording & Media
+
+### Start Recording (via WebSocket consent)
+Recording starts automatically after consent is given via WebSocket.
+
+### Get Recordings for Session
+```
+GET /api/hr/interviews/{id}/recordings
+Authorization: Bearer <token> (hr_admin, manager)
+```
+
+### Get Recording Stream
+```
+GET /api/hr/interviews/{id}/recordings/{recording_id}/stream?start_byte=0&end_byte=1024
+Authorization: Bearer <token> (hr_admin, manager)
+```
+
+### Download Recording
+```
+GET /api/hr/interviews/{id}/recordings/{recording_id}/download
+Authorization: Bearer <token> (hr_admin, manager)
+```
+
+### Generate Download URL
+```
+GET /api/hr/interviews/{id}/recordings/{recording_id}/download-url
+Authorization: Bearer <token> (hr_admin, manager)
+```
+
+---
+
 ## Recruitment Analytics
 
 ### Get Dashboard Stats
@@ -671,6 +804,32 @@ Response includes:
 - Conversion rates (stage-to-stage, overall hire rate, time-to-hire)
 - Funnel visualization
 - Department & source breakdowns
+
+---
+
+## STT/TTS Provider Integration
+
+### STT Providers
+```python
+from app.services.stt import get_stt_provider, get_stt_router
+
+# Get specific provider
+provider = get_stt_provider("deepgram")
+
+# Or get best available
+provider = await get_stt_router()
+```
+
+### TTS Providers
+```python
+from app.services.tts import get_tts_provider, get_tts_router
+
+# Get specific provider
+provider = get_tts_provider("elevenlabs")
+
+# Or get best available
+provider = await get_tts_router()
+```
 
 ---
 
@@ -707,6 +866,7 @@ Response includes:
 - AI screening: 50 requests/minute per company
 - Interview WebSocket: 1 connection per invitation token
 - General API: 1000 requests/minute per user
+- STT/TTS: Provider-specific limits apply
 
 ---
 
@@ -733,7 +893,7 @@ Response includes:
 5. **Interview Page**:
    - Establish WebSocket: `WS /api/v2/interview-ws/session/{invitation_token}`
    - Handle message types: `session_started`, `answer_evaluated`, `session_completed`, `proctor_ack`
-   - Send `answer` messages with candidate response
+   - Send `audio_chunk` messages with candidate response
    - Display questions, collect answers (text/voice/video)
    - Show progress: current question X of Y
    - Handle reconnection gracefully
@@ -796,23 +956,44 @@ AI_REJECTION_THRESHOLD=0.4
 AI_AUTO_REJECT_ENABLED=false
 
 # Email
-SMTP_HOST=smtp.example.com
+SMTP_HOST=smtp.sendgrid.net
 SMTP_PORT=587
-SMTP_USER=notifications@example.com
-SMTP_PASSWORD=secret
-FRONTEND_BASE_URL=https://app.ofc360.com
+SMTP_USER=apikey
+SMTP_PASSWORD=<sendgrid-api-key>
+SMTP_TLS=true
+EMAIL_FROM=noreply@ofc360.com
+EMAIL_FROM_NAME=OFC360 Recruitment
 
 # File Storage
 S3_ENDPOINT_URL=https://s3.amazonaws.com
-S3_ACCESS_KEY=xxx
-S3_SECRET_KEY=xxx
-S3_BUCKET=ofc360-uploads
-UPLOAD_DIR=uploads
+S3_ACCESS_KEY_ID=AKI...
+S3_SECRET_ACCESS_KEY=...
+S3_BUCKET=ofc360-prod-uploads
+S3_REGION=us-east-1
+S3_PUBLIC_URL=https://cdn.ofc360.com
 
 # WebRTC
-TURN_SERVER=turn:turn.example.com:3478
-TURN_USERNAME=xxx
-TURN_PASSWORD=xxx
+TURN_SERVER=turn:turn.ofc360.com:3478
+TURN_TLS_SERVER=turns:turn.ofc360.com:5349
+TURN_USERNAME=ofc360
+TURN_PASSWORD=<turn-secret>
+TURN_REALM=ofc360.com
+
+# STT Providers
+DEEPGRAM_API_KEY=xxx
+DEEPGRAM_MODEL=nova-2
+OPENAI_API_KEY=xxx
+GOOGLE_CLOUD_CREDENTIALS_PATH=/path/to/credentials.json
+GOOGLE_CLOUD_PROJECT_ID=my-project
+
+# TTS Providers
+ELEVENLABS_API_KEY=xxx
+ELEVENLABS_MODEL=eleven_multilingual_v2
+OPENAI_API_KEY=xxx
+OPENAI_TTS_MODEL=tts-1
+AZURE_TTS_API_KEY=xxx
+AZURE_TTS_REGION=eastus
+GOOGLE_CLOUD_CREDENTIALS_PATH=/path/to/credentials.json
 
 # Security
 ENVIRONMENT=production
@@ -843,6 +1024,8 @@ SUPER_ADMIN_PASSWORD=secure-password
 - `GET /health/db` - Database connectivity
 - `GET /health/redis` - Redis connectivity
 - `GET /health/ollama` - LLM service availability
+- `GET /health/stt` - STT provider availability
+- `GET /health/tts` - TTS provider availability
 
 ### Key Metrics to Monitor
 - Interview completion rate
@@ -851,3 +1034,16 @@ SUPER_ADMIN_PASSWORD=secure-password
 - Cross-tenant access attempts (should be 0)
 - WebSocket connection duration
 - Token expiry/reconnection rate
+- STT transcription accuracy
+- TTS synthesis latency
+- Recording upload success rate
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 2.0.0 | Nov 2026 | AI Video Interview backend, STT/TTS providers, recording, WebSocket pipeline |
+| 1.5.0 | Oct 2026 | AI Screening v2, multi-tenant fixes, job requisition workflow |
+| 1.0.0 | Sep 2026 | Initial recruitment module release |
