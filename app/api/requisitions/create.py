@@ -55,7 +55,7 @@ async def approve_requisition(
 ) -> APIResponse[JobRequisitionResponse]:
     """Approve or reject a job requisition. Convert to Job posting if approved. Super Admin, HR Admin, and IT Admin only."""
     user_id = uuid.UUID(claims["sub"])
-    req = await service.approve_requisition(user_id, id, payload.approve)
+    req = await service.approve_requisition(user_id, id, payload.approve, payload.location, payload.employment_type)
     msg = "Job requisition approved and job template created." if payload.approve else "Job requisition rejected."
     return APIResponse[JobRequisitionResponse](
         success=True,

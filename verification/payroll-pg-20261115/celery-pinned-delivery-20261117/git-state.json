@@ -1,0 +1,4 @@
+{
+  "head": "83025396c0da58a7164012da5d9554a81bf99929",
+  "status": " M app/api/careers.py\n M app/api/interviews.py\n M app/api/jobs.py\n M app/api/requisitions/create.py\n M app/api/v2/interview_bot.py\n M app/api/v2/screening.py\n M app/models/recruitment.py\n M app/repositories/recruitment_repository.py\n M app/schemas/recruitment.py\n M app/services/ai_interview_service.py\n M app/services/recruitment_service.py\n M requirements.txt\n M scripts/payroll_celery_local_smoke.py\n M scripts/payroll_disposable_pg.py\n"
+}

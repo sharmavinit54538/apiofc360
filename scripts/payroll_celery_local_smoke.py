@@ -66,6 +66,11 @@ def main():
     from app.workers.celery_app import celery_app
     from app.workers.payroll_tasks import process_payroll_run_task
     queue = "payroll_verify_" + uuid.uuid4().hex
+    # Initialize the SQLite transport schema before starting another process.
+    # SQLAlchemy create_all is not atomic across simultaneous producer/worker starts.
+    with celery_app.connection_for_write() as connection:
+        connection.ensure_connection(max_retries=0)
+        celery_app.amqp.queues[queue](connection.default_channel).declare()
     command = [sys.executable, "-m", "celery", "-A", "app.workers.celery_app:celery_app", "worker",
                "--pool=solo", "--concurrency=1", "--without-gossip", "--without-mingle",
                "--without-heartbeat", "--loglevel=INFO", "-Q", queue]

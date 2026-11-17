@@ -1,0 +1,13 @@
+{
+  "command": [
+    "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Scripts\\python.exe",
+    "-m",
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "database": "payroll_verify_suite",
+  "port": 55441,
+  "exit_code": 0,
+  "seconds": 32.868
+}

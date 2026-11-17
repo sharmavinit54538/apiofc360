@@ -19,6 +19,7 @@ from app.models.recruitment import (
     Interview,
     InterviewRound,
     InterviewSchedule,
+    InterviewInvitation,
     Offer,
     OfferDocument,
     CareerPageSetting,
@@ -355,6 +356,64 @@ class RecruitmentRepository:
             )
         )
         return result.scalar_one_or_none() is not None
+
+    async def check_double_booking_for_round(self, round_id: uuid.UUID, check_date: date, check_time: Any) -> bool:
+        """Return True if a slot is already booked for this round, date and time."""
+        result = await self.session.execute(
+            select(InterviewSchedule).where(
+                and_(
+                    InterviewSchedule.round_id == round_id,
+                    InterviewSchedule.interview_date == check_date,
+                    InterviewSchedule.interview_time == check_time,
+                )
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def get_interview_schedule_by_invitation_token(self, token: str) -> InterviewSchedule | None:
+        """Get interview schedule by invitation token."""
+        result = await self.session.execute(
+            select(InterviewSchedule).where(
+                InterviewSchedule.invitation_token == token
+            ).options(
+                selectinload(InterviewSchedule.interview),
+                selectinload(InterviewSchedule.round),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_interview_schedule_for_round(self, round_id: uuid.UUID) -> InterviewSchedule | None:
+        """Get interview schedule for a specific round."""
+        result = await self.session.execute(
+            select(InterviewSchedule).where(
+                InterviewSchedule.round_id == round_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    # Interview Invitation methods
+    async def create_interview_invitation(self, **kwargs: Any) -> InterviewInvitation:
+        obj = InterviewInvitation(**kwargs)
+        self.session.add(obj)
+        await self.session.flush()
+        return obj
+
+    async def get_interview_invitation_by_token(self, token: str) -> InterviewInvitation | None:
+        result = await self.session.execute(
+            select(InterviewInvitation).where(InterviewInvitation.token == token)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_interview_invitations_for_interview(self, interview_id: uuid.UUID) -> list[InterviewInvitation]:
+        result = await self.session.execute(
+            select(InterviewInvitation).where(InterviewInvitation.interview_id == interview_id)
+        )
+        return list(result.scalars().all())
+
+    async def update_interview_invitation(self, invitation_id: uuid.UUID, **kwargs: Any) -> None:
+        await self.session.execute(
+            update(InterviewInvitation).where(InterviewInvitation.id == invitation_id).values(**kwargs)
+        )
 
     async def create_interview_schedule(self, **kwargs: Any) -> InterviewSchedule:
         obj = InterviewSchedule(**kwargs)
@@ -719,6 +778,17 @@ class RecruitmentRepository:
         self.session.add(obj)
         await self.session.flush()
         return obj
+
+    async def get_candidate_by_email_and_company(self, email: str, company_id: uuid.UUID) -> Candidate | None:
+        result = await self.session.execute(
+            select(Candidate).where(
+                and_(
+                    Candidate.email == email.lower().strip(),
+                    Candidate.company_id == company_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def get_candidate_by_id(self, candidate_uuid: uuid.UUID) -> Candidate | None:
         result = await self.session.execute(

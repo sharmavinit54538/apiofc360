@@ -75,24 +75,96 @@ class AIInterviewService:
         self.db.add(session)
         await self.db.flush()
 
-        # Generate 3 default questions based on interview type
-        questions_pool = self._get_default_questions(interview_type.upper())
-        for idx, q in enumerate(questions_pool):
+        # Generate dynamic questions based on job and candidate
+        questions = await self._generate_dynamic_questions(candidate, job, interview_type.upper())
+        for idx, q in enumerate(questions):
             q_instance = AIInterviewQuestionInstance(
                 id=uuid.uuid4(),
                 interview_session_id=session.id,
                 question_text=q["text"],
                 question_type=q["type"],
-                expected_answer=q["expected_answer"],
-                difficulty=q["difficulty"],
+                expected_answer=q.get("expected_answer"),
+                difficulty=q.get("difficulty", "MEDIUM"),
                 order_index=idx,
             )
             self.db.add(q_instance)
 
         await self.db.commit()
         await self.db.refresh(session)
-        logger.info("AI Interview session initialized: %s", session.id)
+        logger.info("AI Interview session initialized: %s with %d questions", session.id, len(questions))
         return session
+
+    async def _generate_dynamic_questions(
+        self,
+        candidate: Candidate,
+        job: Job,
+        interview_type: str,
+    ) -> list[dict]:
+        """Generate job-relevant questions using LLM based on job description and candidate profile."""
+        try:
+            # Build context for question generation
+            candidate_context = f"""
+Candidate: {candidate.first_name} {candidate.last_name}
+Experience: {candidate.years_experience} years
+Current Role: {candidate.current_role or 'Not specified'}
+Current Company: {candidate.current_company or 'Not specified'}
+Skills: {', '.join(candidate.skills) if candidate.skills else 'Not specified'}
+Summary: {candidate.summary or 'Not provided'}
+"""
+            job_context = f"""
+Job Title: {job.title}
+Department: {job.department}
+Description: {job.job_description}
+Requirements: {job.requirements or 'Not specified'}
+Responsibilities: {job.responsibilities or 'Not specified'}
+"""
+            
+            # Generate questions using LLM
+            prompt = f"""Generate 5-7 interview questions for a {interview_type} interview based on the following context:
+
+CANDIDATE PROFILE:
+{candidate_context}
+
+JOB REQUIREMENTS:
+{job_context}
+
+Requirements:
+1. Questions must be specific to the job role and candidate's experience level
+2. Mix of technical, behavioral, and situational questions
+3. Progress from easier to more challenging
+4. Each question should have an expected answer outline
+5. Include difficulty level (EASY, MEDIUM, HARD)
+6. Return as JSON array with fields: text, type, expected_answer, difficulty
+
+Question types: TECHNICAL, BEHAVIORAL, SITUATIONAL, CODING (if technical role)
+"""
+            
+            res_text = await self.llm.complete(
+                prompt=prompt,
+                system="You are an expert technical interviewer. Generate relevant, job-specific interview questions. Return only valid JSON array.",
+                json_mode=True,
+                temperature=0.3
+            )
+            
+            questions = ResponseParser.extract_json_object(res_text)
+            if isinstance(questions, list) and questions:
+                # Validate and normalize questions
+                normalized = []
+                for q in questions:
+                    if isinstance(q, dict) and q.get("text"):
+                        normalized.append({
+                            "text": q["text"],
+                            "type": q.get("type", "TECHNICAL"),
+                            "expected_answer": q.get("expected_answer", ""),
+                            "difficulty": q.get("difficulty", "MEDIUM"),
+                        })
+                if normalized:
+                    return normalized
+        except Exception as exc:
+            logger.error("Dynamic question generation failed: %s", exc)
+        
+        # Fallback to default questions if generation fails
+        return self._get_default_questions(interview_type)
 
     async def start_session(self, session_id: uuid.UUID) -> Optional[AIInterviewQuestionInstance]:
         """Trigger session transition to IN_PROGRESS and retrieve first question."""
@@ -144,16 +216,18 @@ class AIInterviewService:
             raise ValueError("Question not found.")
 
         # 2. Evaluate response using real LLM inference
-        score = 0
+        score = None
         feedback = ""
         syntax_valid = True
         complexity = "N/A"
+        evaluation_status = "PENDING"
 
         if question.question_type == "CODING":
             syntax_valid, syntax_error = self._validate_python_syntax(candidate_response)
             if not syntax_valid:
                 score = 2
                 feedback = f"Syntax error in candidate's code: {syntax_error}"
+                evaluation_status = "COMPLETED"
             else:
                 try:
                     eval_prompt = PromptLibrary.coding_sandbox_user(
@@ -169,13 +243,15 @@ class AIInterviewService:
                         temperature=0.1
                     )
                     graded = ResponseParser.extract_json_object(res_text)
-                    score = int(graded.get("logical_score", 5))
+                    score = int(graded.get("logical_score", 0))
                     feedback = graded.get("feedback_notes") or "Code syntax is valid. Technical structure evaluated."
                     complexity = graded.get("complexity") or "N/A"
+                    evaluation_status = "COMPLETED"
                 except Exception as exc:
                     logger.error("Coding evaluation failed: %s", exc)
-                    score = 5
-                    feedback = "Code submitted successfully; awaiting automated unit test execution."
+                    score = None
+                    feedback = "Code submitted successfully; automated evaluation failed. Requires human review."
+                    evaluation_status = "FAILED"
         else:
             try:
                 eval_prompt = PromptLibrary.ai_interview_user(
@@ -191,33 +267,19 @@ class AIInterviewService:
                     temperature=0.15
                 )
                 graded = ResponseParser.extract_json_object(res_text)
-                score = int(graded.get("score", 5))
+                score = int(graded.get("score", 0))
                 feedback = graded.get("feedback") or "Response analyzed by AI interviewer."
+                evaluation_status = "COMPLETED"
             except Exception as exc:
                 logger.error("Response evaluation failed: %s", exc)
-                score = 5
-                feedback = "Response received and logged for recruiter review."
+                score = None
+                feedback = "Response received; automated evaluation failed. Requires human review."
+                evaluation_status = "FAILED"
 
-        # 3. Analyze emotion & communication pacing dynamically from candidate text & duration
-        filler_words = ["uh", "um", "like", "actually", "basically"]
-        filler_count = sum(candidate_response.lower().count(fw) for fw in filler_words)
-        
-        words_count = len(candidate_response.split())
-        calculated_pace = 120
-        if duration_seconds > 0:
-            calculated_pace = int((words_count / duration_seconds) * 60)
-
-        # Dynamic emotion estimation based on response length and composition if client audio telemetry is absent
-        calm_score = min(1.0, max(0.4, 1.0 - (filler_count * 0.1)))
-        confident_score = min(1.0, max(0.3, words_count / 100.0))
-
-        emotion_data = client_emotion or {"calm": round(calm_score, 2), "confident": round(confident_score, 2)}
-        communication_data = client_communication or {
-            "pace_wpm": calculated_pace,
-            "filler_word_count": filler_count,
-            "clarity_ratio": round(max(0.5, 1.0 - (filler_count / max(1, words_count))), 2),
-        }
-        proctoring_data = client_proctoring or {"tab_switches": 0, "gaze_deviation_detected": False}
+        # 3. Store client-provided telemetry only (no fabricated heuristics)
+        emotion_data = client_emotion
+        communication_data = client_communication
+        proctoring_data = client_proctoring
 
         # 4. Save response record
         response_inst = AIInterviewResponse(
@@ -225,12 +287,12 @@ class AIInterviewService:
             interview_session_id=session_id,
             question_id=question_id,
             candidate_response=candidate_response,
-            code_output=code_output or (f"Simulated execution. Syntax valid: {syntax_valid}" if question.question_type == "CODING" else None),
+            code_output=code_output,
             duration_seconds=duration_seconds,
             emotion_analysis=emotion_data,
             communication_analysis=communication_data,
             proctoring_flags=proctoring_data,
-            score=score,
+            score=score if score is not None else 0,
             evaluation_feedback=feedback,
         )
         self.db.add(response_inst)
@@ -255,6 +317,7 @@ class AIInterviewService:
         return {
             "session_status": session.status,
             "score_logged": score,
+            "evaluation_status": evaluation_status,
             "evaluation": feedback,
             "complexity": complexity,
             "next_question": {
@@ -300,25 +363,32 @@ class AIInterviewService:
         if not session:
             raise ValueError("Session not found.")
 
-        # Aggregate responses log
+        # Aggregate responses log - only include completed evaluations
         eval_log = []
         total_score = 0
-        count = 0
+        scored_count = 0
+        failed_evaluations = 0
+        
         for r in session.responses:
+            eval_status = "COMPLETED" if r.score > 0 or "FAILED" not in r.evaluation_feedback else "FAILED"
             eval_log.append(
                 f"- Question: '{r.question.question_text}'\n"
                 f"  Response: '{r.candidate_response}'\n"
                 f"  Score: {r.score}/10\n"
-                f"  Feedback: {r.evaluation_feedback}"
+                f"  Feedback: {r.evaluation_feedback}\n"
+                f"  Evaluation Status: {eval_status}"
             )
-            total_score += r.score
-            count += 1
+            if r.score > 0:
+                total_score += r.score
+                scored_count += 1
+            else:
+                failed_evaluations += 1
 
         eval_summary_text = "\n\n".join(eval_log)
         proctoring_warnings = "No suspicious behavior detected."
 
         # Compile final recommendation via Ollama
-        scorecard = None
+        synth = None
         try:
             synth_prompt = PromptLibrary.ai_scorecard_user(
                 interview_type=session.interview_type,
@@ -335,35 +405,47 @@ class AIInterviewService:
             synth = ResponseParser.extract_json_object(res_text)
         except Exception as exc:
             logger.error("Scorecard synthesis failed: %s", exc)
-            synth = {
-                "final_hiring_recommendation": "HIRE" if total_score / (count or 1) >= 7 else "REJECT",
-                "overall_justification": "Evaluation generated based on dynamic scoring heuristics.",
-                "anti_cheating_report": {"total_warnings": 0, "suspicious_activity_flagged": False},
-                "emotion_summary": {"predominant_state": "calm"},
-                "communication_summary": {"average_pace_wpm": 120}
-            }
+            synth = None
+
+        # Determine recommendation based on actual scored responses
+        if scored_count > 0:
+            avg_score = total_score / scored_count
+            if avg_score >= 7:
+                recommendation = "HIRE"
+            elif avg_score >= 5:
+                recommendation = "MAYBE"
+            else:
+                recommendation = "REJECT"
+        else:
+            recommendation = "REVIEW_REQUIRED"
+
+        justification = synth.get("overall_justification") if synth else "AI evaluation synthesis failed. Manual review required."
+        anti_cheating = synth.get("anti_cheating_report") if synth else {"total_warnings": 0, "suspicious_activity_flagged": False, "note": "Proctoring data not fully analyzed"}
+        emotion_summary = synth.get("emotion_summary") if synth else {"note": "Emotion analysis not available"}
+        communication_summary = synth.get("communication_summary") if synth else {"note": "Communication analysis not available"}
 
         # Save AI Scorecard record
         scorecard = AIInterviewScorecard(
             id=uuid.uuid4(),
             interview_session_id=session_id,
-            anti_cheating_report=synth.get("anti_cheating_report"),
-            emotion_summary=synth.get("emotion_summary"),
-            communication_summary=synth.get("communication_summary"),
-            final_hiring_recommendation=synth.get("final_hiring_recommendation"),
-            overall_justification=synth.get("overall_justification"),
+            anti_cheating_report=anti_cheating,
+            emotion_summary=emotion_summary,
+            communication_summary=communication_summary,
+            final_hiring_recommendation=recommendation,
+            overall_justification=justification,
         )
         self.db.add(scorecard)
         await self.db.flush()
 
         # Connect with standard ScorecardSubmission model in HR system
+        avg_score_int = int(total_score / scored_count) if scored_count > 0 else 0
         submission = ScorecardSubmission(
             id=uuid.uuid4(),
             interview_round_id=session.interview_round_id or uuid.uuid4(),
             submitted_by=submitted_by_user_id,
-            scores={"Technical/Logical": int(total_score / (count or 1))},
-            overall_recommendation=synth.get("final_hiring_recommendation"),
-            feedback_notes=synth.get("overall_justification"),
+            scores={"Technical/Logical": avg_score_int},
+            overall_recommendation=recommendation,
+            feedback_notes=justification,
         )
         self.db.add(submission)
         await self.db.flush()
@@ -372,10 +454,10 @@ class AIInterviewService:
         scorecard.scorecard_submission_id = submission.id
         await self.db.commit()
 
-        logger.info("AI Scorecard finalized for session %s. Submittor: %s", session_id, submission.id)
+        logger.info("AI Scorecard finalized for session %s. Submittor: %s, Scored: %d, Failed: %d", session_id, submission.id, scored_count, failed_evaluations)
         return scorecard
 
-    # ------------------------------------------------------------------
+# ------------------------------------------------------------------
     # Heuristic Python Syntax Validator
     # ------------------------------------------------------------------
 
@@ -387,12 +469,55 @@ class AIInterviewService:
         except SyntaxError as err:
             return False, str(err)
 
+    async def generate_follow_up_question(
+        self,
+        session_id: uuid.UUID,
+        previous_question: str,
+        candidate_response: str,
+        interview_type: str,
+    ) -> dict | None:
+        """Generate a contextual follow-up question based on candidate's response."""
+        try:
+            prompt = f"""Based on the candidate's response, generate ONE relevant follow-up question.
+
+Previous Question: {previous_question}
+Candidate Response: {candidate_response}
+Interview Type: {interview_type}
+
+Generate a follow-up that:
+1. Probes deeper into the candidate's answer
+2. Is specific to what they mentioned
+3. Tests practical application or edge cases
+4. Returns JSON with: text, type, expected_answer, difficulty
+"""
+            
+            res_text = await self.llm.complete(
+                prompt=prompt,
+                system="You are an expert interviewer generating contextual follow-up questions. Return only valid JSON.",
+                json_mode=True,
+                temperature=0.4
+            )
+            
+            question = ResponseParser.extract_json_object(res_text)
+            if isinstance(question, dict) and question.get("text"):
+                return {
+                    "text": question["text"],
+                    "type": question.get("type", "TECHNICAL"),
+                    "expected_answer": question.get("expected_answer", ""),
+                    "difficulty": question.get("difficulty", "MEDIUM"),
+                }
+        except Exception as exc:
+            logger.error("Follow-up question generation failed: %s", exc)
+        
+        return None
+
     # ------------------------------------------------------------------
-    # Default Questions Pool
+    # Fallback Default Questions Pool (used only if LLM generation fails)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _get_default_questions(interview_type: str) -> list[dict[str, str]]:
+        """Fallback questions - only used when dynamic generation fails."""
         if interview_type == "CODING":
             return [
                 {
@@ -406,6 +531,12 @@ class AIInterviewService:
                     "type": "CODING",
                     "expected_answer": "Slices comparisons",
                     "difficulty": "MEDIUM",
+                },
+                {
+                    "text": "Design a rate limiter for an API service.",
+                    "type": "CODING",
+                    "expected_answer": "Token bucket or sliding window algorithm",
+                    "difficulty": "HARD",
                 }
             ]
         elif interview_type == "BEHAVIORAL":
@@ -420,6 +551,12 @@ class AIInterviewService:
                     "text": "How do you prioritize deliverables when facing multiple tight deadlines?",
                     "type": "BEHAVIORAL",
                     "expected_answer": "Time boxing / Priority matrix explanation",
+                    "difficulty": "MEDIUM",
+                },
+                {
+                    "text": "Tell me about a time you had to learn a new technology quickly for a project.",
+                    "type": "BEHAVIORAL",
+                    "expected_answer": "Learning approach, resources used, outcome",
                     "difficulty": "MEDIUM",
                 }
             ]
@@ -436,6 +573,12 @@ class AIInterviewService:
                     "text": "How does PostgreSQL implement multi-version concurrency control (MVCC)?",
                     "type": "TECHNICAL",
                     "expected_answer": "Tuple locks, transaction snapshots, VACUUM details",
+                    "difficulty": "HARD",
+                },
+                {
+                    "text": "Design a scalable caching strategy for a high-traffic web application.",
+                    "type": "TECHNICAL",
+                    "expected_answer": "Cache layers, invalidation strategies, consistency models",
                     "difficulty": "HARD",
                 }
             ]

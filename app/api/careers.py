@@ -109,13 +109,7 @@ async def get_job_by_slug(
     "/{slug}/apply",
     status_code=status.HTTP_201_CREATED,
     response_model=APIResponse[ApplicationResponse],
-    summary="Apply for a job posting",
-)
-@router.post(
-    "/apply/{slug}",
-    status_code=status.HTTP_201_CREATED,
-    response_model=APIResponse[ApplicationResponse],
-    summary="Apply for a job posting by ID or slug",
+    summary="Apply for a job posting by slug",
 )
 async def apply_to_job(
     slug: str,
@@ -173,7 +167,7 @@ async def apply_to_job(
 
 
 @router.get(
-    "/apply/{ukey}",
+    "/channel/{ukey}",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[JobResponse],
     summary="Get job detail by unique channel key",
@@ -193,7 +187,7 @@ async def get_job_by_ukey(
 
 
 @router.post(
-    "/apply/{ukey}",
+    "/channel/{ukey}/apply",
     status_code=status.HTTP_201_CREATED,
     response_model=APIResponse[ApplicationResponse],
     summary="Apply for a job posting using unique channel key",

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "scratch" / "payroll-verification-20261115"
 BIN = Path(r"C:\Program Files\PostgreSQL\18\bin")
 PORT = 55441
-DATABASES = ("payroll_verify_focused", "payroll_verify_suite", "payroll_verify_stress")
+DATABASES = ("payroll_verify_focused", "payroll_verify_suite", "payroll_verify_stress", "payroll_verify_suite_snapshot")
 
 
 def execute(command, **kwargs):
@@ -75,6 +75,24 @@ def initialize():
     asyncio.run(provision(credentials))
 
 
+async def create_database(database):
+    import asyncpg
+    if database not in DATABASES:
+        raise ValueError("Only verification database names are allowed")
+    credentials = json.loads((STATE / "credentials.json").read_text(encoding="utf-8"))
+    conn = await asyncpg.connect(host="127.0.0.1", port=PORT, database="postgres",
+                                user="payroll_verify_admin", password=credentials["admin_password"])
+    try:
+        data_directory = await conn.fetchval("SELECT current_setting('data_directory')")
+        if Path(data_directory).resolve() != (STATE / "pgdata").resolve():
+            raise RuntimeError("Connected server is not the disposable cluster")
+        await conn.execute(f'CREATE DATABASE "{database}" OWNER payroll_verify_runner')
+        await conn.execute(f'REVOKE CONNECT ON DATABASE "{database}" FROM PUBLIC')
+        print(f"Created new empty disposable database {database} on port {PORT}")
+    finally:
+        await conn.close()
+
+
 def environment(database):
     if database not in DATABASES:
         raise ValueError("Only this script's three disposable databases are allowed")
@@ -101,12 +119,15 @@ def environment(database):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("init", "run", "stop"))
+    parser.add_argument("action", choices=("init", "run", "stop", "create"))
     parser.add_argument("--database", choices=DATABASES, default=DATABASES[0])
     parser.add_argument("--label")
+    parser.add_argument("--source-root", type=Path, help="Frozen source snapshot inside the disposable state directory")
     args, command = parser.parse_known_args()
     if args.action == "init":
         initialize()
+    elif args.action == "create":
+        asyncio.run(create_database(args.database))
     elif args.action == "stop":
         execute([BIN / "pg_ctl.exe", "-D", STATE / "pgdata", "-w", "stop"])
     else:
@@ -115,8 +136,16 @@ def main():
         if not command:
             parser.error("run requires a command after --")
         env = environment(args.database)
+        source_root = ROOT
+        if args.source_root:
+            source_root = args.source_root.resolve()
+            if not source_root.is_relative_to(STATE.resolve()) or not (source_root / "verification-source-manifest.json").is_file():
+                parser.error("source-root must be a recorded disposable source snapshot")
+            env["PYTHONPATH"] = os.pathsep.join((str(STATE / "runtime"), str(source_root)))
+        if (ROOT / command[0]).is_file():
+            command[0] = str((ROOT / command[0]).resolve())
         if not args.label:
-            return subprocess.call(command, cwd=ROOT, env=env)
+            return subprocess.call(command, cwd=source_root, env=env)
         if not args.label.replace("-", "").replace("_", "").isalnum():
             parser.error("label must contain only letters, digits, underscore or hyphen")
         evidence = ROOT / "verification" / "payroll-pg-20261115" / args.label
@@ -130,9 +159,11 @@ def main():
             "status": subprocess.check_output(["git", "status", "--short", "-uno"], cwd=ROOT, text=True),
         }
         (evidence / "git-state.json").write_text(json.dumps(tracked_state, indent=2))
+        if args.source_root:
+            (evidence / "source-manifest.json").write_bytes((source_root / "verification-source-manifest.json").read_bytes())
         start = time.monotonic()
         with (evidence / "execution.log").open("w", encoding="utf-8") as output:
-            result = subprocess.call(command, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT)
+            result = subprocess.call(command, cwd=source_root, env=env, stdout=output, stderr=subprocess.STDOUT)
         summary = {"command": command, "database": args.database, "port": PORT,
                    "exit_code": result, "seconds": round(time.monotonic() - start, 3)}
         if (evidence / "results.xml").exists():
