@@ -205,9 +205,12 @@ async def _async_process_payroll_run(run_id_str: str, job_id: str, company_id_st
                     session, uuid.UUID(run_id_str),
                     company_id=uuid.UUID(company_id_str) if company_id_str else None,
                 )
-                if run.status == "PROCESSING":
-                    # Another owner is active. Do not fail its claim or its job.
-                    return {"run_id": run_id_str, "status": "PROCESSING"}
+                # Handle both active processing and already-completed runs.
+                # A duplicate worker may arrive after the original has already finished.
+                completed_states = {"PROCESSED", "PENDING_APPROVAL", "APPROVED", "FINALIZED", "LOCKED", "PAID"}
+                if run.status == "PROCESSING" or run.status in completed_states:
+                    # Another owner is active or already finished. Do not fail its claim or its job.
+                    return {"run_id": run_id_str, "status": run.status}
         logger.exception("Error processing payroll run %s: %s", run_id_str, e)
         await PayrollJobTracker.update_job(job_id, "FAILED", error=str(e))
         raise

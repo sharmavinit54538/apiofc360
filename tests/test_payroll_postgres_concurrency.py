@@ -34,8 +34,7 @@ async def pg_sessions():
 
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # Schema already applied by alembic upgrade head; do not call create_all
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
         await engine.dispose()
