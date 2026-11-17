@@ -60,6 +60,7 @@ from app.api.news import router as news_router
 from app.api.events import router as events_router
 from app.api.polls import router as polls_router
 from app.api.internal_dashboard import router as internal_dashboard_router
+from app.api.expenses import router as expenses_router
 
 # ── AI Module Routers (from app/api/v1/) ──────────────────────────────────────
 from app.api.v1.ai import router as ai_router
@@ -213,6 +214,7 @@ def get_v1_router() -> APIRouter:
         polls_router,
         internal_dashboard_router,
         attendance_router,  # from app/attendance/routers/
+        expenses_router,
     ):
         router.include_router(r)
 

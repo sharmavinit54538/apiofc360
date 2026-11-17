@@ -611,6 +611,102 @@ class PromotionDecision(BaseModel):
     approved: bool
 
 
+# ── Module D: Performance Feedback, Rewards, Training ─────────────────────────
+
+class FeedbackTypeEnum(str):
+    EMPLOYEE = "employee"
+    MANAGER = "manager"
+    PEER = "peer"
+    SELF = "self"
+
+
+class FeedbackCreate(BaseModel):
+    employee_id: uuid.UUID
+    review_id: uuid.UUID | None = None
+    feedback_type: Literal["employee", "manager", "peer", "self"]
+    rating: Decimal = Field(ge=0, le=5)
+    strengths: str = Field(min_length=1, max_length=2000)
+    improvement_areas: str = Field(min_length=1, max_length=2000)
+    comments: str | None = Field(default=None, max_length=3000)
+    confidential: bool = False
+
+
+class FeedbackResponse(BaseModel):
+    id: uuid.UUID
+    employee_id: uuid.UUID
+    review_id: uuid.UUID | None
+    author_id: uuid.UUID
+    feedback_type: str
+    rating: Decimal
+    strengths: str
+    improvement_areas: str
+    comments: str | None
+    confidential: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class RewardCreate(BaseModel):
+    employee_id: uuid.UUID
+    review_id: uuid.UUID | None = None
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=2000)
+    reward_type: Literal["recognition", "award", "bonus", "promotion", "other"]
+    monetary_value: Decimal | None = Field(default=None, ge=0)
+    effective_date: date
+    approval_required: bool = True
+
+
+class RewardResponse(BaseModel):
+    id: uuid.UUID
+    employee_id: uuid.UUID
+    review_id: uuid.UUID | None
+    title: str
+    description: str
+    reward_type: str
+    monetary_value: Decimal | None
+    effective_date: date
+    approval_required: bool
+    approved: bool
+    approved_by: uuid.UUID | None
+    approved_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TrainingAssignmentCreate(BaseModel):
+    employee_id: uuid.UUID
+    training_id: uuid.UUID
+    assigned_by: uuid.UUID
+    due_date: date
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    notes: str | None = Field(default=None, max_length=1000)
+    review_id: uuid.UUID | None = None
+
+
+class TrainingAssignmentResponse(BaseModel):
+    id: uuid.UUID
+    employee_id: uuid.UUID
+    training_id: uuid.UUID
+    assigned_by: uuid.UUID
+    assigned_at: datetime
+    due_date: date
+    priority: str
+    status: str
+    progress: int
+    notes: str | None
+    review_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TrainingAssignmentUpdate(BaseModel):
+    status: Literal["assigned", "in_progress", "completed", "cancelled"] | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
+    due_date: date | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+
+
 @router.post("/enterprise/cycles", status_code=201)
 async def create_enterprise_cycle(body: EnterpriseCycleRequest, claims: Annotated[dict, Depends(get_current_user_claims)], db: Annotated[AsyncSession, Depends(get_db_session)]):
     _require_admin(claims)
@@ -677,3 +773,301 @@ async def decide_promotion(promotion_id: uuid.UUID, body: PromotionDecision, cla
         return _ok({"id": str(promotion.id), "status": promotion.status})
     except (ValueError, LookupError) as exc:
         _translate(exc)
+
+
+# ── Module D: Performance Feedback, Rewards, Training Assignments ─────────────
+
+@router.post(
+    "/feedback",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[FeedbackResponse],
+    summary="Submit performance feedback",
+)
+async def create_feedback(
+    body: FeedbackCreate,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[FeedbackResponse]:
+    """Submit performance feedback (employee, manager, peer, or self)."""
+    author_id = uuid.UUID(claims["sub"]) if claims else None
+    if not author_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Validate employee exists and belongs to company
+    emp_stmt = select(Employee).where(
+        Employee.id == body.employee_id,
+        Employee.company_id == _tenant_id(claims) if claims else True,
+    )
+    emp_res = await db.execute(emp_stmt)
+    employee = emp_res.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Validate review exists if provided
+    if body.review_id:
+        review_stmt = select(PerformanceReview).where(
+            PerformanceReview.id == body.review_id,
+            PerformanceReview.employee_id == body.employee_id,
+        )
+        review_res = await db.execute(review_stmt)
+        review = review_res.scalar_one_or_none()
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found for this employee")
+
+    feedback = PerformanceFeedback(
+        id=uuid.uuid4(),
+        employee_id=body.employee_id,
+        review_id=body.review_id,
+        author_id=author_id,
+        feedback_type=body.feedback_type,
+        rating=body.rating,
+        strengths=body.strengths,
+        improvement_areas=body.improvement_areas,
+        comments=body.comments,
+        confidential=body.confidential,
+    )
+    db.add(feedback)
+    await db.commit()
+    await db.refresh(feedback)
+
+    return APIResponse[FeedbackResponse](
+        success=True,
+        message="Performance feedback submitted successfully.",
+        data=FeedbackResponse(
+            id=feedback.id,
+            employee_id=feedback.employee_id,
+            review_id=feedback.review_id,
+            author_id=feedback.author_id,
+            feedback_type=feedback.feedback_type,
+            rating=feedback.rating,
+            strengths=feedback.strengths,
+            improvement_areas=feedback.improvement_areas,
+            comments=feedback.comments,
+            confidential=feedback.confidential,
+            created_at=feedback.created_at,
+            updated_at=feedback.updated_at,
+        ),
+        errors=None,
+    )
+
+
+@router.post(
+    "/rewards",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[RewardResponse],
+    summary="Create performance reward",
+)
+async def create_reward(
+    body: RewardCreate,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[RewardResponse]:
+    """Create a performance reward or recognition."""
+    # Validate employee exists and belongs to company
+    emp_stmt = select(Employee).where(
+        Employee.id == body.employee_id,
+        Employee.company_id == _tenant_id(claims) if claims else True,
+    )
+    emp_res = await db.execute(emp_stmt)
+    employee = emp_res.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Validate review exists if provided
+    if body.review_id:
+        review_stmt = select(PerformanceReview).where(
+            PerformanceReview.id == body.review_id,
+            PerformanceReview.employee_id == body.employee_id,
+        )
+        review_res = await db.execute(review_stmt)
+        review = review_res.scalar_one_or_none()
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found for this employee")
+
+    reward = PerformanceReward(
+        id=uuid.uuid4(),
+        employee_id=body.employee_id,
+        review_id=body.review_id,
+        title=body.title,
+        description=body.description,
+        reward_type=body.reward_type,
+        monetary_value=body.monetary_value,
+        effective_date=body.effective_date,
+        approval_required=body.approval_required,
+        approved=False,
+    )
+    db.add(reward)
+    await db.commit()
+    await db.refresh(reward)
+
+    return APIResponse[RewardResponse](
+        success=True,
+        message="Performance reward created successfully.",
+        data=RewardResponse(
+            id=reward.id,
+            employee_id=reward.employee_id,
+            review_id=reward.review_id,
+            title=reward.title,
+            description=reward.description,
+            reward_type=reward.reward_type,
+            monetary_value=reward.monetary_value,
+            effective_date=reward.effective_date,
+            approval_required=reward.approval_required,
+            approved=reward.approved,
+            approved_by=reward.approved_by,
+            approved_at=reward.approved_at,
+            created_at=reward.created_at,
+            updated_at=reward.updated_at,
+        ),
+        errors=None,
+    )
+
+
+@router.post(
+    "/training/assign",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[TrainingAssignmentResponse],
+    summary="Assign training to employee",
+)
+async def assign_training(
+    body: TrainingAssignmentCreate,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[TrainingAssignmentResponse]:
+    """Assign a training course to an employee."""
+    # Validate employee exists and belongs to company
+    emp_stmt = select(Employee).where(
+        Employee.id == body.employee_id,
+        Employee.company_id == _tenant_id(claims) if claims else True,
+    )
+    emp_res = await db.execute(emp_stmt)
+    employee = emp_res.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    # Validate training exists
+    training_stmt = select(TrainingCourse).where(TrainingCourse.id == body.training_id)
+    training_res = await db.execute(training_stmt)
+    training = training_res.scalar_one_or_none()
+    if not training:
+        raise HTTPException(status_code=404, detail="Training course not found")
+
+    # Validate review exists if provided
+    if body.review_id:
+        review_stmt = select(PerformanceReview).where(
+            PerformanceReview.id == body.review_id,
+            PerformanceReview.employee_id == body.employee_id,
+        )
+        review_res = await db.execute(review_stmt)
+        review = review_res.scalar_one_or_none()
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found for this employee")
+
+    assignment = TrainingAssignment(
+        id=uuid.uuid4(),
+        employee_id=body.employee_id,
+        training_id=body.training_id,
+        assigned_by=body.assigned_by,
+        assigned_at=datetime.now(timezone.utc),
+        due_date=body.due_date,
+        priority=body.priority,
+        status="assigned",
+        progress=0,
+        notes=body.notes,
+        review_id=body.review_id,
+    )
+    db.add(assignment)
+    await db.commit()
+    await db.refresh(assignment)
+
+    return APIResponse[TrainingAssignmentResponse](
+        success=True,
+        message="Training assigned successfully.",
+        data=TrainingAssignmentResponse(
+            id=assignment.id,
+            employee_id=assignment.employee_id,
+            training_id=assignment.training_id,
+            assigned_by=assignment.assigned_by,
+            assigned_at=assignment.assigned_at,
+            due_date=assignment.due_date,
+            priority=assignment.priority,
+            status=assignment.status,
+            progress=assignment.progress,
+            notes=assignment.notes,
+            review_id=assignment.review_id,
+            created_at=assignment.created_at,
+            updated_at=assignment.updated_at,
+        ),
+        errors=None,
+    )
+
+
+@router.patch(
+    "/training/{assignment_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[TrainingAssignmentResponse],
+    summary="Update training assignment",
+)
+async def update_training_assignment(
+    assignment_id: uuid.UUID,
+    body: TrainingAssignmentUpdate,
+    claims: Annotated[dict, Depends(get_current_user_claims)] = None,
+    db: Annotated[AsyncSession, Depends(get_db_session)] = None,
+) -> APIResponse[TrainingAssignmentResponse]:
+    """Update training assignment status and progress."""
+    stmt = select(TrainingAssignment).where(TrainingAssignment.id == assignment_id)
+    res = await db.execute(stmt)
+    assignment = res.scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Training assignment not found")
+
+    # Validate state transitions
+    valid_transitions = {
+        "assigned": ["in_progress", "cancelled"],
+        "in_progress": ["completed", "cancelled"],
+        "completed": [],
+        "cancelled": [],
+    }
+
+    if body.status and body.status != assignment.status:
+        if body.status not in valid_transitions.get(assignment.status, []):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Invalid status transition from {assignment.status} to {body.status}",
+            )
+
+    if body.status:
+        assignment.status = body.status
+    if body.progress is not None:
+        assignment.progress = body.progress
+        if body.progress >= 100 and assignment.status != "completed":
+            assignment.status = "completed"
+    if body.due_date:
+        assignment.due_date = body.due_date
+    if body.notes is not None:
+        assignment.notes = body.notes
+
+    assignment.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(assignment)
+
+    return APIResponse[TrainingAssignmentResponse](
+        success=True,
+        message="Training assignment updated successfully.",
+        data=TrainingAssignmentResponse(
+            id=assignment.id,
+            employee_id=assignment.employee_id,
+            training_id=assignment.training_id,
+            assigned_by=assignment.assigned_by,
+            assigned_at=assignment.assigned_at,
+            due_date=assignment.due_date,
+            priority=assignment.priority,
+            status=assignment.status,
+            progress=assignment.progress,
+            notes=assignment.notes,
+            review_id=assignment.review_id,
+            created_at=assignment.created_at,
+            updated_at=assignment.updated_at,
+        ),
+        errors=None,
+    )

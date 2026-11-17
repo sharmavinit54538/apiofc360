@@ -77,6 +77,7 @@ from app.api.v2.scim_api import admin_router as scim_admin_v2_router
 from app.api.v2.enterprise_intelligence_apis import ijp_router
 from app.api.v2.marketplace_api import router as marketplace_v2_router
 from app.api.v2.whitelabel_api import router as whitelabel_v2_router
+from app.api.v2.autopilot import router as autopilot_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -153,6 +154,7 @@ def get_v2_router() -> APIRouter:
         ijp_router,
         marketplace_v2_router,
         whitelabel_v2_router,
+        autopilot_router,
     ):
         router.include_router(r)
     
