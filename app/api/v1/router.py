@@ -96,6 +96,7 @@ from app.api.v1.reports import router as reports_v1_router_alt
 from app.api.v1.students import router as students_router
 from app.api.v1.teachers import router as teachers_router
 from app.api.v1.users import router as users_v1_router
+from app.api.v1.digilocker import router as digilocker_router
 
 # ── AI Hub Gateway Routers (from app/api/v1/ai_hub/) ──────────────────────────
 from app.api.v1.ai_hub.root import router as ai_hub_root_router
@@ -271,6 +272,7 @@ def get_v1_router() -> APIRouter:
         helpdesk_router,
         reports_v1_router,
         sidebar_router,
+        digilocker_router,
     ):
         router.include_router(r)
     

@@ -170,3 +170,82 @@ class PromotionApproval(EnterpriseModelMixin, Base):
     manager_approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     hr_approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PerformanceFeedback(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_feedback"
+    __table_args__ = (
+        Index("ix_performance_feedback_employee_id", "employee_id"),
+        Index("ix_performance_feedback_review_id", "review_id"),
+    )
+
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    review_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_reviews.id", ondelete="SET NULL"), nullable=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    feedback_type: Mapped[str] = mapped_column(String(20), nullable=False)  # employee, manager, peer, self
+    rating: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
+    strengths: Mapped[str] = mapped_column(Text, nullable=False)
+    improvement_areas: Mapped[str] = mapped_column(Text, nullable=False)
+    comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidential: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    author: Mapped[User] = relationship("User", lazy="select")
+    review: Mapped[PerformanceReview | None] = relationship("PerformanceReview", lazy="select")
+
+
+class PerformanceReward(EnterpriseModelMixin, Base):
+    __tablename__ = "performance_rewards"
+    __table_args__ = (
+        Index("ix_performance_rewards_employee_id", "employee_id"),
+        Index("ix_performance_rewards_review_id", "review_id"),
+    )
+
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    review_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_reviews.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    reward_type: Mapped[str] = mapped_column(String(30), nullable=False)  # recognition, award, bonus, promotion, other
+    monetary_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    review: Mapped[PerformanceReview | None] = relationship("PerformanceReview", lazy="select")
+
+
+class TrainingCourse(EnterpriseModelMixin, Base):
+    __tablename__ = "training_courses"
+    __table_args__ = (
+        Index("ix_training_courses_company_id", "company_id"),
+    )
+
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+
+class TrainingAssignment(EnterpriseModelMixin, Base):
+    __tablename__ = "training_assignments"
+    __table_args__ = (
+        Index("ix_training_assignments_employee_id", "employee_id"),
+        Index("ix_training_assignments_training_id", "training_id"),
+        Index("ix_training_assignments_status", "status"),
+    )
+
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    training_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("training_courses.id", ondelete="CASCADE"), nullable=False)
+    assigned_by: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False, default="medium", server_default=text("'medium'"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="assigned", server_default=text("'assigned'"))  # assigned, in_progress, completed, cancelled
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("performance_reviews.id", ondelete="SET NULL"), nullable=True)
+
+    training: Mapped[TrainingCourse] = relationship("TrainingCourse", lazy="select")

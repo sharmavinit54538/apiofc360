@@ -19,7 +19,15 @@ from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.services.performance_service import PerformanceService
-from app.models.performance import PerformanceReview, PerformanceReviewCycle, EmployeePerformanceGoal
+from app.models.performance import (
+    PerformanceReview,
+    PerformanceReviewCycle,
+    EmployeePerformanceGoal,
+    PerformanceFeedback,
+    PerformanceReward,
+    TrainingCourse,
+    TrainingAssignment,
+)
 from app.models.employee import Employee
 
 logger = logging.getLogger(__name__)
