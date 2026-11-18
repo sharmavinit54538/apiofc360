@@ -15,13 +15,13 @@ from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.models.employee import Employee
 from app.models.leave import LeaveRequest
-from app.models.attendance import AttendanceRecord
+from app.models.attendance import Attendance as AttendanceRecord
 from app.models.payroll import PayCycle
 from app.models.recruitment import Job, Application
-from app.models.exits import ExitRequest
+from app.models.exit import EmployeeExit as ExitRequest
 from app.models.timesheet import TimesheetEntry
 from app.models.document import DocumentTemplate, EmployeeDocument
-from app.models.connect import Channel, ChannelMember
+from app.models.connect import ConnectChannel as Channel, ConnectChannelMember as ChannelMember
 from app.schemas.auth import APIResponse
 
 router = APIRouter(prefix="/hr-ops", tags=["HR Operations & Analytics"])

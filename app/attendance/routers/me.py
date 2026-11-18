@@ -13,6 +13,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
+from app.db.base import Base
 from app.middleware.auth import get_current_user_claims
 from app.attendance.schemas.response import AttendanceTodayResponse
 from app.attendance.services.history_service import AttendanceHistoryService
@@ -198,9 +199,12 @@ class ShiftChangeRequestResponse(BaseModel):
     reviewed_by: uuid.UUID | None
 
 
-class ShiftChangeRequest(Base):
-    """Shift change request model (placeholder - should be in models)."""
-    pass
+class ShiftChangeRequest(BaseModel):
+    """Shift change request model."""
+    requested_shift_id: uuid.UUID = Field(description="ID of the shift to change to")
+    start_date: date = Field(description="Start date for the change")
+    end_date: date | None = Field(default=None, description="End date for the change (optional)")
+    reason: str = Field(min_length=1, max_length=1000, description="Reason for shift change request")
 
 
 @router.post(

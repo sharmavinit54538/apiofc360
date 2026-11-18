@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -463,13 +463,14 @@ async def update_visitor(
 @router.delete(
     "/{visitor_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Cancel/Delete a visitor",
 )
 async def delete_visitor(
     visitor_id: uuid.UUID,
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-) -> None:
+) -> Response:
     """Cancel a scheduled visitor or delete checked-out visitor."""
     company_id = await _get_company_id(claims)
 
@@ -487,6 +488,7 @@ async def delete_visitor(
 
     await db.delete(visitor)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

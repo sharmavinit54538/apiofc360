@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Union
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -71,7 +71,7 @@ class ConditionNode(AutopilotBase):
 
 class ConditionGroup(AutopilotBase):
     logic: Literal["AND", "OR"] = "AND"
-    conditions: list[ConditionNode | "ConditionGroup"] = Field(default_factory=list, min_length=1)
+    conditions: list[Union[ConditionNode, "ConditionGroup"]] = Field(default_factory=list, min_length=1)
 
 
 class EscalationStep(AutopilotBase):

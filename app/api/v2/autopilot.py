@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v2.enterprise_dependencies import company_id as _tenant_id, user_id as _actor_id
@@ -198,18 +198,20 @@ async def update_autopilot_rule(
 @router.delete(
     "/rules/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Delete an automation rule",
 )
 async def delete_autopilot_rule(
     rule_id: uuid.UUID,
     claims: Annotated[dict, Depends(_tenant_id)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
-) -> None:
+) -> Response:
     """Delete an automation rule."""
     company_uuid = _tenant_id(claims)
     actor_uuid = _actor_id(claims)
     service = AutopilotService(db, company_uuid, actor_uuid)
     await service.delete_rule(rule_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
