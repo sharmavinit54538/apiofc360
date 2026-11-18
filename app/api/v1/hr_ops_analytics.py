@@ -8,7 +8,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import case, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
@@ -207,7 +207,7 @@ async def get_analytics_metrics(
     # Attendance rate
     att_stmt = select(
         func.count(AttendanceRecord.id).label("total"),
-        func.sum(func.case((AttendanceRecord.status == "PRESENT", 1), else_=0)).label("present"),
+        func.sum(case((AttendanceRecord.status == "PRESENT", 1), else_=0)).label("present"),
     ).where(
         AttendanceRecord.company_id == company_id,
         AttendanceRecord.record_date >= date_from,
@@ -329,7 +329,7 @@ async def export_analytics_report(
         att_stmt = select(
             Employee.department,
             func.count(AttendanceRecord.id).label("total"),
-            func.sum(func.case((AttendanceRecord.status == "PRESENT", 1), else_=0)).label("present"),
+            func.sum(case((AttendanceRecord.status == "PRESENT", 1), else_=0)).label("present"),
         ).where(
             AttendanceRecord.company_id == company_id,
             AttendanceRecord.record_date >= date_from,
@@ -350,7 +350,7 @@ async def export_analytics_report(
             "format": format,
             "date_range": {"from": date_from.isoformat(), "to": date_to.isoformat()},
             "metrics": metric_list,
-            "content_base64": csv_content.encode().hex(),  # Simplified encoding
+            "content_base64": __import__("base64").b64encode(csv_content.encode("utf-8")).decode("ascii"),  # Simplified encoding
             "filename": f"analytics_report_{date_from}_{date_to}.csv",
         },
         errors=None,
@@ -404,9 +404,21 @@ async def generate_document(
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
-    # In production, use a document generation service
-    # For now, return a placeholder response
-    document_id = uuid.uuid4()
+    from app.services.letter_service import LetterService
+    from app.services.document_service import DocumentService
+    from app.services.ai_hub.document_generator_service import DocumentGeneratorService
+    variables = dict(payload.variables)
+    variables.update(employee_name=f"{employee.first_name} {employee.last_name}".strip(),
+                     employee_id=str(employee.id))
+    missing = set(DocumentGeneratorService.extract_placeholders(template.template_body)) - variables.keys()
+    if missing:
+        raise HTTPException(422, "Missing template variables: " + ", ".join(sorted(missing)))
+    text = LetterService.substitute(template.template_body, variables)
+    pdf = DocumentService._render_text_to_pdf(template.name, text)
+    document = await LetterService(db).save_employee_pdf(
+        employee=employee, title=template.name, document_type="GENERATED",
+        pdf_bytes=pdf, actor_id=await _get_user_id(claims), commit=True)
+    document_id = document.id
 
     return APIResponse[dict](
         success=True,
@@ -534,39 +546,29 @@ async def search_policies(
     q: str = Query(..., min_length=2, description="Search query"),
     category: Optional[str] = Query(None, description="Policy category filter"),
     limit: int = Query(10, ge=1, le=50),
+    page: int = Query(1, ge=1),
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Search organization-specific approved policies."""
     company_id = await _get_company_id(claims)
 
-    # In production, use the PolicyAIService with RAG
-    # For now, return a structured placeholder response
-    results = [
-        {
-            "id": str(uuid.uuid4()),
-            "title": "Leave Policy 2026",
-            "category": "Leave & Absence",
-            "snippet": "Employees are entitled to 12 casual leaves, 12 sick leaves, and 18 earned leaves per year...",
-            "document_url": "/documents/leave-policy-2026.pdf",
-            "last_updated": "2026-01-15",
-            "relevance_score": 0.92,
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "Remote Work Policy",
-            "category": "Work Arrangements",
-            "snippet": "Eligible employees may work remotely up to 2 days per week with manager approval...",
-            "document_url": "/documents/remote-work-policy.pdf",
-            "last_updated": "2026-03-01",
-            "relevance_score": 0.87,
-        },
-    ]
-
-    # Filter by query
-    filtered = [r for r in results if q.lower() in r["title"].lower() or q.lower() in r["snippet"].lower()]
+    from app.models.policy import CompanyPolicyDocument
+    from app.services.policy_service import PolicyService
+    stmt = select(CompanyPolicyDocument).where(
+        CompanyPolicyDocument.company_id == company_id,
+        CompanyPolicyDocument.status == "PUBLISHED",
+        (CompanyPolicyDocument.title.ilike(f"%{q}%")) | (CompanyPolicyDocument.raw_content.ilike(f"%{q}%")),
+    )
     if category:
-        filtered = [r for r in filtered if r["category"].lower() == category.lower()]
+        stmt = stmt.where(func.lower(CompanyPolicyDocument.category) == category.lower())
+    policies = (await db.scalars(stmt.order_by(CompanyPolicyDocument.updated_at.desc()))).all()
+    if claims.get("role") not in {"hr_admin", "super_admin"}:
+        employee = await db.scalar(select(Employee).where(Employee.user_id == await _get_user_id(claims), Employee.company_id == company_id))
+        policies = [p for p in policies if employee and PolicyService.employee_matches(p, employee)]
+    filtered = [{"id": str(p.id), "title": p.title, "category": p.category,
+                 "snippet": p.raw_content[:350], "document_url": None,
+                 "last_updated": p.updated_at.isoformat(), "relevance_score": None} for p in policies]
 
     return APIResponse[dict](
         success=True,
@@ -574,7 +576,7 @@ async def search_policies(
         data={
             "query": q,
             "category_filter": category,
-            "results": filtered[:limit],
+            "results": filtered[(page - 1) * limit:page * limit],
             "total_found": len(filtered),
         },
         errors=None,

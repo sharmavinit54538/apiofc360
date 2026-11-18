@@ -749,6 +749,8 @@ def _create_tts_provider(name: str) -> TTSProviderBase:
     name = name.lower()
 
     if name == "mock":
+        if settings.ENVIRONMENT.lower() != "test":
+            raise RuntimeError("Mock speech providers are restricted to isolated tests")
         config = TTSProviderConfig(
             name="mock",
             base_url="",
@@ -876,8 +878,8 @@ def _create_tts_provider(name: str) -> TTSProviderBase:
         return CoquiTTSProvider(config)
 
     else:
-        logger.warning("Unknown TTS provider '%s', falling back to mock", name)
-        return _create_tts_provider("mock")
+        logger.warning("Unknown TTS provider '%s', provider is unsupported", name)
+        raise ValueError("Unknown TTS provider: " + name)
 
 
 def get_available_tts_providers() -> list[str]:
@@ -887,7 +889,7 @@ def get_available_tts_providers() -> list[str]:
 
 async def get_tts_router() -> TTSProviderBase:
     """Get the default TTS provider (first available)."""
-    for name in ["elevenlabs", "openai", "google_cloud", "azure", "coqui", "mock"]:
+    for name in ["elevenlabs", "openai", "google_cloud", "azure", "coqui"]:
         try:
             provider = get_tts_provider(name)
             if await provider.health_check():
@@ -895,4 +897,4 @@ async def get_tts_router() -> TTSProviderBase:
         except Exception:
             continue
     # Fallback to mock
-    return get_tts_provider("mock")
+    raise RuntimeError("No configured TTS provider is available")

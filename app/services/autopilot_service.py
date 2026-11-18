@@ -341,45 +341,8 @@ class AutopilotService:
     # ── Agent (AI Copilot) ──────────────────────────────────────────────────────
 
     async def agent_chat(self, message: str, context: dict[str, Any] | None = None, conversation_id: uuid.UUID | None = None) -> dict[str, Any]:
-        """Process agent chat message and return response with proposed actions."""
-        # This is a placeholder for LLM integration
-        # In production, this would call the configured LLM provider
-        conv_id = conversation_id or uuid.uuid4()
-
-        # Simple rule-based responses for common queries
-        proposed_actions = []
-        requires_approval = False
-
-        msg_lower = message.lower()
-        if "approve" in msg_lower and "leave" in msg_lower:
-            proposed_actions.append({
-                "action_type": "AUTO_APPROVE",
-                "domain": "leave",
-                "parameters": {"leave_type": "casual"},
-                "reasoning": "User requested leave approval automation",
-                "confidence_score": 0.9,
-            })
-            requires_approval = True
-        elif "payroll" in msg_lower and "run" in msg_lower:
-            proposed_actions.append({
-                "action_type": "FLAG_EXCEPTION",
-                "domain": "payroll",
-                "parameters": {},
-                "reasoning": "Payroll automation requires human oversight",
-                "confidence_score": 0.7,
-            })
-
-        response_text = "I understand your request. " + (
-            "I've identified some actions that require your approval." if requires_approval
-            else "No automated actions are available for this request at this time."
-        )
-
-        return {
-            "conversation_id": str(conv_id),
-            "response": response_text,
-            "proposed_actions": proposed_actions,
-            "requires_approval": requires_approval,
-        }
+        from app.services.autopilot_chat import chat
+        return await chat(message, context, conversation_id)
 
     async def get_proposed_action(self, action_id: uuid.UUID) -> dict[str, Any] | None:
         """Get a proposed action by ID (from audit log)."""
@@ -399,18 +362,8 @@ class AutopilotService:
         if not audit:
             raise ValueError("Action not found")
 
-        # In a real implementation, this would execute the action
-        # For now, we just update the audit log
-        await self._audit(
-            action="ACTION_EXECUTED",
-            domain=audit.get("domain"),
-            entity_id=uuid.UUID(audit.get("entity_id")) if audit.get("entity_id") else None,
-            explanation=f"Confirmed AI action: {approval_comment or 'Approved by user'}",
-            after_snapshot={"confirmed": True, "approval_comment": approval_comment},
-            rule_id=uuid.UUID(audit.get("rule_id")) if audit.get("rule_id") else None,
-        )
-        await self.db.commit()
-        return {"action_id": str(action_id), "status": "executed", "confirmed_at": datetime.now(timezone.utc).isoformat()}
+        from fastapi import HTTPException
+        raise HTTPException(409, "No executable action is attached to this record. Use the authorized domain workflow.")
 
     async def cancel_action(self, action_id: uuid.UUID, cancellation_reason: str) -> dict[str, Any]:
         """Cancel a pending AI-proposed action."""

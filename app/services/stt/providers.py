@@ -627,6 +627,8 @@ def _create_provider(name: str) -> STTProviderBase:
     name = name.lower()
 
     if name == "mock":
+        if settings.ENVIRONMENT.lower() != "test":
+            raise RuntimeError("Mock speech providers are restricted to isolated tests")
         config = STTProviderConfig(
             name="mock",
             base_url="",
@@ -701,8 +703,8 @@ def _create_provider(name: str) -> STTProviderBase:
         return GoogleCloudSTTProvider(config)
 
     else:
-        logger.warning("Unknown STT provider '%s', falling back to mock", name)
-        return _create_provider("mock")
+        logger.warning("Unknown STT provider '%s', provider is unsupported", name)
+        raise ValueError("Unknown STT provider: " + name)
 
 
 def get_available_stt_providers() -> list[str]:
@@ -712,7 +714,7 @@ def get_available_stt_providers() -> list[str]:
 
 async def get_stt_router() -> STTProviderBase:
     """Get the default STT provider (first available)."""
-    for name in ["deepgram", "whisper", "google_cloud", "mock"]:
+    for name in ["deepgram", "whisper", "google_cloud"]:
         try:
             provider = get_stt_provider(name)
             if await provider.health_check():
@@ -720,4 +722,4 @@ async def get_stt_router() -> STTProviderBase:
         except Exception:
             continue
     # Fallback to mock
-    return get_stt_provider("mock")
+    raise RuntimeError("No configured STT provider is available")
