@@ -99,8 +99,6 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     # Consolidated CORS origins - supported in all environments (production & development)
     CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://api.ofc360.com",
@@ -109,8 +107,6 @@ class Settings(BaseSettings):
     ]
     # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
@@ -132,14 +128,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
+    TRUSTED_PROXY_CIDRS: str = ""
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60

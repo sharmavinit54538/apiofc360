@@ -758,3 +758,5 @@ __all__ += [
     "OrgTwinSimulation", "WorkforcePlan", "MarketplaceIntegration",
     "TenantIntegration", "IntegrationConnection", "IntegrationSyncLog",
 ]
+
+from app.models.automation_jobs import NotificationAutomationRule, AutomationExecution

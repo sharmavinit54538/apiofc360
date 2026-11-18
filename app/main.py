@@ -64,16 +64,9 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 await conn.execute(text("SELECT 1"))
             logger.info("Database connectivity check SUCCESSFUL on attempt %d.", attempt)
             
-            # Connectivity verified
-            try:
-                import app.models  # noqa: F401
-                from app.db.base import Base
-                async with engine.begin() as conn:
-                    await conn.run_sync(Base.metadata.create_all)
-                logger.info("Database schema verified and initialized successfully.")
-            except Exception as schema_err:
-                logger.warning("Database schema auto-creation notice (tables may already exist): %s", str(schema_err))
-            
+            from app.core.readiness import check_schema
+            await check_schema(engine)
+
             return True
         except Exception as e:
             if "postgres.railway.internal" in str(e):
@@ -82,7 +75,7 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                     "You are using Railway's internal hostname on Render. Replace DATABASE_URL with Railway's Public / External URL."
                 )
             else:
-                logger.error("Database connection attempt %d/%d failed: %s", attempt, max_retries, str(e), exc_info=True)
+                logger.error("Database connection attempt %d/%d failed (%s)", attempt, max_retries, type(e).__name__)
                 
             if attempt < max_retries:
                 logger.info("Retrying database connection in %.1f seconds...", delay)
@@ -122,15 +115,10 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
-        # Schema healing - auto-heal database schema drift
         try:
-            from app.db.database import heal_database_schema
-            await heal_database_schema(engine)
-        except Exception as heal_err:
-            logger.warning("Schema healing notice: %s", str(heal_err))
-
-        # Automatically provision/verify Super Admin accounts
-        await ensure_superadmin_provisioned()
+            await ensure_superadmin_provisioned()
+        except RuntimeError:
+            logger.error("Platform owner provisioning requires operator attention.")
 
         # Seed canonical document categories and templates idempotently
         try:
@@ -299,26 +287,8 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Explicit origins that MUST be supported across all environments (production & dev)
-    # per exact requirement: http://localhost:8080, http://127.0.0.1:8080, https://ofc360.com, https://www.ofc360.com
-    base_required_origins = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://ofc360.com",
-        "https://www.ofc360.com",
-        "https://api.ofc360.com",
-        "https://app.ofc360.com",
-        "https://ofc360.vercel.app",
-    ]
-
-    candidate_origins = list(base_required_origins)
-    if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-        candidate_origins.extend(settings.CORS_ORIGINS)
-    if getattr(settings, "ALLOWED_ORIGINS", None):
-        candidate_origins.extend(settings.ALLOWED_ORIGINS)
-    if getattr(settings, "BACKEND_CORS_ORIGINS", None):
-        candidate_origins.extend(settings.BACKEND_CORS_ORIGINS)
-    if getattr(settings, "DEV_CORS_ORIGINS", None):
+    candidate_origins = list(settings.CORS_ORIGINS) + list(settings.ALLOWED_ORIGINS) + list(settings.BACKEND_CORS_ORIGINS)
+    if not settings.is_production:
         candidate_origins.extend(settings.DEV_CORS_ORIGINS)
 
     # Sanitize: strip whitespace, remove trailing slashes and quotes, ensure no '*' with credentials
@@ -454,91 +424,16 @@ def create_app() -> FastAPI:
             "errors": None
         }
 
-    @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health Checks"])
-    async def health_check(deep: bool = False):
-        """Liveness & health probe verifying backend and database status.
-        
-        Args:
-            deep: If True, also checks Redis connectivity and runs a quick query.
-                  Use sparingly as it adds latency.
-        """
-        db_status = "disconnected"
-        redis_status = "not_checked"
-        
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            db_status = "connected"
-        except Exception as e:
-            logger.error("Health check DB connection error: %s", e)
-        
-        if deep:
-            try:
-                from app.core.redis_client import redis_client
-                if redis_client.is_connected:
-                    redis_status = "connected"
-                else:
-                    redis_status = "disconnected"
-            except Exception as e:
-                logger.error("Health check Redis error: %s", e)
-                redis_status = "error"
+    @app.api_route("/health/live", methods=["GET", "HEAD"], tags=["Health Checks"])
+    async def liveness():
+        return {"status": "alive"}
 
-        return {
-            "status": "healthy" if db_status == "connected" else "degraded",
-            "database": db_status,
-            "redis": redis_status if deep else "not_checked",
-            "app": settings.APP_NAME,
-            "version": settings.APP_VERSION,
-            "environment": settings.ENVIRONMENT,
-        }
-
+    @app.api_route("/health", methods=["GET", "HEAD"], tags=["Health Checks"])
     @app.get("/health/ready", tags=["Health Checks"])
     async def health_ready():
-        """Readiness probe checking DB and Ollama connectivity."""
-        db_healthy = False
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            db_healthy = True
-        except Exception:
-            pass
-
-        from app.llm.client import get_llm_client
-        llm_health = await get_llm_client().check_health()
-
-        # Get detailed provider status for monitoring
-        from app.llm.router import get_llm_router
-        router = get_llm_router()
-        provider_health = await router.health_check()
-
-        # Check Ollama model availability
-        ollama_model_available = False
-        ollama_details = provider_health.get("providers", {}).get("ollama", {})
-        if isinstance(ollama_details, dict):
-            ollama_model_available = ollama_details.get("model_available", False)
-        elif provider_health.get("providers", {}).get("ollama") is True:
-            # Simple boolean health check passed - try to verify model
-            ollama_model_available = True
-
-        ready = db_healthy and llm_health.get("healthy", False)
-        status_code = 200 if ready else 503
-
-        return JSONResponse(
-            status_code=status_code,
-            content={
-                "ready": ready,
-                "database": "connected" if db_healthy else "disconnected",
-                "llm": {
-                    "healthy": llm_health.get("healthy", False),
-                    "provider": "ollama",
-                    "model_available": ollama_model_available,
-                    "configured_model": settings.OLLAMA_MODEL,
-                    "base_url": settings.OLLAMA_BASE_URL,
-                    "healthy_count": provider_health.get("healthy_count", 0),
-                    "total_count": provider_health.get("total_count", 0),
-                },
-            }
-        )
+        from app.core.readiness import readiness
+        result = await readiness(engine)
+        return JSONResponse(status_code=200 if result["ready"] else 503, content=result)
 
     @app.api_route("/", methods=["GET", "HEAD"], status_code=200, tags=["Root"])
     async def root():
@@ -587,37 +482,9 @@ def create_app() -> FastAPI:
         if not origin:
             return {}
         
-        cleaned_origin = str(origin).strip().strip("'\"").rstrip("/")
-        
-        # Check if origin is allowed
-        allowed_origins = set()
-        if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.CORS_ORIGINS if o)
-        if getattr(settings, "ALLOWED_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.ALLOWED_ORIGINS if o)
-        if getattr(settings, "BACKEND_CORS_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.BACKEND_CORS_ORIGINS if o)
-        if getattr(settings, "DEV_CORS_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.DEV_CORS_ORIGINS if o)
-        
-        # Default allowed origins
-        default_origins = {
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-            "https://ofc360.com",
-            "https://www.ofc360.com",
-            "https://api.ofc360.com",
-            "https://app.ofc360.com",
-            "https://ofc360.vercel.app",
-        }
-        allowed_origins.update(default_origins)
-        
-        # Also allow local network origins in development
-        import re
-        allowed_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
-        
-        is_allowed = cleaned_origin in allowed_origins or bool(re.match(allowed_regex, cleaned_origin))
-        
+        cleaned_origin = origin
+        is_allowed = origin in allowed_origins_list
+
         if is_allowed:
             return {
                 "Access-Control-Allow-Origin": cleaned_origin,
@@ -684,7 +551,7 @@ def create_app() -> FastAPI:
                 # read that key directly, so keep it in the envelope.
                 "detail": exc.detail if isinstance(exc.detail, dict) else message,
             },
-            headers=cors_headers,
+            headers={**cors_headers, **(exc.headers or {})},
         )
 
     return app

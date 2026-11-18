@@ -283,6 +283,9 @@ async def notify(
                 )
             except Exception as b_err:
                 logger.debug("Broadcast notification error: %s", b_err)
+        if created and module != "automation":
+            from app.services.notification_automation import record_event
+            await record_event(session, company_id, actor_id, type, dedupe_key or str(created[0].id))
         return created
     except Exception as e:
         logger.warning("Failed to emit notification type=%s: %s", type, e, exc_info=True)

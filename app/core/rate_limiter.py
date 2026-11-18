@@ -172,11 +172,8 @@ class RateLimiter:
             if user_id:
                 return f"user:{user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
-        if forwarded:
-            client_ip = forwarded.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client else "unknown"
+        from app.core.proxy import client_ip as resolve_client_ip
+        client_ip = resolve_client_ip(request)
         return f"ip:{client_ip}"
 
     async def _execute_with_timeout(self, coro, fail_open: bool = False, default_allowed: bool = True):
@@ -263,6 +260,8 @@ class RateLimiter:
 
         r = self.redis
         if not r._connected or not r._redis:
+            if settings.is_production:
+                return False, window_seconds, 0
             if fail_open:
                 logger.debug("Redis not connected, failing open for %s rate limiter", scope)
                 return True, 0, limit
@@ -290,6 +289,8 @@ class RateLimiter:
             
         except Exception as e:
             logger.warning("Custom rate limit check failed for %s: %s (fail_open=%s)", scope, e, fail_open)
+            if settings.is_production:
+                return False, window_seconds, 0
             if fail_open:
                 return True, 0, limit
             return self._check_memory_rate_limit(rate_key, limit, window_seconds)

@@ -18,6 +18,7 @@ try:
         include=[
             "app.workers.resume_tasks",
             "app.workers.screening_tasks",
+            "app.workers.automation_tasks",
             "app.workers.notification_tasks",
             "app.workers.payroll_tasks",
         ],
@@ -41,6 +42,9 @@ try:
         },
         task_default_queue="default",
         beat_schedule={
+            "execute-durable-automation": {
+                "task": "app.workers.automation_tasks.drain", "schedule": 15.0,
+            },
             "recover-abandoned-payroll-claims": {
                 "task": "app.workers.payroll_tasks.recover_abandoned_payroll_runs_task",
                 "schedule": 60.0,

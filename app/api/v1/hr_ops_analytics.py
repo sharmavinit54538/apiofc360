@@ -430,7 +430,7 @@ async def generate_document(
             "employee_id": str(employee.id),
             "employee_name": f"{employee.first_name} {employee.last_name}".strip(),
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "download_url": f"/api/v1/documents/{document_id}/download",
+            "download_url": f"/api/v1/documents/employees/{document_id}/download",
         },
         errors=None,
     )
@@ -554,7 +554,7 @@ async def search_policies(
     company_id = await _get_company_id(claims)
 
     from app.models.policy import CompanyPolicyDocument
-    from app.services.policy_service import PolicyService
+    from app.services.policy_service import PolicyGovernanceService
     stmt = select(CompanyPolicyDocument).where(
         CompanyPolicyDocument.company_id == company_id,
         CompanyPolicyDocument.status == "PUBLISHED",
@@ -565,7 +565,7 @@ async def search_policies(
     policies = (await db.scalars(stmt.order_by(CompanyPolicyDocument.updated_at.desc()))).all()
     if claims.get("role") not in {"hr_admin", "super_admin"}:
         employee = await db.scalar(select(Employee).where(Employee.user_id == await _get_user_id(claims), Employee.company_id == company_id))
-        policies = [p for p in policies if employee and PolicyService.employee_matches(p, employee)]
+        policies = [p for p in policies if employee and PolicyGovernanceService.employee_matches(p, employee)]
     filtered = [{"id": str(p.id), "title": p.title, "category": p.category,
                  "snippet": p.raw_content[:350], "document_url": None,
                  "last_updated": p.updated_at.isoformat(), "relevance_score": None} for p in policies]

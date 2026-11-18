@@ -580,52 +580,21 @@ class AutopilotService:
 
     # ── Onboarding Runs ─────────────────────────────────────────────────────────
 
-    async def list_onboarding_runs(
-        self,
-        status: str | None = None,
-        page: int = 1,
-        limit: int = 20,
-    ) -> dict[str, Any]:
-        """List onboarding automation runs."""
-        # Placeholder - would query onboarding automation runs table
-        return {
-            "items": [],
-            "total": 0,
-            "page": page,
-            "limit": limit,
-            "pages": 1,
-            "has_next": False,
-            "has_previous": False,
-        }
+    async def list_onboarding_runs(self, status=None, page=1, limit=20):
+        from app.services.autopilot_workflows import list_runs
+        return await list_runs(self.db, self.company_id, status, page, limit)
 
-    async def get_onboarding_run(self, run_id: uuid.UUID) -> dict[str, Any]:
-        """Get onboarding run details."""
-        # Placeholder
-        return {"id": str(run_id), "status": "not_found"}
+    async def get_onboarding_run(self, run_id):
+        from app.services.autopilot_workflows import get_run
+        return await get_run(self.db, self.company_id, run_id)
 
-    async def retry_onboarding_step(self, run_id: uuid.UUID, idempotency_key: str) -> dict[str, Any]:
-        """Retry a failed onboarding step with idempotency."""
-        # Placeholder
-        return {"run_id": str(run_id), "retried": True, "idempotency_key": idempotency_key}
+    async def retry_onboarding_step(self, run_id, idempotency_key):
+        from app.services.autopilot_workflows import retry_run
+        return await retry_run(self.db, self.company_id, self.actor_id, run_id, idempotency_key)
 
-    # ── Payroll Automation Status ──────────────────────────────────────────────
-
-    async def get_payroll_automation_status(self) -> dict[str, Any]:
-        """Get payroll automation status."""
-        return {
-            "status": "idle",
-            "current_phase": None,
-            "progress_percentage": 0.0,
-            "employees_processed": 0,
-            "employees_total": 0,
-            "errors_count": 0,
-            "warnings_count": 0,
-            "started_at": None,
-            "estimated_completion": None,
-            "last_run": None,
-            "last_run_status": None,
-            "next_scheduled_run": None,
-        }
+    async def get_payroll_automation_status(self):
+        from app.services.autopilot_workflows import payroll_status
+        return await payroll_status(self.db, self.company_id)
 
     # ── Helpers ────────────────────────────────────────────────────────────────
 
