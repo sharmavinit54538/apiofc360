@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,14 @@ from app.attendance.schemas.response import AttendanceTodayResponse
 from app.attendance.services.history_service import AttendanceHistoryService
 from app.models.employee import Employee
 from app.models.shift import Shift
-from app.models.shift_plan import ShiftPlan, ShiftPlanEntry, ShiftPlanSource, ShiftPlanStatus, EntryApprovalStatus
+from app.models.shift_plan import (
+    ShiftPlan,
+    ShiftPlanEntry,
+    ShiftPlanSource,
+    ShiftPlanStatus,
+    EntryApprovalStatus,
+    ShiftType,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -97,6 +97,13 @@ from app.api.v1.students import router as students_router
 from app.api.v1.teachers import router as teachers_router
 from app.api.v1.users import router as users_v1_router
 from app.api.v1.digilocker import router as digilocker_router
+from app.api.v1.visitors import router as visitors_router
+from app.api.v1.offboarding import router as offboarding_router
+from app.api.v1.onboarding_checklist import router as onboarding_checklist_router
+from app.api.v1.executive import router as executive_router
+from app.api.v1.hr_ops_analytics import router as hr_ops_analytics_router
+from app.api.v1.travel import router as travel_v1_router
+from app.api.v1.resume_parser import router as resume_parser_v1_router
 
 # ── AI Hub Gateway Routers (from app/api/v1/ai_hub/) ──────────────────────────
 from app.api.v1.ai_hub.root import router as ai_hub_root_router
@@ -273,6 +280,13 @@ def get_v1_router() -> APIRouter:
         reports_v1_router,
         sidebar_router,
         digilocker_router,
+        visitors_router,
+        offboarding_router,
+        onboarding_checklist_router,
+        executive_router,
+        hr_ops_analytics_router,
+        travel_v1_router,
+        resume_parser_v1_router,
     ):
         router.include_router(r)
     

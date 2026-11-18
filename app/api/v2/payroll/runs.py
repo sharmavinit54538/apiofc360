@@ -170,6 +170,19 @@ async def delete_run_v2(
     return _ok(res, "Payroll run deleted successfully")
 
 
+# 1b. POST /api/v2/payroll/runs/{runId}/cancel - Cancel payroll run (alias for delete with different semantics)
+@router.post("/runs/{runId}/cancel", summary="Cancel payroll run")
+async def cancel_run_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    # Cancel is similar to delete but may have different business logic in the future
+    res = await PayrollRunService.delete_run(db, run_id=runId)
+    return _ok(res, "Payroll run cancelled successfully")
+
+
 # 2. GET /api/v2/payroll/runs/{runId}/approval
 @router.get("/runs/{runId}/approval", summary="Get approval status and details for payroll run")
 async def get_run_approval_details(
