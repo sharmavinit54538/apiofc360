@@ -1,0 +1,4 @@
+{
+  "head": "7dc4a5c84e363ef29dc4a84cd3467fd9e70acc4e",
+  "status": " M app/api/helpdesk.py\n M app/api/payroll/routes/security_settings.py\n M app/core/rbac.py\n M app/db/dependencies.py\n M app/db/session.py\n M app/main.py\n M app/middleware/auth.py\n M app/repositories/helpdesk_repository.py\n M app/services/helpdesk_service.py\n M app/services/recruitment_service.py\n M app/services/security_setting_service.py\n M app/services/token_service.py\n M app/utils/jwt.py\n M app/workers/celery_app.py\n"
+}

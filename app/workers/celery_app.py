@@ -17,6 +17,7 @@ try:
         backend=settings.CELERY_RESULT_BACKEND,
         include=[
             "app.workers.resume_tasks",
+            "app.workers.screening_tasks",
             "app.workers.notification_tasks",
             "app.workers.payroll_tasks",
         ],
@@ -48,7 +49,7 @@ try:
     )
 
     CELERY_AVAILABLE = True
-    logger.info("Celery configured with broker: %s", settings.CELERY_BROKER_URL)
+    logger.info("Celery configured")
 
 except ImportError:
     logger.warning("celery not installed — background task processing disabled")

@@ -15,6 +15,7 @@ from app.schemas.security_setting import (
     SecurityPolicyUpdateSchema,
     IPWhitelistCreateSchema,
 )
+from app.api.v2.enterprise_dependencies import company_id
 from app.services.security_setting_service import SecuritySettingService
 
 router = APIRouter(prefix="/security", tags=["Enterprise Payroll Security"])
@@ -60,7 +61,7 @@ async def get_active_sessions(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    sessions = await SecuritySettingService.list_active_sessions(db)
+    sessions = await SecuritySettingService.list_active_sessions(db, company_id(claims))
     return success_response(sessions, "Active user sessions retrieved.")
 
 
@@ -72,7 +73,7 @@ async def revoke_user_session(
 ) -> APIResponse[dict]:
     _require_admin(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    revoked = await SecuritySettingService.revoke_session(db, session_id, actor_email)
+    revoked = await SecuritySettingService.revoke_session(db, session_id, actor_email, company_id(claims))
     if not revoked:
         raise HTTPException(status_code=404, detail="Session not found.")
     return success_response({"session_id": str(session_id)}, "Session revoked successfully.")
@@ -85,7 +86,7 @@ async def force_logout_all(
 ) -> APIResponse[dict]:
     _require_admin(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    count = await SecuritySettingService.logout_all_sessions(db, actor_email)
+    count = await SecuritySettingService.logout_all_sessions(db, actor_email, company_id(claims))
     return success_response({"revoked_count": count}, f"Force logged out {count} active sessions.")
 
 

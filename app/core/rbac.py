@@ -130,7 +130,7 @@ def _is_valid_super_admin_claims(claims: dict) -> bool:
     if role != ROLE_SUPER_ADMIN:
         return False
     # If email is in claims, it must match the single authorized Super Admin email
-    if email and email != OFFICIAL_SUPER_ADMIN_EMAIL:
+    if email != OFFICIAL_SUPER_ADMIN_EMAIL:
         return False
     return True
 

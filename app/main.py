@@ -393,6 +393,9 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
 
+    from app.middleware.tenant_context import TenantContextMiddleware
+    app.add_middleware(TenantContextMiddleware)
+
     install_exception_handlers(app)
 
     # ── Unified API v1 Router (all endpoints under /api/v1) ───────────────────────

@@ -107,6 +107,7 @@ def create_access_token(
     role: str,
     company_id: Any | None = None,
     email: str | None = None,
+    session_id: Any | None = None,
 ) -> str:
     """Create a signed JWT access token valid for configured minutes."""
 
@@ -120,6 +121,8 @@ def create_access_token(
         "iat": int(now.timestamp()),
         "jti": str(uuid.uuid4()),
     }
+    if session_id:
+        payload["sid"] = str(session_id)
     if email:
         payload["email"] = str(email).strip().lower()
     if company_id:
