@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v2.enterprise_dependencies import company_id as _tenant_id, user_id as _actor_id
+from app.api.v2.enterprise_dependencies import company_id as _tenant_id, user_id as _actor_id, AutopilotClaims
 from app.db.database import get_db_session
 from app.schemas.autopilot import (
     AgentActionCancel,
@@ -57,7 +57,7 @@ def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     summary="Get autopilot HR automation settings",
 )
 async def get_autopilot_settings(
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotSettingsResponse]:
     """Retrieve organization-specific automation settings."""
@@ -81,7 +81,7 @@ async def get_autopilot_settings(
 )
 async def update_autopilot_settings(
     payload: AutopilotSettingsUpdate,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotSettingsResponse]:
     """Update organization-specific automation settings."""
@@ -111,7 +111,7 @@ async def list_autopilot_rules(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     search: str | None = Query(None, description="Search in name/description"),
-    claims: Annotated[dict, Depends(_tenant_id)] = None,
+    claims: AutopilotClaims = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """List automation rules with pagination and filters."""
@@ -130,7 +130,7 @@ async def list_autopilot_rules(
 )
 async def create_autopilot_rule(
     payload: AutopilotRuleCreate,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotRuleResponse]:
     """Create a new automation rule with conditions, triggers, and actions."""
@@ -154,7 +154,7 @@ async def create_autopilot_rule(
 )
 async def get_autopilot_rule(
     rule_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotRuleResponse]:
     """Retrieve a single automation rule with full details."""
@@ -179,7 +179,7 @@ async def get_autopilot_rule(
 async def update_autopilot_rule(
     rule_id: uuid.UUID,
     payload: AutopilotRuleUpdate,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotRuleResponse]:
     """Update automation rule conditions, triggers, actions, enable/disable."""
@@ -203,7 +203,7 @@ async def update_autopilot_rule(
 )
 async def delete_autopilot_rule(
     rule_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
     """Delete an automation rule."""
@@ -222,7 +222,7 @@ async def delete_autopilot_rule(
 )
 async def simulate_autopilot_rule(
     payload: AutopilotRuleSimulateRequest,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotRuleSimulateResponse]:
     """Simulate a rule against provided context using authorized persisted data."""
@@ -251,7 +251,7 @@ async def list_autopilot_exceptions(
     domain: str | None = Query(None, description="Filter by domain"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    claims: Annotated[dict, Depends(_tenant_id)] = None,
+    claims: AutopilotClaims = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """List automation exceptions requiring human review."""
@@ -270,7 +270,7 @@ async def list_autopilot_exceptions(
 )
 async def get_autopilot_exception(
     exception_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotExceptionResponse]:
     """Retrieve full exception details with policy trace and snapshots."""
@@ -295,7 +295,7 @@ async def get_autopilot_exception(
 async def decide_autopilot_exception(
     exception_id: uuid.UUID,
     payload: AutopilotExceptionDecision,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotExceptionResponse]:
     """Review and decide on an exception: APPROVE, REJECT, ESCALATE, DISMISS."""
@@ -326,7 +326,7 @@ async def decide_autopilot_exception(
 )
 async def autopilot_agent_chat(
     payload: AgentChatRequest,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AgentChatResponse]:
     """Process natural language conversation through configured LLM provider."""
@@ -350,7 +350,7 @@ async def autopilot_agent_chat(
 )
 async def get_agent_action(
     action_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AgentActionProposal | None]:
     """Retrieve a pending AI-proposed action."""
@@ -382,7 +382,7 @@ async def get_agent_action(
 async def confirm_agent_action(
     action_id: uuid.UUID,
     payload: AgentActionConfirm,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Explicitly approve a sensitive AI-generated action."""
@@ -402,7 +402,7 @@ async def confirm_agent_action(
 async def cancel_agent_action(
     action_id: uuid.UUID,
     payload: AgentActionCancel,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Cancel a pending AI-proposed action before execution."""
@@ -427,7 +427,7 @@ async def list_autopilot_audit(
     action: str | None = Query(None, description="Filter by action type"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
-    claims: Annotated[dict, Depends(_tenant_id)] = None,
+    claims: AutopilotClaims = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Detailed audit trail of all automation decisions."""
@@ -447,7 +447,7 @@ async def list_autopilot_audit(
 async def undo_autopilot_audit(
     audit_id: uuid.UUID,
     payload: AutopilotAuditUndoRequest,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Undo an action only where a safe compensating operation exists."""
@@ -467,7 +467,7 @@ async def undo_autopilot_audit(
 async def override_autopilot_audit(
     audit_id: uuid.UUID,
     payload: AutopilotAuditOverrideRequest,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Admin override of an automation decision with mandatory reason."""
@@ -491,7 +491,7 @@ async def list_autopilot_alerts(
     severity: str | None = Query(None, description="Filter by severity"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    claims: Annotated[dict, Depends(_tenant_id)] = None,
+    claims: AutopilotClaims = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Automation alerts and notifications."""
@@ -510,7 +510,7 @@ async def list_autopilot_alerts(
 )
 async def acknowledge_autopilot_alert(
     alert_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Acknowledge an automation alert."""
@@ -530,7 +530,7 @@ async def acknowledge_autopilot_alert(
 async def snooze_autopilot_alert(
     alert_id: uuid.UUID,
     payload: AutopilotAlertSnooze,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Snooze an alert until a specific time."""
@@ -550,7 +550,7 @@ async def snooze_autopilot_alert(
 async def create_autopilot_alert_task(
     alert_id: uuid.UUID,
     payload: AutopilotAlertCreateTask,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Create a follow-up task from an alert."""
@@ -576,7 +576,7 @@ async def create_autopilot_alert_task(
     summary="Get autopilot overview metrics",
 )
 async def get_autopilot_overview(
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[AutopilotOverviewResponse]:
     """Aggregated autopilot metrics for dashboard."""
@@ -604,7 +604,7 @@ async def list_autopilot_onboarding_runs(
     status_filter: str | None = Query(None, alias="status", description="Filter by status"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    claims: Annotated[dict, Depends(_tenant_id)] = None,
+    claims: AutopilotClaims = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Employee onboarding automation run history."""
@@ -623,7 +623,7 @@ async def list_autopilot_onboarding_runs(
 )
 async def get_autopilot_onboarding_run(
     run_id: uuid.UUID,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[OnboardingRunDetailResponse]:
     """Detailed onboarding run with step history."""
@@ -648,7 +648,7 @@ async def get_autopilot_onboarding_run(
 async def retry_autopilot_onboarding_step(
     run_id: uuid.UUID,
     payload: OnboardingRetryRequest,
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Retry a failed onboarding step with idempotency key."""
@@ -668,7 +668,7 @@ async def retry_autopilot_onboarding_step(
     summary="Get payroll automation status",
 )
 async def get_autopilot_payroll_status(
-    claims: Annotated[dict, Depends(_tenant_id)],
+    claims: AutopilotClaims,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[PayrollAutomationStatusResponse]:
     """Real payroll automation status with phase and progress."""

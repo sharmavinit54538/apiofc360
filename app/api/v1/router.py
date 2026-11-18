@@ -79,23 +79,11 @@ from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
 from app.api.v1.intelligence import router as intelligence_router
-from app.api.v1.admissions import router as admissions_router
-from app.api.v1.attendance import router as attendance_v1_router
-from app.api.v1.cctv import router as cctv_router
-from app.api.v1.dashboard import router as dashboard_router
-from app.api.v1.documents import router as documents_v1_router
 from app.api.v1.employee_health import router as employee_health_v1_router
-from app.api.v1.face import router as face_router
-from app.api.v1.fees import router as fees_router
 from app.api.v1.intelligence import router as intelligence_v1_router
 from app.api.v1.meeting_ai import router as meeting_ai_v1_router
-from app.api.v1.parent import router as parent_router
 from app.api.v1.policy_ai import router as policy_ai_v1_router
-from app.api.v1.recognition import router as recognition_router
 from app.api.v1.reports import router as reports_v1_router_alt
-from app.api.v1.students import router as students_router
-from app.api.v1.teachers import router as teachers_router
-from app.api.v1.users import router as users_v1_router
 from app.api.v1.digilocker import router as digilocker_router
 from app.api.v1.visitors import router as visitors_router
 from app.api.v1.offboarding import router as offboarding_router
@@ -313,23 +301,11 @@ def get_v1_router() -> APIRouter:
     
     # Additional v1 routes from app/api/v1/
     for r in (
-        admissions_router,
-        attendance_v1_router,
-        cctv_router,
-        dashboard_router,
-        documents_v1_router,
         employee_health_v1_router,
-        face_router,
-        fees_router,
         intelligence_v1_router,
         meeting_ai_v1_router,
-        parent_router,
         policy_ai_v1_router,
-        recognition_router,
         reports_v1_router,
-        students_router,
-        teachers_router,
-        users_v1_router,
     ):
         router.include_router(r)
     

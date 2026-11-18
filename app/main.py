@@ -53,114 +53,6 @@ from app.core.exceptions import install_exception_handlers
 logger = logging.getLogger("app.main")
 
 
-async def auto_screen_unscreened_leads():
-    import asyncio
-    import os
-    import logging
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    from app.db.database import AsyncSessionLocal
-    from app.models.recruitment import Application, Candidate
-    from app.models.ai_recruitment import CandidateMatchScore
-    from app.services.recruitment_service import RecruitmentService
-    from app.repositories.recruitment_repository import RecruitmentRepository
-
-    logger = logging.getLogger("app.main")
-    logger.info("Auto-screening: checking for unscreened candidate leads...")
-    
-    # Give the app 2 seconds to finish starting up
-    await asyncio.sleep(2)
-    
-    async with AsyncSessionLocal() as session:
-        try:
-            # Query all applications with jobs and candidates eager loaded
-            stmt = select(Application).options(
-                selectinload(Application.job),
-                selectinload(Application.candidate)
-            )
-            apps_res = await session.execute(stmt)
-            apps = apps_res.scalars().all()
-            
-            # Query candidate IDs that already have a match score
-            score_res = await session.execute(select(CandidateMatchScore.candidate_id))
-            scored_candidate_ids = set(score_res.scalars().all())
-            
-            unscreened_apps = [a for a in apps if a.candidate_id not in scored_candidate_ids]
-            logger.info("Auto-screening: found %s unscreened applications", len(unscreened_apps))
-            
-            for app in unscreened_apps:
-                candidate = app.candidate
-                if not candidate and app.email:
-                    # Look up candidate by email
-                    cand_res = await session.execute(
-                        select(Candidate).where(Candidate.email == app.email.lower().strip())
-                    )
-                    candidate = cand_res.scalar_one_or_none()
-                    if not candidate:
-                        # Auto-create Candidate
-                        names = (app.first_name + " " + app.last_name).split(" ")
-                        first_name = names[0]
-                        last_name = " ".join(names[1:]) if len(names) > 1 else "Candidate"
-                        candidate = Candidate(
-                            first_name=first_name,
-                            last_name=last_name,
-                            email=app.email.lower().strip(),
-                            phone=app.phone or "0000000000",
-                            location=f"{app.city or ''}, {app.state or ''}, {app.country or ''}".strip(", "),
-                            years_experience=app.experience_years or 0.0,
-                            current_company=app.current_company or "",
-                            current_role=app.current_designation or "",
-                            expected_salary=app.expected_ctc or 0.0,
-                            source="Imported Lead",
-                            is_talent_pool=False,
-                        )
-                        session.add(candidate)
-                        await session.commit()
-                        await session.refresh(candidate)
-                    
-                    app.candidate_id = candidate.id
-                    await session.commit()
-                
-                if not candidate:
-                    continue
-                
-                # Fetch resume file if candidate has one
-                resume_path = candidate.resume_path
-                resume_name = candidate.resume_name or "resume.pdf"
-                file_size = 0
-                if resume_path and os.path.exists(resume_path):
-                    file_size = os.path.getsize(resume_path)
-                else:
-                    resume_path = None
-                
-                # Initialize Service and trigger task
-                repo = RecruitmentRepository(session)
-                service = RecruitmentService(
-                    session=session,
-                    repo=repo,
-                    auth_repo=None,
-                    employee_repo=None,
-                    email_service=None
-                )
-                
-                logger.info("Auto-screening candidate application %s (email: %s) without resume", app.id, candidate.email)
-                await service.screen_candidate_resume_task(
-                    application_id=app.id,
-                    candidate_id=candidate.id,
-                    job_id=app.job_id,
-                    resume_path=resume_path or "",
-                    resume_name=resume_name,
-                    file_size=file_size
-                )
-                
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "undefinedtable" in err_str:
-                logger.info("Auto-screening: applications table does not exist in database yet — skipping background lead screening.")
-            else:
-                logger.warning("Auto-screening: background check notice: %s", str(e))
-
-
 async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_factor: float = 2.0) -> bool:
     """Attempt database connection with exponential backoff retry logic."""
     import asyncio
@@ -202,91 +94,11 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
 
 
 async def ensure_superadmin_provisioned():
-    """Guarantee that exactly ONE Super Admin (superadmin@ofc360.com) exists, active and verified.
-    
-    Password behavior:
-    - New user: password is set from SUPER_ADMIN_PASSWORD env var.
-    - Existing user: password is NOT changed unless RESET_SUPER_ADMIN_PASSWORD=true.
-    
-    Safe Migration: Any other users in the DB previously assigned SUPER_ADMIN are safely
-    migrated to HR_ADMIN without deleting any user or organization data.
-    """
-    import uuid
-    from sqlalchemy import select
+    """Read-only startup validation; provisioning and recovery require the CLI."""
+    from app.services.platform_owner import validate_platform_owner
     from app.db.database import AsyncSessionLocal
-    from app.core.security import hash_password
-    from app.models.company import Company
-    from app.models.user import User, UserRole, UserAccountStatus
-
-    logger = logging.getLogger("app.main")
-    logger.info("Verifying Single Fixed Super Admin security lock and provisioning...")
-
-    super_admin_email = "superadmin@ofc360.com"
-    raw_password = settings.SUPER_ADMIN_PASSWORD.get_secret_value() if settings.SUPER_ADMIN_PASSWORD else ""
-    if not raw_password:
-        logger.warning("SUPER_ADMIN_PASSWORD not set. Super admin provisioning will skip password setting for existing users.")
-
-    try:
-        async with AsyncSessionLocal() as session:
-            # 1. Safe Migration / Cleanup of any duplicate or unauthorized Super Admin users
-            non_sa_res = await session.execute(
-                select(User).where(
-                    User.role == UserRole.SUPER_ADMIN,
-                    User.email != super_admin_email,
-                ).execution_options(bypass_tenant=True)
-            )
-            invalid_super_admins = non_sa_res.scalars().all()
-            for invalid_user in invalid_super_admins:
-                logger.warning(
-                    "Security Lock Migration: Safely demoting unauthorized super admin account %s (ID: %s) to HR_ADMIN.",
-                    invalid_user.email,
-                    invalid_user.id,
-                )
-                invalid_user.role = UserRole.HR_ADMIN
-                session.add(invalid_user)
-
-            # 2. Provision or verify the single authorized Super Admin identity
-            sa_res = await session.execute(
-                select(User).where(User.email == super_admin_email).execution_options(bypass_tenant=True)
-            )
-            sa_user = sa_res.scalars().first()
-
-            if sa_user:
-                # Only reset password if explicitly requested via env var
-                if settings.RESET_SUPER_ADMIN_PASSWORD and raw_password:
-                    sa_user.password_hash = hash_password(raw_password)
-                    logger.info("Super Admin password force-reset via RESET_SUPER_ADMIN_PASSWORD=true.")
-                sa_user.role = UserRole.SUPER_ADMIN
-                sa_user.is_active = True
-                sa_user.is_verified = True
-                sa_user.account_status = UserAccountStatus.ACTIVE.value
-                sa_user.is_deleted = False
-                session.add(sa_user)
-                logger.info("Verified official Super Admin account: %s", super_admin_email)
-            else:
-                if not raw_password:
-                    logger.error("Cannot create Super Admin: SUPER_ADMIN_PASSWORD env var is not set.")
-                    return
-                new_sa = User(
-                    id=uuid.uuid4(),
-                    name="Platform Super Admin",
-                    email=super_admin_email,
-                    phone="9999900000",
-                    password_hash=hash_password(raw_password),
-                    role=UserRole.SUPER_ADMIN,
-                    account_status=UserAccountStatus.ACTIVE.value,
-                    is_active=True,
-                    is_verified=True,
-                    must_change_password=True,
-                    company_id=None,
-                )
-                session.add(new_sa)
-                logger.info("Created official Super Admin account: %s (ID: %s)", super_admin_email, new_sa.id)
-
-            await session.commit()
-            logger.info("Super Admin single-identity security lock successfully enforced.")
-    except Exception as e:
-        logger.warning("Super Admin provisioning notice: %s", str(e))
+    async with AsyncSessionLocal() as session:
+        await validate_platform_owner(session)
 
 
 @asynccontextmanager
@@ -394,7 +206,6 @@ async def lifespan(app: FastAPI):
             logger.info(" ReDoc API Docs: http://127.0.0.1:8000/redoc")
         else:
             logger.info(" Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
-        asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
         
@@ -743,29 +554,10 @@ def create_app() -> FastAPI:
         """Favicon.ico endpoint to prevent 404 logs."""
         return Response(status_code=204)
 
-    @app.get("/api/v1/cors-debug", tags=["CORS Diagnostics"], include_in_schema=False)
-    async def cors_debug(request: Request):
-        """Diagnostic endpoint for verifying CORS configuration in production.
-        
-        Returns the active CORS origins list and request headers.
-        Only accessible from allowed origins (CORS enforced).
-        """
-        origin = request.headers.get("origin", "(no origin header)")
-        return {
-            "cors_debug": True,
-            "request_origin": origin,
-            "allowed_origins": allowed_origins_list,
-            "environment": settings.ENVIRONMENT,
-            "cors_credentials": True,
-            "cors_methods": ["*"],
-            "cors_headers": ["*"],
-            "request_headers": dict(request.headers),
-        }
-
     from fastapi.staticfiles import StaticFiles
     import os
     # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos", "avatars"]
+    public_subdirs = ["onboarding", "qrcodes", "connect", "face_attendance", "logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
         try:
