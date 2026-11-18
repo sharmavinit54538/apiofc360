@@ -195,7 +195,8 @@ class RateLimiter:
         """
         Check if request is within global rate limits using atomic Lua script.
         Returns: (allowed, retry_after_seconds, remaining_requests)
-        Fail-open for general API limiter.
+        In production, Redis loss is fail-closed. Local development uses a
+        process-local fallback to preserve developer workflows.
         """
         if not self.enabled:
             return True, 0, self.rate_per_minute
@@ -210,9 +211,6 @@ class RateLimiter:
             if settings.is_production:
                 return False, 60, 0
             return self._check_memory_rate_limit(minute_key, self.rate_per_minute, 60)
-            # Development fallback
-            logger.debug("Redis not connected, failing open for general rate limiter")
-            return True, 0, self.rate_per_minute
 
         await self._load_scripts()
 

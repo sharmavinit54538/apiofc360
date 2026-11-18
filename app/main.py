@@ -82,7 +82,7 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 await asyncio.sleep(delay)
                 delay *= backoff_factor
             else:
-                logger.error("Database connection failed after %d retries. Server starting in degraded mode.", max_retries)
+                logger.error("Database connection failed after %d retries. Readiness will remain unavailable.", max_retries)
                 return False
 
 

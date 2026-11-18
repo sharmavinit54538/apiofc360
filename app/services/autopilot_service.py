@@ -505,25 +505,19 @@ class AutopilotService:
         }
 
     async def acknowledge_alert(self, alert_id: uuid.UUID) -> dict[str, Any]:
-        """Acknowledge an alert."""
-        return {"alert_id": str(alert_id), "acknowledged": True, "acknowledged_at": datetime.now(timezone.utc).isoformat()}
+        """This release has no persistent alert entity to acknowledge."""
+        from fastapi import HTTPException
+        raise HTTPException(status_code=501, detail="Persistent autopilot alerts are not configured.")
 
     async def snooze_alert(self, alert_id: uuid.UUID, snooze_until: datetime) -> dict[str, Any]:
-        """Snooze an alert until a specific time."""
-        return {"alert_id": str(alert_id), "snoozed": True, "snoozed_until": snooze_until.isoformat()}
+        """This release has no persistent alert entity to snooze."""
+        from fastapi import HTTPException
+        raise HTTPException(status_code=501, detail="Persistent autopilot alerts are not configured.")
 
     async def create_alert_task(self, alert_id: uuid.UUID, task_title: str, task_description: str | None, assignee_user_id: uuid.UUID | None, due_at: datetime | None) -> dict[str, Any]:
-        """Create a follow-up task from an alert."""
-        task_id = uuid.uuid4()
-        return {
-            "task_id": str(task_id),
-            "alert_id": str(alert_id),
-            "title": task_title,
-            "description": task_description,
-            "assignee_user_id": str(assignee_user_id) if assignee_user_id else None,
-            "due_at": due_at.isoformat() if due_at else None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+        """Never report a task as created unless a task service persists it."""
+        from fastapi import HTTPException
+        raise HTTPException(status_code=501, detail="Persistent autopilot alert tasks are not configured.")
 
     # ── Overview ────────────────────────────────────────────────────────────────
 
