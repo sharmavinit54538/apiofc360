@@ -207,7 +207,10 @@ class RateLimiter:
 
         r = self.redis
         if not r._connected or not r._redis:
-            # Redis not available - fail open for general limiter
+            if settings.is_production:
+                return False, 60, 0
+            return self._check_memory_rate_limit(minute_key, self.rate_per_minute, 60)
+            # Development fallback
             logger.debug("Redis not connected, failing open for general rate limiter")
             return True, 0, self.rate_per_minute
 
@@ -220,7 +223,7 @@ class RateLimiter:
                     2, minute_key, hour_key,
                     self.rate_per_minute, self.rate_per_hour, 120, 7200
                 ),
-                fail_open=True,
+                fail_open=not settings.is_production,
                 default_allowed=True
             )
             
@@ -232,8 +235,10 @@ class RateLimiter:
             return bool(allowed), int(retry_after) if retry_after else 0, max(0, int(remaining))
             
         except Exception as e:
-            logger.warning("Rate limit check failed, failing open: %s", e)
-            return True, 0, self.rate_per_minute
+            logger.warning("Rate limiter unavailable (%s)", type(e).__name__)
+            if settings.is_production:
+                return False, 60, 0
+            return self._check_memory_rate_limit(minute_key, self.rate_per_minute, 60)
 
     async def check_custom_rate_limit(
         self,

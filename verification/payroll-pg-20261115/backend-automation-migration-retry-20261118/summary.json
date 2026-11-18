@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "database": "payroll_verify_backend",
+  "port": 55443,
+  "exit_code": 0,
+  "seconds": 12.927
+}

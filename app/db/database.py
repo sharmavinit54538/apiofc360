@@ -231,30 +231,7 @@ def _get_tenant_classes() -> set:
     return _tenant_classes
 
 
-@event.listens_for(Session, "do_orm_execute")
-def _do_orm_execute(orm_execute_state):
-    if not orm_execute_state.is_select:
-        return
-    tenant_id = tenant_id_ctx.get()
-    if tenant_id and not orm_execute_state.execution_options.get("bypass_tenant", False):
-        for cls in _get_tenant_classes():
-            orm_execute_state.statement = orm_execute_state.statement.options(
-                with_loader_criteria(
-                    cls,
-                    lambda target_cls: target_cls.company_id == tenant_id,
-                    include_aliases=True,
-                    propagate_to_loaders=True,
-                    track_closure_variables=False,
-                )
-            )
-
-
-@event.listens_for(Session, "before_flush")
-def _before_flush(session, flush_context, instances):
-    tenant_id = tenant_id_ctx.get()
-    if tenant_id:
-        for obj in session.new:
-            if hasattr(obj, "company_id") and getattr(obj, "company_id") is None:
-                obj.company_id = tenant_id
-
-
+from app.db.tenant_enforcement import enforce_statement, enforce_flush
+event.listen(Session, "do_orm_execute", enforce_statement)
+event.listen(Session, "before_flush", enforce_flush)
+async_session_factory = AsyncSessionLocal

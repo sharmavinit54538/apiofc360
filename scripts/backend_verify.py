@@ -10,9 +10,10 @@ harness.PORT = 55443
 harness.DATABASES = ("payroll_verify_backend", "payroll_verify_backend_suite")
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["start-and-provision"]:
+    if sys.argv[1:] in (["start-and-provision"], ["start"]):
         harness.execute([harness.BIN / "pg_ctl.exe", "-D", harness.STATE / "pgdata",
                          "-l", harness.STATE / "postgres.log", "-w", "start"])
-        asyncio.run(harness.provision(json.loads((harness.STATE / "credentials.json").read_text())))
+        if sys.argv[1:] == ["start-and-provision"]:
+            asyncio.run(harness.provision(json.loads((harness.STATE / "credentials.json").read_text())))
         raise SystemExit(0)
     raise SystemExit(harness.main())

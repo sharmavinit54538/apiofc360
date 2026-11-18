@@ -26,7 +26,7 @@ async def associate_candidate(session, application, company_id):
         raise ValueError("Candidate contact details are incomplete")
     email = application.email.strip().lower()
     # Lock the normalized company/email pair across concurrent applications.
-    await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))").execution_options(tenant_safe=True),
                           {"key": f"candidate:{company_id}:{email}"})
     candidate = await session.scalar(select(Candidate).where(
         Candidate.company_id == company_id, func.lower(Candidate.email) == email))
@@ -59,7 +59,7 @@ async def screen_application(application_id, company_id, candidate_id=None, job_
             candidate = await associate_candidate(session, application, company_id)
             if candidate_id and candidate.id != candidate_id or job_id and application.job_id != job_id:
                 raise PermissionError("Screening identity mismatch")
-            await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))").execution_options(tenant_safe=True),
                                   {"key": f"screen:{company_id}:{candidate.id}:{application.job_id}"})
             existing = await session.scalar(select(CandidateMatchScore.id).where(
                 CandidateMatchScore.candidate_id == candidate.id, CandidateMatchScore.job_id == application.job_id).limit(1))

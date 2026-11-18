@@ -35,5 +35,9 @@ async def revoke_sessions(db, company_id, session_id=None):
         token.revoked = True
         token.revoked_at = now
         token.revoked_reason = "ADMIN_REVOKED"
+    from app.models.audit_log import AuditLog
+    if rows:
+        db.add(AuditLog(company_id=company_id, action="SECURITY_SESSIONS_REVOKED",
+                        details=f"Revoked {len(rows)} issued login sessions"))
     await db.flush()
     return len(rows)
