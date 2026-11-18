@@ -25,7 +25,7 @@ from app.schemas.calendar import (
     MeetingResponse,
 )
 from app.services.calendar_service import CalendarService, get_calendar_service
-from app.models.calendar import Holiday
+from app.models.calendar import HolidayCalendar as Holiday
 
 router = APIRouter(prefix="/calendar", tags=["Calendar Management"])
 

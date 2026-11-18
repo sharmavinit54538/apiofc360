@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
@@ -147,17 +147,19 @@ async def update_expense(
 @router.delete(
     "/{expense_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Delete an expense claim (draft, changes_requested, or rejected only)",
 )
 async def delete_expense(
     expense_id: uuid.UUID,
     claims: Annotated[dict, Depends(get_current_user_claims)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-) -> None:
+) -> Response:
     """Soft-delete an expense claim. Only allowed for non-approved states."""
     actor = await resolve_expense_actor(db, claims)
     service = ExpenseService(db, actor)
     await service.delete(expense_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

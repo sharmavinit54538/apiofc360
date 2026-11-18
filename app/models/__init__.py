@@ -442,6 +442,13 @@ from app.models.helpdesk import (
     HelpdeskFAQ,
 )
 
+# Autopilot HR models
+from app.models.autopilot_hr import (
+    AutopilotPolicyRule,
+    AutopilotExceptionItem,
+    AutopilotAuditLog,
+)
+
 # AI Hub module models
 from app.models.ai_hub import (
     AgentRun,
@@ -478,6 +485,9 @@ from app.attendance.models import office_location  # noqa: F401  (office_locatio
 
 
 __all__ = [
+    "AutopilotPolicyRule",
+    "AutopilotExceptionItem",
+    "AutopilotAuditLog",
     "AgentRun",
     "AgentFeedback",
     "GeneratedDocument",
