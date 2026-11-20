@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.payroll.dependencies import DB, Claims
-from app.api.payroll.permissions import _require_admin_or_manager
+from app.api.payroll.permissions import _require_admin_or_manager, _uid, _as_uuid
 from app.api.payroll.responses import success_response
 from app.api.payroll.services.reimbursement_service import ReimbursementService
 from app.schemas.auth import APIResponse
@@ -20,9 +20,14 @@ class CopilotRequest(BaseModel):
 
 
 class CreateClaimRequest(BaseModel):
+    employee_id: Optional[uuid.UUID] = None
     expenseCategory: str
     claimAmount: float
     businessPurpose: str
+    expenseDate: Optional[str] = None
+    merchant: Optional[str] = None
+    receipt_url: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class BulkApproveRequest(BaseModel):
@@ -36,7 +41,8 @@ async def list_reimbursements(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
     items = await service.list_claims(employee_id)
     return success_response({"items": items, "total": len(items)}, "Reimbursement claims retrieved.")
 
@@ -48,8 +54,15 @@ async def create_reimbursement(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
-    res = await service.create_claim(payload)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
+    try:
+        res = await service.create_claim(payload)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     return success_response(res, "Reimbursement claim created successfully.")
 
 
@@ -60,20 +73,32 @@ async def approve_reimbursement(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
-    res = await service.approve_claim(claim_id)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
+    try:
+        res = await service.approve_claim(claim_id)
+    except ValueError as e:
+        sc = status.HTTP_404_NOT_FOUND if "not found" in str(e).lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=sc, detail=str(e))
     return success_response(res, "Reimbursement claim approved.")
 
 
 @router.post("/reimbursements/{claim_id}/reject", response_model=APIResponse[dict], summary="Reject reimbursement claim")
 async def reject_reimbursement(
     claim_id: str,
+    payload: dict = Body(default_factory=dict),
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
-    res = await service.reject_claim(claim_id)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
+    reason = payload.get("reason", "Out of policy")
+    try:
+        res = await service.reject_claim(claim_id, reason=reason)
+    except ValueError as e:
+        sc = status.HTTP_404_NOT_FOUND if "not found" in str(e).lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=sc, detail=str(e))
     return success_response(res, "Reimbursement claim rejected.")
 
 
@@ -84,7 +109,8 @@ async def bulk_approve_reimbursements(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
     ids = payload.get("ids", [])
     res = await service.bulk_approve(ids)
     return success_response(res, "Bulk approval completed.")
@@ -96,7 +122,8 @@ async def get_audit_logs(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
     logs = await service.get_audit_logs()
     return success_response({"items": logs}, "Audit logs retrieved.")
 
@@ -107,7 +134,8 @@ async def get_ai_insights(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
     insights = await service.get_ai_insights()
     return success_response({"items": insights}, "AI insights retrieved.")
 
@@ -119,6 +147,7 @@ async def copilot_chat(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = ReimbursementService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = ReimbursementService(db, company_id=cid, actor_id=_uid(claims))
     res = await service.copilot_chat(payload.query)
     return success_response(res, "Copilot reply generated.")

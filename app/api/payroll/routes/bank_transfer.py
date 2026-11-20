@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, HTTPException, Response, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.api.payroll.dependencies import DB, Claims
-from app.api.payroll.permissions import _require_admin_or_manager
+from app.api.payroll.permissions import _require_admin_or_manager, _uid, _as_uuid
 from app.api.payroll.responses import success_response
 from app.api.payroll.services.bank_service import BankService
+from app.models.payroll import BankAdviceFile
 from app.schemas.auth import APIResponse
 
 router = APIRouter()
@@ -22,6 +24,13 @@ class BankFileRequest(BaseModel):
 class BatchRequest(BaseModel):
     employee_count: Optional[int] = 0
     total_amount: Optional[float] = 0.0
+    format: Optional[str] = "NEFT"
+    pay_cycle_id: Optional[str] = None
+
+
+class MarkPaidRequest(BaseModel):
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 @router.get("/bank-transfers", response_model=APIResponse[dict], summary="List bank transfers")
@@ -35,7 +44,8 @@ async def list_bank_transfers(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     items = await service.get_transfers(search=search, department=department, bank=bank, payment_status=payment_status)
     return success_response({"items": items, "total": len(items)}, "Bank transfers retrieved.")
 
@@ -46,7 +56,8 @@ async def get_dashboard_metrics(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     metrics = await service.get_dashboard_metrics()
     return success_response(metrics, "Bank transfer dashboard metrics retrieved.")
 
@@ -57,9 +68,33 @@ async def get_audit_logs(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     logs = await service.get_audit_logs()
     return success_response({"items": logs, "total": len(logs)}, "Bank transfer audit logs retrieved.")
+
+
+@router.get("/bank-transfers/download/{file_id}", summary="Download bank advice file")
+async def download_bank_file(
+    file_id: uuid.UUID,
+    claims: Claims = None,
+    db: DB = None,
+):
+    _require_admin_or_manager(claims)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    stmt = select(BankAdviceFile).where(BankAdviceFile.id == file_id)
+    if cid:
+        stmt = stmt.where(BankAdviceFile.company_id == cid)
+    res = await db.execute(stmt)
+    record = res.scalars().first()
+    if not record or not record.file_content:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bank advice file not found or empty.")
+
+    return Response(
+        content=record.file_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={record.file_name}"},
+    )
 
 
 @router.get("/bank-transfers/{transfer_id}", response_model=APIResponse[dict], summary="Get bank transfer detail")
@@ -69,8 +104,11 @@ async def get_transfer_detail(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     data = await service.get_transfer_detail(transfer_id)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Bank transfer '{transfer_id}' not found.")
     return success_response(data, "Bank transfer detail retrieved.")
 
 
@@ -81,7 +119,8 @@ async def create_transfer_batch(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     res = await service.create_transfer_batch(payload.dict())
     return success_response(res, "Transfer batch created.")
 
@@ -93,7 +132,8 @@ async def generate_bank_file(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     res = await service.generate_bank_file(payload.format)
     return success_response(res, "Bank file generated.")
 
@@ -104,7 +144,8 @@ async def initiate_payments(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     res = await service.initiate_payments()
     return success_response(res, "Payments initiated.")
 
@@ -115,7 +156,8 @@ async def reconcile_payments(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
     res = await service.reconcile_payments()
     return success_response(res, "Payments reconciled.")
 
@@ -127,18 +169,35 @@ async def retry_transfer(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
-    res = await service.retry_transfer(transfer_id)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
+    try:
+        res = await service.retry_transfer(transfer_id)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return success_response(res, "Transfer retried.")
 
 
 @router.post("/bank-transfers/{transfer_id}/mark-paid", response_model=APIResponse[dict], summary="Mark transfer as paid")
 async def mark_as_paid(
     transfer_id: str,
+    payload: Optional[MarkPaidRequest] = None,
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    service = BankService(db)
-    res = await service.mark_as_paid(transfer_id)
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+    service = BankService(db, company_id=cid, actor_id=_uid(claims))
+    ref = payload.reference_number if payload else None
+    remarks = payload.remarks if payload else None
+    try:
+        res = await service.mark_as_paid(transfer_id, transaction_ref=ref, remarks=remarks)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return success_response(res, "Transfer marked as paid.")
