@@ -89,7 +89,7 @@ def get_v2_router() -> APIRouter:
     
     router = APIRouter(prefix="/api/v2")
     
-    # Main v2 endpoints
+    # Main v2 endpoints (travel_router has its own /travel prefix)
     for r in (
         doc_intel_router,
         emp_support_router,

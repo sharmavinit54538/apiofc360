@@ -7,12 +7,14 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException, BadRequestException
+from app.models.employee import Employee
 from app.models.timesheet import Timesheet
 from app.repositories.timesheet_repository import TimesheetRepository
-from app.schemas.timesheet import TimesheetCreate, TimesheetEntryCreate
+from app.schemas.timesheet import TimesheetEntryCreate
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +24,24 @@ class TimesheetService:
         self.session = session
         self.repo = TimesheetRepository(session)
 
-    async def get_or_create_weekly_timesheet(self, employee_id: uuid.UUID, week_start_date: date) -> Timesheet:
-        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date)
+    async def get_or_create_weekly_timesheet(
+        self,
+        employee_id: uuid.UUID,
+        week_start_date: date,
+        company_id: uuid.UUID
+    ) -> Timesheet:
+        # Verify employee belongs to company
+        emp_stmt = select(Employee).where(
+            Employee.id == employee_id,
+            Employee.company_id == company_id,
+            Employee.is_deleted == False
+        )
+        emp_res = await self.session.execute(emp_stmt)
+        employee = emp_res.scalar_one_or_none()
+        if not employee:
+            raise NotFoundException(message="Employee not found in this company.")
+
+        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date, company_id)
         if not timesheet:
             timesheet = await self.repo.create_timesheet(
                 employee_id=employee_id,
@@ -35,9 +53,24 @@ class TimesheetService:
         return timesheet
 
     async def save_timesheet_entries(
-        self, employee_id: uuid.UUID, week_start_date: date, entries_data: list[TimesheetEntryCreate]
+        self,
+        employee_id: uuid.UUID,
+        week_start_date: date,
+        entries_data: list[TimesheetEntryCreate],
+        company_id: uuid.UUID
     ) -> Timesheet:
-        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date)
+        # Verify employee belongs to company
+        emp_stmt = select(Employee).where(
+            Employee.id == employee_id,
+            Employee.company_id == company_id,
+            Employee.is_deleted == False
+        )
+        emp_res = await self.session.execute(emp_stmt)
+        employee = emp_res.scalar_one_or_none()
+        if not employee:
+            raise NotFoundException(message="Employee not found in this company.")
+
+        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date, company_id)
         if not timesheet:
             timesheet = await self.repo.create_timesheet(
                 employee_id=employee_id,
@@ -53,6 +86,16 @@ class TimesheetService:
             # Delete old entries
             await self.repo.delete_timesheet_entries(timesheet.id)
 
+        # Validate hours (no day > 24, total week reasonable)
+        for entry in entries_data:
+            for day_hours in [
+                entry.monday_hours, entry.tuesday_hours, entry.wednesday_hours,
+                entry.thursday_hours, entry.friday_hours, entry.saturday_hours,
+                entry.sunday_hours
+            ]:
+                if day_hours < 0 or day_hours > 24:
+                    raise BadRequestException(message="Daily hours must be between 0 and 24.")
+
         # Create new entries
         for entry in entries_data:
             await self.repo.create_timesheet_entry(
@@ -67,17 +110,33 @@ class TimesheetService:
                 sunday_hours=entry.sunday_hours,
                 description=entry.description
             )
-        
+
         timesheet.status = "DRAFT"
         await self.session.commit()
         await self.session.refresh(timesheet)
         return timesheet
 
-    async def submit_timesheet(self, employee_id: uuid.UUID, week_start_date: date) -> Timesheet:
-        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date)
+    async def submit_timesheet(
+        self,
+        employee_id: uuid.UUID,
+        week_start_date: date,
+        company_id: uuid.UUID
+    ) -> Timesheet:
+        # Verify employee belongs to company
+        emp_stmt = select(Employee).where(
+            Employee.id == employee_id,
+            Employee.company_id == company_id,
+            Employee.is_deleted == False
+        )
+        emp_res = await self.session.execute(emp_stmt)
+        employee = emp_res.scalar_one_or_none()
+        if not employee:
+            raise NotFoundException(message="Employee not found in this company.")
+
+        timesheet = await self.repo.get_timesheet_by_week(employee_id, week_start_date, company_id)
         if not timesheet:
             raise NotFoundException(message="Timesheet not found.")
-        
+
         if timesheet.status in ("PENDING", "APPROVED"):
             raise BadRequestException(message="Timesheet is already submitted or approved.")
 
@@ -89,7 +148,7 @@ class TimesheetService:
                 entry.thursday_hours + entry.friday_hours + entry.saturday_hours +
                 entry.sunday_hours
             )
-        
+
         if total_hours == 0:
             raise BadRequestException(message="Cannot submit an empty timesheet.")
 
@@ -99,32 +158,105 @@ class TimesheetService:
         await self.session.refresh(timesheet)
         return timesheet
 
-    async def get_employee_timesheet_history(self, employee_id: uuid.UUID) -> list[Timesheet]:
-        return await self.repo.get_timesheets_for_employee(employee_id)
+    async def get_employee_timesheet_history(
+        self,
+        employee_id: uuid.UUID,
+        company_id: uuid.UUID
+    ) -> list[Timesheet]:
+        # Verify employee belongs to company
+        emp_stmt = select(Employee).where(
+            Employee.id == employee_id,
+            Employee.company_id == company_id,
+            Employee.is_deleted == False
+        )
+        emp_res = await self.session.execute(emp_stmt)
+        employee = emp_res.scalar_one_or_none()
+        if not employee:
+            raise NotFoundException(message="Employee not found in this company.")
 
-    async def get_all_pending_timesheets(self) -> list[Timesheet]:
-        return await self.repo.get_pending_timesheets()
+        return await self.repo.get_timesheets_for_employee(employee_id, company_id)
+
+    async def get_pending_timesheets_for_review(
+        self,
+        company_id: uuid.UUID,
+        reviewer_employee_id: uuid.UUID,
+        reviewer_role: str
+    ) -> list[Timesheet]:
+        return await self.repo.get_timesheets_for_review(
+            company_id=company_id,
+            reviewer_employee_id=reviewer_employee_id,
+            reviewer_role=reviewer_role
+        )
 
     async def review_timesheet(
-        self, timesheet_id: uuid.UUID, status: str, approved_by_id: uuid.UUID, rejection_reason: str | None = None
+        self,
+        timesheet_id: uuid.UUID,
+        status: str,
+        approved_by_id: uuid.UUID,
+        rejection_reason: str | None = None,
+        company_id: uuid.UUID | None = None,
+        reviewer_employee_id: uuid.UUID | None = None,
+        reviewer_role: str | None = None
     ) -> Timesheet:
-        timesheet = await self.repo.get_timesheet_by_id(timesheet_id)
+        # Fetch with tenant isolation
+        timesheet = await self.repo.get_timesheet_by_id(timesheet_id, company_id)
         if not timesheet:
             raise NotFoundException(message="Timesheet not found.")
 
+        # Verify the timesheet's employee belongs to the company
+        if company_id is not None:
+            emp_stmt = select(Employee).where(
+                Employee.id == timesheet.employee_id,
+                Employee.company_id == company_id,
+                Employee.is_deleted == False
+            )
+            emp_res = await self.session.execute(emp_stmt)
+            if not emp_res.scalar_one_or_none():
+                raise NotFoundException(message="Timesheet not found in this company.")
+
         if timesheet.status != "PENDING":
             raise BadRequestException(message="Timesheet is not in PENDING state.")
+
+        # Prevent self-approval
+        if reviewer_employee_id and timesheet.employee_id == reviewer_employee_id:
+            raise BadRequestException(message="Cannot approve or reject your own timesheet.")
+
+        # Validate reviewer authority
+        if reviewer_role and reviewer_employee_id:
+            if reviewer_role.lower() == "manager":
+                # Check if reviewer is manager of the employee
+                emp_stmt = select(Employee).where(Employee.id == timesheet.employee_id)
+                emp_res = await self.session.execute(emp_stmt)
+                target_employee = emp_res.scalar_one_or_none()
+                if target_employee:
+                    is_manager = (
+                        target_employee.manager_id == reviewer_employee_id or
+                        target_employee.reporting_manager_id == reviewer_employee_id
+                    )
+                    if not is_manager:
+                        raise BadRequestException(message="Not authorized to review this employee's timesheet.")
+            # HR Admin, Super Admin, Executive can review all in company (already filtered by tenant)
+
+        # Validate status
+        if status not in ("APPROVED", "REJECTED"):
+            raise BadRequestException(message="Invalid review status. Must be APPROVED or REJECTED.")
+
+        if status == "REJECTED" and not rejection_reason:
+            raise BadRequestException(message="Rejection reason is required.")
+
+        # Concurrency protection: re-check status after potential concurrent modification
+        await self.session.refresh(timesheet)
+        if timesheet.status != "PENDING":
+            raise BadRequestException(message="Timesheet state changed during review. Please refresh and try again.")
 
         timesheet.status = status
         if status == "APPROVED":
             timesheet.approved_by_id = approved_by_id
             timesheet.rejection_reason = None
         elif status == "REJECTED":
-            if not rejection_reason:
-                raise BadRequestException(message="Rejection reason is required.")
             timesheet.rejection_reason = rejection_reason
             timesheet.approved_by_id = None
-        
+
         await self.session.commit()
         await self.session.refresh(timesheet)
         return timesheet
