@@ -198,7 +198,12 @@ class BonusService:
             raise ValueError(f"Employee '{emp_uuid}' not found in current company.")
 
         # Validate amount
-        amt_raw = data.get("finalBonusAmount") or data.get("amount") or data.get("recommendedAmount")
+        amt_raw = None
+        for k in ("finalBonusAmount", "amount", "recommendedAmount"):
+            if k in data and data[k] is not None:
+                amt_raw = data[k]
+                break
+
         if amt_raw is None:
             raise ValueError("Bonus amount is required.")
 
@@ -206,6 +211,8 @@ class BonusService:
             amt = Decimal(str(amt_raw))
             if amt <= Decimal(0):
                 raise ValueError("Bonus amount must be greater than zero.")
+        except ValueError:
+            raise
         except Exception as e:
             raise ValueError(f"Invalid bonus amount: {amt_raw}") from e
 

@@ -445,7 +445,7 @@ class ReimbursementService:
                     "actorRole": log.actor_role or "User",
                     "timestamp": log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "",
                     "details": log.reason or f"Action {log.action} performed.",
-                    "statusChange": f"{log.before_status} -> {log.after_status}" if log.before_status else log.after_status,
+                    "statusChange": f"{log.old_status} -> {log.new_status}" if log.old_status else log.new_status,
                 }
             )
         return output
