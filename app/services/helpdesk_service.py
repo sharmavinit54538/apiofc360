@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import re
+from pathlib import Path
 from typing import Any, Sequence
 import uuid
 
@@ -112,7 +113,7 @@ class HelpdeskService:
             name=att.name,
             size=att.size,
             type=att.type,
-            url=att.url,
+            url=f"/api/v1/helpdesk/attachments/{att.id}/download",
             created_at=att.created_at,
         )
 
@@ -265,7 +266,7 @@ class HelpdeskService:
 
         # RBAC Check
         role = self._get_user_role_str(user)
-        if role == "employee":
+        if role not in {"hr_admin", "it_admin", "super_admin", "executive", "manager"}:
             if ticket.requester_id != user.id:
                 raise ForbiddenException(message="Access denied to this ticket.")
         elif role == "manager":
@@ -394,8 +395,10 @@ class HelpdeskService:
         file: UploadFile,
     ) -> AttachmentResponse:
         """Upload file attachment with security and size validation."""
+        if user.company_id != company_id:
+            raise ForbiddenException(message="Attachment tenant mismatch.")
         filename = file.filename or "attachment"
-        clean_filename = os.path.basename(filename)
+        clean_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename.replace("\\", "/").split("/")[-1])[:200]
 
         # Path traversal guard
         if ".." in filename or "/" in filename or "\\" in filename:
@@ -407,7 +410,7 @@ class HelpdeskService:
                 message=f"File extension '{ext}' is not supported. Supported: PDF, Images, Word, Excel, CSV, Text, ZIP."
             )
 
-        content = await file.read()
+        content = await file.read(10 * 1024 * 1024 + 1)
         file_size = len(content)
 
         if file_size == 0:
@@ -443,6 +446,26 @@ class HelpdeskService:
         )
 
         return self._format_attachment(att)
+
+    async def download_attachment(self, attachment_id, user, company_id):
+        """Authorize the record before resolving an existing private storage path."""
+        if user.company_id != company_id:
+            raise ForbiddenException(message="Attachment tenant mismatch.")
+        att = await self.db.scalar(select(HelpdeskAttachment).where(
+            HelpdeskAttachment.id == attachment_id,
+            HelpdeskAttachment.company_id == company_id,
+        ))
+        if not att:
+            raise NotFoundException(message="Attachment not found.")
+        if att.ticket_id:
+            await self.get_ticket_by_id(att.ticket_id, user, company_id)
+        elif att.uploader_id != user.id:
+            raise ForbiddenException(message="Only the uploader can access an unattached file.")
+        root = (Path(settings.UPLOAD_DIR) / "helpdesk").resolve()
+        path = Path(att.file_path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise NotFoundException(message="Attachment file not found.")
+        return path, att.name
 
     # =======================================================================
     # 7. getAllHelpdeskTickets (Admin)

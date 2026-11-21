@@ -19,7 +19,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.attendance.models.attendance_break import AttendanceBreak
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
@@ -157,6 +157,9 @@ class BreakService:
         )
         self.db.add(break_session)
 
+        # Update attendance state to ON_BREAK
+        record.attendance_state = AttendanceState.ON_BREAK
+
         # 7. Audit log with biometrics & GPS
         gps_str = f"{lat_val},{lng_val}" if lat_val is not None and lng_val is not None else "None"
         dist_str = f"{distance:.3f}" if distance is not None else "N/A"
@@ -290,6 +293,9 @@ class BreakService:
                 if active_break.notes
                 else "Auto-ended at checkout"
             )
+
+        # Update attendance state back to CHECKED_IN (no longer on break)
+        record.attendance_state = AttendanceState.CHECKED_IN
 
         # 6. Recompute total aggregated break duration in hours for attendance record
         all_breaks = await self.get_all_breaks_for_attendance(record.id)

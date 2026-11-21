@@ -1,0 +1,27 @@
+{
+  "actual_engine": "PayrollRunService.execute_run_calculation",
+  "annual_ctc_cohort_failed": 1,
+  "annual_ctc_result": null,
+  "code_sha256": "53f5fc11b940aa5ba11cd2c51bb724f52380a9f56d645161fe92704159910745",
+  "coverage": {},
+  "database": {
+    "driver": "postgresql+asyncpg",
+    "host": "127.0.0.1",
+    "name": "payroll_verify_20261115",
+    "port": 55439
+  },
+  "elapsed_seconds": 34.319,
+  "employee_evaluations_failed": 20000,
+  "evaluations_per_second": 582.768,
+  "limitations": [
+    "Automatic joining/exit proration is not implemented by this engine; explicit attendance overrides were tested.",
+    "Salary revision coverage uses superseded and active persisted compensation rows; approval workflow is separate.",
+    "Statutory deductions use configured application rules; this harness does not certify legal correctness.",
+    "No external bank settlement or provider payment execution; only persisted payment instructions."
+  ],
+  "logical_scenarios": 10000,
+  "logical_scenarios_failed": 10000,
+  "logical_scenarios_passed": 0,
+  "repeats": 2,
+  "seed": 36020261114
+}

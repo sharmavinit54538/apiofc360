@@ -10,7 +10,7 @@
 
 - **44 / 44 roadmap features: DONE ✅**
 - **E1–E7 roadmap extras: DONE ✅**
-- **Batch 7 migration:** `911a_batch7_p3_differentiators`, single Alembic head.
+- **Batch 7 migration:** `911a_batch7_p3_features`, single Alembic head.
 - **Batch 7 focused tests:** 14 / 14 passing.
 - **Deterministic Batch 5–7 + tenancy + migration gate:** 65 / 65 passing.
 
@@ -95,7 +95,7 @@ The final `pytest -q tests app/tests` run collected and executed the complete su
 
 ## Batch 7 Deployment Notes
 
-1. Apply `911a_batch7_p3_differentiators` after `910a_batch6_growth_enterprise`; legacy INR payroll rows are backfilled with 1.0 locked FX snapshots and INR base totals.
+1. Apply `911a_batch7_p3_features` after `910a_batch6_growth_ent`; legacy INR payroll rows are backfilled with 1.0 locked FX snapshots and INR base totals.
 2. Non-INR runs require an explicit positive FX rate to INR. No live exchange-rate fallback is used.
 3. Country statutory rules are versioned configuration. The package does not invent time-sensitive 2026 rates; unconfigured non-India runs emit mandatory local-review warnings.
 4. Marketplace credentials are encrypted and write-only. Sync acceptance and external provider acknowledgement are distinct health fields.

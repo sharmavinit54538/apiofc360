@@ -519,6 +519,20 @@ async def test_v2_payment_batches_and_idempotency(transport):
         )
         run_id = run_res.json()["data"]["id"]
 
+        # The current workflow processes a validated run before submission.
+        process_run = await ac.post(
+            f"/api/v2/payroll/runs/{run_id}/calculate",
+            headers=env["headers"],
+        )
+        assert process_run.status_code == 200
+
+        # Approval requires an explicit submission from PROCESSED.
+        submit_run = await ac.post(
+            f"/api/v2/payroll/runs/{run_id}/submit-for-approval",
+            headers=env["headers"],
+        )
+        assert submit_run.status_code == 200
+
         # Finalize run
         await ac.post(f"/api/v2/payroll/runs/{run_id}/approve", headers=env["headers"])
         await ac.post(f"/api/v2/payroll/runs/{run_id}/finalize", headers=env["headers"])

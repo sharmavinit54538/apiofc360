@@ -1,0 +1,12 @@
+[
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_employee_salary_and_crud_lifecycle.py",
+  "tests/test_auth_employee_login_lifecycle.py",
+  "tests/test_token_revocation_and_rotation.py",
+  "-v",
+  "--tb=short",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-regression-contracts\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-regression-contracts-tmp"
+]

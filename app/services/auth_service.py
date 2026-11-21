@@ -1090,6 +1090,13 @@ class AuthService:
         if access_token:
             try:
                 claims = decode_token(access_token)
+                if claims.get("sid"):
+                    from app.models.refresh_token import RefreshToken
+                    from sqlalchemy import update
+                    await self.session.execute(update(RefreshToken).where(
+                        RefreshToken.user_id == uuid.UUID(claims["sub"]),
+                        RefreshToken.family_id == uuid.UUID(claims["sid"]),
+                    ).values(revoked=True, revoked_at=datetime.now(timezone.utc), revoked_reason="LOGOUT"))
                 exp = claims.get("exp")
                 if exp:
                     ttl = max(1, int(exp - datetime.now(timezone.utc).timestamp()))

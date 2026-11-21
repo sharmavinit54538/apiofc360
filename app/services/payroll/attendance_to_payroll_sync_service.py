@@ -10,7 +10,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.models.employee import Employee
 from app.models.leave import CompOffLedger
 from app.models.payroll import OvertimeEntry, OvertimePolicy, SalaryStructure
@@ -211,7 +211,13 @@ class AttendanceToPayrollSyncService:
         )).scalars().all()
         shift_cache: dict[uuid.UUID, Shift | None] = {}
         for attendance in attendance_rows:
+            # Only count verified attendance for payroll
+            if not attendance.verified:
+                continue
             if str(attendance.status or "").upper() in {"ABSENT", "CANCELLED", "REJECTED"}:
+                continue
+            # Skip records with correction pending
+            if attendance.attendance_state in (AttendanceState.CORRECTION_PENDING,):
                 continue
             shift = None
             if attendance.shift_id:

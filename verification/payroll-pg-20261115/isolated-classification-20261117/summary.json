@@ -1,0 +1,24 @@
+{
+  "command": [
+    "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "tests/test_production_assistant.py::TestProductionAssistant::test_ai_health_endpoint_requires_admin",
+    "tests/test_executive_it_admin_login_auth_flow.py::test_it_admin_sidebar_permissions",
+    "tests/test_rbac_and_role_enum_standardization.py::test_cto_dashboard_endpoint_requires_auth",
+    "tests/test_super_admin_organizations_hr_admin.py::test_case_1_company_with_hr_admin_returns_real_hr_admin",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\isolated-classification-20261117\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\isolated-classification-20261117-tmp"
+  ],
+  "database": "payroll_verify_focused",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 40.961,
+  "tests": 4,
+  "failed": 3,
+  "errors": 0,
+  "skipped": 0,
+  "passed": 1
+}

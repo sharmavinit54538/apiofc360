@@ -16,6 +16,7 @@ from app.models.exit import (
     KnowledgeTransfer,
     AssetReturn,
     ClearanceRequest,
+    DepartmentalClearance,
     ExitInterview,
     FnfSettlement,
     ExitDocument,
@@ -323,37 +324,86 @@ class ExitRepository:
         return list(result.scalars().all())
 
     # ------------------------------------------------------------------
+    # Departmental Clearance Repository methods
+    # ------------------------------------------------------------------
+
+    async def get_departmental_clearances_by_exit_id(self, exit_uuid: uuid.UUID) -> list[DepartmentalClearance]:
+        result = await self.session.execute(
+            select(DepartmentalClearance).where(DepartmentalClearance.exit_id == exit_uuid)
+        )
+        return list(result.scalars().all())
+
+    async def get_departmental_clearance(self, exit_uuid: uuid.UUID, department: str) -> DepartmentalClearance | None:
+        result = await self.session.execute(
+            select(DepartmentalClearance).where(
+                and_(
+                    DepartmentalClearance.exit_id == exit_uuid,
+                    DepartmentalClearance.department == department.upper()
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_departmental_clearance(self, exit_uuid: uuid.UUID, department: str, data: dict) -> DepartmentalClearance:
+        existing = await self.get_departmental_clearance(exit_uuid, department)
+        dept_upper = department.upper()
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            return existing
+        
+        obj = DepartmentalClearance(exit_id=exit_uuid, department=dept_upper, **data)
+        self.session.add(obj)
+        await self.session.flush()
+        return obj
+
+    async def initialize_departmental_clearances(self, exit_uuid: uuid.UUID) -> list[DepartmentalClearance]:
+        """Create pending clearance records for all required departments."""
+        departments = DepartmentalClearance.get_required_departments()
+        clearances = []
+        for dept in departments:
+            existing = await self.get_departmental_clearance(exit_uuid, dept)
+            if not existing:
+                obj = DepartmentalClearance(exit_id=exit_uuid, department=dept, status="PENDING")
+                self.session.add(obj)
+                clearances.append(obj)
+        await self.session.flush()
+        return clearances
+
+    # ------------------------------------------------------------------
     # Dashboard Metrics
     # ------------------------------------------------------------------
 
     async def get_dashboard_metrics(self) -> dict[str, int]:
+        # Count distinct exit requests per status - avoid double counting from joins
         p_resign = await self.session.execute(select(func.count(EmployeeExit.id)).where(and_(EmployeeExit.status == "SUBMITTED", self._active_filter())))
         p_mgr = await self.session.execute(select(func.count(EmployeeExit.id)).where(and_(EmployeeExit.status == "PENDING_MANAGER_APPROVAL", self._active_filter())))
         p_hr = await self.session.execute(select(func.count(EmployeeExit.id)).where(and_(EmployeeExit.status == "PENDING_HR_APPROVAL", self._active_filter())))
         notice = await self.session.execute(select(func.count(EmployeeExit.id)).where(and_(EmployeeExit.status == "NOTICE_PERIOD", self._active_filter())))
         
+        # For joined metrics, use subqueries to count distinct exits
         p_kt = await self.session.execute(
-            select(func.count(EmployeeExit.id)).select_from(EmployeeExit)
+            select(func.count(func.distinct(EmployeeExit.id))).select_from(EmployeeExit)
             .join(KnowledgeTransfer, EmployeeExit.id == KnowledgeTransfer.exit_id)
             .where(and_(KnowledgeTransfer.is_completed == False, self._active_filter()))  # noqa: E712
         )
         p_asset = await self.session.execute(
-            select(func.count(EmployeeExit.id)).select_from(EmployeeExit)
+            select(func.count(func.distinct(EmployeeExit.id))).select_from(EmployeeExit)
             .join(AssetReturn, EmployeeExit.id == AssetReturn.exit_id)
             .where(and_(AssetReturn.return_status == "PENDING", self._active_filter()))
         )
         p_clearance = await self.session.execute(
-            select(func.count(EmployeeExit.id)).select_from(EmployeeExit)
+            select(func.count(func.distinct(EmployeeExit.id))).select_from(EmployeeExit)
             .join(ClearanceRequest, EmployeeExit.id == ClearanceRequest.exit_id)
             .where(and_(ClearanceRequest.overall_status == "PENDING", self._active_filter()))
         )
         p_interview = await self.session.execute(
-            select(func.count(EmployeeExit.id)).select_from(EmployeeExit)
-            .outerjoin(ExitInterview, EmployeeExit.id == ExitInterview.exit_id)
-            .where(and_(ExitInterview.id == None, EmployeeExit.status == "EXIT_INTERVIEW_PENDING", self._active_filter()))  # noqa: E711
+            select(func.count(EmployeeExit.id)).where(
+                and_(EmployeeExit.status == "EXIT_INTERVIEW_PENDING", self._active_filter())
+            )
         )
         p_fnf = await self.session.execute(
-            select(func.count(EmployeeExit.id)).select_from(EmployeeExit)
+            select(func.count(func.distinct(EmployeeExit.id))).select_from(EmployeeExit)
             .join(FnfSettlement, EmployeeExit.id == FnfSettlement.exit_id)
             .where(and_(FnfSettlement.payment_status == "PENDING", self._active_filter()))
         )

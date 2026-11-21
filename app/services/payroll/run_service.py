@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+import calendar
+import hashlib
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
@@ -25,6 +27,7 @@ from app.models.payroll import (
     AdvanceLoanInstallment,
     EmployeeInvestmentDeclaration,
     PayrollAttendanceInput,
+    PayrollAuditLog,
     PayrollRun,
     Payslip,
     SalaryStructure,
@@ -42,7 +45,10 @@ from app.models.payroll_models import (
 from app.services.payroll.audit_service import PayrollAuditService
 from app.services.payroll.arrear_service import ArrearService
 from app.services.payroll.formula_evaluator import SafeFormulaEvaluator
-from app.services.payroll.money import as_decimal, paise_to_rupees, round_paise, round_to_rupee_paise
+from app.services.payroll.money import (
+    allocate_annual_paise, as_decimal, assert_payroll_reconciles,
+    paise_to_rupees, round_paise,
+)
 from app.services.payroll.statutory_service import StatutoryService
 from app.services.payroll.global_payroll import (
     CountryStatutoryInput,
@@ -285,7 +291,6 @@ class PayrollRunService:
             )
         return item
 
-    @classmethod
     @staticmethod
     def maker_ids_for_run(run: PayrollRun) -> list[uuid.UUID]:
         """Every user who initiated or processed this run (the "makers")."""
@@ -602,8 +607,20 @@ class PayrollRunService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PayrollRun:
-        run = await cls.get_run(session, run_id)
+        run = (await session.execute(select(PayrollRun).where(PayrollRun.id == run_id)
+            .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+        if run is None:
+            raise HTTPException(status_code=404, detail="Payroll run not found.")
+        if run.status != "FAILED" or run.is_locked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Only an unlocked FAILED payroll run can be retried.",
+            )
         old_status = run.status
+        postings = await session.scalar(select(func.count(PayrollRunEmployee.id)).where(PayrollRunEmployee.run_id == run_id))
+        slips = await session.scalar(select(func.count(Payslip.id)).where(Payslip.payroll_run_id == run_id))
+        if postings or slips:
+            raise HTTPException(status_code=409, detail="Failed run has committed financial postings; manual reconciliation is required before retry.")
         run.status = "VALIDATED"
 
         await PayrollAuditService.log_event(
@@ -621,6 +638,49 @@ class PayrollRunService:
 
         # Re-execute calculation engine
         return await cls.execute_run_calculation(session, run_id, user_id=user_id, user_role=user_role)
+
+    @classmethod
+    async def mark_processing_failed(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        *,
+        error_code: str = "PAYROLL_CALCULATION_FAILED",
+        detail: str = "Payroll calculation failed before commit.",
+        claim_token: uuid.UUID | None = None,
+    ) -> bool:
+        """Persist an actionable failure after rolling back uncommitted postings."""
+        claim_token = claim_token or session.info.get("payroll_claim_token")
+        await session.rollback()
+        result = await session.execute(
+            update(PayrollRun).where(
+                PayrollRun.id == run_id,
+                PayrollRun.status == "PROCESSING",
+                PayrollRun.is_locked.is_(False),
+                PayrollRun.processing_token == claim_token if claim_token else PayrollRun.processing_token.is_(None),
+            ).values(
+                status="FAILED",
+                validation_status="ERROR",
+                validation_errors=[{"code": error_code, "detail": detail}],
+                processing_token=None,
+                processing_lease_until=None,
+            )
+        )
+        if result.rowcount == 1:
+            run = await session.get(PayrollRun, run_id)
+            await PayrollAuditService.log_event(
+                session=session,
+                entity_type="PayrollRun",
+                entity_id=run_id,
+                action="CALCULATION_FAILED",
+                company_id=run.company_id if run else None,
+                before_status="PROCESSING",
+                after_status="FAILED",
+                reason=detail[:500],
+                extra_data={"error_code": error_code},
+            )
+        await session.commit()
+        return result.rowcount == 1
 
     @classmethod
     async def delete_run(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, str]:
@@ -718,7 +778,7 @@ class PayrollRunService:
         loan_stmt = select(AdvanceLoan).where(
             AdvanceLoan.employee_id == employee_id,
             AdvanceLoan.status == "ACTIVE",
-        )
+        ).with_for_update()
         if run.company_id is not None:
             loan_stmt = loan_stmt.where(
                 or_(AdvanceLoan.company_id == run.company_id, AdvanceLoan.company_id.is_(None))
@@ -801,6 +861,115 @@ class PayrollRunService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
         company_id: Optional[uuid.UUID] = None,
+        *,
+        allow_completed: bool = False,
+    ) -> PayrollRun:
+        """Run one token-fenced, atomic financial transaction after a durable claim."""
+        session.info.pop("payroll_claim_token", None)
+        try:
+            return await cls._execute_run_calculation(
+                session, run_id, user_id, user_role, company_id,
+                allow_completed=allow_completed,
+            )
+        except Exception:
+            token = session.info.get("payroll_claim_token")
+            if token is not None:
+                try:
+                    await cls.mark_processing_failed(session, run_id, claim_token=token)
+                except Exception:
+                    # A dead connection leaves the durable lease for the reaper.
+                    logger.exception("Could not persist payroll calculation failure for %s", run_id)
+            raise
+        finally:
+            session.info.pop("payroll_claim_token", None)
+
+    @classmethod
+    async def _lock_processing_claim(cls, session, run_id, token, company_id=None):
+        stmt = select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+        if company_id is not None:
+            stmt = stmt.where(PayrollRun.company_id == company_id)
+        run = (await session.execute(stmt.execution_options(populate_existing=True))).scalar_one_or_none()
+        if run is None or run.status != "PROCESSING" or run.is_locked or run.processing_token != token:
+            await session.rollback()
+            raise HTTPException(status_code=409, detail="Payroll processing ownership changed; this worker cannot post.")
+        # Hold this row lock until every employee, loan, arrear, payslip and run
+        # total has committed. SKIP LOCKED recovery never steals an active writer.
+        return run
+
+    @classmethod
+    async def verify_committed_run(cls, session, run):
+        """A delivered task may acknowledge completed payroll only after reconciling it."""
+        entries = list((await session.execute(select(PayrollRunEmployee).where(
+            PayrollRunEmployee.run_id == run.id,
+            PayrollRunEmployee.company_id == run.company_id,
+        ))).scalars().all())
+        slips = list((await session.execute(select(Payslip).where(
+            Payslip.payroll_run_id == run.id, Payslip.company_id == run.company_id,
+        ))).scalars().all())
+        by_employee = {slip.employee_id: slip for slip in slips}
+        expected = (run.total_gross_paise, run.total_deductions_paise, run.total_net_paise)
+        actual = tuple(sum(int(getattr(row, field)) for row in entries) for field in (
+            "gross_earnings_paise", "total_deductions_paise", "net_pay_paise",
+        ))
+        valid = len(entries) == len(slips) == run.total_employees and actual == expected
+        for entry in entries:
+            slip = by_employee.get(entry.employee_id)
+            amounts = (entry.gross_earnings_paise, entry.total_deductions_paise, entry.net_pay_paise)
+            valid = valid and slip is not None and amounts[0] - amounts[1] == amounts[2]
+            if slip is not None:
+                valid = valid and amounts == tuple(round_paise(as_decimal(getattr(slip, field)) * 100)
+                    for field in ("gross_earnings", "total_deductions", "net_pay"))
+        if not valid:
+            raise HTTPException(status_code=409, detail="Committed payroll postings do not reconcile; manual review is required.")
+        return run
+
+    @classmethod
+    async def recover_abandoned_runs(cls, session, *, company_id=None, now=None, limit=100):
+        """Fail abandoned claims for explicit retry; never replay external effects.
+
+        Expired leases are recoverable only when no calculation holds the run
+        row lock. Legacy PROCESSING rows require a 15-minute updated_at grace.
+        """
+        now = now or datetime.now(UTC)
+        stmt = select(PayrollRun).where(
+            PayrollRun.status == "PROCESSING", PayrollRun.is_locked.is_(False),
+            or_(PayrollRun.processing_lease_until <= now,
+                and_(PayrollRun.processing_lease_until.is_(None), PayrollRun.updated_at <= now - timedelta(minutes=15))),
+        ).order_by(PayrollRun.id).limit(limit).with_for_update(skip_locked=True)
+        if company_id is not None:
+            stmt = stmt.where(PayrollRun.company_id == company_id)
+        runs = list((await session.execute(stmt.execution_options(populate_existing=True))).scalars().all())
+        recovered = []
+        for run in runs:
+            # Partial committed financial records must never be recalculated.
+            postings = await session.scalar(select(func.count(PayrollRunEmployee.id)).where(PayrollRunEmployee.run_id == run.id))
+            slips = await session.scalar(select(func.count(Payslip.id)).where(Payslip.payroll_run_id == run.id))
+            code = "ABANDONED_CLAIM_HAS_POSTINGS" if postings or slips else "PROCESSING_CLAIM_EXPIRED"
+            run.status = "FAILED"
+            run.validation_status = "ERROR"
+            run.validation_errors = [{"code": code, "detail": "Processing owner lost; review inputs and explicitly retry."}]
+            session.add(PayrollAuditLog(
+                entity_type="PayrollRun", entity_id=run.id, company_id=run.company_id,
+                action="PROCESSING_ABANDONED", old_status="PROCESSING", new_status="FAILED",
+                reason="Expired processing lease recovered after obtaining the run row lock.",
+                extra_data={"claim_token": str(run.processing_token), "error_code": code},
+            ))
+            run.processing_token = None
+            run.processing_lease_until = None
+            recovered.append(str(run.id))
+        await session.commit()
+        return recovered
+
+    @classmethod
+    async def _execute_run_calculation(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
+        *,
+        allow_completed: bool = False,
     ) -> PayrollRun:
         """Core Payroll Calculation Engine in integer paise.
 
@@ -809,21 +978,54 @@ class PayrollRunService:
         run.  Runs triggered by the async worker keep whatever attribution they
         already have.
         """
-        run = await cls.get_run(session, run_id, company_id=company_id)
-        if run.status != "VALIDATED":
+        # A conditional update is the database-backed processing claim. It
+        # permits only one worker/request to transition VALIDATED -> PROCESSING.
+        token = uuid.uuid4()
+        claim = update(PayrollRun).where(
+            PayrollRun.id == run_id,
+            PayrollRun.status == "VALIDATED",
+            PayrollRun.is_locked.is_(False),
+        )
+        if company_id is not None:
+            claim = claim.where(PayrollRun.company_id == company_id)
+        claim = claim.values(
+            status="PROCESSING",
+            processing_token=token,
+            processing_lease_until=datetime.now(UTC) + timedelta(minutes=15),
+            **({
+                "processed_by": user_id,
+                "created_by": func.coalesce(PayrollRun.created_by, user_id),
+            } if user_id is not None else {}),
+        )
+        claimed = await session.execute(claim)
+        if claimed.rowcount != 1:
+            run = await cls.get_run(session, run_id, company_id=company_id)
+            if allow_completed and run.status in {"PROCESSED", "PENDING_APPROVAL", "APPROVED", "FINALIZED", "LOCKED", "PAID"}:
+                return await cls.verify_committed_run(session, run)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Run must be VALIDATED before processing (current: {run.status}).",
             )
-        run.status = "PROCESSING"
-        if user_id is not None:
-            run.processed_by = user_id
-            if run.created_by is None:
-                run.created_by = user_id
+        session.info["payroll_claim_token"] = token
+        claimed_run = await cls.get_run(session, run_id, company_id=company_id)
+        session.add(PayrollAuditLog(
+            entity_type="PayrollRun", entity_id=run_id, company_id=claimed_run.company_id,
+            action="PROCESSING_CLAIMED", old_status="VALIDATED", new_status="PROCESSING",
+            extra_data={"claim_token": str(token)},
+        ))
         await session.commit()
+        run = await cls._lock_processing_claim(session, run_id, token, company_id)
 
-        # Fetch active config
+        period_record = await session.get(PayrollPeriod, run.period_id) if run.period_id else None
+        config_date = (
+            period_record.start_date if period_record and period_record.start_date
+            else date(run.period_year, run.period_month, 1)
+        )
+        # Select the most specific active config effective for this payroll
+        # period. Tenant config takes precedence over global fallback; ordering
+        # is deterministic when historical active rows overlap.
         cfg_stmt = select(StatutoryComplianceConfig).where(StatutoryComplianceConfig.is_active == True)
+        cfg_stmt = cfg_stmt.where(StatutoryComplianceConfig.effective_from <= config_date)
         if run.company_id:
             cfg_stmt = cfg_stmt.where(
                 or_(
@@ -831,8 +1033,19 @@ class PayrollRunService:
                     StatutoryComplianceConfig.company_id.is_(None),
                 )
             )
-        config = (await session.execute(cfg_stmt)).scalar_one_or_none() or StatutoryComplianceConfig()
-        period_record = await session.get(PayrollPeriod, run.period_id) if run.period_id else None
+            cfg_stmt = cfg_stmt.order_by(
+                case((StatutoryComplianceConfig.company_id == run.company_id, 1), else_=0).desc(),
+                StatutoryComplianceConfig.effective_from.desc(),
+                StatutoryComplianceConfig.created_at.desc(),
+                StatutoryComplianceConfig.id.desc(),
+            )
+        else:
+            cfg_stmt = cfg_stmt.order_by(
+                StatutoryComplianceConfig.effective_from.desc(),
+                StatutoryComplianceConfig.created_at.desc(),
+                StatutoryComplianceConfig.id.desc(),
+            )
+        config = (await session.execute(cfg_stmt.limit(1))).scalar_one_or_none() or StatutoryComplianceConfig()
 
         # Fetch all active employees (bank_accounts eagerly loaded so downstream
         # disbursement / validation code never triggers an async lazy-load).
@@ -906,9 +1119,12 @@ class PayrollRunService:
                 return 0
 
             if comp:
-                basic_monthly_paise = int(comp.basic_monthly_paise or round_paise(Decimal(comp.ctc_annual_paise or 0) / 12 * Decimal("0.5")))
-                hra_monthly_paise = int(comp.hra_monthly_paise or round_paise(Decimal(basic_monthly_paise) * Decimal("0.4")))
-                special_monthly_paise = int(comp.special_allowance_monthly_paise or max(0, round_paise(Decimal(comp.ctc_annual_paise or 0) / 12) - basic_monthly_paise - hra_monthly_paise))
+                # Zero is a valid configured component amount. Truthiness
+                # fallbacks here silently invented Basic/HRA/Special pay when
+                # an approved compensation record explicitly stored zero.
+                basic_monthly_paise = int(comp.basic_monthly_paise or 0)
+                hra_monthly_paise = int(comp.hra_monthly_paise or 0)
+                special_monthly_paise = int(comp.special_allowance_monthly_paise or 0)
             elif sal:
                 basic_monthly_paise = round_paise(as_decimal(sal.basic_monthly) * 100)
                 hra_monthly_paise = round_paise(as_decimal(sal.hra_monthly) * 100)
@@ -957,6 +1173,29 @@ class PayrollRunService:
                     for key, value in other_fixed_allowances_paise.items()
                 }
 
+            # Where stored monthly fixed earnings exactly represent annual CTC
+            # divided by 12, put the annual paise remainder into Special
+            # Allowance in a stable month order. Other CTC definitions (for
+            # example employer-cost inclusive packages) remain governed by
+            # their configured component policy and are not rewritten here.
+            annual_ctc_schedule_paise = (
+                int(comp.ctc_annual_paise or 0) if comp
+                else round_paise(as_decimal(sal.annual_ctc) * 100) if sal else 0
+            )
+            if source_currency != run_currency and annual_ctc_schedule_paise:
+                annual_ctc_schedule_paise = convert_via_inr_minor_units(
+                    annual_ctc_schedule_paise, source_fx_to_inr, run_fx_rate
+                )
+            if annual_ctc_schedule_paise > 0:
+                ctc_months = allocate_annual_paise(annual_ctc_schedule_paise)
+                base_month = annual_ctc_schedule_paise // 12
+                fixed_month_total = (
+                    basic_monthly_paise + hra_monthly_paise + special_monthly_paise
+                    + conveyance_monthly_paise
+                )
+                if fixed_month_total == base_month:
+                    special_monthly_paise += ctc_months[run.period_month - 1] - base_month
+
             # 2. Check LOP & Attendance
             att_stmt = select(PayrollAttendanceInput).where(
                 PayrollAttendanceInput.employee_id == emp.id,
@@ -964,7 +1203,22 @@ class PayrollRunService:
                 PayrollAttendanceInput.period_year == run.period_year,
             )
             att = (await session.execute(att_stmt)).scalar_one_or_none()
-            paid_days = Decimal("30.0") if not att else att.paid_days
+            calendar_days = Decimal(str(
+                (period_record.end_date - period_record.start_date).days + 1
+                if period_record and period_record.start_date and period_record.end_date
+                else calendar.monthrange(run.period_year, run.period_month)[1]
+            ))
+            lop_basis = str(getattr(config, "lop_basis", "CALENDAR_DAYS") or "CALENDAR_DAYS").upper()
+            if lop_basis == "CALENDAR_DAYS":
+                period_days = calendar_days
+            elif lop_basis == "FIXED_30":
+                period_days = Decimal("30")
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unsupported configured LOP basis '{lop_basis}'.",
+                )
+            paid_days = period_days if not att else att.paid_days
             lop_days = Decimal("0.0") if not att else att.lop_days
             attendance_arrear_paise = round_paise(as_decimal(att.arrears if att else 0) * 100)
             one_time_bonus_paise = round_paise(as_decimal(att.one_time_bonus if att else 0) * 100)
@@ -996,14 +1250,14 @@ class PayrollRunService:
             arrear_paise = sum(int(a.amount_paise or 0) for a in employee_arrears)
             total_arrear_paise = arrear_paise + attendance_arrear_paise
 
-            # LOP pro-ration is applied to fixed salary heads, not to actual
-            # reimbursements or already-computed variable inputs.  If HR supplies
-            # only LOP days, derive paid days from the 30-day payroll policy.
+            # Calendar-day proration follows the actual configured payroll
+            # period boundaries; the attendance-input model's explicit missing
+            # row policy remains full pay for backward compatibility.
             paid_days = as_decimal(paid_days)
             lop_days = as_decimal(lop_days)
             if lop_days > 0:
-                paid_days = min(paid_days, max(Decimal("0"), Decimal("30") - lop_days))
-            day_ratio = max(Decimal("0"), min(Decimal("1"), paid_days / Decimal("30")))
+                paid_days = min(paid_days, max(Decimal("0"), period_days - lop_days))
+            day_ratio = max(Decimal("0"), min(Decimal("1"), paid_days / period_days)) if period_days else Decimal("0")
 
             def _prorated(value: int) -> int:
                 return round_paise(Decimal(int(value)) * day_ratio)
@@ -1031,7 +1285,7 @@ class PayrollRunService:
             )
             if source_currency != run_currency and annual_ctc_paise:
                 annual_ctc_paise = convert_via_inr_minor_units(annual_ctc_paise, source_fx_to_inr, run_fx_rate)
-            monthly_ctc_paise = round_paise(Decimal(annual_ctc_paise) / 12) if annual_ctc_paise else (
+            monthly_ctc_paise = allocate_annual_paise(annual_ctc_paise)[run.period_month - 1] if annual_ctc_paise else (
                 basic_monthly_paise + hra_monthly_paise + special_monthly_paise + conveyance_monthly_paise
             )
             base_gross_paise = (
@@ -1060,7 +1314,7 @@ class PayrollRunService:
                 "conveyance": emp_conveyance_paise, "lta": emp_lta_paise,
                 "gross": base_gross_paise, "ctc": annual_ctc_paise,
                 "monthly_ctc": monthly_ctc_paise, "paid_days": paid_days,
-                "lop_days": lop_days, "total_days": Decimal("30"),
+                "lop_days": lop_days, "total_days": period_days,
                 "arrears": total_arrear_paise, "one_time_bonus": one_time_bonus_paise,
             }
             for component in pay_components:
@@ -1092,7 +1346,7 @@ class PayrollRunService:
                 elif str(component.type).lower() == "employer_contribution":
                     custom_employer_paise += value_paise
 
-            gross_paise = max(0, base_gross_paise + custom_earnings_paise)
+            gross_paise = base_gross_paise + custom_earnings_paise
 
             # 3b. Labour Codes (Code on Wages, 2019) — 50% Wage Definition Rule.
             # If the excluded allowances exceed (1 - min_basic_wage_ratio) of gross
@@ -1124,8 +1378,13 @@ class PayrollRunService:
                 is_international_worker=bool(getattr(emp, "is_international_worker", False)),
                 pf_wage_ceiling_applicable=bool(getattr(emp, "pf_wage_ceiling_applicable", True)),
                 pf_higher_wage_opted=bool(getattr(emp, "pf_higher_wage_opted", False)),
+                eps_higher_wage_opted=bool(getattr(emp, "eps_higher_wage_opted", False)),
+                eps_membership_active=bool(getattr(emp, "is_eps_eligible", True)),
                 vpf_rate=getattr(emp, "vpf_rate", 0),
                 age=employee_age,
+                as_of_date=(period_record.start_date if period_record is not None else None),
+                period_start_date=(period_record.start_date if period_record is not None else None),
+                period_end_date=(period_record.end_date if period_record is not None else None),
             )
             employee_pf_paise = pf_res["employee_pf_paise"]
 
@@ -1138,9 +1397,13 @@ class PayrollRunService:
             esi_res = StatutoryService.calculate_esi(
                 gross_monthly_paise=gross_paise,
                 config=config,
-                contribution_wage_paise=statutory_wages_paise,
+                # ESIC wages include overtime; the ceiling basis below excludes
+                # overtime separately. Do not substitute the PF/gratuity wage
+                # definition for the ESI contribution base.
+                contribution_wage_paise=gross_paise,
+                coverage_wage_paise=max(0, gross_paise - var_component_paise.get("OVERTIME", 0)),
                 is_pwd=bool(getattr(emp, "is_pwd", False)),
-                covered_at_period_start=(coverage["covered"] if coverage else bool(getattr(emp, "esi_covered_at_period_start", False))) or gross_paise <= current_esi_ceiling,
+                covered_at_period_start=(coverage["covered"] if coverage else bool(getattr(emp, "esi_covered_at_period_start", False))) or max(0, gross_paise - var_component_paise.get("OVERTIME", 0)) <= current_esi_ceiling,
                 contribution_period_start=coverage["contribution_period_start"] if coverage else None,
                 as_of_date=getattr(run, "start_date", None) or date(run.period_year, run.period_month, 1),
             )
@@ -1167,6 +1430,7 @@ class PayrollRunService:
                 month=run.period_month,
                 gender=getattr(emp, "gender", "MALE") or "MALE",
                 rule=state_rule,
+                effective_date=(period_record.start_date if period_record is not None and period_record.start_date else date(run.period_year, run.period_month, 1)),
             )
             pt_paise = pt_res["pt_paise"]
 
@@ -1178,28 +1442,39 @@ class PayrollRunService:
             )
             employee_lwf_paise = lwf_res["employee_lwf_paise"]
 
-            # Query tax investment declaration for TDS calculation
-            fy_label = f"{run.period_year}-{run.period_year+1}" if run.period_month >= 4 else f"{run.period_year-1}-{run.period_year}"
+            # Salary TDS is triggered on payment. Keep the scheduled payment
+            # date as the pre-disbursement policy date; payment_date takes
+            # precedence when an actual date has already been recorded.
+            try:
+                salary_payment_date = StatutoryService.resolve_salary_payment_date(period_record)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=str(exc),
+                ) from exc
+            fy_label = StatutoryService.financial_year_for_salary_payment(salary_payment_date)
             decl_stmt = select(EmployeeInvestmentDeclaration).where(
                 EmployeeInvestmentDeclaration.employee_id == emp.id,
                 EmployeeInvestmentDeclaration.financial_year == fy_label,
             )
             decl = (await session.execute(decl_stmt)).scalar_one_or_none()
             decl_dict = {
-                "section_80c": float(decl.section_80c) if decl else 0,
-                "section_80d": float(decl.section_80d) if decl else 0,
-                "section_80ccd1b_nps": float(decl.section_80ccd1b_nps) if decl else 0,
-                "home_loan_interest_24b": float(decl.home_loan_interest_24b) if decl else 0,
-                "section_80g": float(getattr(decl, "section_80g", 0) or 0) if decl else 0,
-                "hra_claimed": float(decl.hra_claimed) if decl else 0,
-                "lta_claimed": float(getattr(decl, "lta_claimed", 0) or 0) if decl else 0,
-                "professional_tax": float(getattr(emp, "professional_tax", 0) or 0) * 12,
-                "other_deductions": float(decl.other_deductions) if decl else 0,
-            } if decl else {"professional_tax": float(getattr(emp, "professional_tax", 0) or 0) * 12}
+                "section_80c": as_decimal(decl.section_80c) if decl else Decimal(0),
+                "section_80d": as_decimal(decl.section_80d) if decl else Decimal(0),
+                "section_80ccd1b_nps": as_decimal(decl.section_80ccd1b_nps) if decl else Decimal(0),
+                "home_loan_interest_24b": as_decimal(decl.home_loan_interest_24b) if decl else Decimal(0),
+                "section_80g": as_decimal(getattr(decl, "section_80g", 0) or 0) if decl else Decimal(0),
+                "hra_claimed": as_decimal(decl.hra_claimed) if decl else Decimal(0),
+                "lta_claimed": as_decimal(getattr(decl, "lta_claimed", 0) or 0) if decl else Decimal(0),
+                "professional_tax": as_decimal(getattr(emp, "professional_tax", 0) or 0) * 12,
+                "other_deductions": as_decimal(decl.other_deductions) if decl else Decimal(0),
+            } if decl else {
+                "professional_tax": as_decimal(getattr(emp, "professional_tax", 0) or 0) * 12
+            }
             emp_regime = (decl.tax_regime if decl else None) or config.default_tax_regime or "NEW"
-            # April–March FY: April has 12 remaining months, May 11, …,
-            # December 4, and January–March have 3/2/1 respectively.
-            rem_months = 16 - run.period_month if run.period_month >= 4 else 4 - run.period_month
+            # April-March tax year follows the salary payment date, including
+            # payroll periods paid across a month/year boundary.
+            rem_months = 16 - salary_payment_date.month if salary_payment_date.month >= 4 else 4 - salary_payment_date.month
             verified_declarations = (decl.verified_details_json if decl else None) or None
             cutoff_passed = bool(decl and decl.proof_cutoff_date and decl.proof_cutoff_date <= (getattr(run, "end_date", None) or date.today()))
             current_one_time_variable_paise = sum(
@@ -1208,15 +1483,18 @@ class PayrollRunService:
             )
             current_one_time_paise = one_time_bonus_paise + current_one_time_variable_paise
             current_recurring_monthly_paise = max(0, gross_paise - current_one_time_paise)
-            fy_start_year = run.period_year if run.period_month >= 4 else run.period_year - 1
+            fy_start_year = salary_payment_date.year if salary_payment_date.month >= 4 else salary_payment_date.year - 1
             fy_pairs = [(m, fy_start_year if m >= 4 else fy_start_year + 1) for m in range(4, 13)] + [(m, fy_start_year + 1) for m in range(1, 4)]
-            current_fy_index = run.period_month - 4 if run.period_month >= 4 else run.period_month + 8
+            current_fy_index = salary_payment_date.month - 4 if salary_payment_date.month >= 4 else salary_payment_date.month + 8
             elapsed_pairs = fy_pairs[:current_fy_index]
             prior_tds_paise = 0
             prior_actual_gross_paise = 0
             has_prior_history = False
             if elapsed_pairs:
-                period_filter = or_(*[and_(Payslip.period_month == month, Payslip.period_year == year) for month, year in elapsed_pairs])
+                period_filter = and_(
+                    Payslip.payment_date >= date(fy_start_year, 4, 1),
+                    Payslip.payment_date < salary_payment_date,
+                )
                 prior_row = (await session.execute(select(
                     func.coalesce(func.sum(Payslip.tds), 0),
                     func.coalesce(func.sum(Payslip.gross_earnings), 0),
@@ -1227,10 +1505,7 @@ class PayrollRunService:
                 prior_tds_paise = int(as_decimal(prior_row[0]) * 100)
                 prior_actual_gross_paise = int(as_decimal(prior_row[1]) * 100)
                 has_prior_history = has_prior_history or int(prior_row[2] or 0) > 0
-                imported_filter = or_(*[
-                    and_(EmployeeYTDSalary.period_month == month, EmployeeYTDSalary.period_year == year)
-                    for month, year in elapsed_pairs
-                ])
+                imported_filter = EmployeeYTDSalary.financial_year == fy_label
                 imported_stmt = select(
                     func.coalesce(func.sum(EmployeeYTDSalary.tds_paise), 0),
                     func.coalesce(func.sum(EmployeeYTDSalary.gross_earnings_paise), 0),
@@ -1264,7 +1539,7 @@ class PayrollRunService:
                 use_verified_declarations=bool(decl and decl.use_verified_amounts and cutoff_passed),
                 proof_cutoff_passed=cutoff_passed,
                 financial_year=fy_label,
-                current_month=run.period_month,
+                current_month=salary_payment_date.month,
                 remaining_months=rem_months,
                 ytd_tds_paise=ytd_for_projection,
                 previous_employer_tds_paise=int(getattr(decl, "previous_employer_tds_paise", 0) or 0) if decl else 0,
@@ -1325,9 +1600,55 @@ class PayrollRunService:
                 + advance_deduction_paise
                 + custom_deductions_paise
             )
-            # Final Net Pay is always a whole-rupee, half-up integer-paise
-            # value.  Do not replace this with Python's banker-rounding round().
-            net_paise = max(0, round_to_rupee_paise(gross_paise - emp_deductions_paise))
+            posted_earnings_paise = (
+                emp_basic_paise + emp_hra_paise + emp_special_paise
+                + emp_conveyance_paise + emp_lta_paise + emp_statutory_bonus_paise
+                + emp_reimbursement_paise + sum(emp_other_fixed_paise.values())
+                + variable_earnings_paise + total_arrear_paise + one_time_bonus_paise
+                + custom_earnings_paise
+            )
+            posted_deductions_paise = (
+                employee_pf_paise + employee_esi_paise + pt_paise + employee_lwf_paise
+                + tds_paise + country_employee_deductions_paise
+                + variable_deductions_paise + advance_deduction_paise
+                + custom_deductions_paise
+            )
+            if posted_earnings_paise != gross_paise or posted_deductions_paise != emp_deductions_paise:
+                await cls.mark_processing_failed(
+                    session, run_id,
+                    error_code="PAYROLL_COMPONENT_RECONCILIATION",
+                    detail="Posted earning or deduction components do not match payroll totals.",
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Payroll financial integrity violation: posted component totals do not reconcile.",
+                )
+            net_paise = gross_paise - emp_deductions_paise
+            if net_paise < 0:
+                # Discard all uncommitted employee postings, then leave an
+                # explicit failed run that requires HR/Finance resolution.
+                await cls.mark_processing_failed(
+                    session, run_id,
+                    error_code="NEGATIVE_NET_PAY",
+                    detail=(
+                        f"Deductions exceed gross earnings by {abs(net_paise)} paise; "
+                        "defer or correct recoveries before retrying payroll."
+                    ),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=("Payroll deductions exceed gross earnings; unresolved "
+                            "recoveries must be deferred or corrected before processing."),
+                )
+            try:
+                assert_payroll_reconciles(gross_paise, emp_deductions_paise, net_paise)
+            except ValueError as exc:
+                await cls.mark_processing_failed(
+                    session, run_id,
+                    error_code="PAYROLL_RECONCILIATION_FAILED",
+                    detail=str(exc),
+                )
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
             employer_cost_paise = (
                 gross_paise
@@ -1389,7 +1710,10 @@ class PayrollRunService:
                 "lta_paise": emp_lta_paise,
                 "statutory_bonus_paise": emp_statutory_bonus_paise,
                 "reimbursement_paise": emp_reimbursement_paise,
+                "other_fixed_paise": dict(emp_other_fixed_paise),
+                "custom_paise": dict(custom_earning_breakup),
                 "variable_paise": variable_earnings_paise,
+                "variable_components_paise": dict(var_component_paise),
                 "arrears_paise": total_arrear_paise,
                 "ledger_arrears_paise": arrear_paise,
                 "attendance_arrears_paise": attendance_arrear_paise,
@@ -1417,6 +1741,11 @@ class PayrollRunService:
                 "pt_paise": pt_paise,
                 "lwf_paise": employee_lwf_paise,
                 "tds_paise": tds_paise,
+                "tds_financial_year": fy_label,
+                "salary_payment_date": salary_payment_date.isoformat(),
+                "pf_statutory_wage_ceiling_paise": pf_res.get("statutory_wage_ceiling_paise", 0),
+                "eps_membership_active": pf_res.get("eps_membership_active", False),
+                "eps_higher_wage_opted": pf_res.get("eps_higher_wage_opted", False),
                 "advance_recovery_paise": advance_deduction_paise,
                 "variable_deductions_paise": variable_deductions_paise,
                 "custom_deductions_paise": custom_deductions_paise,
@@ -1438,7 +1767,13 @@ class PayrollRunService:
             )
             payslip = (await session.execute(ps_stmt)).scalar_one_or_none()
             if not payslip:
-                ps_num = f"PAY-{run.period_year}{run.period_month:02d}-{uuid.uuid4().hex[:6].upper()}"
+                # Six random hex characters collide at realistic payroll
+                # volumes. A stable run/employee digest fits the existing
+                # VARCHAR(30) format and remains the same on safe retries.
+                payslip_token = hashlib.sha256(
+                    f"{run.id}:{emp.id}".encode("utf-8")
+                ).hexdigest()[:19].upper()
+                ps_num = f"PAY-{run.period_year}{run.period_month:02d}-{payslip_token}"
                 payslip = Payslip(
                     id=uuid.uuid4(),
                     company_id=run.company_id,
@@ -1447,7 +1782,7 @@ class PayrollRunService:
                     payslip_number=ps_num,
                     period_month=run.period_month,
                     period_year=run.period_year,
-                    total_days_in_month=30,
+                    total_days_in_month=int(period_days),
                     paid_days=paid_days,
                     lop_days=lop_days,
                 )
@@ -1496,6 +1831,13 @@ class PayrollRunService:
         run.total_deductions = paise_to_rupees(total_deductions_paise)
         run.total_net = paise_to_rupees(total_net_paise)
         run.status = "PROCESSED"
+        run.processing_token = None
+        run.processing_lease_until = None
+        session.add(PayrollAuditLog(
+            entity_type="PayrollRun", entity_id=run_id, company_id=run.company_id,
+            action="CALCULATION_COMMITTED", old_status="PROCESSING", new_status="PROCESSED",
+            extra_data={"claim_token": str(token), "employees": processed_count},
+        ))
         run.validation_status = "WARNING" if country_review_required else "VALID"
         if country_review_required:
             existing_issues = run.validation_errors if isinstance(run.validation_errors, list) else []

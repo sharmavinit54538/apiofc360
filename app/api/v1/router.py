@@ -32,7 +32,6 @@ from app.routers import (
     reports as core_reports_router,
     notifications as core_notifications_router,
     documents as core_documents_router,
-    assets as core_assets_router,
     holidays as core_holidays_router,
     dashboard as core_dashboard_router,
 )
@@ -61,6 +60,7 @@ from app.api.news import router as news_router
 from app.api.events import router as events_router
 from app.api.polls import router as polls_router
 from app.api.internal_dashboard import router as internal_dashboard_router
+from app.api.expenses import router as expenses_router
 
 # ── AI Module Routers (from app/api/v1/) ──────────────────────────────────────
 from app.api.v1.ai import router as ai_router
@@ -79,23 +79,19 @@ from app.api.v1.chat_assistant import router as chat_assistant_router
 from app.api.v1.analytics_center import router as analytics_center_router
 from app.api.v1.ai_brain import router as ai_brain_router
 from app.api.v1.intelligence import router as intelligence_router
-from app.api.v1.admissions import router as admissions_router
-from app.api.v1.attendance import router as attendance_v1_router
-from app.api.v1.cctv import router as cctv_router
-from app.api.v1.dashboard import router as dashboard_router
-from app.api.v1.documents import router as documents_v1_router
 from app.api.v1.employee_health import router as employee_health_v1_router
-from app.api.v1.face import router as face_router
-from app.api.v1.fees import router as fees_router
 from app.api.v1.intelligence import router as intelligence_v1_router
 from app.api.v1.meeting_ai import router as meeting_ai_v1_router
-from app.api.v1.parent import router as parent_router
 from app.api.v1.policy_ai import router as policy_ai_v1_router
-from app.api.v1.recognition import router as recognition_router
 from app.api.v1.reports import router as reports_v1_router_alt
-from app.api.v1.students import router as students_router
-from app.api.v1.teachers import router as teachers_router
-from app.api.v1.users import router as users_v1_router
+from app.api.v1.digilocker import router as digilocker_router
+from app.api.v1.visitors import router as visitors_router
+from app.api.v1.offboarding import router as offboarding_router
+from app.api.v1.onboarding_checklist import router as onboarding_checklist_router
+from app.api.v1.executive import router as executive_router
+from app.api.v1.hr_ops_analytics import router as hr_ops_analytics_router
+from app.api.v1.travel import router as travel_v1_router
+from app.api.v1.resume_parser import router as resume_parser_v1_router
 
 # ── AI Hub Gateway Routers (from app/api/v1/ai_hub/) ──────────────────────────
 from app.api.v1.ai_hub.root import router as ai_hub_root_router
@@ -183,7 +179,6 @@ def get_v1_router() -> APIRouter:
         core_reports_router.router,
         core_notifications_router.router,
         core_documents_router.router,
-        core_assets_router.router,
         core_holidays_router.router,
         core_dashboard_router.router,
     ):
@@ -215,6 +210,7 @@ def get_v1_router() -> APIRouter:
         polls_router,
         internal_dashboard_router,
         attendance_router,  # from app/attendance/routers/
+        expenses_router,
     ):
         router.include_router(r)
 
@@ -263,11 +259,22 @@ def get_v1_router() -> APIRouter:
         recruitment_router,
         ats_router,
         global_notifications_router,
+        settings_api_router,
+        billing_router,
+        payments_router,
         generate_router,
         connect_router,
         helpdesk_router,
         reports_v1_router,
         sidebar_router,
+        digilocker_router,
+        visitors_router,
+        offboarding_router,
+        onboarding_checklist_router,
+        executive_router,
+        hr_ops_analytics_router,
+        travel_v1_router,
+        resume_parser_v1_router,
     ):
         router.include_router(r)
     
@@ -294,23 +301,11 @@ def get_v1_router() -> APIRouter:
     
     # Additional v1 routes from app/api/v1/
     for r in (
-        admissions_router,
-        attendance_v1_router,
-        cctv_router,
-        dashboard_router,
-        documents_v1_router,
         employee_health_v1_router,
-        face_router,
-        fees_router,
         intelligence_v1_router,
         meeting_ai_v1_router,
-        parent_router,
         policy_ai_v1_router,
-        recognition_router,
         reports_v1_router,
-        students_router,
-        teachers_router,
-        users_v1_router,
     ):
         router.include_router(r)
     

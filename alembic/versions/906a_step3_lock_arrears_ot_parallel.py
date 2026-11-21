@@ -1,6 +1,6 @@
 """Step 3 batch 1: attendance locks, arrears, OT allowances and comparisons.
 
-Revision ID: 906a_step3_lock_arrears_ot_parallel
+Revision ID: 906a_step3_lock_arrears_ot
 Revises: 905a_dpdp_field_encryption
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "906a_step3_lock_arrears_ot_parallel"
+revision = "906a_step3_lock_arrears_ot"
 down_revision = "905a_dpdp_field_encryption"
 branch_labels = None
 depends_on = None
@@ -20,6 +20,9 @@ def _uuid() -> sa.types.TypeEngine:
 
 
 def upgrade() -> None:
+    # Also protect upgrades from databases whose current revision is already 905a.
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
     for table in ("payroll_periods", "pay_cycles"):
         op.add_column(table, sa.Column("regularisation_deadline", sa.DateTime(timezone=True), nullable=True))
         op.add_column(table, sa.Column("attendance_locked_at", sa.DateTime(timezone=True), nullable=True))

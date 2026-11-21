@@ -124,7 +124,7 @@ def test_register_schema_rejects_super_admin_email():
     assert "Super Admin email cannot be registered" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_auth_service_register_rejects_super_admin_email():
     """Verify that AuthService.register_user rejects superadmin@ofc360.com registration."""
     mock_session = AsyncMock()
@@ -188,7 +188,7 @@ def test_hr_admin_update_schema_rejects_super_admin():
     assert "Super Admin" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_hr_admin_service_rejects_super_admin_creation():
     """Verify that HRAdminService.create_user blocks super_admin role."""
     mock_session = AsyncMock()
@@ -208,7 +208,7 @@ async def test_hr_admin_service_rejects_super_admin_creation():
 # 4. Employee Management Escalation Protection
 # ==============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_employee_service_create_rejects_super_admin_role():
     """Verify that EmployeeService.create_employee rejects super_admin role."""
     mock_session = AsyncMock()
@@ -236,7 +236,7 @@ async def test_employee_service_create_rejects_super_admin_role():
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_employee_service_create_rejects_superadmin_email():
     """Verify that EmployeeService.create_employee rejects personal_email=superadmin@ofc360.com."""
     mock_session = AsyncMock()
@@ -268,7 +268,7 @@ async def test_employee_service_create_rejects_superadmin_email():
 # 5. Account Service Email Change Protection
 # ==============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_account_service_change_email_locks_super_admin():
     """Verify that Super Admin cannot change email, and normal user cannot change to superadmin email."""
     mock_session = AsyncMock()
@@ -324,7 +324,7 @@ async def test_account_service_change_email_locks_super_admin():
 # 6. RBAC Dependency Verification
 # ==============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_require_super_admin_permits_official_identity():
     """Verify that require_super_admin permits official superadmin claims."""
     claims = {
@@ -336,7 +336,7 @@ async def test_require_super_admin_permits_official_identity():
     assert res == claims
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_require_super_admin_rejects_imposter_claims():
     """Verify that require_super_admin rejects non-authorized email with super_admin role."""
     claims = {
@@ -349,7 +349,7 @@ async def test_require_super_admin_rejects_imposter_claims():
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_require_super_admin_db_identity_check():
     """Verify database-level check in require_super_admin."""
     mock_session = AsyncMock()
@@ -389,7 +389,7 @@ async def test_require_super_admin_db_identity_check():
 # 7. Seed CLI Security Enforcement
 # ==============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_seed_cli_rejects_non_superadmin_email():
     """Verify seed_super_admin script refuses to seed any email other than superadmin@ofc360.com."""
     with pytest.raises(ValueError) as exc_info:
@@ -406,7 +406,7 @@ async def test_seed_cli_rejects_non_superadmin_email():
 # 8. Login Role Enforcement & Startup Migration
 # ==============================================================================
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_official_super_admin_login_returns_super_admin_role():
     """Verify official super admin login issues tokens with super_admin role."""
     mock_session = AsyncMock()
@@ -452,7 +452,7 @@ async def test_official_super_admin_login_returns_super_admin_role():
     assert call_kwargs["email"] == "superadmin@ofc360.com"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_login_downgrades_unauthorized_superadmin_role():
     """Verify login downgrades any non-official email having role=SUPER_ADMIN."""
     mock_session = AsyncMock()
@@ -497,7 +497,7 @@ async def test_login_downgrades_unauthorized_superadmin_role():
     assert call_kwargs["role"] == "employee"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_ensure_superadmin_provisioned_safe_migration():
     """Verify startup ensures superadmin@ofc360.com and safely migrates duplicate superadmins."""
     from app.main import ensure_superadmin_provisioned

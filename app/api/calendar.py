@@ -1,10 +1,13 @@
 """Calendar Management API routes."""
 
 import uuid
-from datetime import date
-from typing import Annotated
+from datetime import date, datetime, timezone
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.departments import require_admin_or_hr
 from app.middleware.auth import get_current_user_claims
@@ -22,6 +25,7 @@ from app.schemas.calendar import (
     MeetingResponse,
 )
 from app.services.calendar_service import CalendarService, get_calendar_service
+from app.models.calendar import HolidayCalendar as Holiday
 
 router = APIRouter(prefix="/calendar", tags=["Calendar Management"])
 
@@ -241,6 +245,101 @@ async def delete_holiday(
         success=True,
         message="Holiday deleted successfully.",
         data=None,
+        errors=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Holiday Import Endpoint
+# ---------------------------------------------------------------------------
+
+class HolidayImportRow(BaseModel):
+    date: date
+    name: str = Field(min_length=1, max_length=200)
+    branch: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    is_recurring: bool = True
+
+
+class HolidayImportRequest(BaseModel):
+    holidays: list[HolidayImportRow]
+
+
+class HolidayImportResult(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+    errors: list[dict]
+
+
+@router.post(
+    "/holidays/import",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[HolidayImportResult],
+    summary="Import holidays from CSV/JSON",
+)
+async def import_holidays(
+    payload: HolidayImportRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[CalendarService, Depends(get_calendar_service)],
+) -> APIResponse[HolidayImportResult]:
+    """Import holiday records from structured data. Admin and HR only."""
+    company_id_str = claims.get("company_id")
+    if not company_id_str:
+        raise HTTPException(status_code=403, detail="Company context missing")
+    company_id = uuid.UUID(company_id_str)
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for idx, holiday in enumerate(payload.holidays):
+        try:
+            # Check for existing holiday on same date and branch
+            existing_stmt = select(Holiday).where(
+                Holiday.company_id == company_id,
+                Holiday.date == holiday.date,
+                Holiday.branch == (holiday.branch or "default"),
+            )
+            existing_res = await service.session.execute(existing_stmt)
+            existing = existing_res.scalar_one_or_none()
+
+            if existing:
+                # Update existing
+                existing.name = holiday.name
+                existing.description = holiday.description
+                existing.is_recurring = holiday.is_recurring
+                existing.updated_at = datetime.now(timezone.utc)
+                updated += 1
+            else:
+                # Create new
+                new_holiday = Holiday(
+                    id=uuid.uuid4(),
+                    company_id=company_id,
+                    date=holiday.date,
+                    name=holiday.name,
+                    branch=holiday.branch or "default",
+                    description=holiday.description,
+                    is_recurring=holiday.is_recurring,
+                )
+                service.session.add(new_holiday)
+                created += 1
+        except Exception as e:
+            errors.append({"row": idx, "error": str(e)})
+            skipped += 1
+
+    await service.session.commit()
+
+    return APIResponse[HolidayImportResult](
+        success=True,
+        message=f"Holiday import completed: {created} created, {updated} updated, {skipped} skipped.",
+        data=HolidayImportResult(
+            created=created,
+            updated=updated,
+            skipped=skipped,
+            errors=errors,
+        ),
         errors=None,
     )
 

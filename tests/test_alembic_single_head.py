@@ -4,6 +4,7 @@ Verifies:
 1. Exactly one head exists (no branches / multiple heads).
 2. Exactly one base exists (no multiple disconnected roots).
 3. Every migration's down_revision resolves to a valid existing revision.
+4. Revision identifiers fit the version table at that point in the chain.
 """
 
 from pathlib import Path
@@ -65,4 +66,30 @@ def test_alembic_migration_graph_continuity():
     
     assert not missing_parents, (
         f"Found migrations referencing missing parent revisions: {missing_parents}"
+    )
+
+
+def test_alembic_revision_ids_fit_legacy_version_table():
+    """Respect the legacy width until 902a widens version_num to VARCHAR(128)."""
+    script_dir = get_alembic_script_dir()
+    oversized = []
+
+    for rev in script_dir.walk_revisions():
+        ancestors = {item.revision for item in script_dir.iterate_revisions(rev.revision, "base")}
+        limit = 128 if "902a_sync_drift" in ancestors else 28
+        down_revs = rev.down_revision
+        if down_revs is None:
+            down_revs = ()
+        elif isinstance(down_revs, str):
+            down_revs = (down_revs,)
+
+        for kind, revision_id in [("revision", rev.revision)] + [
+            ("down_revision", parent_id) for parent_id in down_revs
+        ]:
+            if len(revision_id) > limit:
+                oversized.append((rev.revision, kind, revision_id, len(revision_id)))
+
+    assert not oversized, (
+        "Alembic revision/down_revision exceeds its migration-time version column width; "
+        f"found: {oversized}"
     )

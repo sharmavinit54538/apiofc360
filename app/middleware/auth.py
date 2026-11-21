@@ -100,7 +100,7 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
 async def invalidate_auth_active_cache(user_id: uuid.UUID, company_id: uuid.UUID | None) -> None:
     """Invalidate the cached auth active state for a user."""
     cache_key = _auth_active_cache_key(user_id, company_id)
-    await cache_delete(cache_key)
+    await redis_client.delete(cache_key)
     # Also delete from in-memory store
     cache_delete(cache_key)
 
@@ -117,6 +117,7 @@ async def invalidate_all_auth_active_cache_for_user(user_id: uuid.UUID) -> None:
 async def get_current_user_claims(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
     request: Request = None,
+    session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Verify bearer access token claims and return payload context."""
     token = None
@@ -213,7 +214,13 @@ async def get_current_user_claims(
 
     logger.debug("Access Token validated | user_id=%s | role=%s", user_id, role)
 
+    from app.services.principal_validation import validate_principal
+    await validate_principal(session, claims)
+    active, reason = await _check_user_active_cached(uuid.UUID(user_id), uuid.UUID(company_id) if company_id else None, session)
+    if not active:
+        raise HTTPException(status_code=403, detail=reason)
     from app.db.base import tenant_id_ctx
+    tenant_id_ctx.set(None)
     if company_id:
         try:
             tenant_id_ctx.set(uuid.UUID(str(company_id)))
@@ -336,9 +343,10 @@ async def get_current_company(
 async def get_current_user_claims_optional(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
     request: Request = None,
+    session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any] | None:
     """Safely resolve user claims without raising HTTP 401 exceptions if unauthenticated."""
     try:
-        return await get_current_user_claims(credentials=credentials, request=request)
+        return await get_current_user_claims(credentials=credentials, request=request, session=session)
     except HTTPException:
         return None

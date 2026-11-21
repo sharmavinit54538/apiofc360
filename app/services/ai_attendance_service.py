@@ -157,12 +157,14 @@ class AIAttendanceService:
         violations = []
 
         for idx, item in enumerate(anomalies):
+            # Use shift_name from anomaly data if available, otherwise fallback
+            shift_name = item.get("shift_name", "Unknown Shift")
             violations.append(
                 ShiftViolationItem(
                     id=item["id"],
                     employee_id=item["employee_id"],
                     employee_name=item["employee_name"],
-                    shift_name="General Shift (09:00 - 18:00)",
+                    shift_name=shift_name,
                     violation_type="MISSED_SHIFT" if item["anomaly_type"] == "MISSING_CHECKOUT" else "LATE_LOGIN",
                     date=item["date"],
                     details=item["description"],

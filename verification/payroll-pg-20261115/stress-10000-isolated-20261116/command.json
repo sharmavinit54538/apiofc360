@@ -1,0 +1,17 @@
+[
+  "py",
+  "-3.14",
+  "scripts/payroll_engine_stress.py",
+  "--count",
+  "10000",
+  "--seed",
+  "36020261114",
+  "--batch-size",
+  "100",
+  "--concurrency",
+  "4",
+  "--repeats",
+  "2",
+  "--output",
+  "verification/payroll-pg-20261115/stress-10000-isolated-20261116/financial"
+]

@@ -1,0 +1,119 @@
+{
+  "sqlstate": "42703",
+  "message": "<class 'asyncpg.exceptions.UndefinedColumnError'>: column employees.aadhaar_number_blind_idx does not exist",
+  "mismatches": [
+    {
+      "column": "aadhaar_number",
+      "issue": "type",
+      "actual": "VARCHAR(512)",
+      "expected": "TEXT"
+    },
+    {
+      "column": "aadhaar_number_blind_idx",
+      "issue": "missing"
+    },
+    {
+      "column": "passport_number",
+      "issue": "type",
+      "actual": "VARCHAR(512)",
+      "expected": "TEXT"
+    },
+    {
+      "column": "passport_number_blind_idx",
+      "issue": "missing"
+    },
+    {
+      "column": "voter_id",
+      "issue": "type",
+      "actual": "VARCHAR(512)",
+      "expected": "TEXT"
+    },
+    {
+      "column": "voter_id_blind_idx",
+      "issue": "missing"
+    },
+    {
+      "column": "pan_number",
+      "issue": "type",
+      "actual": "VARCHAR(512)",
+      "expected": "TEXT"
+    },
+    {
+      "column": "pan_number_blind_idx",
+      "issue": "missing"
+    },
+    {
+      "column": "uan_number",
+      "issue": "type",
+      "actual": "VARCHAR(512)",
+      "expected": "TEXT"
+    },
+    {
+      "column": "uan_number_blind_idx",
+      "issue": "missing"
+    },
+    {
+      "column": "is_pf_eligible",
+      "issue": "nullable",
+      "actual": true,
+      "expected": false
+    },
+    {
+      "column": "is_international_worker",
+      "issue": "nullable",
+      "actual": true,
+      "expected": false
+    },
+    {
+      "column": "pf_wage_ceiling_applicable",
+      "issue": "nullable",
+      "actual": true,
+      "expected": false
+    },
+    {
+      "index": "ix_employees_company_uan_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "uan_number_blind_idx"
+      ],
+      "unique": false
+    },
+    {
+      "index": "ix_employees_company_aadhaar_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "aadhaar_number_blind_idx"
+      ],
+      "unique": false
+    },
+    {
+      "index": "ix_employees_company_passport_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "passport_number_blind_idx"
+      ],
+      "unique": false
+    },
+    {
+      "index": "ix_employees_company_pan_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "pan_number_blind_idx"
+      ],
+      "unique": false
+    },
+    {
+      "index": "ix_employees_company_voter_blind_idx",
+      "issue": "definition",
+      "expected_columns": [
+        "company_id",
+        "voter_id_blind_idx"
+      ],
+      "unique": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "command": [
+    "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "app/tests",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\legacy-app-tests-20261117\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\legacy-app-tests-20261117-tmp"
+  ],
+  "database": "payroll_verify_focused",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 76.171,
+  "tests": 55,
+  "failed": 3,
+  "errors": 25,
+  "skipped": 0,
+  "passed": 27
+}

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.attendance.schemas.face import CheckInRequest
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.checkin_service import AttendanceCheckInService
+from app.attendance.utils.biometric_storage import enrich_attendance_with_presigned_urls
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -52,6 +53,7 @@ async def _handle_checkin_request(
     location_dict: Optional[dict] = None
     notes: Optional[str] = None
     device_info: Optional[str] = None
+    work_mode: Optional[str] = None
 
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -75,6 +77,7 @@ async def _handle_checkin_request(
             }
         notes = form.get("notes")
         device_info = form.get("device_info")
+        work_mode = form.get("work_mode")
     else:
         try:
             body = await request.json()
@@ -87,6 +90,7 @@ async def _handle_checkin_request(
         location_dict = body.get("location")
         notes = body.get("notes")
         device_info = body.get("device_info")
+        work_mode = body.get("work_mode")
 
     if not image_b64:
         raise HTTPException(
@@ -103,12 +107,16 @@ async def _handle_checkin_request(
         device_info=device_info,
         ip_address=client_ip,
         idempotency_key=idempotency_key,
+        work_mode=work_mode,
     )
+
+    attendance_data = AttendanceResponse.model_validate(record).model_dump(mode="json")
+    attendance_data = enrich_attendance_with_presigned_urls(attendance_data)
 
     return {
         "success": True,
         "message": "Checked in successfully.",
-        "data": AttendanceResponse.model_validate(record).model_dump(mode="json"),
+        "data": attendance_data,
         "error": None,
     }
 
@@ -117,16 +125,6 @@ async def _handle_checkin_request(
     "/face/check-in",
     status_code=status.HTTP_201_CREATED,
     summary="Record daily attendance check-in with real face matching (JSON or multipart)",
-)
-@router.post(
-    "/checkin",
-    status_code=status.HTTP_200_OK,
-    include_in_schema=False,
-)
-@router.post(
-    "/face/checkin",
-    status_code=status.HTTP_200_OK,
-    include_in_schema=False,
 )
 async def ai_face_check_in(
     request: Request,

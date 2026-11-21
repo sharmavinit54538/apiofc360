@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "database": "asset_verify_suite",
+  "port": 55442,
+  "exit_code": 0,
+  "seconds": 2.491
+}

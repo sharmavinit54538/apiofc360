@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
@@ -79,17 +80,71 @@ async def get_compliance_history(
 
 @router.get("/compliance/calendar", response_model=APIResponse[List[dict]], summary="Get statutory due dates calendar")
 async def get_compliance_calendar(
+    month: Optional[int] = Query(None),
+    year: Optional[int] = Query(None),
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    calendar_events = [
-        {"id": "cal_1", "title": "EPFO ECR Filing & Challan", "due_date": "2026-08-15", "status": "DUE_SOON", "category": "EPF"},
-        {"id": "cal_2", "title": "ESIC Monthly Contribution Return", "due_date": "2026-08-15", "status": "DUE_SOON", "category": "ESI"},
-        {"id": "cal_3", "title": "Professional Tax Monthly Deposit (Telangana)", "due_date": "2026-08-20", "status": "UPCOMING", "category": "PT"},
-        {"id": "cal_4", "title": "Labour Welfare Fund (LWF) Semi-Annual Deposit", "due_date": "2026-12-31", "status": "UPCOMING", "category": "LWF"},
-    ]
-    return success_response(calendar_events, "Statutory due dates calendar retrieved.")
+    today = date.today()
+    target_month = month or today.month
+    target_year = year or today.year
+
+    rules = await PayrollComplianceService.list_compliance(db)
+    events: List[dict] = []
+
+    if rules:
+        for r in rules:
+            if hasattr(r, "is_enabled") and not r.is_enabled:
+                continue
+            due_day = getattr(r, "due_day_of_month", 15) or 15
+            try:
+                due_dt = date(target_year, target_month, min(due_day, 28))
+            except Exception:
+                due_dt = today
+
+            days_diff = (due_dt - today).days
+            if days_diff < 0:
+                ev_status = "OVERDUE"
+            elif days_diff <= 5:
+                ev_status = "DUE_SOON"
+            else:
+                ev_status = "UPCOMING"
+
+            events.append(
+                {
+                    "id": f"cal_{str(r.id)[:8]}",
+                    "title": f"{r.compliance_name} ({r.compliance_code})",
+                    "due_date": due_dt.strftime("%Y-%m-%d"),
+                    "status": ev_status,
+                    "category": r.category or "EPF",
+                    "filing_frequency": r.filing_frequency or "MONTHLY",
+                }
+            )
+
+    if not events:
+        statutory_defaults = [
+            ("EPFO ECR Filing & Challan", "EPF", 15),
+            ("ESIC Monthly Contribution Return", "ESI", 15),
+            ("Professional Tax Monthly Deposit", "PT", 20),
+            ("TDS Salary Deposit (Challan 281)", "TDS", 7),
+        ]
+        for title, cat, due_day in statutory_defaults:
+            due_dt = date(target_year, target_month, min(due_day, 28))
+            days_diff = (due_dt - today).days
+            ev_status = "DUE_SOON" if 0 <= days_diff <= 5 else ("OVERDUE" if days_diff < 0 else "UPCOMING")
+            events.append(
+                {
+                    "id": f"cal_{cat.lower()}_{target_year}{target_month:02d}",
+                    "title": title,
+                    "due_date": due_dt.strftime("%Y-%m-%d"),
+                    "status": ev_status,
+                    "category": cat,
+                    "filing_frequency": "MONTHLY",
+                }
+            )
+
+    return success_response(events, "Statutory due dates calendar retrieved.")
 
 
 @router.post("/compliance/validate", response_model=APIResponse[dict], summary="Run statutory compliance audit scan")

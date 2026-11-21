@@ -9,12 +9,19 @@ Run after the additive schema migration and before removing old keys::
 
 The command intentionally uses lightweight Core tables instead of ORM encrypted
 columns so it can distinguish legacy plaintext from ciphertext.  No identifier
-values are logged.  Each batch commits independently and is safe to retry.
+values are logged. Each batch commits independently and is safe to retry.
+Unreadable or tenantless rows remain untouched and are counted as quarantined;
+the CLI exits 2 until resolved. --quarantine-report writes row IDs and reason
+codes only; keep this operator manifest outside source control. Retain the old
+key ring during rotation, review the manifest, restore missing keys or correct
+the source record, then rerun. Never replace unreadable ciphertext with NULL.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 import asyncio
 import uuid
 from typing import Any
@@ -24,6 +31,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.field_encryption import (
+    FieldEncryptionError,
     decrypt_value,
     encrypt_value,
     hmac_sha256_blind_index,
@@ -66,6 +74,7 @@ def _empty_stats() -> dict[str, int]:
         "bank_accounts_scanned": 0,
         "bank_values_encrypted": 0,
         "rows_unchanged": 0,
+        "rows_quarantined": 0,
     }
 
 
@@ -75,13 +84,18 @@ async def backfill_employees(
     batch_size: int = 250,
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
+    issues: list[dict[str, str]] | None = None,
 ) -> dict[str, int]:
     stats = _empty_stats()
-    offset = 0
+    last_id = None
     while True:
-        stmt = select(_employees).order_by(_employees.c.id).limit(batch_size).offset(offset)
+        stmt = select(_employees).order_by(_employees.c.id).limit(batch_size)
+        if last_id is not None:
+            stmt = stmt.where(_employees.c.id > last_id)
         if company_id is not None:
             stmt = stmt.where(_employees.c.company_id == company_id)
+        if not dry_run:
+            stmt = stmt.with_for_update()
         rows = list((await session.execute(stmt)).mappings().all())
         if not rows:
             break
@@ -91,21 +105,30 @@ async def backfill_employees(
             changes: dict[str, Any] = {}
             encrypted_fields = 0
             index_fields = 0
-            for field_name in EMPLOYEE_PII_FIELDS:
-                stored = row[field_name]
-                if is_encrypted_value(stored):
-                    plaintext = decrypt_value(stored)
-                else:
-                    plaintext = stored
-                    if stored is not None:
-                        changes[field_name] = encrypt_value(stored)
-                        encrypted_fields += 1
-
-                blind_name = f"{field_name}_blind_idx"
-                expected_index = hmac_sha256_blind_index(plaintext, row["company_id"])
-                if row[blind_name] != expected_index:
-                    changes[blind_name] = expected_index
-                    index_fields += 1
+            try:
+                if row["company_id"] is None and any(row[f] is not None for f in EMPLOYEE_PII_FIELDS):
+                    raise ValueError("missing_tenant")
+                for field_name in EMPLOYEE_PII_FIELDS:
+                    stored = row[field_name]
+                    if is_encrypted_value(stored):
+                        plaintext = decrypt_value(stored)
+                    else:
+                        plaintext = stored
+                        if stored is not None:
+                            changes[field_name] = encrypt_value(stored)
+                            encrypted_fields += 1
+    
+                    blind_name = f"{field_name}_blind_idx"
+                    expected_index = hmac_sha256_blind_index(plaintext, row["company_id"])
+                    if row[blind_name] != expected_index:
+                        changes[blind_name] = expected_index
+                        index_fields += 1
+            except (FieldEncryptionError, ValueError) as exc:
+                stats["rows_quarantined"] += 1
+                if issues is not None:
+                    issues.append({"table": "employees", "id": str(row["id"]),
+                                   "reason": "missing_tenant" if isinstance(exc, ValueError) else "key_or_ciphertext_error"})
+                continue
 
             if changes:
                 if not dry_run:
@@ -119,7 +142,7 @@ async def backfill_employees(
 
         if not dry_run:
             await session.commit()
-        offset += len(rows)
+        last_id = rows[-1]["id"]
         if len(rows) < batch_size:
             break
     return stats
@@ -131,15 +154,20 @@ async def backfill_bank_accounts(
     batch_size: int = 250,
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
+    issues: list[dict[str, str]] | None = None,
 ) -> dict[str, int]:
     stats = _empty_stats()
-    offset = 0
+    last_id = None
     while True:
-        stmt = select(_bank_accounts).order_by(_bank_accounts.c.id).limit(batch_size).offset(offset)
+        stmt = select(_bank_accounts).order_by(_bank_accounts.c.id).limit(batch_size)
+        if last_id is not None:
+            stmt = stmt.where(_bank_accounts.c.id > last_id)
         if company_id is not None:
             stmt = stmt.join(_employees, _employees.c.id == _bank_accounts.c.employee_id).where(
                 _employees.c.company_id == company_id
             )
+        if not dry_run:
+            stmt = stmt.with_for_update()
         rows = list((await session.execute(stmt)).mappings().all())
         if not rows:
             break
@@ -147,10 +175,20 @@ async def backfill_bank_accounts(
         for row in rows:
             stats["bank_accounts_scanned"] += 1
             changes: dict[str, Any] = {}
-            for field_name in BANK_PII_FIELDS:
-                stored = row[field_name]
-                if stored is not None and not is_encrypted_value(stored):
-                    changes[field_name] = encrypt_value(stored)
+            try:
+                for field_name in BANK_PII_FIELDS:
+                    stored = row[field_name]
+                    if is_encrypted_value(stored):
+                        decrypt_value(stored)  # Validate existing ciphertext, never log it.
+                    elif stored is not None:
+                        changes[field_name] = encrypt_value(stored)
+            except FieldEncryptionError:
+                stats["rows_quarantined"] += 1
+                if issues is not None:
+                    issues.append({"table": "employee_bank_accounts", "id": str(row["id"]),
+                                   "reason": "key_or_ciphertext_error"})
+                continue
+
             if changes:
                 if not dry_run:
                     await session.execute(
@@ -162,7 +200,7 @@ async def backfill_bank_accounts(
 
         if not dry_run:
             await session.commit()
-        offset += len(rows)
+        last_id = rows[-1]["id"]
         if len(rows) < batch_size:
             break
     return stats
@@ -179,6 +217,7 @@ async def backfill_encrypted_pii(
     batch_size: int = 250,
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
+    issues: list[dict[str, str]] | None = None,
 ) -> dict[str, int]:
     """Backfill both employee and bank tables using an existing session."""
 
@@ -188,26 +227,27 @@ async def backfill_encrypted_pii(
     _merge_stats(
         stats,
         await backfill_employees(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id
+            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
         ),
     )
     _merge_stats(
         stats,
         await backfill_bank_accounts(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id
+            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
         ),
     )
     return stats
 
 
 async def run_backfill(
-    *, batch_size: int = 250, dry_run: bool = False, company_id: uuid.UUID | None = None
+    *, batch_size: int = 250, dry_run: bool = False, company_id: uuid.UUID | None = None,
+    issues: list[dict[str, str]] | None = None,
 ) -> dict[str, int]:
     from app.db.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
         return await backfill_encrypted_pii(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id
+            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
         )
 
 
@@ -216,14 +256,21 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=250)
     parser.add_argument("--dry-run", action="store_true", help="Count changes without writing them")
     parser.add_argument("--company-id", type=uuid.UUID, default=None)
+    parser.add_argument("--quarantine-report", type=Path, help="Write unresolved row IDs and reason codes only")
     args = parser.parse_args()
+    issues = []
     stats = asyncio.run(
-        run_backfill(batch_size=args.batch_size, dry_run=args.dry_run, company_id=args.company_id)
+        run_backfill(batch_size=args.batch_size, dry_run=args.dry_run, company_id=args.company_id, issues=issues)
     )
+    if args.quarantine_report:
+        args.quarantine_report.write_text(json.dumps(issues, indent=2), encoding="utf-8")
     # Aggregate counts only; plaintext/ciphertext identifiers are never printed.
-    print("Encrypted PII backfill completed" + (" (dry run)" if args.dry_run else ""))
+    outcome = "requires review" if stats["rows_quarantined"] else "completed"
+    print(f"Encrypted PII backfill {outcome}" + (" (dry run)" if args.dry_run else ""))
     for key in sorted(stats):
         print(f"{key}={stats[key]}")
+    if stats["rows_quarantined"]:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

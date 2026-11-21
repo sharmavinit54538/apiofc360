@@ -8,6 +8,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, status, Request, Response, HTTPException
+from pydantic import BaseModel
 
 from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
 from app.core.rbac import require_admin
@@ -54,7 +55,9 @@ async def create_job(
 ) -> APIResponse[JobResponse]:
     """Create a new job posting in DRAFT state. Admin and HR only."""
     user_id = uuid.UUID(claims["sub"])
-    job = await service.create_job(user_id, payload)
+    company_id_raw = claims.get("company_id")
+    company_id = uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    job = await service.create_job(user_id, payload, company_id)
     return APIResponse[JobResponse](
         success=True,
         message="Job posting created successfully.",

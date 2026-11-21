@@ -14,10 +14,11 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.rbac import require_super_admin
+from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
-from app.models.user import User, UserRole
+from app.models.user import OFFICIAL_SUPER_ADMIN_EMAIL, User, UserRole
 from app.models.audit_log import AuditLog, create_audit_entry
 from app.models.refresh_token import RefreshToken
 from app.models.subscription import Subscription
@@ -80,6 +81,20 @@ async def record_super_admin_audit(
         await db.commit()
     except Exception as exc:
         logger.warning("Failed to record audit log: %s", exc)
+
+
+def _is_platform_owner(user: User) -> bool:
+    """Treat any apparent owner identity as immutable outside the recovery CLI."""
+    role = user.role.value if hasattr(user.role, "value") else str(user.role).lower()
+    return role == UserRole.SUPER_ADMIN.value or (user.email or "").strip().lower() == OFFICIAL_SUPER_ADMIN_EMAIL
+
+
+def _reject_platform_owner_mutation(user: User) -> None:
+    if _is_platform_owner(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform owner changes require the audited recovery CLI.",
+        )
 
 
 
@@ -612,6 +627,7 @@ async def create_super_admin_organization(
             ).scalars().first()
 
             if existing_user:
+                _reject_platform_owner_mutation(existing_user)
                 existing_user.company_id = new_org_id
                 existing_user.role = UserRole.HR_ADMIN
                 if hr_admin_name:
@@ -620,17 +636,24 @@ async def create_super_admin_organization(
                 existing_user.updated_at = now
                 hr_admin_user = existing_user
             else:
-                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
+                phone = (payload.get("phone") or "").strip()
+                initial_password = payload.get("initial_password") or ""
+                if not phone or not isinstance(initial_password, str) or len(initial_password) < 12:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="New HR Admin provisioning requires phone and initial_password of at least 12 characters.",
+                    )
                 new_user = User(
                     id=uuid.uuid4(),
                     email=hr_admin_email,
                     name=hr_admin_name,
-                    phone=gen_phone,
+                    phone=phone,
                     role=UserRole.HR_ADMIN,
                     company_id=new_org_id,
                     is_active=True,
                     is_verified=True,
-                    password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+                    password_hash=hash_password(initial_password),
+                    must_change_password=True,
                     created_at=now,
                     updated_at=now,
                 )
@@ -887,6 +910,7 @@ async def update_super_admin_organization(
                 await db.execute(select(User).where(User.email == hr_admin_email))
             ).scalars().first()
             if existing_user:
+                _reject_platform_owner_mutation(existing_user)
                 existing_user.company_id = company.id
                 existing_user.role = UserRole.HR_ADMIN
                 if hr_admin_name:
@@ -894,33 +918,29 @@ async def update_super_admin_organization(
                 existing_user.is_active = True
                 existing_user.updated_at = datetime.now(timezone.utc)
             else:
-                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
+                phone = (payload.get("phone") or "").strip()
+                initial_password = payload.get("initial_password") or ""
+                if not phone or not isinstance(initial_password, str) or len(initial_password) < 12:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="New HR Admin provisioning requires phone and initial_password of at least 12 characters.",
+                    )
                 new_hr = User(
                     id=uuid.uuid4(),
                     email=hr_admin_email,
                     name=hr_admin_name or "HR Administrator",
-                    phone=gen_phone,
+                    phone=phone,
                     role=UserRole.HR_ADMIN,
                     company_id=company.id,
                     is_active=True,
                     is_verified=True,
-                    password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+                    password_hash=hash_password(initial_password),
+                    must_change_password=True,
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
                 )
                 db.add(new_hr)
 
-    await db.commit()
-    await db.refresh(company)
-
-    await record_super_admin_audit(
-        db,
-        action="SUPER_ADMIN_UPDATE_ORGANIZATION",
-        details=f"Updated organization '{company.name}' ({org_id}).",
-        company_id=company.id,
-    )
-
-    return {"success": True, "message": f"Organization '{company.name}' updated successfully."}
     await db.commit()
     await db.refresh(company)
 
@@ -1315,30 +1335,49 @@ async def create_super_admin_user(
         raise HTTPException(status_code=400, detail="Name and Email are required.")
 
     role_str = (payload.get("role") or "employee").lower()
+    if role_str == UserRole.SUPER_ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform owner provisioning is only available through the audited operator CLI.",
+        )
     try:
         role_enum = UserRole(role_str)
     except ValueError:
         role_enum = UserRole.EMPLOYEE
 
     company_id_str = payload.get("companyId") or payload.get("organization_id")
-    company_id = uuid.UUID(company_id_str) if company_id_str else None
+    if not company_id_str:
+        raise HTTPException(status_code=422, detail="A company assignment is required for non-platform users.")
+    try:
+        company_id = uuid.UUID(str(company_id_str))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid company assignment.") from exc
 
     existing = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if existing:
         raise HTTPException(status_code=400, detail=f"User with email '{email}' already exists.")
 
+    phone = (payload.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=422, detail="A phone number is required; no placeholder identity is created.")
+    initial_password = payload.get("initial_password") or ""
+    if not isinstance(initial_password, str) or len(initial_password) < 12:
+        raise HTTPException(
+            status_code=422,
+            detail="An initial_password of at least 12 characters is required; no default credential is created.",
+        )
     now = datetime.now(timezone.utc)
-    gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
     new_user = User(
         id=uuid.uuid4(),
         name=name,
         email=email,
-        phone=gen_phone,
+        phone=phone,
         role=role_enum,
         company_id=company_id,
         is_active=True,
         is_verified=True,
-        password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+        password_hash=hash_password(initial_password),
+        must_change_password=True,
         created_at=now,
         updated_at=now,
     )
@@ -1381,12 +1420,18 @@ async def update_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user or user.is_deleted:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     if "name" in payload and payload["name"]:
         user.name = payload["name"].strip()
     if "phone" in payload:
         user.phone = payload["phone"]
     if "role" in payload and payload["role"]:
+        if str(payload["role"]).lower() == UserRole.SUPER_ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Platform owner promotion is only available through the audited operator CLI.",
+            )
         try:
             user.role = UserRole(payload["role"].lower())
         except ValueError:
@@ -1426,6 +1471,7 @@ async def delete_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_deleted = True
     user.is_active = False
@@ -1457,6 +1503,7 @@ async def activate_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = True
     user.updated_at = datetime.now(timezone.utc)
@@ -1486,6 +1533,7 @@ async def deactivate_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = False
     user.updated_at = datetime.now(timezone.utc)
@@ -1515,6 +1563,7 @@ async def toggle_super_admin_user_status(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = not user.is_active
     user.updated_at = datetime.now(timezone.utc)
@@ -1545,16 +1594,11 @@ async def reset_super_admin_user_password(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-
-    await record_super_admin_audit(
-        db,
-        action="SUPER_ADMIN_RESET_USER_PASSWORD",
-        details=f"Issued password reset instructions for '{user.email}'.",
-        company_id=user.company_id,
-        user_id=user.id,
+    _reject_platform_owner_mutation(user)
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Password-reset delivery is not configured; no reset was issued.",
     )
-
-    return {"success": True, "message": f"Password reset instructions sent for '{user.email}'."}
 
 
 # ─── 5. HR Admins Specific Endpoints ────────────────────────────────

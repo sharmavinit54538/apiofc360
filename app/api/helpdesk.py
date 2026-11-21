@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/helpdesk", tags=["OFC360 Helpdesk & Support"])
 
 
+@router.get("/attachments/{attachment_id}/download")
+async def download_ticket_attachment(
+    attachment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    claims: dict = Depends(get_current_user_claims),
+    db: AsyncSession = Depends(get_db_session),
+):
+    from fastapi.responses import FileResponse
+    company_id = get_tenant_company_id(claims, current_user, None)
+    path, name = await HelpdeskService(db).download_attachment(attachment_id, current_user, company_id)
+    return FileResponse(path, filename=name, media_type="application/octet-stream",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
 # ===========================================================================
 # Tenant Validation Helper
 # ===========================================================================

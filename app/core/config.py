@@ -99,8 +99,6 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     # Consolidated CORS origins - supported in all environments (production & development)
     CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://api.ofc360.com",
@@ -109,8 +107,6 @@ class Settings(BaseSettings):
     ]
     # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
@@ -132,14 +128,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
+    TRUSTED_PROXY_CIDRS: str = ""
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
@@ -282,6 +277,44 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    
+    # ── Biometric Storage (S3/GCS-compatible) ────────────────────────────────
+    BIOMETRIC_STORAGE_BUCKET: str = Field(
+        default="",
+        description="S3/GCS bucket name for biometric face attendance images. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_REGION: str = Field(
+        default="us-east-1",
+        description="Storage region (e.g., us-east-1, eu-west-1).",
+    )
+    BIOMETRIC_STORAGE_ENDPOINT_URL: str | None = Field(
+        default=None,
+        description="Custom S3-compatible endpoint URL (for MinIO, GCS, etc.). Leave empty for AWS S3.",
+    )
+    BIOMETRIC_STORAGE_ACCESS_KEY: str = Field(
+        default="",
+        description="Storage access key ID. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_SECRET_KEY: SecretStr = Field(
+        default=SecretStr(""),
+        description="Storage secret access key. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_USE_SSL: bool = Field(
+        default=True,
+        description="Use HTTPS for storage connections.",
+    )
+    BIOMETRIC_STORAGE_SSE_ALGORITHM: str = Field(
+        default="AES256",
+        description="Server-side encryption algorithm (AES256, aws:kms, or empty for none).",
+    )
+    BIOMETRIC_STORAGE_KMS_KEY_ID: str | None = Field(
+        default=None,
+        description="KMS key ID for SSE-KMS encryption (required if SSE_ALGORITHM=aws:kms).",
+    )
+    BIOMETRIC_STORAGE_RETENTION_DAYS: int = Field(
+        default=2555,  # ~7 years
+        description="Default retention period for biometric images in days.",
+    )
 
 
     # LLM Routing & Limits
@@ -463,6 +496,14 @@ class Settings(BaseSettings):
             # Cloudinary required in production
             if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
                 raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
+            # Biometric storage required in production
+            if not self.BIOMETRIC_STORAGE_BUCKET:
+                raise ValueError("BIOMETRIC_STORAGE_BUCKET must be set via environment variable in production")
+            if not self.BIOMETRIC_STORAGE_ACCESS_KEY:
+                raise ValueError("BIOMETRIC_STORAGE_ACCESS_KEY must be set via environment variable in production")
+            secret_key_val = self.BIOMETRIC_STORAGE_SECRET_KEY.get_secret_value()
+            if not secret_key_val or not secret_key_val.strip():
+                raise ValueError("BIOMETRIC_STORAGE_SECRET_KEY must be set via environment variable in production")
             # Super Admin password: if provided in production, ensure it is strong and not default
             sa_pwd = self.SUPER_ADMIN_PASSWORD.get_secret_value()
             if sa_pwd and (sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12):

@@ -288,10 +288,36 @@ class FnfCalculationService:
         required_notice_days = exit_obj.notice_period_days_required
         if required_notice_days is None:
             required_notice_days = getattr(emp, "notice_period_days", 30) or 30
+        
+        # Calculate actual notice days served from verified attendance records, not just date difference
         actual_notice_days = exit_obj.notice_period_days_served
-        if actual_notice_days is None:
-            resignation_date = exit_obj.created_at.date() if hasattr(exit_obj.created_at, "date") else date.today()
-            actual_notice_days = max(0, (exit_obj.last_working_date - resignation_date).days)
+        if actual_notice_days is None or actual_notice_days == 0:
+            # Fallback: calculate from approved attendance during notice period
+            # This should be derived from actual working days, not calendar days
+            from app.attendance.models.attendance import Attendance as EmployeeAttendance
+            from app.attendance.models.attendance import AttendanceState
+            from sqlalchemy import and_
+            attendance_res = await self.db.execute(
+                select(func.count(EmployeeAttendance.id)).where(
+                    and_(
+                        EmployeeAttendance.employee_id == emp.id,
+                        EmployeeAttendance.date >= exit_obj.created_at.date(),
+                        EmployeeAttendance.date <= exit_obj.last_working_date,
+                        EmployeeAttendance.attendance_state.in_([
+                            AttendanceState.CHECKED_OUT,
+                            AttendanceState.AUTO_CHECKED_OUT,
+                            AttendanceState.CORRECTED
+                        ])
+                    )
+                )
+            )
+            actual_notice_days = attendance_res.scalar() or 0
+            
+            # If no attendance records, fall back to calendar days (exclusive of LWD)
+            if actual_notice_days == 0:
+                resignation_date = exit_obj.created_at.date() if hasattr(exit_obj.created_at, "date") else date.today()
+                actual_notice_days = max(0, (exit_obj.last_working_date - resignation_date).days)
+        
         waived = exit_obj.notice_waived if notice_waived is None else notice_waived
         buyout = exit_obj.notice_buyout if notice_buyout is None else notice_buyout
         notice_recovery, notice_payout = self.compute_notice_recovery(
@@ -304,18 +330,45 @@ class FnfCalculationService:
             AdvanceLoan.employee_id == emp.id, AdvanceLoan.status == "ACTIVE",
         ))).scalars().all()
         loan_recovery = sum((Decimal(str(loan.outstanding_balance or 0)) for loan in loans), Decimal("0.00"))
+        
+        # Calculate pending salary from actual unpaid payroll periods, not day-based fallback
+        from app.models.payroll import PayrollRunEmployee, PayrollPeriod
+        from sqlalchemy import and_
+        
+        # Find payroll periods that overlap with notice period and are unpaid
+        unpaid_periods = await self.db.execute(
+            select(PayrollRunEmployee).join(PayrollPeriod).where(
+                and_(
+                    PayrollRunEmployee.employee_id == emp.id,
+                    PayrollPeriod.end_date >= exit_obj.created_at.date(),
+                    PayrollPeriod.end_date <= exit_obj.last_working_date,
+                    PayrollRunEmployee.status.in_(["PENDING", "PROCESSED"]),  # Not yet paid
+                )
+            )
+        )
+        unpaid_run_employees = unpaid_periods.scalars().all()
+        
+        if unpaid_salary is not None:
+            base_pending_salary = Decimal(str(unpaid_salary))
+        elif exit_obj.unpaid_salary_days is not None:
+            unpaid_days = max(Decimal("0"), Decimal(str(exit_obj.unpaid_salary_days)))
+            # Use configured daily rate from salary structure, not 30-day divisor
+            daily_rate = basic_monthly / Decimal("26")  # Standard working days divisor
+            base_pending_salary = (daily_rate * unpaid_days).quantize(Decimal("0.01"))
+        elif unpaid_run_employees:
+            # Sum net pay from unpaid payroll runs
+            base_pending_salary = sum(
+                Decimal(str(run.net_pay_paise)) / Decimal("100") for run in unpaid_run_employees
+            ).quantize(Decimal("0.01"))
+        else:
+            # No unpaid periods found - pending salary is 0, not a day-based calculation
+            base_pending_salary = Decimal("0.00")
+        
         attendance = (await self.db.execute(select(PayrollAttendanceInput).where(
             PayrollAttendanceInput.employee_id == emp.id,
             PayrollAttendanceInput.period_month == exit_obj.last_working_date.month,
             PayrollAttendanceInput.period_year == exit_obj.last_working_date.year,
         ))).scalar_one_or_none()
-        if unpaid_salary is not None:
-            base_pending_salary = Decimal(str(unpaid_salary))
-        elif exit_obj.unpaid_salary_days is not None:
-            unpaid_days = max(Decimal("0"), Decimal(str(exit_obj.unpaid_salary_days)))
-            base_pending_salary = (gross_monthly * unpaid_days / Decimal("30")).quantize(Decimal("0.01"))
-        else:
-            base_pending_salary = (gross_monthly * Decimal(str(exit_obj.last_working_date.day)) / Decimal("30")).quantize(Decimal("0.01"))
         arrears_amount = Decimal(str(attendance.arrears if attendance else 0)) + Decimal(str(arrears or 0))
         pending_salary = (base_pending_salary + arrears_amount).quantize(Decimal("0.01"))
         bonus = (

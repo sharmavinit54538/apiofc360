@@ -1,0 +1,6 @@
+[
+  "python",
+  "-m",
+  "scripts.asset_verify_schema",
+  "verification/asset-pg-20261116/disposable-schema-final.json"
+]

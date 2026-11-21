@@ -16,15 +16,33 @@ ADMIN_ROLES = {"admin", "hr_admin", "super_admin", "it_admin", "hr_manager"}
 MANAGER_ROLES = ADMIN_ROLES | {"manager", "executive"}
 
 
+async def get_autopilot_claims(claims: Claims) -> dict:
+    """Autopilot controls company HR decisions; only HR and platform owners may use it."""
+    from app.core.rbac import require_hr_admin
+    require_hr_admin(claims)
+    company_id(claims)
+    user_id(claims)
+    return claims
+
+
+AutopilotClaims = Annotated[dict, Depends(get_autopilot_claims)]
+
+
 def company_id(claims: dict) -> uuid.UUID:
     value = claims.get("company_id")
     if not value:
         raise HTTPException(status_code=403, detail="Tenant claim is required.")
-    return uuid.UUID(str(value))
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid tenant claim.") from exc
 
 
 def user_id(claims: dict) -> uuid.UUID:
-    return uuid.UUID(str(claims["sub"]))
+    try:
+        return uuid.UUID(str(claims["sub"]))
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid actor claim.") from exc
 
 
 def role(claims: dict) -> str:

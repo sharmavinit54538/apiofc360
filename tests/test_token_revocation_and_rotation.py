@@ -171,7 +171,7 @@ async def test_account_service_change_password_invalidates_tokens_and_sessions()
         confirm_password="NewPassword@2026",
     )
 
-    with patch("app.services.account_service.verify_password", side_effect=[True, False]):
+    with patch("app.services.account_service.verify_password_async", new_callable=AsyncMock, side_effect=[True, False]):
         await service.change_password(user_id=user_id, payload=payload)
 
     # Assert DB update and session revocation
@@ -288,7 +288,12 @@ async def test_refresh_token_rotation_preserves_family_id():
     assert new_refresh is not None
 
     # Verify old token was marked revoked
-    mock_repo.revoke_refresh_token.assert_awaited_once_with(old_record.id, reason="ROTATION")
+    mock_repo.revoke_refresh_token.assert_awaited_once()
+    revoked = mock_repo.revoke_refresh_token.await_args
+    assert revoked.args == (old_record.id,)
+    assert revoked.kwargs["reason"] == "ROTATION"
+    assert revoked.kwargs["rotated_at"].tzinfo is not None
+    assert revoked.kwargs["replaced_by"] == hash_token(new_refresh)
 
     # Verify new token created with identical family_id
     call_kwargs = mock_repo.create_refresh_token.call_args.kwargs

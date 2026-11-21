@@ -43,6 +43,7 @@ from app.api.hr_admin_onboarding import router as hr_admin_onboarding_router
 from app.api.sidebar import router as sidebar_router
 from app.routers.notifications import router as core_notifications_router
 from app.api.departments import router as departments_router
+from app.api.hr_interview_dashboard import router as hr_interview_dashboard_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -50,114 +51,6 @@ from app.core.config import settings
 from app.core.exceptions import install_exception_handlers
 
 logger = logging.getLogger("app.main")
-
-
-async def auto_screen_unscreened_leads():
-    import asyncio
-    import os
-    import logging
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    from app.db.database import AsyncSessionLocal
-    from app.models.recruitment import Application, Candidate
-    from app.models.ai_recruitment import CandidateMatchScore
-    from app.services.recruitment_service import RecruitmentService
-    from app.repositories.recruitment_repository import RecruitmentRepository
-
-    logger = logging.getLogger("app.main")
-    logger.info("Auto-screening: checking for unscreened candidate leads...")
-    
-    # Give the app 2 seconds to finish starting up
-    await asyncio.sleep(2)
-    
-    async with AsyncSessionLocal() as session:
-        try:
-            # Query all applications with jobs and candidates eager loaded
-            stmt = select(Application).options(
-                selectinload(Application.job),
-                selectinload(Application.candidate)
-            )
-            apps_res = await session.execute(stmt)
-            apps = apps_res.scalars().all()
-            
-            # Query candidate IDs that already have a match score
-            score_res = await session.execute(select(CandidateMatchScore.candidate_id))
-            scored_candidate_ids = set(score_res.scalars().all())
-            
-            unscreened_apps = [a for a in apps if a.candidate_id not in scored_candidate_ids]
-            logger.info("Auto-screening: found %s unscreened applications", len(unscreened_apps))
-            
-            for app in unscreened_apps:
-                candidate = app.candidate
-                if not candidate and app.email:
-                    # Look up candidate by email
-                    cand_res = await session.execute(
-                        select(Candidate).where(Candidate.email == app.email.lower().strip())
-                    )
-                    candidate = cand_res.scalar_one_or_none()
-                    if not candidate:
-                        # Auto-create Candidate
-                        names = (app.first_name + " " + app.last_name).split(" ")
-                        first_name = names[0]
-                        last_name = " ".join(names[1:]) if len(names) > 1 else "Candidate"
-                        candidate = Candidate(
-                            first_name=first_name,
-                            last_name=last_name,
-                            email=app.email.lower().strip(),
-                            phone=app.phone or "0000000000",
-                            location=f"{app.city or ''}, {app.state or ''}, {app.country or ''}".strip(", "),
-                            years_experience=app.experience_years or 0.0,
-                            current_company=app.current_company or "",
-                            current_role=app.current_designation or "",
-                            expected_salary=app.expected_ctc or 0.0,
-                            source="Imported Lead",
-                            is_talent_pool=False,
-                        )
-                        session.add(candidate)
-                        await session.commit()
-                        await session.refresh(candidate)
-                    
-                    app.candidate_id = candidate.id
-                    await session.commit()
-                
-                if not candidate:
-                    continue
-                
-                # Fetch resume file if candidate has one
-                resume_path = candidate.resume_path
-                resume_name = candidate.resume_name or "resume.pdf"
-                file_size = 0
-                if resume_path and os.path.exists(resume_path):
-                    file_size = os.path.getsize(resume_path)
-                else:
-                    resume_path = None
-                
-                # Initialize Service and trigger task
-                repo = RecruitmentRepository(session)
-                service = RecruitmentService(
-                    session=session,
-                    repo=repo,
-                    auth_repo=None,
-                    employee_repo=None,
-                    email_service=None
-                )
-                
-                logger.info("Auto-screening candidate application %s (email: %s) without resume", app.id, candidate.email)
-                await service.screen_candidate_resume_task(
-                    application_id=app.id,
-                    candidate_id=candidate.id,
-                    job_id=app.job_id,
-                    resume_path=resume_path or "",
-                    resume_name=resume_name,
-                    file_size=file_size
-                )
-                
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "undefinedtable" in err_str:
-                logger.info("Auto-screening: applications table does not exist in database yet — skipping background lead screening.")
-            else:
-                logger.warning("Auto-screening: background check notice: %s", str(e))
 
 
 async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_factor: float = 2.0) -> bool:
@@ -171,16 +64,9 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                 await conn.execute(text("SELECT 1"))
             logger.info("Database connectivity check SUCCESSFUL on attempt %d.", attempt)
             
-            # Connectivity verified
-            try:
-                import app.models  # noqa: F401
-                from app.db.base import Base
-                async with engine.begin() as conn:
-                    await conn.run_sync(Base.metadata.create_all)
-                logger.info("Database schema verified and initialized successfully.")
-            except Exception as schema_err:
-                logger.warning("Database schema auto-creation notice (tables may already exist): %s", str(schema_err))
-            
+            from app.core.readiness import check_schema
+            await check_schema(engine)
+
             return True
         except Exception as e:
             if "postgres.railway.internal" in str(e):
@@ -189,103 +75,23 @@ async def init_db_with_retry(max_retries: int = 5, initial_delay: float = 1.0, b
                     "You are using Railway's internal hostname on Render. Replace DATABASE_URL with Railway's Public / External URL."
                 )
             else:
-                logger.error("Database connection attempt %d/%d failed: %s", attempt, max_retries, str(e), exc_info=True)
+                logger.error("Database connection attempt %d/%d failed (%s)", attempt, max_retries, type(e).__name__)
                 
             if attempt < max_retries:
                 logger.info("Retrying database connection in %.1f seconds...", delay)
                 await asyncio.sleep(delay)
                 delay *= backoff_factor
             else:
-                logger.error("Database connection failed after %d retries. Server starting in degraded mode.", max_retries)
+                logger.error("Database connection failed after %d retries. Readiness will remain unavailable.", max_retries)
                 return False
 
 
 async def ensure_superadmin_provisioned():
-    """Guarantee that exactly ONE Super Admin (superadmin@ofc360.com) exists, active and verified.
-    
-    Password behavior:
-    - New user: password is set from SUPER_ADMIN_PASSWORD env var.
-    - Existing user: password is NOT changed unless RESET_SUPER_ADMIN_PASSWORD=true.
-    
-    Safe Migration: Any other users in the DB previously assigned SUPER_ADMIN are safely
-    migrated to HR_ADMIN without deleting any user or organization data.
-    """
-    import uuid
-    from sqlalchemy import select
+    """Read-only startup validation; provisioning and recovery require the CLI."""
+    from app.services.platform_owner import validate_platform_owner
     from app.db.database import AsyncSessionLocal
-    from app.core.security import hash_password
-    from app.models.company import Company
-    from app.models.user import User, UserRole, UserAccountStatus
-
-    logger = logging.getLogger("app.main")
-    logger.info("Verifying Single Fixed Super Admin security lock and provisioning...")
-
-    super_admin_email = "superadmin@ofc360.com"
-    raw_password = settings.SUPER_ADMIN_PASSWORD.get_secret_value() if settings.SUPER_ADMIN_PASSWORD else ""
-    if not raw_password:
-        logger.warning("SUPER_ADMIN_PASSWORD not set. Super admin provisioning will skip password setting for existing users.")
-
-    try:
-        async with AsyncSessionLocal() as session:
-            # 1. Safe Migration / Cleanup of any duplicate or unauthorized Super Admin users
-            non_sa_res = await session.execute(
-                select(User).where(
-                    User.role == UserRole.SUPER_ADMIN,
-                    User.email != super_admin_email,
-                ).execution_options(bypass_tenant=True)
-            )
-            invalid_super_admins = non_sa_res.scalars().all()
-            for invalid_user in invalid_super_admins:
-                logger.warning(
-                    "Security Lock Migration: Safely demoting unauthorized super admin account %s (ID: %s) to HR_ADMIN.",
-                    invalid_user.email,
-                    invalid_user.id,
-                )
-                invalid_user.role = UserRole.HR_ADMIN
-                session.add(invalid_user)
-
-            # 2. Provision or verify the single authorized Super Admin identity
-            sa_res = await session.execute(
-                select(User).where(User.email == super_admin_email).execution_options(bypass_tenant=True)
-            )
-            sa_user = sa_res.scalars().first()
-
-            if sa_user:
-                # Only reset password if explicitly requested via env var
-                if settings.RESET_SUPER_ADMIN_PASSWORD and raw_password:
-                    sa_user.password_hash = hash_password(raw_password)
-                    logger.info("Super Admin password force-reset via RESET_SUPER_ADMIN_PASSWORD=true.")
-                sa_user.role = UserRole.SUPER_ADMIN
-                sa_user.is_active = True
-                sa_user.is_verified = True
-                sa_user.account_status = UserAccountStatus.ACTIVE.value
-                sa_user.is_deleted = False
-                session.add(sa_user)
-                logger.info("Verified official Super Admin account: %s", super_admin_email)
-            else:
-                if not raw_password:
-                    logger.error("Cannot create Super Admin: SUPER_ADMIN_PASSWORD env var is not set.")
-                    return
-                new_sa = User(
-                    id=uuid.uuid4(),
-                    name="Platform Super Admin",
-                    email=super_admin_email,
-                    phone="9999900000",
-                    password_hash=hash_password(raw_password),
-                    role=UserRole.SUPER_ADMIN,
-                    account_status=UserAccountStatus.ACTIVE.value,
-                    is_active=True,
-                    is_verified=True,
-                    must_change_password=True,
-                    company_id=None,
-                )
-                session.add(new_sa)
-                logger.info("Created official Super Admin account: %s (ID: %s)", super_admin_email, new_sa.id)
-
-            await session.commit()
-            logger.info("Super Admin single-identity security lock successfully enforced.")
-    except Exception as e:
-        logger.warning("Super Admin provisioning notice: %s", str(e))
+    async with AsyncSessionLocal() as session:
+        await validate_platform_owner(session)
 
 
 @asynccontextmanager
@@ -309,15 +115,10 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
-        # Schema healing - auto-heal database schema drift
         try:
-            from app.db.database import heal_database_schema
-            await heal_database_schema(engine)
-        except Exception as heal_err:
-            logger.warning("Schema healing notice: %s", str(heal_err))
-
-        # Automatically provision/verify Super Admin accounts
-        await ensure_superadmin_provisioned()
+            await ensure_superadmin_provisioned()
+        except RuntimeError:
+            logger.error("Platform owner provisioning requires operator attention.")
 
         # Seed canonical document categories and templates idempotently
         try:
@@ -393,7 +194,6 @@ async def lifespan(app: FastAPI):
             logger.info(" ReDoc API Docs: http://127.0.0.1:8000/redoc")
         else:
             logger.info(" Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
-        asyncio.create_task(auto_screen_unscreened_leads())
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
         
@@ -487,26 +287,8 @@ def create_app() -> FastAPI:
                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
             )
 
-    # Explicit origins that MUST be supported across all environments (production & dev)
-    # per exact requirement: http://localhost:8080, http://127.0.0.1:8080, https://ofc360.com, https://www.ofc360.com
-    base_required_origins = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://ofc360.com",
-        "https://www.ofc360.com",
-        "https://api.ofc360.com",
-        "https://app.ofc360.com",
-        "https://ofc360.vercel.app",
-    ]
-
-    candidate_origins = list(base_required_origins)
-    if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-        candidate_origins.extend(settings.CORS_ORIGINS)
-    if getattr(settings, "ALLOWED_ORIGINS", None):
-        candidate_origins.extend(settings.ALLOWED_ORIGINS)
-    if getattr(settings, "BACKEND_CORS_ORIGINS", None):
-        candidate_origins.extend(settings.BACKEND_CORS_ORIGINS)
-    if getattr(settings, "DEV_CORS_ORIGINS", None):
+    candidate_origins = list(settings.CORS_ORIGINS) + list(settings.ALLOWED_ORIGINS) + list(settings.BACKEND_CORS_ORIGINS)
+    if not settings.is_production:
         candidate_origins.extend(settings.DEV_CORS_ORIGINS)
 
     # Sanitize: strip whitespace, remove trailing slashes and quotes, ensure no '*' with credentials
@@ -581,6 +363,9 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
 
+    from app.middleware.tenant_context import TenantContextMiddleware
+    app.add_middleware(TenantContextMiddleware)
+
     install_exception_handlers(app)
 
     # ── Unified API v1 Router (all endpoints under /api/v1) ───────────────────────
@@ -604,6 +389,9 @@ def create_app() -> FastAPI:
     app.include_router(core_notifications_router)
     app.include_router(sidebar_router, prefix="/api")
     app.include_router(sidebar_router)
+    
+    # ── HR Interview Dashboard ──────────────────────────────────────────────
+    app.include_router(hr_interview_dashboard_router, prefix="/api")
 
     @app.get("/api/v1/analytics/recruitment", tags=["Recruitment Alternate Routing"])
     @app.get("/analytics/recruitment", tags=["Recruitment Alternate Routing"])
@@ -636,91 +424,16 @@ def create_app() -> FastAPI:
             "errors": None
         }
 
-    @app.api_route("/health", methods=["GET", "HEAD"], status_code=200, tags=["Health Checks"])
-    async def health_check(deep: bool = False):
-        """Liveness & health probe verifying backend and database status.
-        
-        Args:
-            deep: If True, also checks Redis connectivity and runs a quick query.
-                  Use sparingly as it adds latency.
-        """
-        db_status = "disconnected"
-        redis_status = "not_checked"
-        
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            db_status = "connected"
-        except Exception as e:
-            logger.error("Health check DB connection error: %s", e)
-        
-        if deep:
-            try:
-                from app.core.redis_client import redis_client
-                if redis_client.is_connected:
-                    redis_status = "connected"
-                else:
-                    redis_status = "disconnected"
-            except Exception as e:
-                logger.error("Health check Redis error: %s", e)
-                redis_status = "error"
+    @app.api_route("/health/live", methods=["GET", "HEAD"], tags=["Health Checks"])
+    async def liveness():
+        return {"status": "alive"}
 
-        return {
-            "status": "healthy" if db_status == "connected" else "degraded",
-            "database": db_status,
-            "redis": redis_status if deep else "not_checked",
-            "app": settings.APP_NAME,
-            "version": settings.APP_VERSION,
-            "environment": settings.ENVIRONMENT,
-        }
-
+    @app.api_route("/health", methods=["GET", "HEAD"], tags=["Health Checks"])
     @app.get("/health/ready", tags=["Health Checks"])
     async def health_ready():
-        """Readiness probe checking DB and Ollama connectivity."""
-        db_healthy = False
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            db_healthy = True
-        except Exception:
-            pass
-
-        from app.llm.client import get_llm_client
-        llm_health = await get_llm_client().check_health()
-
-        # Get detailed provider status for monitoring
-        from app.llm.router import get_llm_router
-        router = get_llm_router()
-        provider_health = await router.health_check()
-
-        # Check Ollama model availability
-        ollama_model_available = False
-        ollama_details = provider_health.get("providers", {}).get("ollama", {})
-        if isinstance(ollama_details, dict):
-            ollama_model_available = ollama_details.get("model_available", False)
-        elif provider_health.get("providers", {}).get("ollama") is True:
-            # Simple boolean health check passed - try to verify model
-            ollama_model_available = True
-
-        ready = db_healthy and llm_health.get("healthy", False)
-        status_code = 200 if ready else 503
-
-        return JSONResponse(
-            status_code=status_code,
-            content={
-                "ready": ready,
-                "database": "connected" if db_healthy else "disconnected",
-                "llm": {
-                    "healthy": llm_health.get("healthy", False),
-                    "provider": "ollama",
-                    "model_available": ollama_model_available,
-                    "configured_model": settings.OLLAMA_MODEL,
-                    "base_url": settings.OLLAMA_BASE_URL,
-                    "healthy_count": provider_health.get("healthy_count", 0),
-                    "total_count": provider_health.get("total_count", 0),
-                },
-            }
-        )
+        from app.core.readiness import readiness
+        result = await readiness(engine)
+        return JSONResponse(status_code=200 if result["ready"] else 503, content=result)
 
     @app.api_route("/", methods=["GET", "HEAD"], status_code=200, tags=["Root"])
     async def root():
@@ -739,29 +452,10 @@ def create_app() -> FastAPI:
         """Favicon.ico endpoint to prevent 404 logs."""
         return Response(status_code=204)
 
-    @app.get("/api/v1/cors-debug", tags=["CORS Diagnostics"], include_in_schema=False)
-    async def cors_debug(request: Request):
-        """Diagnostic endpoint for verifying CORS configuration in production.
-        
-        Returns the active CORS origins list and request headers.
-        Only accessible from allowed origins (CORS enforced).
-        """
-        origin = request.headers.get("origin", "(no origin header)")
-        return {
-            "cors_debug": True,
-            "request_origin": origin,
-            "allowed_origins": allowed_origins_list,
-            "environment": settings.ENVIRONMENT,
-            "cors_credentials": True,
-            "cors_methods": ["*"],
-            "cors_headers": ["*"],
-            "request_headers": dict(request.headers),
-        }
-
     from fastapi.staticfiles import StaticFiles
     import os
     # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "helpdesk", "face_attendance", "logos", "avatars"]
+    public_subdirs = ["onboarding", "qrcodes", "connect", "face_attendance", "logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
         try:
@@ -788,37 +482,9 @@ def create_app() -> FastAPI:
         if not origin:
             return {}
         
-        cleaned_origin = str(origin).strip().strip("'\"").rstrip("/")
-        
-        # Check if origin is allowed
-        allowed_origins = set()
-        if hasattr(settings, "CORS_ORIGINS") and settings.CORS_ORIGINS:
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.CORS_ORIGINS if o)
-        if getattr(settings, "ALLOWED_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.ALLOWED_ORIGINS if o)
-        if getattr(settings, "BACKEND_CORS_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.BACKEND_CORS_ORIGINS if o)
-        if getattr(settings, "DEV_CORS_ORIGINS", None):
-            allowed_origins.update(str(o).strip().strip("'\"").rstrip("/") for o in settings.DEV_CORS_ORIGINS if o)
-        
-        # Default allowed origins
-        default_origins = {
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-            "https://ofc360.com",
-            "https://www.ofc360.com",
-            "https://api.ofc360.com",
-            "https://app.ofc360.com",
-            "https://ofc360.vercel.app",
-        }
-        allowed_origins.update(default_origins)
-        
-        # Also allow local network origins in development
-        import re
-        allowed_regex = r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?"
-        
-        is_allowed = cleaned_origin in allowed_origins or bool(re.match(allowed_regex, cleaned_origin))
-        
+        cleaned_origin = origin
+        is_allowed = origin in allowed_origins_list
+
         if is_allowed:
             return {
                 "Access-Control-Allow-Origin": cleaned_origin,
@@ -885,7 +551,7 @@ def create_app() -> FastAPI:
                 # read that key directly, so keep it in the envelope.
                 "detail": exc.detail if isinstance(exc.detail, dict) else message,
             },
-            headers=cors_headers,
+            headers={**cors_headers, **(exc.headers or {})},
         )
 
     return app

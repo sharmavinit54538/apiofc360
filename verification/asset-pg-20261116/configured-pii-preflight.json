@@ -1,0 +1,21 @@
+{
+  "mode": "READ ONLY dry run",
+  "identity": {
+    "database": "equnixsphere_prod",
+    "server": "::1/128",
+    "port": 5432
+  },
+  "stats": {
+    "employees_scanned": 1840,
+    "employees_encrypted": 0,
+    "employee_indexes_updated": 0,
+    "bank_accounts_scanned": 6,
+    "bank_values_encrypted": 0,
+    "rows_unchanged": 1810,
+    "rows_quarantined": 36
+  },
+  "decryption_error_counts": {
+    "FIELD_ENCRYPTION_KEY is required to read or write encrypted PII fields.": 66
+  },
+  "exit_code": 2
+}

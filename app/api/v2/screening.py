@@ -552,77 +552,61 @@ async def screen_candidate(
 
     # 6. Resolve application_id and persist screening result
     application_id = await _resolve_application_id(db, doc, body.job_id)
-    persisted = application_id is not None
+    
+    # Always persist screening result (application_id can be None if no application linked)
+    screening_rec = AIScreeningResult(
+        company_id=company_id,
+        application_id=application_id,
+        resume_document_id=body.resume_document_id,
+        job_id=body.job_id,
+        status=result.status,
+        decision=result.decision,
+        confidence=result.confidence,
+        match_score=match_score,
+        auto_action_taken=result.auto_shortlisted or result.auto_rejected,
+        model_used=result.model_used,
+        prompt_version=result.prompt_version,
+        thresholds_used=result.thresholds_used,
+        input_hash=result.input_hash,
+        error_message=result.error_message,
+        strengths=result.strengths,
+        weaknesses=result.weaknesses,
+        missing_skills=result.missing_skills,
+        risk_analysis=result.risk_analysis,
+        red_flags=result.red_flags,
+        green_flags=result.green_flags,
+        hiring_recommendation=result.hiring_recommendation,
+        hr_notes=result.hr_notes,
+        questions_to_ask=result.questions_to_ask,
+    )
+    db.add(screening_rec)
 
-    if persisted:
-        screening_rec = AIScreeningResult(
-            company_id=company_id,
-            application_id=application_id,
-            resume_document_id=body.resume_document_id,
-            job_id=body.job_id,
-            status=result.status,
-            decision=result.decision,
-            confidence=result.confidence,
-            match_score=match_score,
-            auto_action_taken=result.auto_shortlisted or result.auto_rejected,
-            model_used=result.model_used,
-            prompt_version=result.prompt_version,
-            thresholds_used=result.thresholds_used,
-            input_hash=result.input_hash,
-            error_message=result.error_message,
-            strengths=result.strengths,
-            weaknesses=result.weaknesses,
-            missing_skills=result.missing_skills,
-            risk_analysis=result.risk_analysis,
-            red_flags=result.red_flags,
-            green_flags=result.green_flags,
-            hiring_recommendation=result.hiring_recommendation,
-            hr_notes=result.hr_notes,
-            questions_to_ask=result.questions_to_ask,
-        )
-        db.add(screening_rec)
+    # 7. Auto-apply decision if requested, application exists, and compliance rules satisfied
+    if body.auto_apply_decision and result.status == "COMPLETED" and application_id:
+        rec_service = _get_recruitment_service(db)
+        if result.auto_shortlisted:
+            await rec_service.update_application_status(application_id, "SHORTLISTED")
+            logger.info("Auto-shortlisted application %s", application_id)
+        elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
+            await rec_service.update_application_status(application_id, "REJECTED")
+            logger.info("Auto-rejected application %s", application_id)
 
-        # 7. Auto-apply decision if requested, application exists, and compliance rules satisfied
-        if body.auto_apply_decision and result.status == "COMPLETED":
-            rec_service = _get_recruitment_service(db)
-            if result.auto_shortlisted:
-                await rec_service.update_application_status(application_id, "SHORTLISTED")
-                logger.info("Auto-shortlisted application %s", application_id)
-            elif result.auto_rejected and getattr(settings, "AI_AUTO_REJECT_ENABLED", False):
-                await rec_service.update_application_status(application_id, "REJECTED")
-                logger.info("Auto-rejected application %s", application_id)
+    await db.commit()
 
-        await db.commit()
-
-        return APIResponse[dict](
-            success=(result.status == "COMPLETED"),
-            message=f"Screening complete. Decision: {result.decision or 'FAILED'}",
-            data={
-                "screening_id": str(screening_rec.id),
-                "resume_document_id": str(body.resume_document_id),
-                "job_id": str(body.job_id),
-                "match_score_used": match_score,
-                "thresholds": _get_thresholds(),
-                "persisted": True,
-                **result.to_dict(),
-            },
-            errors=[result.error_message] if result.error_message else None,
-        )
-    else:
-        # No application found - return result but don't persist
-        return APIResponse[dict](
-            success=(result.status == "COMPLETED"),
-            message=f"Screening complete (not persisted - no application found). Decision: {result.decision or 'FAILED'}",
-            data={
-                "resume_document_id": str(body.resume_document_id),
-                "job_id": str(body.job_id),
-                "match_score_used": match_score,
-                "thresholds": _get_thresholds(),
-                "persisted": False,
-                **result.to_dict(),
-            },
-            errors=[result.error_message] if result.error_message else None,
-        )
+    return APIResponse[dict](
+        success=(result.status == "COMPLETED"),
+        message=f"Screening complete. Decision: {result.decision or 'FAILED'}",
+        data={
+            "screening_id": str(screening_rec.id),
+            "resume_document_id": str(body.resume_document_id),
+            "job_id": str(body.job_id),
+            "match_score_used": match_score,
+            "thresholds": _get_thresholds(),
+            "persisted": True,
+            **result.to_dict(),
+        },
+        errors=[result.error_message] if result.error_message else None,
+    )
 
 
 @router.post(
@@ -1021,6 +1005,7 @@ async def get_job_screening_results(
             "limit": limit,
             "summary": summary,
             "results": results_list,
+            "thresholds": _get_thresholds(),
         },
         errors=None,
     )

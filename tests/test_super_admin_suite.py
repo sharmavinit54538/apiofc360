@@ -14,7 +14,7 @@ except ImportError:
     from seed_super_admin import seed_super_admin
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_require_super_admin_rbac():
     """Test RBAC dependency strictly permits super_admin with superadmin@ofc360.com and rejects other roles/emails."""
     # Allowed
@@ -36,7 +36,7 @@ async def test_require_super_admin_rbac():
         assert "Super Admin access required" in exc_info.value.detail
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio(loop_scope="session")
 async def test_seed_super_admin_creates_platform_account():
     """Test seed_super_admin script logic creating a platform-level Super Admin."""
     mock_session = AsyncMock()
@@ -52,7 +52,7 @@ async def test_seed_super_admin_creates_platform_account():
         mock_ctx = MagicMock()
         mock_ctx.__aenter__.return_value = mock_session
         mock_ctx.__aexit__.return_value = None
-        mp.setattr("seed_super_admin.AsyncSessionLocal", lambda: mock_ctx)
+        mp.setattr(f"{seed_super_admin.__module__}.AsyncSessionLocal", lambda: mock_ctx)
 
         await seed_super_admin(
             email="superadmin@ofc360.com",

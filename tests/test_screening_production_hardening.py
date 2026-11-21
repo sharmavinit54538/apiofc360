@@ -492,20 +492,15 @@ def test_trigger_job_screening_run_background(client_tenant_a, tenant_a):
 def test_get_job_screening_results_contract(client_tenant_a, tenant_a):
     job_id = uuid.uuid4()
     app_id = uuid.uuid4()
+    resume_doc_id = uuid.uuid4()
 
     mock_job = Job(id=job_id, company_id=tenant_a, title="Frontend Dev")
-    mock_app = Application(
-        id=app_id,
-        job_id=job_id,
-        company_id=tenant_a,
-        first_name="John",
-        last_name="Doe",
-    )
     mock_result = AIScreeningResult(
         id=uuid.uuid4(),
         company_id=tenant_a,
         job_id=job_id,
         application_id=app_id,
+        resume_document_id=resume_doc_id,
         status="COMPLETED",
         decision="SHORTLIST",
         confidence=0.89,
@@ -523,14 +518,26 @@ def test_get_job_screening_results_contract(client_tenant_a, tenant_a):
     )
 
     mock_session = AsyncMock()
+    # Query 1: Job verification
     res_job = MagicMock()
     res_job.scalar_one_or_none.return_value = mock_job
-    res_apps = MagicMock()
-    res_apps.scalars.return_value.all.return_value = [mock_app]
+    # Query 2: Total count
+    res_total = MagicMock()
+    res_total.scalar_one.return_value = 1
+    # Query 3: Paginated results
     res_results = MagicMock()
     res_results.scalars.return_value.all.return_value = [mock_result]
+    # Query 4: Candidate names from resume docs
+    mock_row = MagicMock()
+    mock_row.id = resume_doc_id
+    mock_row.candidate_name = "John Doe"
+    res_docs = MagicMock()
+    res_docs.__iter__ = MagicMock(return_value=iter([mock_row]))
+    # Query 5: Summary counts
+    res_summary = MagicMock()
+    res_summary.all.return_value = [("SHORTLIST", 1)]
 
-    mock_session.execute.side_effect = [res_job, res_apps, res_results]
+    mock_session.execute.side_effect = [res_job, res_total, res_results, res_docs, res_summary]
 
     app.dependency_overrides[get_db_session] = lambda: mock_session
     try:
@@ -538,7 +545,7 @@ def test_get_job_screening_results_contract(client_tenant_a, tenant_a):
         assert response.status_code == 200
         data = response.json().get("data", {})
         assert "thresholds" in data
-        assert "run" in data
+        assert "summary" in data
         assert "results" in data
         assert len(data["results"]) == 1
         item = data["results"][0]

@@ -10,7 +10,10 @@ from decimal import Decimal
 from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException, UploadFile, status
-from openpyxl import load_workbook
+try:
+    from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

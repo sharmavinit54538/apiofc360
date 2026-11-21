@@ -172,11 +172,8 @@ class RateLimiter:
             if user_id:
                 return f"user:{user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("x-forwarded-for")
-        if forwarded:
-            client_ip = forwarded.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client else "unknown"
+        from app.core.proxy import client_ip as resolve_client_ip
+        client_ip = resolve_client_ip(request)
         return f"ip:{client_ip}"
 
     async def _execute_with_timeout(self, coro, fail_open: bool = False, default_allowed: bool = True):
@@ -198,7 +195,8 @@ class RateLimiter:
         """
         Check if request is within global rate limits using atomic Lua script.
         Returns: (allowed, retry_after_seconds, remaining_requests)
-        Fail-open for general API limiter.
+        In production, Redis loss is fail-closed. Local development uses a
+        process-local fallback to preserve developer workflows.
         """
         if not self.enabled:
             return True, 0, self.rate_per_minute
@@ -210,9 +208,9 @@ class RateLimiter:
 
         r = self.redis
         if not r._connected or not r._redis:
-            # Redis not available - fail open for general limiter
-            logger.debug("Redis not connected, failing open for general rate limiter")
-            return True, 0, self.rate_per_minute
+            if settings.is_production:
+                return False, 60, 0
+            return self._check_memory_rate_limit(minute_key, self.rate_per_minute, 60)
 
         await self._load_scripts()
 
@@ -223,7 +221,7 @@ class RateLimiter:
                     2, minute_key, hour_key,
                     self.rate_per_minute, self.rate_per_hour, 120, 7200
                 ),
-                fail_open=True,
+                fail_open=not settings.is_production,
                 default_allowed=True
             )
             
@@ -235,8 +233,10 @@ class RateLimiter:
             return bool(allowed), int(retry_after) if retry_after else 0, max(0, int(remaining))
             
         except Exception as e:
-            logger.warning("Rate limit check failed, failing open: %s", e)
-            return True, 0, self.rate_per_minute
+            logger.warning("Rate limiter unavailable (%s)", type(e).__name__)
+            if settings.is_production:
+                return False, 60, 0
+            return self._check_memory_rate_limit(minute_key, self.rate_per_minute, 60)
 
     async def check_custom_rate_limit(
         self,
@@ -263,6 +263,8 @@ class RateLimiter:
 
         r = self.redis
         if not r._connected or not r._redis:
+            if settings.is_production:
+                return False, window_seconds, 0
             if fail_open:
                 logger.debug("Redis not connected, failing open for %s rate limiter", scope)
                 return True, 0, limit
@@ -290,6 +292,8 @@ class RateLimiter:
             
         except Exception as e:
             logger.warning("Custom rate limit check failed for %s: %s (fail_open=%s)", scope, e, fail_open)
+            if settings.is_production:
+                return False, window_seconds, 0
             if fail_open:
                 return True, 0, limit
             return self._check_memory_rate_limit(rate_key, limit, window_seconds)
@@ -352,6 +356,26 @@ async def check_onboarding_rate_limit(request: Request) -> None:
         logger.warning("Onboarding rate limit exceeded | key=%s | retry_after=%ds", rate_limiter._get_client_key(request), retry_after)
         raise RateLimitExceeded(
             detail=f"Too many requests. Please try again in {retry_after} seconds.",
+            retry_after=retry_after,
+        )
+
+
+async def rate_limit_check(scope: str, request: Request, limit: int = 30, window_seconds: int = 60) -> None:
+    """Generic rate limit check for custom endpoints.
+    
+    Args:
+        scope: Rate limit scope identifier (e.g., 'asset_public')
+        request: FastAPI Request object
+        limit: Maximum requests allowed in the window
+        window_seconds: Time window in seconds
+    """
+    allowed, retry_after, _ = await rate_limiter.check_custom_rate_limit(
+        request, scope=scope, limit=limit, window_seconds=window_seconds, fail_open=True
+    )
+    if not allowed:
+        logger.warning("Rate limit exceeded for %s | key=%s | retry_after=%ds", scope, rate_limiter._get_client_key(request), retry_after)
+        raise RateLimitExceeded(
+            detail=f"Rate limit exceeded. Please try again in {retry_after} seconds.",
             retry_after=retry_after,
         )
 

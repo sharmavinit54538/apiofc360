@@ -19,22 +19,8 @@ EMBEDDING_DIM = 128
 
 
 def _extract_embedding(image_bytes: bytes) -> list[float]:
-    """
-    Deterministic placeholder embedding derived from image content.
-
-    Replace this with a real face-detection + embedding model before
-    production use — this stub does NOT actually detect or verify faces,
-    it only produces a stable-but-meaningless vector so the enrollment/
-    recognition API contract can be built, tested, and wired end-to-end.
-    """
-    if not image_bytes:
-        raise ValueError("empty image")
-    digest = hashlib.sha256(image_bytes).digest()
-    vals = []
-    for i in range(EMBEDDING_DIM):
-        b = digest[i % len(digest)]
-        vals.append((b / 255.0) * 2 - 1)
-    return vals
+    """Legacy school biometrics are unsupported; never return hash embeddings."""
+    raise RuntimeError("Legacy biometric verification is unavailable. Use the HRMS attendance service.")
 
 
 def average_embeddings(embeddings: list[list[float]]) -> list[float]:

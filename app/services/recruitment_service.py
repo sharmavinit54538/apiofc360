@@ -139,7 +139,7 @@ class RecruitmentService:
     # Job Management (Admin/HR)
     # ------------------------------------------------------------------
 
-    async def create_job(self, user_id: uuid.UUID, payload: JobCreate) -> JobResponse:
+    async def create_job(self, user_id: uuid.UUID, payload: JobCreate, company_id: uuid.UUID | None = None) -> JobResponse:
         logger.info("create_job | user_id=%s | title=%s", user_id, payload.title)
         try:
             slug = await generate_job_slug(payload.title, self.repo)
@@ -147,6 +147,8 @@ class RecruitmentService:
             job_data = payload.model_dump(exclude={"rounds", "skills"})
             job_data["slug"] = slug
             job_data["created_by"] = user_id
+            if company_id:
+                job_data["company_id"] = company_id
 
             job = await self.repo.create_job(**job_data)
 
@@ -416,8 +418,12 @@ Generate realistic content under each heading. Make the tone professional, encou
             with open(save_path, "wb") as f:
                 f.write(file_data)
 
-            # Create or get Candidate record
-            candidate = await self.repo.get_candidate_by_email(payload.email)
+            # Create or get Candidate record scoped to this company
+            company_id = job.company_id
+            candidate = None
+            if company_id:
+                candidate = await self.repo.get_candidate_by_email_and_company(payload.email, company_id)
+            
             if not candidate:
                 candidate = await self.repo.create_candidate(
                     first_name=payload.first_name,
@@ -433,8 +439,10 @@ Generate realistic content under each heading. Make the tone professional, encou
                     resume_name=filename,
                     source="Career Site",
                     is_talent_pool=False,
+                    company_id=company_id,
                 )
             else:
+                # Only update resume for this application, don't overwrite other data
                 candidate.resume_path = save_path
                 candidate.resume_name = filename
                 await self.session.flush()
@@ -567,7 +575,8 @@ Generate realistic content under each heading. Make the tone professional, encou
         with open(save_path, "wb") as f:
             f.write(file_data)
 
-        # Create or get Candidate record
+        # Create or get Candidate record scoped to this company
+        company_id = job.company_id
         source_val = "DIRECT"
         if chan.channel_name == "career_site":
             source_val = "Career Site"
@@ -578,7 +587,10 @@ Generate realistic content under each heading. Make the tone professional, encou
         else:
             source_val = chan.channel_name
 
-        candidate = await self.repo.get_candidate_by_email(payload.email)
+        candidate = None
+        if company_id:
+            candidate = await self.repo.get_candidate_by_email_and_company(payload.email, company_id)
+        
         if not candidate:
             candidate = await self.repo.create_candidate(
                 first_name=payload.first_name,
@@ -594,6 +606,7 @@ Generate realistic content under each heading. Make the tone professional, encou
                 resume_name=filename,
                 source=source_val,
                 is_talent_pool=False,
+                company_id=company_id,
             )
         else:
             candidate.resume_path = save_path
@@ -792,6 +805,11 @@ Generate realistic content under each heading. Make the tone professional, encou
             if not app:
                 raise AppException(message="Application not found.", status_code=status.HTTP_404_NOT_FOUND)
 
+            # Get candidate
+            candidate = await self.repo.get_candidate_by_id(app.candidate_id) if app.candidate_id else None
+            if not candidate:
+                raise AppException(message="Candidate not found for this application.", status_code=status.HTTP_404_NOT_FOUND)
+
             # Create Interview parent
             interview = await self.repo.create_interview(application_id=app_uuid, status="SCHEDULED", current_round_index=0)
 
@@ -807,15 +825,59 @@ Generate realistic content under each heading. Make the tone professional, encou
             await self.repo.update_application_status(app_uuid, "INTERVIEW_SCHEDULED")
             await self.session.commit()
 
-            # Send Interview Scheduling Invitation Email
-            try:
-                schedule_url = f"{settings.FRONTEND_BASE_URL}/schedule-interview?interview_id={interview.id}"
-                await self.email_service.send_recruitment_interview_email(
-                    email=app.email,
-                    name=app.first_name,
-                    job_title=app.job.title,
-                    schedule_url=schedule_url,
+            # Create interview schedule entries for each round with invitation tokens
+            from app.models.recruitment import InterviewSchedule, InterviewInvitation
+            import secrets
+            
+            rounds_sorted = sorted(interview.rounds, key=lambda r: r.round_order)
+            for round_obj in rounds_sorted:
+                invitation_token = secrets.token_urlsafe(32)
+                expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+                
+                # Create schedule with token
+                schedule = InterviewSchedule(
+                    interview_id=interview.id,
+                    round_id=round_obj.id,
+                    interview_date=date.today() + timedelta(days=1),
+                    interview_time=time(10, 0),
+                    mode="ONLINE",
+                    meeting_url="",
+                    invitation_token=invitation_token,
+                    invitation_expires_at=expires_at,
                 )
+                self.session.add(schedule)
+                await self.session.flush()
+                
+                # Create InterviewInvitation record for candidate access
+                invitation = InterviewInvitation(
+                    company_id=app.company_id,
+                    interview_id=interview.id,
+                    candidate_id=candidate.id,
+                    round_id=round_obj.id,
+                    token=invitation_token,
+                    status="SENT",
+                    expires_at=expires_at,
+                    max_reconnects=3,
+                )
+                self.session.add(invitation)
+            
+            await self.session.commit()
+
+            # Send Interview Scheduling Invitation Email with secure token for first round
+            try:
+                first_round = rounds_sorted[0]
+                first_invitation = await self.repo.get_interview_invitation_by_token(
+                    (await self.repo.get_interview_schedule_for_round(first_round.id)).invitation_token
+                ) if await self.repo.get_interview_schedule_for_round(first_round.id) else None
+                
+                if first_invitation:
+                    join_url = f"{settings.FRONTEND_BASE_URL}/interview/join?token={first_invitation.token}"
+                    await self.email_service.send_recruitment_interview_email(
+                        email=app.email,
+                        name=app.first_name,
+                        job_title=app.job.title,
+                        schedule_url=join_url,
+                    )
             except Exception as mail_exc:
                 logger.error("initiate_interview: scheduling email failed | exc=%s", str(mail_exc))
 
@@ -830,12 +892,28 @@ Generate realistic content under each heading. Make the tone professional, encou
             logger.exception("initiate_interview: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def book_interview_schedule(
-        self, interview_uuid: uuid.UUID, payload: InterviewScheduleCreate
+    async def book_interview_schedule_by_token(
+        self, payload: InterviewScheduleCreate
     ) -> InterviewScheduleResponse:
-        logger.info("book_interview_schedule | int_id=%s", interview_uuid)
+        logger.info("book_interview_schedule_by_token")
         try:
-            interview = await self.repo.get_interview_by_id(interview_uuid)
+            # Validate invitation token
+            if not payload.invitation_token:
+                raise AppException(message="Invitation token is required.", status_code=status.HTTP_400_BAD_REQUEST)
+            
+            sched = await self.repo.get_interview_schedule_by_invitation_token(payload.invitation_token)
+            if not sched:
+                raise AppException(message="Invalid or expired invitation token.", status_code=status.HTTP_404_NOT_FOUND)
+            
+            # Check token expiry
+            if sched.invitation_expires_at and sched.invitation_expires_at < datetime.now(timezone.utc):
+                raise AppException(message="Invitation token has expired.", status_code=status.HTTP_410_GONE)
+            
+            # Check if already used
+            if sched.invitation_used_at:
+                raise AppException(message="This invitation has already been used.", status_code=status.HTTP_409_CONFLICT)
+            
+            interview = await self.repo.get_interview_by_id(sched.interview_id)
             if not interview:
                 raise AppException(message="Interview not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -848,23 +926,18 @@ Generate realistic content under each heading. Make the tone professional, encou
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Double booking check
-            if await self.repo.check_double_booking(payload.interview_date, payload.interview_time):
+            # Double booking check - check for this specific round
+            if await self.repo.check_double_booking_for_round(sched.round_id, payload.interview_date, payload.interview_time):
                 raise ConflictException(message="This time slot is already booked. Please choose another slot.")
 
-            # Get current round
-            current_idx = interview.current_round_index
-            rounds_sorted = sorted(interview.rounds, key=lambda r: r.round_order)
-            if current_idx >= len(rounds_sorted):
-                raise AppException(message="All rounds for this interview have been completed.", status_code=status.HTTP_400_BAD_REQUEST)
-            current_round = rounds_sorted[current_idx]
-
-            # Save schedule
-            sched_data = payload.model_dump()
-            sched_data["interview_id"] = interview_uuid
-            sched_data["round_id"] = current_round.id
-
-            sched = await self.repo.create_interview_schedule(**sched_data)
+            # Update schedule with candidate's chosen time and mark invitation as used
+            sched.interview_date = payload.interview_date
+            sched.interview_time = payload.interview_time
+            sched.mode = payload.mode
+            sched.meeting_url = payload.meeting_url
+            sched.office_address = payload.office_address
+            sched.invitation_used_at = datetime.now(timezone.utc)
+            
             await self.session.commit()
 
             # Fetch schedule
@@ -916,7 +989,7 @@ Generate realistic content under each heading. Make the tone professional, encou
             raise
         except SQLAlchemyError as exc:
             await self.session.rollback()
-            logger.exception("book_interview_schedule: db error", exc_info=exc)
+            logger.exception("book_interview_schedule_by_token: db error", exc_info=exc)
             raise DatabaseException() from exc
 
     async def list_interviews(self, status: str | None, page: int, limit: int) -> list[InterviewResponse]:
@@ -1541,169 +1614,14 @@ Generate realistic content under each heading. Make the tone professional, encou
             logger.exception("update_interview_feedback: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def screen_candidate_resume_task(
-        self,
-        application_id: uuid.UUID,
-        candidate_id: uuid.UUID,
-        job_id: uuid.UUID,
-        resume_path: str,
-        resume_name: str,
-        file_size: int,
-    ) -> None:
-        """Asynchronously parses candidate resume and generates AI JD match score."""
-        from app.db.database import AsyncSessionLocal
-        from app.models.ai_recruitment import AIResumeDocument, CandidateMatchScore
-        from app.models.recruitment import Job, Candidate
-        from app.agents.resume_parser import ResumeParserAgent
-        from app.agents.candidate_matcher import CandidateMatcherAgent
-        from app.llm.client import get_llm_client
-        from app.ocr.engine_selector import get_ocr_selector
-        from sqlalchemy import select
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info("Starting background AI resume screening for candidate_id=%s", candidate_id)
-
-        async with AsyncSessionLocal() as session:
-            try:
-                # 1. Create AIResumeDocument entry
-                doc = AIResumeDocument(
-                    application_id=application_id,
-                    candidate_id=candidate_id,
-                    file_path=resume_path,
-                    file_name=resume_name,
-                    file_size=file_size,
-                    file_type=resume_name.split(".")[-1].lower() if "." in resume_name else "pdf",
-                    parse_status="PROCESSING",
-                )
-                session.add(doc)
-                await session.commit()
-                await session.refresh(doc)
-
-                # 2. Fetch candidate and parse file or construct synthetic profile text
-                llm = get_llm_client()
-                
-                cand_res = await session.execute(select(Candidate).where(Candidate.id == candidate_id))
-                cand = cand_res.scalar_one_or_none()
-                if not cand:
-                    logger.error("AI screening failed: Candidate not found")
-                    return
-
-                import os
-                if resume_path and os.path.exists(resume_path):
-                    ocr = get_ocr_selector()
-                    agent = ResumeParserAgent(llm_client=llm, ocr_selector=ocr)
-                    parsed_resume = await agent.parse_file(resume_path)
-                    parsed_data_dict = parsed_resume.to_dict()
-                    raw_text = (parsed_resume.raw_text or "")[:10000]
-                    engine_used = parsed_resume.engine_used
-                    c_name = parsed_resume.name
-                    c_email = parsed_resume.email
-                    c_exp = parsed_resume.years_experience
-                    c_summary = parsed_resume.summary
-                    c_skills = parsed_resume.all_skills_flat
-                else:
-                    parsed_data_dict = {
-                        "name": f"{cand.first_name} {cand.last_name}",
-                        "email": cand.email,
-                        "phone": cand.phone,
-                        "address": cand.location,
-                        "years_experience": float(cand.years_experience or 0.0),
-                        "skills": cand.skills or [],
-                        "summary": cand.summary or "",
-                        "current_company": cand.current_company or "",
-                        "current_designation": cand.current_role or "",
-                        "expected_salary": float(cand.expected_salary or 0.0),
-                    }
-                    raw_text = f"""
-                    Candidate Profile Summary:
-                    Name: {cand.first_name} {cand.last_name}
-                    Email: {cand.email}
-                    Phone: {cand.phone}
-                    Location: {cand.location}
-                    Experience: {cand.years_experience} years
-                    Current Role: {cand.current_role or "N/A"}
-                    Current Company: {cand.current_company or "N/A"}
-                    Skills: {", ".join(cand.skills) if cand.skills else "N/A"}
-                    Summary: {cand.summary or "N/A"}
-                    """
-                    engine_used = "ProfileExtractor"
-                    c_name = f"{cand.first_name} {cand.last_name}"
-                    c_email = cand.email
-                    c_exp = float(cand.years_experience or 0.0)
-                    c_summary = cand.summary
-                    c_skills = cand.skills or []
-
-                # 3. Update AIResumeDocument with parsed data
-                doc.parsed_data = parsed_data_dict
-                doc.raw_text = raw_text
-                doc.parse_status = "COMPLETED"
-                doc.ocr_engine_used = engine_used
-                doc.candidate_name = c_name
-                doc.candidate_email = c_email
-                doc.years_experience = c_exp
-                await session.commit()
-
-                # 4. Fetch the Job Details
-                job_res = await session.execute(select(Job).where(Job.id == job_id))
-                job = job_res.scalar_one_or_none()
-                if not job:
-                    logger.error("AI screening failed: Job not found")
-                    return
-
-                # Construct Job Description text
-                jd_text = job.job_description or ""
-                if job.requirements:
-                    jd_text += "\n\nRequirements:\n" + job.requirements
-                if job.responsibilities:
-                    jd_text += "\n\nResponsibilities:\n" + job.responsibilities
-
-                # 5. Run Matcher Agent
-                matcher = CandidateMatcherAgent(llm_client=llm)
-                result = await matcher.match(
-                    resume_text=doc.raw_text,
-                    jd_text=jd_text,
-                    candidate_metadata={
-                        "expected_salary": parsed_data_dict.get("expected_salary"),
-                        "notice_period": parsed_data_dict.get("notice_period"),
-                        "location": parsed_data_dict.get("address"),
-                    },
-                )
-
-                # 6. Save Match Score to DB
-                score_record = CandidateMatchScore(
-                    resume_document_id=doc.id,
-                    job_id=job_id,
-                    candidate_id=candidate_id,
-                    overall_match_score=result.overall_match_score,
-                    skill_match_score=result.skill_match_score,
-                    experience_match_score=result.experience_match_score,
-                    education_match_score=result.education_match_score,
-                    domain_match_score=result.domain_match_score,
-                    industry_match_score=result.industry_match_score,
-                    location_match_score=result.location_match_score,
-                    salary_match_score=result.salary_match_score,
-                    availability_score=result.availability_score,
-                    ai_confidence_score=result.ai_confidence_score,
-                    matching_skills=result.matching_skills,
-                    missing_skills=result.missing_skills,
-                    extra_skills=result.extra_skills,
-                    recommendation="HIRE" if result.overall_match_score >= 0.75 else "REJECT" if result.overall_match_score < 0.4 else "REVIEW",
-                )
-                session.add(score_record)
-
-                # 7. Update Candidate profile text with summary & skills from parsing if empty
-                if cand:
-                    if not cand.summary:
-                        cand.summary = c_summary
-                    if not cand.skills and c_skills:
-                        cand.skills = c_skills[:30]
-
-                await session.commit()
-                logger.info("AI screening completed successfully for candidate_id=%s score=%s", candidate_id, result.overall_match_score)
-
-            except Exception as e:
-                logger.exception("Error during background AI resume screening: %s", str(e))
+    async def screen_candidate_resume_task(self, application_id, candidate_id, job_id,
+                                           resume_path, resume_name, file_size):
+        from app.services.recruitment_screening import screen_application
+        from app.models.recruitment import Application
+        application = await self.session.scalar(select(Application).where(Application.id == application_id))
+        if not application or not application.company_id:
+            raise ValueError("Verified application company is required")
+        return await screen_application(application_id, application.company_id, candidate_id, job_id)
 
     async def match_candidate_against_jobs_task(
         self,
@@ -1823,7 +1741,7 @@ Generate realistic content under each heading. Make the tone professional, encou
             logger.exception("list_requisitions: db error", exc_info=exc)
             raise DatabaseException() from exc
 
-    async def approve_requisition(self, user_id: uuid.UUID, req_uuid: uuid.UUID, approve: bool) -> JobRequisitionResponse:
+    async def approve_requisition(self, user_id: uuid.UUID, req_uuid: uuid.UUID, approve: bool, location: str | None = None, employment_type: str = "FULL_TIME") -> JobRequisitionResponse:
         try:
             new_status = "APPROVED" if approve else "REJECTED"
             await self.repo.update_requisition_status(req_uuid, new_status, approved_by=user_id)
@@ -1831,24 +1749,32 @@ Generate realistic content under each heading. Make the tone professional, encou
             # If approved, automatically promote/convert it to a published or draft Job posting!
             req = await self.repo.get_requisition_by_id(req_uuid)
             if approve:
-                # Create Job from Requisition
+                if not location:
+                    raise AppException(message="Location is required to create a job from an approved requisition.", status_code=status.HTTP_400_BAD_REQUEST)
+                
+                # Create Job from Requisition within a transaction
                 slug = await generate_job_slug(req.title, self.repo)
                 await self.repo.create_job(
                     title=req.title,
                     slug=slug,
                     department=req.department,
                     designation=req.title,
+                    employment_type=employment_type,
                     vacancies=req.vacancies,
                     min_experience=req.min_experience,
                     max_experience=req.max_experience,
                     min_salary=req.min_salary,
                     max_salary=req.max_salary,
+                    location=location,
                     job_description=req.description,
                     status="DRAFT",
                     created_by=user_id,
                 )
             await self.session.commit()
             return JobRequisitionResponse.model_validate(req)
+        except AppException:
+            await self.session.rollback()
+            raise
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.exception("approve_requisition: db error", exc_info=exc)
@@ -2217,6 +2143,147 @@ Generate realistic content under each heading. Make the tone professional, encou
         except SQLAlchemyError as exc:
             logger.exception("get_recruitment_analytics: db error", exc_info=exc)
             raise DatabaseException() from exc
+
+    # ------------------------------------------------------------------
+    # Candidate Interview Invitation & Session Management
+    # ------------------------------------------------------------------
+
+    async def validate_interview_invitation(self, token: str) -> InterviewJoinResponse:
+        """Validate interview invitation token and return join details."""
+        invitation = await self.repo.get_interview_invitation_by_token(token)
+        if not invitation:
+            raise AppException(message="Invalid invitation token.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        if invitation.status == "EXPIRED" or invitation.expires_at < datetime.now(timezone.utc):
+            invitation.status = "EXPIRED"
+            await self.session.commit()
+            raise AppException(message="Invitation has expired.", status_code=status.HTTP_410_GONE)
+        
+        if invitation.status in ("COMPLETED", "CANCELLED"):
+            raise AppException(message=f"Invitation is {invitation.status.lower()}.", status_code=status.HTTP_409_CONFLICT)
+        
+        # Get interview and round details
+        interview = await self.repo.get_interview_by_id(invitation.interview_id)
+        if not interview:
+            raise AppException(message="Interview not found.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        round_obj = await self.repo.get_interview_round_by_id(invitation.round_id) if invitation.round_id else None
+        if not round_obj:
+            raise AppException(message="Interview round not found.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        application = await self.repo.get_application_by_id(interview.application_id)
+        job = application.job if application else None
+        candidate = await self.repo.get_candidate_by_id(invitation.candidate_id)
+        
+        # Check if device check and consent are required
+        schedule = await self.repo.get_interview_schedule_for_round(round_obj.id)
+        
+        return InterviewJoinResponse(
+            interview_id=interview.id,
+            round_id=round_obj.id,
+            round_name=round_obj.round_name,
+            round_order=round_obj.round_order,
+            job_title=job.title if job else "Unknown Position",
+            company_name=job.company.name if job and job.company else "Unknown Company",
+            candidate_name=f"{candidate.first_name} {candidate.last_name}" if candidate else "Candidate",
+            scheduled_date=schedule.interview_date if schedule else date.today(),
+            scheduled_time=schedule.interview_time.strftime("%H:%M:%S") if schedule and schedule.interview_time else "10:00:00",
+            mode=schedule.mode if schedule else "ONLINE",
+            meeting_url=schedule.meeting_url if schedule else None,
+            expires_at=invitation.expires_at,
+            requires_device_check=not invitation.device_check_completed,
+            requires_consent=not invitation.consent_given,
+            grace_period_ends_at=invitation.grace_period_ends_at,
+        )
+
+    async def complete_interview_device_check(
+        self,
+        token: str,
+        has_camera: bool,
+        has_microphone: bool,
+        camera_test_passed: bool,
+        microphone_test_passed: bool,
+        browser_info: str,
+    ) -> dict:
+        """Record candidate device check results."""
+        invitation = await self.repo.get_interview_invitation_by_token(token)
+        if not invitation:
+            raise AppException(message="Invalid invitation token.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        if not has_camera or not has_microphone or not camera_test_passed or not microphone_test_passed:
+            raise AppException(message="Camera and microphone are required for the interview.", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        invitation.device_check_completed = True
+        await self.session.commit()
+        
+        return {"device_check_completed": True, "message": "Device check passed. You may proceed."}
+
+    async def record_interview_consent(self, token: str, consent_given: bool) -> dict:
+        """Record candidate consent for interview recording."""
+        invitation = await self.repo.get_interview_invitation_by_token(token)
+        if not invitation:
+            raise AppException(message="Invalid invitation token.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        if not consent_given:
+            raise AppException(message="Consent is required to proceed with the interview.", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        invitation.consent_given = True
+        invitation.consent_at = datetime.now(timezone.utc)
+        await self.session.commit()
+        
+        return {"consent_given": True, "message": "Consent recorded. You may now start the interview."}
+
+    async def start_candidate_interview_session(self, token: str) -> dict:
+        """Start the candidate interview session and return first question."""
+        invitation = await self.repo.get_interview_invitation_by_token(token)
+        if not invitation:
+            raise AppException(message="Invalid invitation token.", status_code=status.HTTP_404_NOT_FOUND)
+        
+        if not invitation.device_check_completed:
+            raise AppException(message="Device check must be completed first.", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        if not invitation.consent_given:
+            raise AppException(message="Consent must be given first.", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        if invitation.status == "STARTED":
+            raise AppException(message="Interview session already started.", status_code=status.HTTP_409_CONFLICT)
+        
+        if invitation.status == "COMPLETED":
+            raise AppException(message="Interview already completed.", status_code=status.HTTP_409_CONFLICT)
+        
+        # Create AI Interview Session
+        from app.services.ai_interview_service import AIInterviewService
+        ai_service = AIInterviewService(self.session)
+        
+        session = await ai_service.initialize_session(
+            candidate_id=invitation.candidate_id,
+            job_id=invitation.interview.job_id if invitation.interview else None,
+            interview_type="VIDEO",
+            company_id=invitation.company_id,
+            round_id=invitation.round_id,
+        )
+        
+        # Link AI session to invitation
+        invitation.status = "STARTED"
+        invitation.started_at = datetime.now(timezone.utc)
+        invitation.grace_period_ends_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+        
+        # Start the session to get first question
+        question = await ai_service.start_session(session.id)
+        
+        await self.session.commit()
+        
+        return {
+            "ai_session_id": str(session.id),
+            "invitation_id": str(invitation.id),
+            "first_question": {
+                "id": str(question.id),
+                "text": question.question_text,
+                "type": question.question_type,
+                "difficulty": question.difficulty,
+            } if question else None,
+            "message": "Interview started. Good luck!",
+        }
 
     # ------------------------------------------------------------------
     # Import/Export candidates/jobs

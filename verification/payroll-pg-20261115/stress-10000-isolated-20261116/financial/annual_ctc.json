@@ -1,0 +1,67 @@
+{
+  "annual_ctc_paise": 10000007,
+  "allocated_ctc_paise": 10000007,
+  "variance_rupees": "0.000000",
+  "monthly_runs": [
+    {
+      "month": 1,
+      "run_id": "0b8db4c8-c125-4a53-b365-0ab7c0cdd519",
+      "gross_paise": 833334
+    },
+    {
+      "month": 2,
+      "run_id": "59e1c90b-2475-41f2-82df-d18f9d887d9b",
+      "gross_paise": 833334
+    },
+    {
+      "month": 3,
+      "run_id": "86426d56-b148-4132-a7e4-4d0d189a847a",
+      "gross_paise": 833334
+    },
+    {
+      "month": 4,
+      "run_id": "c93399ca-22d3-4951-a48e-2ea383465332",
+      "gross_paise": 833334
+    },
+    {
+      "month": 5,
+      "run_id": "68d9d7a0-3ba7-4651-9fac-541e7a25e75a",
+      "gross_paise": 833334
+    },
+    {
+      "month": 6,
+      "run_id": "4289abc7-341d-43ec-8138-330198e98f2a",
+      "gross_paise": 833334
+    },
+    {
+      "month": 7,
+      "run_id": "f730fe80-b76d-493d-b5ba-74c6e5c055d3",
+      "gross_paise": 833334
+    },
+    {
+      "month": 8,
+      "run_id": "127491eb-e429-4a7a-acae-f7ca3150aa3c",
+      "gross_paise": 833334
+    },
+    {
+      "month": 9,
+      "run_id": "d58007b5-adb1-4c21-8666-646128ce493f",
+      "gross_paise": 833334
+    },
+    {
+      "month": 10,
+      "run_id": "741a97b2-67f3-4d47-ad74-953271cca458",
+      "gross_paise": 833334
+    },
+    {
+      "month": 11,
+      "run_id": "2d8abfab-2533-48fa-bbf7-ccd38b30810f",
+      "gross_paise": 833334
+    },
+    {
+      "month": 12,
+      "run_id": "1adb25d4-28fb-421e-badd-9e36a1b4e23c",
+      "gross_paise": 833333
+    }
+  ]
+}

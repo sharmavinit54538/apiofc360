@@ -19,6 +19,7 @@ from app.models.employee import Employee
 from app.models.payroll_models import PayrollPeriod, VariableInput
 from app.schemas.payroll_v2.variable_inputs import VariableInputCreateRequest
 from app.services.payroll.audit_service import PayrollAuditService
+from app.services.payroll.money import as_decimal
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +264,10 @@ class VariableInputService:
 
             parsed_amount = 0
             try:
-                parsed_amount = int(float(amount_str))
+                amount = as_decimal(amount_str)
+                if amount != amount.to_integral_value():
+                    raise ValueError("Amount must be an integer number of paise")
+                parsed_amount = int(amount)
                 if parsed_amount <= 0:
                     errors.append("Amount must be positive")
             except ValueError:

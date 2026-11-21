@@ -1,0 +1,114 @@
+{
+  "actual_engine": "PayrollRunService.execute_run_calculation",
+  "annual_ctc_engine_months_passed": 12,
+  "annual_ctc_result": {
+    "allocated_ctc_paise": 10000007,
+    "annual_ctc_paise": 10000007,
+    "monthly_runs": [
+      {
+        "gross_paise": 833334,
+        "month": 1,
+        "run_id": "0b8db4c8-c125-4a53-b365-0ab7c0cdd519"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 2,
+        "run_id": "59e1c90b-2475-41f2-82df-d18f9d887d9b"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 3,
+        "run_id": "86426d56-b148-4132-a7e4-4d0d189a847a"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 4,
+        "run_id": "c93399ca-22d3-4951-a48e-2ea383465332"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 5,
+        "run_id": "68d9d7a0-3ba7-4651-9fac-541e7a25e75a"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 6,
+        "run_id": "4289abc7-341d-43ec-8138-330198e98f2a"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 7,
+        "run_id": "f730fe80-b76d-493d-b5ba-74c6e5c055d3"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 8,
+        "run_id": "127491eb-e429-4a7a-acae-f7ca3150aa3c"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 9,
+        "run_id": "d58007b5-adb1-4c21-8666-646128ce493f"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 10,
+        "run_id": "741a97b2-67f3-4d47-ad74-953271cca458"
+      },
+      {
+        "gross_paise": 833334,
+        "month": 11,
+        "run_id": "2d8abfab-2533-48fa-bbf7-ccd38b30810f"
+      },
+      {
+        "gross_paise": 833333,
+        "month": 12,
+        "run_id": "1adb25d4-28fb-421e-badd-9e36a1b4e23c"
+      }
+    ],
+    "variance_rupees": "0.000000"
+  },
+  "code_sha256": "9c759939a69ba4ab8e80fb3ae8d7eca0cd79c87409c20c106f5d0b1af8721942",
+  "coverage": {
+    "esi_paise": 9352,
+    "full_lop": 4600,
+    "lwf_paise": 1988,
+    "negative": 200,
+    "one_paise_net": 500,
+    "ordinary": 13400,
+    "pf_boundary": 800,
+    "pf_paise": 14200,
+    "pf_wage_boundary_15000": 200,
+    "pf_wage_boundary_20000": 200,
+    "pf_wage_boundary_25000": 200,
+    "pf_wage_boundary_30000": 200,
+    "pt_paise": 8630,
+    "tds_later_scheduled_payment": 1400,
+    "tds_paise": 286,
+    "tds_payment_boundary_2026-03-31": 1400,
+    "tds_payment_boundary_2026-04-01": 1400,
+    "zero_net": 500
+  },
+  "database": {
+    "driver": "postgresql+asyncpg",
+    "host": "127.0.0.1",
+    "name": "payroll_verify_stress",
+    "port": 55441
+  },
+  "elapsed_seconds": 319.338,
+  "employee_evaluations_passed": 20000,
+  "evaluations_per_second": 62.63,
+  "limitations": [
+    "Automatic joining/exit proration is not implemented by this engine; explicit attendance overrides were tested.",
+    "Salary revision coverage uses superseded and active persisted compensation rows; approval workflow is separate.",
+    "Statutory deductions use configured application rules; this harness does not certify legal correctness.",
+    "No external bank settlement or provider payment execution; only persisted payment instructions."
+  ],
+  "logical_scenarios": 10000,
+  "logical_scenarios_failed": 0,
+  "logical_scenarios_passed": 10000,
+  "negative_rejections_and_recoveries": 200,
+  "repeats": 2,
+  "runs_passed": 444,
+  "seed": 36020261114
+}

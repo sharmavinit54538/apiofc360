@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -78,13 +79,18 @@ class PaymentBatchService:
 
     @classmethod
     async def get_batch(
-        cls, session: AsyncSession, batch_id: uuid.UUID
+        cls, session: AsyncSession, batch_id: uuid.UUID, *, lock: bool = False,
+        company_id: uuid.UUID | None = None,
     ) -> PaymentBatch:
         stmt = (
             select(PaymentBatch)
             .options(selectinload(PaymentBatch.items))
             .where(PaymentBatch.id == batch_id)
         )
+        if company_id is not None:
+            stmt = stmt.where(PaymentBatch.company_id == company_id)
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         res = await session.execute(stmt)
         batch = res.scalar_one_or_none()
         if not batch:
@@ -178,6 +184,22 @@ class PaymentBatchService:
 
     @classmethod
     async def create_batch_from_run(
+        cls, session: AsyncSession, run_id: uuid.UUID, source_account_id: str,
+        payment_mode: str, held_employee_ids: Optional[List[HeldEmployeeItem]] = None,
+        notes: Optional[str] = None, user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None, company_id: uuid.UUID | None = None,
+    ) -> PaymentBatch:
+        try:
+            return await cls._create_batch_from_run(
+                session, run_id, source_account_id, payment_mode, held_employee_ids,
+                notes, user_id, user_role, company_id,
+            )
+        except Exception:
+            await session.rollback()
+            raise
+
+    @classmethod
+    async def _create_batch_from_run(
         cls,
         session: AsyncSession,
         run_id: uuid.UUID,
@@ -187,8 +209,13 @@ class PaymentBatchService:
         notes: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: uuid.UUID | None = None,
     ) -> PaymentBatch:
-        run_stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+        # The locked run serializes creators even when no batch exists yet.
+        # The unique operation constraint is the final database backstop.
+        run_stmt = select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+        if company_id is not None:
+            run_stmt = run_stmt.where(PayrollRun.company_id == company_id)
         run = (await session.execute(run_stmt)).scalar_one_or_none()
         if not run:
             raise HTTPException(
@@ -196,11 +223,47 @@ class PaymentBatchService:
                 detail=f"Payroll run '{run_id}' not found.",
             )
 
-        held_map = {item.employee_id: item.reason for item in (held_employee_ids or [])}
+        held_map = {str(item.employee_id): item.reason for item in (held_employee_ids or [])}
+        fingerprint = hashlib.sha256(json.dumps({
+            "source_account_id": str(source_account_id), "payment_mode": payment_mode.upper(),
+            "held_employee_ids": sorted(held_map),
+        }, sort_keys=True).encode()).hexdigest()
+        existing = (await session.execute(select(PaymentBatch).where(
+            PaymentBatch.run_id == run.id, PaymentBatch.company_id == run.company_id,
+            PaymentBatch.operation_key == "INITIAL",
+        ))).scalar_one_or_none()
+        if existing is not None:
+            if existing.request_fingerprint is None:
+                existing_held = set((await session.scalars(select(PaymentBatchItem.employee_id).where(
+                    PaymentBatchItem.batch_id == existing.id, PaymentBatchItem.status == "HELD",
+                ))).all())
+                matches = (
+                    existing.source_account_id == str(source_account_id)
+                    and existing.payment_mode == payment_mode.upper()
+                    and {str(value) for value in existing_held} == set(held_map)
+                )
+            else:
+                matches = existing.request_fingerprint == fingerprint
+            if not matches:
+                raise HTTPException(status_code=409, detail={
+                    "code": "PAYMENT_OPERATION_CONFLICT",
+                    "message": "An initial payment batch already exists with different payment instructions.",
+                    "batch_id": str(existing.id),
+                })
+            await session.commit()
+            return existing
+        if run.status not in {"LOCKED", "FINALIZED", "PAID"} or not run.is_locked:
+            raise HTTPException(status_code=409, detail="Payroll must be locked before creating payment instructions.")
 
         # Fetch employees from run
-        emp_stmt = select(PayrollRunEmployee).where(PayrollRunEmployee.run_id == run_id)
+        emp_stmt = select(PayrollRunEmployee).where(
+            PayrollRunEmployee.run_id == run_id, PayrollRunEmployee.company_id == run.company_id,
+        )
         run_employees = (await session.execute(emp_stmt)).scalars().all()
+        if not run_employees or set(held_map) - {str(row.employee_id) for row in run_employees}:
+            raise HTTPException(status_code=422, detail="Payment batch requires run employees and valid held employee IDs.")
+        if any(row.net_pay_paise < 0 for row in run_employees):
+            raise HTTPException(status_code=422, detail="Negative payment instructions are not allowed.")
 
         batch_number = f"PB-{run.period_year}{run.period_month:02d}-{uuid.uuid4().hex[:6].upper()}"
         batch = PaymentBatch(
@@ -208,10 +271,11 @@ class PaymentBatchService:
             company_id=run.company_id,
             run_id=run.id,
             batch_number=batch_number,
+            operation_key="INITIAL", request_fingerprint=fingerprint,
             # `source_account_id` is a VARCHAR column: always coerce to str so an
             # upstream UUID never reaches asyncpg as the wrong type.
             source_account_id=str(source_account_id),
-            payment_mode=payment_mode,
+            payment_mode=payment_mode.upper(),
             status="DRAFT",
             notes=notes,
             created_by=user_id,
@@ -229,8 +293,13 @@ class PaymentBatchService:
 
             # Fetch primary bank account details
             emp_info = (
-                await session.execute(select(Employee).where(Employee.id == re.employee_id))
+                await session.execute(select(Employee).where(
+                    Employee.id == re.employee_id, Employee.company_id == run.company_id,
+                ))
             ).scalar_one_or_none()
+            if emp_info is None:
+                await session.rollback()
+                raise HTTPException(status_code=409, detail="Payroll employee does not belong to this tenant.")
             acc_num = getattr(emp_info, "bank_account_number", "") or "000000000"
             ifsc = getattr(emp_info, "bank_ifsc", "") or "HDFC0001234"
             holder = f"{emp_info.first_name} {emp_info.last_name}".strip() if emp_info else "Employee"
@@ -255,9 +324,6 @@ class PaymentBatchService:
         batch.total_amount_paise = total_amount_paise
         batch.total_records = total_records
 
-        await session.commit()
-        await session.refresh(batch)
-
         await PayrollAuditService.log_event(
             session=session,
             entity_type="PaymentBatch",
@@ -270,6 +336,8 @@ class PaymentBatchService:
             after_status="DRAFT",
             reason=f"Created payment batch from run {run_id}",
         )
+        await session.commit()
+        await session.refresh(batch)
         return batch
 
     @classmethod
@@ -281,8 +349,10 @@ class PaymentBatchService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PaymentBatch:
-        batch = await cls.get_batch(session, batch_id)
+        batch = await cls.get_batch(session, batch_id, lock=True)
         old_status = batch.status
+        if batch.status in {"SUBMITTED", "RECONCILED"}:
+            raise HTTPException(status_code=409, detail="Submitted payment instructions cannot be reopened.")
 
         # Strict maker-checker: the user who created/processed the batch may not
         # approve it.  Raises HTTP 403 with code MAKER_CHECKER_VIOLATION and writes
@@ -331,8 +401,10 @@ class PaymentBatchService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PaymentBatch:
-        batch = await cls.get_batch(session, batch_id)
+        batch = await cls.get_batch(session, batch_id, lock=True)
         old_status = batch.status
+        if batch.status in {"SUBMITTED", "RECONCILED"}:
+            raise HTTPException(status_code=409, detail="Submitted payment instructions require bank reconciliation.")
         batch.status = "REJECTED"
         batch.rejected_by = user_id
         batch.rejected_at = datetime.now()
@@ -365,8 +437,14 @@ class PaymentBatchService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PaymentBatch:
-        batch = await cls.get_batch(session, batch_id)
+        batch = await cls.get_batch(session, batch_id, lock=True)
         old_status = batch.status
+        if batch.status in {"SUBMITTED", "RECONCILED"}:
+            if batch.bank_reference_number != bank_reference_number or batch.submission_date != submission_date:
+                raise HTTPException(status_code=409, detail="Batch was already submitted with different bank details.")
+            await session.commit()
+            return batch
+        cls.assert_export_approved(batch)
         batch.status = "SUBMITTED"
         batch.bank_reference_number = bank_reference_number
         batch.submission_date = submission_date
@@ -448,13 +526,17 @@ class PaymentBatchService:
     async def hold_item(
         cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, reason: str, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> PaymentBatchItem:
+        batch = await cls.get_batch(session, batch_id, lock=True)
+        if batch.status in {"SUBMITTED", "RECONCILED"}:
+            raise HTTPException(status_code=409, detail="Submitted payment instructions cannot be held.")
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
         )
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
             raise HTTPException(status_code=404, detail="Batch item not found.")
-
+        if item.status in {"PAID", "SUCCESS"}:
+            raise HTTPException(status_code=409, detail="A settled/submitted payout cannot be held.")
         item.status = "HELD"
         item.hold_reason = reason
         await session.commit()
@@ -465,13 +547,17 @@ class PaymentBatchService:
     async def release_item(
         cls, session: AsyncSession, batch_id: uuid.UUID, item_id: uuid.UUID, remarks: Optional[str] = None, user_id: Optional[uuid.UUID] = None, user_role: Optional[str] = None
     ) -> PaymentBatchItem:
+        batch = await cls.get_batch(session, batch_id, lock=True)
+        if batch.status in {"SUBMITTED", "RECONCILED"}:
+            raise HTTPException(status_code=409, detail="Submitted payment instructions cannot be released again.")
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
         )
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
             raise HTTPException(status_code=404, detail="Batch item not found.")
-
+        if item.status not in {"HELD", "RELEASED"}:
+            raise HTTPException(status_code=409, detail="Only a held payout may be released.")
         item.status = "RELEASED"
         item.remarks = remarks
         await session.commit()
@@ -489,13 +575,15 @@ class PaymentBatchService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PaymentBatchItem:
+        await cls.get_batch(session, batch_id, lock=True)
         stmt = select(PaymentBatchItem).where(
             PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id
         )
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
             raise HTTPException(status_code=404, detail="Batch item not found.")
-
+        if item.status not in {"FAILED", "RETRIED"} or item.repayout_batch_id is not None:
+            raise HTTPException(status_code=409, detail="Only an unreplaced failed payout may be retried.")
         if updated_bank_details:
             if updated_bank_details.account_number:
                 item.account_number = updated_bank_details.account_number
@@ -623,6 +711,8 @@ class PaymentBatchService:
             raise HTTPException(status_code=400, detail="Preview token has expired or is invalid.")
 
         data = json.loads(cached)
+        if data.get("batch_id") != str(batch_id):
+            raise HTTPException(status_code=404, detail="Bank response preview does not belong to this batch.")
         rows = data.get("rows", [])
 
         # Fetch batch items
@@ -677,14 +767,12 @@ class PaymentBatchService:
         """
         if not rows:
             raise HTTPException(status_code=400, detail="At least one bank response row is required.")
-        batch = await cls.get_batch(session, batch_id)
-        if company_id is not None and batch.company_id != company_id:
-            raise HTTPException(status_code=404, detail="Payment batch not found.")
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
         if batch.status not in {"APPROVED", "SUBMITTED", "RECONCILED"}:
             raise HTTPException(status_code=409, detail="Only an approved/submitted batch can be reconciled.")
         items = (await session.execute(select(PaymentBatchItem).where(
             PaymentBatchItem.batch_id == batch.id,
-        ))).scalars().all()
+        ).with_for_update().execution_options(populate_existing=True))).scalars().all()
         by_id = {str(item.id): item for item in items}
         by_account: dict[str, list[PaymentBatchItem]] = {}
         by_ref = {}
@@ -736,6 +824,9 @@ class PaymentBatchService:
             if item.status == "PAID" and (canonical_status != "PAID" or (item.utr_number and item.utr_number != utr)):
                 errors.append(f"Row {index}: a paid payout cannot be changed by a later feed.")
                 continue
+            if item.repayout_batch_id and canonical_status == "PAID":
+                errors.append(f"Row {index}: a replacement instruction already exists; manual settlement review is required.")
+                continue
             error_message = row.get("error_message") or row.get("reason") or row.get("Error")
             resolved.append((item, canonical_status, utr, reference, error_message))
         if errors:
@@ -760,7 +851,7 @@ class PaymentBatchService:
             payslip = (await session.execute(select(Payslip).where(
                 Payslip.payroll_run_id == batch.run_id, Payslip.employee_id == item.employee_id,
             ))).scalar_one_or_none()
-            if payslip:
+            if payslip and item.repayout_batch_id is None:
                 payslip.payment_status = canonical_status
                 payslip.payment_reference = utr
                 payslip.payment_date = date.today() if canonical_status == "PAID" else None
@@ -774,6 +865,9 @@ class PaymentBatchService:
                 source_account_id=batch.source_account_id, payment_mode=batch.payment_mode,
                 status="DRAFT", notes=f"Automatic re-payout for failed items in {batch.batch_number}",
                 created_by=user_id, retry_of_batch_id=batch.id,
+                operation_key="RETRY:" + hashlib.sha256(
+                    ",".join(sorted(str(item.id) for item in pending_retry)).encode()
+                ).hexdigest(),
                 total_amount_paise=sum(item.amount_paise for item in pending_retry), total_records=len(pending_retry),
             )
             session.add(retry_batch)
@@ -781,6 +875,7 @@ class PaymentBatchService:
             for original in pending_retry:
                 session.add(PaymentBatchItem(
                     id=uuid.uuid4(), batch_id=retry_batch.id, employee_id=original.employee_id,
+                    retry_source_item_id=original.id,
                     company_id=original.company_id, amount_paise=original.amount_paise, status="PENDING",
                     account_number=original.account_number, ifsc_code=original.ifsc_code,
                     account_holder_name=original.account_holder_name,

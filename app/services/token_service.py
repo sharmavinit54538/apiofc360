@@ -48,7 +48,7 @@ class TokenService:
         assigned_family_id = family_id or uuid.uuid4()
         family_id = assigned_family_id
 
-        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email)
+        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email, session_id=assigned_family_id)
         refresh_token = create_refresh_token(user_id=user_id)
         
         # Save refresh token hash to database

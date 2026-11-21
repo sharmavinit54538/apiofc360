@@ -36,6 +36,7 @@ class CheckInRequest(BaseModel):
     notes: Optional[str] = Field(None, description="Optional notes for check-in")
     device_info: Optional[str] = Field(None, description="Device and browser info")
     ip_address: Optional[str] = Field(None, description="Client IP address")
+    work_mode: Optional[str] = Field(None, description="Work mode: office, remote, field")
 
 
 class CheckOutRequest(BaseModel):
@@ -45,6 +46,7 @@ class CheckOutRequest(BaseModel):
     notes: Optional[str] = Field(None, description="Optional notes for check-out")
     device_info: Optional[str] = Field(None, description="Device and browser info")
     ip_address: Optional[str] = Field(None, description="Client IP address")
+    work_mode: Optional[str] = Field(None, description="Work mode: office, remote, field")
 
 
 class GeofenceVerifyRequest(BaseModel):

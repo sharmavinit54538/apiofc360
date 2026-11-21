@@ -1,0 +1,4 @@
+{
+  "head": "353b91d4f68aece771516aa54ed376c28d83bd48",
+  "status": " M app/core/rate_limiter.py\n M app/db/database.py\n M app/services/auth_service.py\n M app/services/recruitment_screening.py\n M app/services/security_sessions.py\n M scripts/backend_verify.py\n"
+}

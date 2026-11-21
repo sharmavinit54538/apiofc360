@@ -8,6 +8,7 @@ from app.models.document.signature import DocumentSignature
 from app.models.document.verification import DocumentVerification
 from app.models.document.expiry import DocumentExpiryTracking
 from app.models.document.audit import DocumentAuditLog
+from app.models.employee_document import EmployeeDocument
 
 __all__ = [
     "DocumentCategory",
@@ -18,4 +19,5 @@ __all__ = [
     "DocumentVerification",
     "DocumentExpiryTracking",
     "DocumentAuditLog",
+    "EmployeeDocument",
 ]

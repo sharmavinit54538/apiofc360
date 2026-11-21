@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="4" time="34.055" timestamp="2026-11-17T12:08:26.092999+05:30" hostname="DESKTOP-38AQMEN"><testcase classname="tests.test_production_assistant.TestProductionAssistant" name="test_ai_health_endpoint_requires_admin" time="0.017" /><testcase classname="tests.test_executive_it_admin_login_auth_flow" name="test_it_admin_sidebar_permissions" time="0.002"><failure message="assert False is True">tests\test_executive_it_admin_login_auth_flow.py:257: in test_it_admin_sidebar_permissions
+    assert perms_data["modules"]["settings"] is True
+E   assert False is True</failure></testcase><testcase classname="tests.test_rbac_and_role_enum_standardization" name="test_cto_dashboard_endpoint_requires_auth" time="4.973"><failure message="assert 404 in (401, 403)&#10; +  where 404 = &lt;Response [404 Not Found]&gt;.status_code">tests\test_rbac_and_role_enum_standardization.py:276: in test_cto_dashboard_endpoint_requires_auth
+    assert resp.status_code in (401, 403)
+E   assert 404 in (401, 403)
+E    +  where 404 = &lt;Response [404 Not Found]&gt;.status_code</failure></testcase><testcase classname="tests.test_super_admin_organizations_hr_admin" name="test_case_1_company_with_hr_admin_returns_real_hr_admin" time="1.035"><failure message="assert None is not None">tests\test_super_admin_organizations_hr_admin.py:92: in test_case_1_company_with_hr_admin_returns_real_hr_admin
+    assert org["hr_admin"] is not None
+E   assert None is not None</failure></testcase></testsuite></testsuites>

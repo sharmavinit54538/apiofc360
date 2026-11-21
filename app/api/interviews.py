@@ -3,15 +3,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Form, Query, status
 
 from app.api.departments import require_admin_or_hr
+from app.middleware.auth import get_current_user_claims_optional
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     CompleteRoundRequest,
     InterviewResponse,
     InterviewScheduleCreate,
     InterviewScheduleResponse,
+    InterviewJoinResponse,
 )
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
 
@@ -40,18 +42,19 @@ async def send_interview(
     )
 
 @router.post(
-    "/interviews/{id}/schedule",
+    "/interviews/schedule",
     status_code=status.HTTP_201_CREATED,
     response_model=APIResponse[InterviewScheduleResponse],
-    summary="Candidate books interview schedule slot",
+    summary="Candidate books interview schedule slot using invitation token",
 )
 async def schedule_interview_slot(
-    id: uuid.UUID,
     payload: InterviewScheduleCreate,
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[InterviewScheduleResponse]:
-    """Candidate schedules slot within next 7 days. Prevents double booking. Public / Unauthenticated endpoint."""
-    sched = await service.book_interview_schedule(id, payload)
+    """Candidate schedules slot using secure invitation token. Validates token ownership, expiry, and session status. Public / Unauthenticated endpoint."""
+    if not payload.invitation_token:
+        raise AppException(message="Invitation token is required.", status_code=status.HTTP_400_BAD_REQUEST)
+    sched = await service.book_interview_schedule_by_token(payload)
     return APIResponse[InterviewScheduleResponse](
         success=True,
         message="Interview scheduled successfully.",
@@ -161,5 +164,97 @@ async def hold_round(
         success=True,
         message="Round put on hold.",
         data=interview,
+        errors=None,
+    )
+
+
+# ===================================================================
+# Candidate Interview Access Endpoints
+# ===================================================================
+
+@router.get(
+    "/interviews/join/{token}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[InterviewJoinResponse],
+    summary="Validate interview invitation token and get join details",
+)
+async def validate_interview_invitation(
+    token: str,
+    service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+) -> APIResponse[InterviewJoinResponse]:
+    """Validate candidate interview invitation token and return join details. Public / Unauthenticated."""
+    join_details = await service.validate_interview_invitation(token)
+    return APIResponse[InterviewJoinResponse](
+        success=True,
+        message="Invitation validated successfully.",
+        data=join_details,
+        errors=None,
+    )
+
+
+@router.post(
+    "/interviews/join/{token}/device-check",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Complete device check for interview",
+)
+async def complete_device_check(
+    token: str,
+    service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+    has_camera: bool = Form(...),
+    has_microphone: bool = Form(...),
+    camera_test_passed: bool = Form(...),
+    microphone_test_passed: bool = Form(...),
+    browser_info: str = Form(...),
+) -> APIResponse[dict]:
+    """Record candidate device check results. Public / Unauthenticated."""
+    result = await service.complete_interview_device_check(
+        token, has_camera, has_microphone, camera_test_passed, microphone_test_passed, browser_info
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Device check completed.",
+        data=result,
+        errors=None,
+    )
+
+
+@router.post(
+    "/interviews/join/{token}/consent",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Record candidate consent for interview recording",
+)
+async def record_consent(
+    token: str,
+    service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+    consent_given: bool = Form(...),
+) -> APIResponse[dict]:
+    """Record candidate consent for interview recording. Public / Unauthenticated."""
+    result = await service.record_interview_consent(token, consent_given)
+    return APIResponse[dict](
+        success=True,
+        message="Consent recorded." if consent_given else "Consent declined.",
+        data=result,
+        errors=None,
+    )
+
+
+@router.post(
+    "/interviews/join/{token}/start",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Start interview session",
+)
+async def start_interview_session(
+    token: str,
+    service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
+) -> APIResponse[dict]:
+    """Start the interview session and return first question. Public / Unauthenticated."""
+    result = await service.start_candidate_interview_session(token)
+    return APIResponse[dict](
+        success=True,
+        message="Interview session started.",
+        data=result,
         errors=None,
     )

@@ -1477,6 +1477,446 @@ async def update_hr_settings(
 
 
 # ===========================================================================
+# Employee Settings Endpoints
+# ===========================================================================
+
+@router.get("/employees")
+async def get_employee_settings(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Return employee-specific settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    employee_settings = hr_settings_data.get("employee_settings") or {}
+
+    defaults = {
+        "employee_id_format": "EMP-{sequence:04d}",
+        "employee_id_prefix": "EMP",
+        "employee_id_sequence": 1,
+        "probation_period_days": 90,
+        "probation_review_enabled": True,
+        "default_employment_type": "FULL_TIME",
+        "default_work_location": "OFFICE",
+        "profile_editing_enabled": True,
+        "profile_editable_fields": ["phone", "emergency_contact", "address", "bank_details"],
+        "self_service_enabled": True,
+        "onboarding_steps_required": ["personal_info", "identity", "employment", "education", "experience", "bank", "tax", "documents", "policies"],
+    }
+
+    for k, v in defaults.items():
+        if k not in employee_settings:
+            employee_settings[k] = v
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Employee settings retrieved successfully.",
+        data=employee_settings,
+        errors=None,
+    )
+
+
+@router.put("/employees")
+async def update_employee_settings(
+    payload: Dict[str, Any],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Update employee-specific settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    employee_settings = hr_settings_data.get("employee_settings") or {}
+
+    allowed_fields = {
+        "employee_id_format", "employee_id_prefix", "employee_id_sequence",
+        "probation_period_days", "probation_review_enabled",
+        "default_employment_type", "default_work_location",
+        "profile_editing_enabled", "profile_editable_fields",
+        "self_service_enabled", "onboarding_steps_required",
+    }
+
+    update_data = {k: v for k, v in payload.items() if k in allowed_fields}
+    employee_settings.update(update_data)
+    hr_settings_data["employee_settings"] = employee_settings
+    company.hr_settings = hr_settings_data
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(company, "hr_settings")
+
+    await session.commit()
+
+    await create_audit_log(
+        session, claims, "UPDATE_EMPLOYEE_SETTINGS",
+        f"Updated employee settings configuration for company {company.name}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Employee settings updated successfully.",
+        data=employee_settings,
+        errors=None,
+    )
+
+
+# ===========================================================================
+# Leave Settings Endpoints
+# ===========================================================================
+
+@router.get("/leaves")
+async def get_leave_settings(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Return leave management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    leave_settings = hr_settings_data.get("leave_settings") or {}
+
+    defaults = {
+        "leave_year_start_month": 1,
+        "leave_year_start_day": 1,
+        "approval_workflow": "MANAGER_THEN_HR",
+        "half_day_leave_enabled": True,
+        "carry_forward_enabled": True,
+        "max_carry_forward_days": 30,
+        "carry_forward_expiry_months": 12,
+        "encashment_enabled": True,
+        "encashment_rate_percentage": 100,
+        "negative_balance_allowed": False,
+        "max_negative_balance_days": 0,
+        "leave_types": [
+            {"id": "casual", "name": "Casual Leave", "annual_entitlement": 12, "carry_forward": True, "requires_approval": True},
+            {"id": "sick", "name": "Sick Leave", "annual_entitlement": 12, "carry_forward": False, "requires_approval": True},
+            {"id": "earned", "name": "Earned Leave", "annual_entitlement": 18, "carry_forward": True, "requires_approval": True},
+            {"id": "maternity", "name": "Maternity Leave", "annual_entitlement": 180, "carry_forward": False, "requires_approval": True},
+            {"id": "paternity", "name": "Paternity Leave", "annual_entitlement": 15, "carry_forward": False, "requires_approval": True},
+        ],
+    }
+
+    for k, v in defaults.items():
+        if k not in leave_settings:
+            leave_settings[k] = v
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Leave settings retrieved successfully.",
+        data=leave_settings,
+        errors=None,
+    )
+
+
+@router.put("/leaves")
+async def update_leave_settings(
+    payload: Dict[str, Any],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Update leave management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    leave_settings = hr_settings_data.get("leave_settings") or {}
+
+    allowed_fields = {
+        "leave_year_start_month", "leave_year_start_day",
+        "approval_workflow", "half_day_leave_enabled",
+        "carry_forward_enabled", "max_carry_forward_days", "carry_forward_expiry_months",
+        "encashment_enabled", "encashment_rate_percentage",
+        "negative_balance_allowed", "max_negative_balance_days",
+        "leave_types",
+    }
+
+    update_data = {k: v for k, v in payload.items() if k in allowed_fields}
+    leave_settings.update(update_data)
+    hr_settings_data["leave_settings"] = leave_settings
+    company.hr_settings = hr_settings_data
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(company, "hr_settings")
+
+    await session.commit()
+
+    await create_audit_log(
+        session, claims, "UPDATE_LEAVE_SETTINGS",
+        f"Updated leave settings configuration for company {company.name}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Leave settings updated successfully.",
+        data=leave_settings,
+        errors=None,
+    )
+
+
+# ===========================================================================
+# Document Settings Endpoints
+# ===========================================================================
+
+@router.get("/documents")
+async def get_document_settings(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Return document management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    document_settings = hr_settings_data.get("document_settings") or {}
+
+    defaults = {
+        "allowed_file_types": ["pdf", "png", "jpg", "jpeg", "doc", "docx", "xls", "xlsx"],
+        "max_file_size_mb": 10,
+        "verification_required": True,
+        "verification_workflow": "HR_VERIFIES",
+        "expiry_reminder_days": [30, 15, 7, 1],
+        "employee_can_upload": True,
+        "employee_can_delete_own": False,
+        "employee_can_view_own": True,
+        "hr_can_view_all": True,
+        "manager_can_view_team": True,
+        "document_categories": [
+            {"id": "identity", "name": "Identity Documents", "required": True, "expiry_months": 0},
+            {"id": "education", "name": "Education Certificates", "required": False, "expiry_months": 0},
+            {"id": "experience", "name": "Experience Letters", "required": False, "expiry_months": 0},
+            {"id": "bank", "name": "Bank Documents", "required": True, "expiry_months": 0},
+            {"id": "tax", "name": "Tax Documents", "required": True, "expiry_months": 12},
+            {"id": "medical", "name": "Medical Records", "required": False, "expiry_months": 12},
+            {"id": "contract", "name": "Employment Contracts", "required": True, "expiry_months": 0},
+        ],
+    }
+
+    for k, v in defaults.items():
+        if k not in document_settings:
+            document_settings[k] = v
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Document settings retrieved successfully.",
+        data=document_settings,
+        errors=None,
+    )
+
+
+@router.put("/documents")
+async def update_document_settings(
+    payload: Dict[str, Any],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Update document management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    document_settings = hr_settings_data.get("document_settings") or {}
+
+    allowed_fields = {
+        "allowed_file_types", "max_file_size_mb",
+        "verification_required", "verification_workflow",
+        "expiry_reminder_days", "employee_can_upload",
+        "employee_can_delete_own", "employee_can_view_own",
+        "hr_can_view_all", "manager_can_view_team",
+        "document_categories",
+    }
+
+    update_data = {k: v for k, v in payload.items() if k in allowed_fields}
+    document_settings.update(update_data)
+    hr_settings_data["document_settings"] = document_settings
+    company.hr_settings = hr_settings_data
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(company, "hr_settings")
+
+    await session.commit()
+
+    await create_audit_log(
+        session, claims, "UPDATE_DOCUMENT_SETTINGS",
+        f"Updated document settings configuration for company {company.name}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Document settings updated successfully.",
+        data=document_settings,
+        errors=None,
+    )
+
+
+# ===========================================================================
+# Asset Settings Endpoints
+# ===========================================================================
+
+@router.get("/assets")
+async def get_asset_settings(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Return asset management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    asset_settings = hr_settings_data.get("asset_settings") or {}
+
+    defaults = {
+        "asset_id_format": "AST-{sequence:05d}",
+        "asset_id_prefix": "AST",
+        "asset_id_sequence": 1,
+        "assignment_approval_required": True,
+        "return_tracking_enabled": True,
+        "condition_tracking_enabled": True,
+        "warranty_reminder_days": [30, 15, 7],
+        "depreciation_enabled": False,
+        "depreciation_method": "STRAIGHT_LINE",
+        "default_useful_life_years": 5,
+        "asset_categories": [
+            {"id": "laptop", "name": "Laptop", "default_useful_life_years": 4},
+            {"id": "phone", "name": "Mobile Phone", "default_useful_life_years": 3},
+            {"id": "monitor", "name": "Monitor", "default_useful_life_years": 5},
+            {"id": "furniture", "name": "Furniture", "default_useful_life_years": 10},
+            {"id": "software", "name": "Software License", "default_useful_life_years": 3},
+            {"id": "other", "name": "Other Equipment", "default_useful_life_years": 5},
+        ],
+    }
+
+    for k, v in defaults.items():
+        if k not in asset_settings:
+            asset_settings[k] = v
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Asset settings retrieved successfully.",
+        data=asset_settings,
+        errors=None,
+    )
+
+
+@router.put("/assets")
+async def update_asset_settings(
+    payload: Dict[str, Any],
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> APIResponse[Dict[str, Any]]:
+    """Update asset management settings configuration."""
+    check_admin_or_manager(claims)
+    co_id_str = claims.get("company_id")
+    if not co_id_str:
+        raise HTTPException(status_code=403, detail="No company association found.")
+
+    company_id = uuid.UUID(co_id_str)
+    stmt = select(Company).where(Company.id == company_id)
+    res = await session.execute(stmt)
+    company = res.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    hr_settings_data = company.hr_settings or {}
+    asset_settings = hr_settings_data.get("asset_settings") or {}
+
+    allowed_fields = {
+        "asset_id_format", "asset_id_prefix", "asset_id_sequence",
+        "assignment_approval_required", "return_tracking_enabled",
+        "condition_tracking_enabled", "warranty_reminder_days",
+        "depreciation_enabled", "depreciation_method",
+        "default_useful_life_years", "asset_categories",
+    }
+
+    update_data = {k: v for k, v in payload.items() if k in allowed_fields}
+    asset_settings.update(update_data)
+    hr_settings_data["asset_settings"] = asset_settings
+    company.hr_settings = hr_settings_data
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(company, "hr_settings")
+
+    await session.commit()
+
+    await create_audit_log(
+        session, claims, "UPDATE_ASSET_SETTINGS",
+        f"Updated asset settings configuration for company {company.name}."
+    )
+
+    return APIResponse[Dict[str, Any]](
+        success=True,
+        message="Asset settings updated successfully.",
+        data=asset_settings,
+        errors=None,
+    )
+
+
+# ===========================================================================
 # MFA / 2FA Endpoints
 # ===========================================================================
 

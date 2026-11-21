@@ -8,7 +8,11 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from openpyxl import Workbook, load_workbook
+try:
+    from openpyxl import Workbook, load_workbook
+except ImportError:
+    Workbook = None
+    load_workbook = None
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

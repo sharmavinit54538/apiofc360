@@ -1,0 +1,20 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\backend-initial-suite-20261118\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\backend-verification-20261118\\backend-initial-suite-20261118-tmp"
+  ],
+  "database": "payroll_verify_backend",
+  "port": 55443,
+  "exit_code": 1,
+  "seconds": 623.828,
+  "tests": 1248,
+  "failed": 67,
+  "errors": 123,
+  "skipped": 4,
+  "passed": 1054
+}

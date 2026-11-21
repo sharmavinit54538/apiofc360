@@ -9,10 +9,11 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import DB, Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _require_admin, _uid, _role
+from app.api.payroll.permissions import _require_admin_or_manager, _require_admin, _uid, _role, _is_admin_or_manager, _as_uuid
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
-from app.models.payroll import PayrollRun
+from app.models.payroll import PayrollRun, Payslip
+from app.repositories.employee_repository import EmployeeRepository
 from app.schemas.payroll_v2.periods import PayrollPeriodCreateRequest
 from app.schemas.payroll_v2.runs import (
     PayrollRunApproveRequest,
@@ -42,9 +43,27 @@ async def v1_get_employee_payslips(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    user_role = _role(claims)
     user_uid = _uid(claims)
-    # RBAC: Employee can view own, Admin/HR can view any
+    company_id = _as_uuid(claims.get("company_id")) if claims else None
+
+    # Enforce RBAC: Non-admin employees can ONLY view their own payslips
+    if not _is_admin_or_manager(claims):
+        emp = await EmployeeRepository(db).get_by_user_id(user_uid) if user_uid else None
+        if not emp or emp.id != employeeId:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only view your own payslips.",
+            )
+    else:
+        # Admin / Manager: ensure target employee belongs to their organization
+        if company_id:
+            emp = await EmployeeRepository(db).get_by_id(employeeId, company_id=company_id)
+            if not emp:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Employee not found in your organization.",
+                )
+
     res = await PayslipService.get_employee_payslips(db, employeeId, page, limit)
     return _ok(res, "Employee payslips retrieved successfully")
 
@@ -191,38 +210,52 @@ async def v1_get_payroll_stats(
     now = datetime.now()
     m = month or now.month
     y = year or now.year
-    company_id_str = claims.get("company_id") if claims else None
-    
+    cid = _as_uuid(claims.get("company_id")) if claims else None
+
     stmt = select(PayrollRun).where(
         PayrollRun.period_month == m,
         PayrollRun.period_year == y,
     )
-    if company_id_str:
-        try:
-            stmt = stmt.where(PayrollRun.company_id == uuid.UUID(company_id_str))
-        except (ValueError, TypeError):
-            pass
+    if cid:
+        stmt = stmt.where(PayrollRun.company_id == cid)
     runs = (await db.execute(stmt)).scalars().all()
-    
+
     total_gross = sum(float(r.total_gross or 0) for r in runs)
     total_net = sum(float(r.total_net or 0) for r in runs)
     total_emp = sum(r.total_employees or 0 for r in runs)
     status_val = runs[0].status if runs else "NOT_STARTED"
-    
+
+    # Real DB query for statutory breakdown and on-hold count
+    run_ids = [r.id for r in runs]
+    pf_total = 0.0
+    esi_total = 0.0
+    pt_total = 0.0
+    tds_total = 0.0
+    on_hold_count = 0
+
+    if run_ids:
+        stmt_payslips = select(Payslip).where(Payslip.payroll_run_id.in_(run_ids))
+        payslips = (await db.execute(stmt_payslips)).scalars().all()
+        pf_total = sum(float(p.employee_pf or 0) for p in payslips)
+        esi_total = sum(float(p.employee_esi or 0) for p in payslips)
+        pt_total = sum(float(p.professional_tax or 0) for p in payslips)
+        tds_total = sum(float(p.tds or 0) for p in payslips)
+        on_hold_count = sum(1 for p in payslips if p.payment_status == "HOLD")
+
     return _ok({
         "month": m,
         "year": y,
         "totalGrossPayroll": total_gross,
         "totalNetPayable": total_net,
         "employeesProcessed": total_emp,
-        "onHoldCount": 0,
+        "onHoldCount": on_hold_count,
         "currentRunStatus": status_val,
         "payDate": runs[0].created_at.isoformat() if runs and runs[0].created_at else None,
         "statutoryBreakdown": {
-            "pfTotal": total_gross * 0.12 if total_gross else 0.0,
-            "esiTotal": total_gross * 0.0075 if total_gross else 0.0,
-            "ptTotal": min(200.0 * total_emp, 2500.0) if total_emp else 0.0,
-            "tdsTotal": 0.0,
+            "pfTotal": pf_total,
+            "esiTotal": esi_total,
+            "ptTotal": pt_total,
+            "tdsTotal": tds_total,
         }
     }, "Payroll stats retrieved successfully")
 
@@ -297,7 +330,26 @@ async def v1_get_run_single_employee(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    _require_admin_or_manager(claims)
+    user_uid = _uid(claims)
+    company_id = _as_uuid(claims.get("company_id")) if claims else None
+
+    # Check RBAC: Employee can view own, Admin/Manager can view within organization
+    if not _is_admin_or_manager(claims):
+        emp = await EmployeeRepository(db).get_by_user_id(user_uid) if user_uid else None
+        if not emp or emp.id != employeeId:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only view your own payroll run details.",
+            )
+    else:
+        if company_id:
+            emp = await EmployeeRepository(db).get_by_id(employeeId, company_id=company_id)
+            if not emp:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Employee not found in your organization.",
+                )
+
     res = await PayrollRunService.get_run_employee(db, runId, employeeId)
     return _ok(res, "Employee run details retrieved successfully")
 
@@ -310,6 +362,26 @@ async def v1_download_payslip(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    user_uid = _uid(claims)
+    company_id = _as_uuid(claims.get("company_id")) if claims else None
+
+    # Check RBAC: Employee can download own, Admin/Manager can download within organization
+    if not _is_admin_or_manager(claims):
+        emp = await EmployeeRepository(db).get_by_user_id(user_uid) if user_uid else None
+        if not emp or emp.id != employeeId:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only download your own payslip.",
+            )
+    else:
+        if company_id:
+            emp = await EmployeeRepository(db).get_by_id(employeeId, company_id=company_id)
+            if not emp:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Employee not found in your organization.",
+                )
+
     content, filename = await PayslipService.get_payslip_file(db, runId, employeeId)
     return Response(
         content=content,

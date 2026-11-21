@@ -157,11 +157,17 @@ class HelpdeskRepository:
                     and_(
                         HelpdeskAttachment.id.in_(attachment_ids),
                         HelpdeskAttachment.company_id == company_id,
+                        HelpdeskAttachment.uploader_id == requester_id,
+                        HelpdeskAttachment.ticket_id.is_(None),
+                        HelpdeskAttachment.comment_id.is_(None),
                     )
                 )
                 .values(ticket_id=ticket.id)
             )
-            await self.db.execute(link_stmt)
+            linked = await self.db.execute(link_stmt)
+            if linked.rowcount != len(set(attachment_ids)):
+                from app.core.exceptions import ForbiddenException
+                raise ForbiddenException(message="Attachments must be unused uploads owned by the requester.")
 
         await self.db.commit()
 
@@ -257,11 +263,17 @@ class HelpdeskRepository:
                     and_(
                         HelpdeskAttachment.id.in_(attachment_ids),
                         HelpdeskAttachment.company_id == ticket.company_id,
+                        HelpdeskAttachment.uploader_id == author_id,
+                        HelpdeskAttachment.ticket_id.is_(None),
+                        HelpdeskAttachment.comment_id.is_(None),
                     )
                 )
                 .values(comment_id=comment.id, ticket_id=ticket.id)
             )
-            await self.db.execute(link_stmt)
+            linked = await self.db.execute(link_stmt)
+            if linked.rowcount != len(set(attachment_ids)):
+                from app.core.exceptions import ForbiddenException
+                raise ForbiddenException(message="Attachments must be unused uploads owned by the author.")
 
         await self.db.commit()
 

@@ -137,89 +137,23 @@ class SecuritySettingService:
         return await SecuritySettingService.get_security_policy(db)
 
     @staticmethod
-    async def list_active_sessions(db: AsyncSession) -> List[Dict[str, Any]]:
-        """Fetch all active user web sessions."""
-        stmt = select(UserSession).where(UserSession.is_active == True).order_by(UserSession.last_activity.desc())
-        res = await db.execute(stmt)
-        sessions = res.scalars().all()
-
-        if not sessions:
-            # Seed Mock active session for current user context
-            s1 = UserSession(
-                user_email="admin@aurix.ai",
-                device_info="MacBook Pro 16\" (macOS Sequoia)",
-                browser="Chrome 126.0 (Web)",
-                ip_address="192.168.1.45 (Bangalore, IN)",
-                is_active=True,
-            )
-            s2 = UserSession(
-                user_email="ramesh.kumar@aurix.ai",
-                device_info="Windows 11 PC",
-                browser="Firefox 127.0",
-                ip_address="102.165.24.12 (Mumbai, IN)",
-                is_active=True,
-            )
-            db.add(s1)
-            db.add(s2)
-            await db.commit()
-
-            res = await db.execute(stmt)
-            sessions = res.scalars().all()
-
-        return [
-            {
-                "id": str(s.id),
-                "user_email": s.user_email,
-                "device_info": s.device_info,
-                "browser": s.browser,
-                "ip_address": s.ip_address,
-                "is_active": s.is_active,
-                "login_time": s.login_time.isoformat() if s.login_time else "",
-                "last_activity": s.last_activity.isoformat() if s.last_activity else "",
-            }
-            for s in sessions
-        ]
+    async def list_active_sessions(db, company_id, user_id=None):
+        from app.services.security_sessions import list_sessions
+        return await list_sessions(db, company_id, user_id)
 
     @staticmethod
-    async def revoke_session(db: AsyncSession, session_id: uuid.UUID, actor_email: str) -> bool:
-        """Revoke / force logout active session."""
-        stmt = select(UserSession).where(UserSession.id == session_id)
-        res = await db.execute(stmt)
-        session_obj = res.scalars().first()
-
-        if not session_obj:
-            return False
-
-        session_obj.is_active = False
-        audit = SecurityAuditLog(
-            action="SESSION_REVOKED",
-            actor=actor_email or "System Admin",
-            details=f"Revoked active web session for user {session_obj.user_email}",
-            ip_address="127.0.0.1",
-            browser="Dashboard Web"
-        )
-        db.add(audit)
-
+    async def revoke_session(db, session_id, actor_email, company_id):
+        from app.services.security_sessions import revoke_sessions
+        count = await revoke_sessions(db, company_id, session_id)
         await db.commit()
-        return True
+        return bool(count)
 
     @staticmethod
-    async def logout_all_sessions(db: AsyncSession, actor_email: str) -> int:
-        """Force logout all active sessions."""
-        stmt = update(UserSession).where(UserSession.is_active == True).values(is_active=False)
-        res = await db.execute(stmt)
-
-        audit = SecurityAuditLog(
-            action="ALL_SESSIONS_REVOKED",
-            actor=actor_email or "System Admin",
-            details="Triggered force logout across all active user sessions",
-            ip_address="127.0.0.1",
-            browser="Dashboard Web"
-        )
-        db.add(audit)
-
+    async def logout_all_sessions(db, actor_email, company_id):
+        from app.services.security_sessions import revoke_sessions
+        count = await revoke_sessions(db, company_id)
         await db.commit()
-        return res.rowcount
+        return count
 
     @staticmethod
     async def list_ip_whitelist(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -227,18 +161,6 @@ class SecuritySettingService:
         stmt = select(IPWhitelist).order_by(IPWhitelist.created_at.desc())
         res = await db.execute(stmt)
         items = res.scalars().all()
-
-        if not items:
-            default_ips = [
-                IPWhitelist(ip_address_or_range="192.168.1.0/24", description="HQ Office Corporate Network", created_by="System Admin"),
-                IPWhitelist(ip_address_or_range="10.0.0.0/16", description="VPN Subnet Gateway", created_by="System Admin"),
-            ]
-            for item in default_ips:
-                db.add(item)
-            await db.commit()
-
-            res = await db.execute(stmt)
-            items = res.scalars().all()
 
         return [
             {
@@ -309,18 +231,6 @@ class SecuritySettingService:
         stmt = select(SecurityAuditLog).order_by(SecurityAuditLog.created_at.desc()).limit(100)
         res = await db.execute(stmt)
         logs = res.scalars().all()
-
-        if not logs:
-            default_logs = [
-                SecurityAuditLog(action="MFA_ENABLED", actor="admin@aurix.ai", details="Enforced TOTP MFA requirement for all HR & Finance admins", ip_address="192.168.1.45", browser="Chrome 126.0"),
-                SecurityAuditLog(action="ROLE_UPDATED", actor="admin@aurix.ai", details="Updated module permissions for Payroll Manager role", ip_address="192.168.1.45", browser="Chrome 126.0"),
-            ]
-            for l in default_logs:
-                db.add(l)
-            await db.commit()
-
-            res = await db.execute(stmt)
-            logs = res.scalars().all()
 
         return [
             {

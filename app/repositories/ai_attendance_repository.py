@@ -12,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.attendance.models.attendance import Attendance
+from app.attendance.services.shift_service import ShiftService
+from app.attendance.utils.timezone import get_company_tz
+from app.models.calendar.holiday import HolidayCalendar
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.leave import LeaveRequest
@@ -66,17 +69,9 @@ class AIAttendanceRepository:
         absent = max(0, total_active - checked_in)
         att_rate = round((checked_in / total_active * 100.0), 1) if total_active > 0 else 0.0
 
-        # Late check-ins (check-in after 09:30 AM)
-        late_count = 0
-        total_ot_hours = 0.0
-
-        for r in today_records:
-            if r.check_in_time:
-                # Local check-in hour evaluation
-                if r.check_in_time.hour > 9 or (r.check_in_time.hour == 9 and r.check_in_time.minute > 30):
-                    late_count += 1
-            if r.working_hours and r.working_hours > 8.0:
-                total_ot_hours += (r.working_hours - 8.0)
+        # Late check-ins - use the is_late field set during check-in based on shift schedule
+        late_count = sum(1 for r in today_records if r.is_late)
+        total_ot_hours = sum(max(0, r.working_hours - 8.0) for r in today_records if r.working_hours)
 
         # Count total anomalies across database
         missing_checkout_stmt = select(func.count(Attendance.id)).where(
@@ -131,6 +126,8 @@ class AIAttendanceRepository:
                 stmt = stmt.where(Attendance.company_id == company_id)
             res = (await self.session.execute(stmt)).all()
 
+            if not res:
+                return []
             return [
                 {
                     "label": row[0],
@@ -139,10 +136,6 @@ class AIAttendanceRepository:
                     "attendance_percentage": round(min(100.0, (row[1] / max(1, total_active)) * 100.0 * len(res)), 1),
                 }
                 for row in res
-            ] if res else [
-                {"label": "Engineering", "present_count": 42, "total_count": 45, "attendance_percentage": 93.3},
-                {"label": "Sales", "present_count": 28, "total_count": 30, "attendance_percentage": 93.3},
-                {"label": "Product", "present_count": 14, "total_count": 15, "attendance_percentage": 93.3},
             ]
 
         # Daily / Weekly / Monthly grouping
@@ -169,25 +162,9 @@ class AIAttendanceRepository:
                 }
                 for row in res
             ]
-
-        # Generate fallback daily series if no records exist in date range
-        result = []
-        days_count = (end_d - start_d).days + 1
-        for i in range(days_count):
-            cur_date = start_d + timedelta(days=i)
-            day_name = cur_date.strftime("%a")
-            # Weekend vs weekday rate
-            is_weekend = cur_date.weekday() >= 5
-            pct = 0.0 if is_weekend else round(92.0 + (i * 3) % 7, 1)
-            p_cnt = 0 if is_weekend else int(total_active * (pct / 100.0))
-
-            result.append({
-                "label": day_name,
-                "present_count": p_cnt,
-                "total_count": total_active,
-                "attendance_percentage": pct,
-            })
-        return result
+        
+        # No records found - return empty list instead of fake data
+        return []
 
     async def get_late_arrivals(
         self,
@@ -196,7 +173,7 @@ class AIAttendanceRepository:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
-        """Fetch late arrival records and delays."""
+        """Fetch late arrival records and delays using shift schedules."""
         target_date = end_date or date.today()
         stmt = (
             select(Attendance, Employee, Department)
@@ -213,21 +190,25 @@ class AIAttendanceRepository:
 
         result = []
         for att, emp, dept in res:
-            if att.check_in_time:
-                # Check if checked in after 09:30 AM
-                if att.check_in_time.hour > 9 or (att.check_in_time.hour == 9 and att.check_in_time.minute > 30):
-                    delay = (att.check_in_time.hour - 9) * 60 + (att.check_in_time.minute - 30)
-                    emp_name = f"{emp.first_name} {emp.last_name}".strip()
-                    result.append({
-                        "employee_id": emp.id,
-                        "employee_name": emp_name,
-                        "department": dept.department_name if dept else "General",
-                        "shift_name": "Standard Shift (09:00 - 18:00)",
-                        "expected_time": "09:00 AM",
-                        "actual_time": att.check_in_time.strftime("%I:%M %p"),
-                        "delay_minutes": max(5, delay),
-                        "frequency": 2,
-                    })
+            # Use the is_late and late_minutes fields set during check-in based on shift
+            if att.is_late and att.late_minutes and att.late_minutes > 0:
+                emp_name = f"{emp.first_name} {emp.last_name}".strip()
+                # Calculate expected time from scheduled_start if available
+                expected_time = "09:00 AM"
+                shift_name = att.shift_name or "Standard Shift"
+                if att.scheduled_start:
+                    expected_time = att.scheduled_start.strftime("%I:%M %p")
+                
+                result.append({
+                    "employee_id": emp.id,
+                    "employee_name": emp_name,
+                    "department": dept.department_name if dept else "General",
+                    "shift_name": shift_name,
+                    "expected_time": expected_time,
+                    "actual_time": att.check_in_time.strftime("%I:%M %p") if att.check_in_time else "N/A",
+                    "delay_minutes": att.late_minutes,
+                    "frequency": 1,  # Single day, frequency would need historical analysis
+                })
 
         return result
 
@@ -256,6 +237,7 @@ class AIAttendanceRepository:
             emp_name = f"{emp.first_name} {emp.last_name}".strip()
             dept_name = dept.department_name if dept else "General"
             date_str = att.date.strftime("%Y-%m-%d")
+            shift_name = att.shift_name or "Unknown Shift"
 
             # Check 1: Missing Check-Out
             if att.check_out_time is None and att.date < date.today():
@@ -268,6 +250,7 @@ class AIAttendanceRepository:
                     "description": f"Missed swipe out on {date_str}. Working hours uncalculated.",
                     "date": date_str,
                     "severity": "HIGH",
+                    "shift_name": shift_name,
                 })
 
             # Check 2: Outside Geofence / Unexpected IP
@@ -281,6 +264,7 @@ class AIAttendanceRepository:
                     "description": f"Checked in outside designated office geofence zone.",
                     "date": date_str,
                     "severity": "MEDIUM",
+                    "shift_name": shift_name,
                 })
 
         return anomalies
@@ -434,6 +418,20 @@ class AIAttendanceRepository:
         watchlist = []
         # Target period = last 30 days
         start_30d = date.today() - timedelta(days=30)
+        end_30d = date.today()
+        
+        # Get holidays in period for accurate working day calculation
+        holiday_stmt = select(HolidayCalendar.holiday_date).where(
+            and_(
+                HolidayCalendar.holiday_date >= start_30d,
+                HolidayCalendar.holiday_date <= end_30d,
+            )
+        )
+        if company_id:
+            holiday_stmt = holiday_stmt.where(HolidayCalendar.company_id == company_id)
+        holiday_res = await self.session.execute(holiday_stmt)
+        holiday_dates = set(holiday_res.scalars().all())
+        
         for emp, dept in res:
             att_cnt_stmt = select(func.count(Attendance.id)).where(
                 and_(Attendance.employee_id == emp.id, Attendance.date >= start_30d)
@@ -445,11 +443,25 @@ class AIAttendanceRepository:
             )
             late_cnt = (await self.session.execute(late_cnt_stmt)).scalar() or 0
 
-            # Working days in month roughly 22
-            expected_work_days = 22
+            # Calculate expected working days from shifts and holidays
+            shift_service = ShiftService(self.session)
+            emp_company_id = emp.company_id
+            tz = await get_company_tz(self.session, str(emp_company_id)) if emp_company_id else None
+            
+            if tz:
+                shifts = await shift_service.resolve_range(emp, start_30d, end_30d, tz)
+                expected_work_days = sum(1 for s in shifts if not s.is_off and not s.is_holiday)
+            else:
+                # Fallback: count weekdays excluding holidays
+                expected_work_days = sum(
+                    1 for i in range((end_30d - start_30d).days + 1)
+                    if (start_30d + timedelta(days=i)).weekday() < 5
+                    and (start_30d + timedelta(days=i)) not in holiday_dates
+                )
+            
             absent_days = max(0, expected_work_days - att_cnt)
 
-            if att_cnt < 18:
+            if expected_work_days > 0 and att_cnt < expected_work_days * 0.8:  # Less than 80% attendance
                 emp_name = f"{emp.first_name} {emp.last_name}".strip()
                 att_pct = round((att_cnt / expected_work_days) * 100.0, 1) if expected_work_days > 0 else 0.0
                 watchlist.append({
@@ -459,7 +471,7 @@ class AIAttendanceRepository:
                     "absent_days": absent_days,
                     "late_count": late_cnt,
                     "attendance_percentage": min(100.0, max(0.0, att_pct)),
-                    "risk_level": "HIGH" if att_cnt < 10 else "MEDIUM",
+                    "risk_level": "HIGH" if att_cnt < expected_work_days * 0.5 else "MEDIUM",
                     "recommendation": "Schedule HR 1-on-1 counseling session and review shift allocation.",
                 })
 

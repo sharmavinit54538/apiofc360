@@ -14,6 +14,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.company import Company
 from app.models.user import User, UserRole
 from app.models.employee import Employee
+from app.attendance.models.attendance import Attendance
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.utils.jwt import create_access_token
 from sqlalchemy import insert
@@ -324,6 +325,7 @@ async def test_checkin_auto_closes_stale_previous_day_session():
         yesterday = date.today() - timedelta(days=1)
         yesterday_utc = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=timezone.utc)
         stale_session_id = uuid.uuid4()
+        await session.flush()  # Core INSERT needs persisted company/user/employee FK targets.
         await session.execute(
             insert(Attendance).values(
                 id=stale_session_id,
@@ -467,6 +469,7 @@ async def test_checkin_same_day_active_session_returns_session_details():
         # Create an ACTIVE session from TODAY (check_out_time = NULL)
         today_utc = datetime.now(timezone.utc).replace(microsecond=0)
         active_session_id = uuid.uuid4()
+        await session.flush()  # Core INSERT needs persisted company/user/employee FK targets.
         await session.execute(
             insert(Attendance).values(
                 id=active_session_id,
@@ -602,6 +605,7 @@ async def test_checkin_expired_shift_session_auto_closes():
         # Create an active session from 18 hours ago (exceeds 16h max shift)
         eighteen_hours_ago = datetime.now(timezone.utc) - timedelta(hours=18)
         expired_session_id = uuid.uuid4()
+        await session.flush()  # Core INSERT needs persisted company/user/employee FK targets.
         await session.execute(
             insert(Attendance).values(
                 id=expired_session_id,
@@ -722,6 +726,7 @@ async def test_http_exception_not_logged_as_dbapi_error(caplog):
         # Active session from today
         today_utc = datetime.now(timezone.utc).replace(microsecond=0)
         active_session_id = uuid.uuid4()
+        await session.flush()  # Core INSERT needs persisted company/user/employee FK targets.
         await session.execute(
             insert(Attendance).values(
                 id=active_session_id,

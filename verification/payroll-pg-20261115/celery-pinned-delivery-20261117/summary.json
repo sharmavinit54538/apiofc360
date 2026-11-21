@@ -1,0 +1,10 @@
+{
+  "command": [
+    "C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\venv312\\Scripts\\python.exe",
+    "scripts/payroll_celery_local_smoke.py"
+  ],
+  "database": "payroll_verify_focused",
+  "port": 55441,
+  "exit_code": 0,
+  "seconds": 46.542
+}

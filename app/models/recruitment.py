@@ -214,10 +214,60 @@ class InterviewSchedule(Base):
     meeting_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     office_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Candidate invitation token for secure scheduling
+    invitation_token: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
+    invitation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invitation_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     interview: Mapped[Interview] = relationship("Interview", back_populates="schedules")
     round: Mapped[InterviewRound] = relationship("InterviewRound", back_populates="schedules")
+
+
+class InterviewInvitation(Base):
+    """Secure interview invitation with expiring token for candidate access."""
+
+    __tablename__ = "interview_invitations"
+    __table_args__ = (
+        Index("ix_interview_invitations_token", "token", unique=True),
+        Index("ix_interview_invitations_interview", "interview_id"),
+        Index("ix_interview_invitations_candidate", "candidate_id"),
+        Index("ix_interview_invitations_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    interview_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    round_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("interview_rounds.id", ondelete="SET NULL"), nullable=True)
+    
+    token: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SENT")  # SENT, OPENED, STARTED, COMPLETED, EXPIRED, CANCELLED
+    
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Device check and consent
+    device_check_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Reconnection support
+    grace_period_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reconnect_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_reconnects: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # Relations
+    interview: Mapped[Interview] = relationship("Interview", lazy="select")
+    candidate: Mapped[Candidate] = relationship("Candidate", lazy="select")
+    round: Mapped[InterviewRound | None] = relationship("InterviewRound", lazy="select")
 
 
 class Offer(Base):
@@ -277,11 +327,16 @@ class Candidate(Base):
     """Master Candidate Profile."""
 
     __tablename__ = "candidates"
+    __table_args__ = (
+        Index("ix_candidates_email_company", "email", "company_id", unique=True),
+        Index("ix_candidates_company_id", "company_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
     location: Mapped[str] = mapped_column(String(100), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
