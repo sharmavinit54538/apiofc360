@@ -98,36 +98,19 @@ async def get_subscription(
         User.is_deleted == False
     )
     count_res = await session.execute(count_stmt)
-    used_seats = count_res.scalar() or 1
+    used_seats = count_res.scalar() or 0
 
     if not subscription_data:
-        # Default enterprise subscription for active company
         subscription_data = {
-            "subscription_id": f"sub_{company_id.hex[:12]}",
-            "plan_name": billing.get("currentPlan") or "Enterprise AI Tier",
-            "plan_code": "enterprise",
-            "status": "active",
-            "billing_cycle": (billing.get("billingCycle") or "monthly").lower(),
-            "price": 49999.0,
-            "currency": "INR",
-            "start_date": "2026-01-01T00:00:00Z",
-            "current_period_start": "2026-01-01T00:00:00Z",
-            "current_period_end": "2026-12-31T23:59:59Z",
-            "next_billing_date": billing.get("nextBillingDate") or "2026-12-31",
-            "cancel_at_period_end": False,
-            "cancelled_at": None,
-            "used_seats": used_seats,
-            "total_seats": billing.get("seats") or 350,
-            "features": [
-                "Unlimited AI Workflows",
-                "Autonomous Screening & Interviews",
-                "Full HR & Payroll Intelligence",
-                "24/7 Priority Support",
-                "Custom Roles & Permissions",
-            ]
+            "subscription_id": None, "plan_name": None, "plan_code": None,
+            "status": "none", "billing_cycle": None, "price": None,
+            "currency": None, "start_date": None, "current_period_start": None,
+            "current_period_end": None, "next_billing_date": None,
+            "cancel_at_period_end": False, "cancelled_at": None,
+            "used_seats": used_seats, "total_seats": billing.get("seats"), "features": [],
         }
     else:
-        subscription_data["used_seats"] = used_seats
+        subscription_data = {**subscription_data, "used_seats": used_seats}
 
     return APIResponse[Dict[str, Any]](
         success=True,
@@ -166,19 +149,7 @@ async def get_payment_methods(
     pms = billing.get("payment_methods")
 
     if pms is None:
-        # Default safe presentation if none explicitly registered
-        pms = [
-            {
-                "id": f"pm_{company_id.hex[:10]}_default",
-                "type": "card",
-                "brand": "visa",
-                "last4": "4821",
-                "expiry_month": 12,
-                "expiry_year": 2028,
-                "is_default": True,
-                "created_at": "2026-01-01T00:00:00Z",
-            }
-        ]
+        pms = []
 
     # Ensure sensitive credentials are never present
     sanitized = []
@@ -297,43 +268,19 @@ async def get_invoices(
     raw_invoices = billing.get("invoices")
 
     if raw_invoices is None:
-        # Default enterprise billing invoice history
-        raw_invoices = [
-            {
-                "id": "INV-2026-001",
-                "invoice_number": "INV-2026-001",
-                "status": "paid",
-                "amount": 599988.0,
-                "currency": "INR",
-                "invoice_date": "2026-01-01T00:00:00Z",
-                "due_date": "2026-01-15T00:00:00Z",
-                "paid_at": "2026-01-01T05:30:00Z",
-                "pdf_url": "/api/v1/billing/invoices/INV-2026-001/pdf"
-            },
-            {
-                "id": "INV-2025-012",
-                "invoice_number": "INV-2025-012",
-                "status": "paid",
-                "amount": 599988.0,
-                "currency": "INR",
-                "invoice_date": "2025-01-01T00:00:00Z",
-                "due_date": "2025-01-15T00:00:00Z",
-                "paid_at": "2025-01-01T05:30:00Z",
-                "pdf_url": "/api/v1/billing/invoices/INV-2025-012/pdf"
-            },
-        ]
+        raw_invoices = []
 
     normalized_invoices = []
     for inv in raw_invoices:
         inv_id = str(inv.get("id", f"INV-{uuid.uuid4().hex[:6]}"))
         # Parse amount cleanly if formatted as string
-        amt = inv.get("amount", 49999.0)
+        amt = inv.get("amount", 0.0)
         if isinstance(amt, str):
             clean_amt = re.sub(r"[^\d\.]", "", amt)
             try:
                 amt = float(clean_amt)
             except Exception:
-                amt = 49999.0
+                amt = 0.0
 
         normalized_invoices.append({
             "id": inv_id,
@@ -341,9 +288,9 @@ async def get_invoices(
             "status": str(inv.get("status", "paid")).lower(),
             "amount": float(amt),
             "currency": inv.get("currency", "INR"),
-            "invoice_date": inv.get("invoice_date") or inv.get("date") or "2026-01-01T00:00:00Z",
-            "due_date": inv.get("due_date") or "2026-01-15T00:00:00Z",
-            "paid_at": inv.get("paid_at") or inv.get("invoice_date") or "2026-01-01T05:30:00Z",
+            "invoice_date": inv.get("invoice_date") or inv.get("date"),
+            "due_date": inv.get("due_date"),
+            "paid_at": inv.get("paid_at"),
             "pdf_url": inv.get("pdf_url") or inv.get("pdfUrl") or f"/api/v1/billing/invoices/{inv_id}/pdf",
         })
 

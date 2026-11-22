@@ -21,6 +21,7 @@ class HRSettingsResponseData(BaseModel):
     working_hours_end: str = "18:00"
     timezone: str = "Asia/Kolkata"
     attendance_enabled: bool = True
+    daily_face_verification_required: bool = True
     leave_enabled: bool = True
     payroll_enabled: bool = True
     week_start_day: Optional[str] = "Monday"
@@ -36,6 +37,7 @@ class HRSettingsResponseData(BaseModel):
 
 class HRSettingsUpdatePayload(BaseModel):
     """Schema for updating company HR settings."""
+    daily_face_verification_required: Optional[bool] = None
     hr_name: Optional[str] = Field(None, min_length=2, max_length=100)
     hr_email: Optional[EmailStr] = None
     hr_phone: Optional[str] = None

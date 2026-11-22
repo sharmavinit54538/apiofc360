@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from fastapi import Query
+from fastapi import HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +67,24 @@ class AttendanceCoreService:
         actual_company_id = company_id or emp.company_id
         if not actual_company_id:
             raise ValueError("Company context required")
+
+        from app.attendance.services.validation_service import AttendanceValidationService
+        from app.attendance.services.policy_service import requires_daily_face
+        from app.attendance.services.checkin_service import AttendanceCheckInService
+        AttendanceValidationService(self.session).validate_employee(emp, actual_company_id)
+        face_required = await requires_daily_face(self.session, actual_company_id)
+        if payload.image_base64:
+            return await AttendanceCheckInService(self.session).check_in_with_face_base64(
+                user_id=emp.user_id, company_id=actual_company_id,
+                image_base64=payload.image_base64,
+                location={"latitude": payload.latitude, "longitude": payload.longitude},
+                notes=payload.notes, device_info=payload.device_info, ip_address=payload.ip_address,
+            )
+        if face_required:
+            raise HTTPException(status_code=403, detail={
+                "code": "DAILY_FACE_VERIFICATION_REQUIRED",
+                "message": "Verify your face for today's attendance before checking in.",
+            })
         
         # Use shift service for proper shift handling (including night shifts)
         shift_service = ShiftService(self.session)
@@ -87,7 +105,7 @@ class AttendanceCoreService:
             check_in_time=now,
             status="Present" if not eval_result.is_late else "Late",
             punch_type="IN",
-            verified=True,
+            verified=False,
             punch_verified_by=source.upper(),
             attendance_state=AttendanceState.CHECKED_IN,
             latitude=payload.latitude,
@@ -224,7 +242,7 @@ class AttendanceCoreService:
                 check_out_time=now,
                 status="Present",
                 punch_type="OUT",
-                verified=True,
+                verified=False,
                 punch_verified_by="MANUAL",
                 attendance_state=AttendanceState.CHECKED_OUT,
                 latitude=payload.latitude,

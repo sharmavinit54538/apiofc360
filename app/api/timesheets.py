@@ -13,6 +13,9 @@ from app.core.rbac import require_admin_or_manager, RoleEnum
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims, get_current_employee, get_current_company
 from app.repositories.employee_repository import EmployeeRepository
+from app.models.company import Company
+from app.models.employee import Employee
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.auth import APIResponse
 from app.schemas.timesheet import TimesheetResponse, TimesheetEntryCreate, TimesheetApprovalRequest
 from app.services.timesheet_service import TimesheetService
@@ -45,10 +48,10 @@ async def get_weekly_timesheet(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TimesheetResponse]:
     employee_id = current_employee.id
-    company_id = current_company.company_id
+    company_id = current_company.id
     service = TimesheetService(db)
     timesheet = await service.get_or_create_weekly_timesheet(employee_id, week_start_date, company_id)
     return APIResponse[TimesheetResponse](
@@ -70,10 +73,10 @@ async def save_weekly_entries(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TimesheetResponse]:
     employee_id = current_employee.id
-    company_id = current_company.company_id
+    company_id = current_company.id
     service = TimesheetService(db)
     timesheet = await service.save_timesheet_entries(employee_id, week_start_date, entries, company_id)
     return APIResponse[TimesheetResponse](
@@ -94,10 +97,10 @@ async def submit_weekly_timesheet(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TimesheetResponse]:
     employee_id = current_employee.id
-    company_id = current_company.company_id
+    company_id = current_company.id
     service = TimesheetService(db)
     timesheet = await service.submit_timesheet(employee_id, week_start_date, company_id)
     return APIResponse[TimesheetResponse](
@@ -117,10 +120,10 @@ async def get_history(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[list[TimesheetResponse]]:
     employee_id = current_employee.id
-    company_id = current_company.company_id
+    company_id = current_company.id
     service = TimesheetService(db)
     history = await service.get_employee_timesheet_history(employee_id, company_id)
     return APIResponse[list[TimesheetResponse]](
@@ -140,13 +143,13 @@ async def get_pending(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[list[TimesheetResponse]]:
     role = (claims.get("role") or "").lower().strip()
     if role not in (RoleEnum.SUPER_ADMIN.value, RoleEnum.HR_ADMIN.value, RoleEnum.MANAGER.value, RoleEnum.EXECUTIVE.value):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
 
-    company_id = current_company.company_id
+    company_id = current_company.id
     reviewer_employee_id = current_employee.id
     service = TimesheetService(db)
     pending = await service.get_pending_timesheets_for_review(company_id, reviewer_employee_id, role)
@@ -169,14 +172,14 @@ async def review_timesheet(
     claims: dict = Depends(get_current_user_claims),
     db: Annotated[Any, Depends(get_db_session)] = None,
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TimesheetResponse]:
     role = (claims.get("role") or "").lower().strip()
     if role not in (RoleEnum.SUPER_ADMIN.value, RoleEnum.HR_ADMIN.value, RoleEnum.MANAGER.value, RoleEnum.EXECUTIVE.value):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
 
     user_id = uuid.UUID(claims["sub"])
-    company_id = current_company.company_id
+    company_id = current_company.id
     reviewer_employee_id = current_employee.id
 
     service = TimesheetService(db)

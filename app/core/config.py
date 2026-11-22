@@ -75,16 +75,21 @@ class Settings(BaseSettings):
         description="RSA public key (PEM format) for verifying JWT tokens. Set via env var in production.",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 365
     REFRESH_TOKEN_GRACE_SECONDS: int = 15
     REFRESH_REUSE_GRACE_SECONDS: int = 15
 
     # Auth cookie settings
+    DIGILOCKER_CLIENT_ID: str = ""
+    DIGILOCKER_CLIENT_SECRET: str = ""
+    DIGILOCKER_REDIRECT_URI: str = "http://localhost:8000/api/v1/employee/document-verification/digilocker/callback"
+    DIGILOCKER_API_BASE_URL: str = "https://digilocker.meripehchaan.gov.in/public/oauth2"
+
     COOKIE_NAME: str = "ofc360_refresh_token"
     COOKIE_DOMAIN: str | None = None
     COOKIE_SECURE: bool | None = None
     COOKIE_SAMESITE: str = "lax"
-    REFRESH_COOKIE_MAX_AGE: int = 30 * 24 * 3600
+    REFRESH_COOKIE_MAX_AGE: int = 365 * 24 * 3600
 
     SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
     SUPER_ADMIN_PASSWORD: SecretStr = Field(

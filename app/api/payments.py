@@ -30,6 +30,7 @@ from app.schemas.payment_schemas import (
     VerifyPaymentPayload,
 )
 from app.services.razorpay_service import razorpay_service
+from app.services.payment_evidence import capture_problem, provider_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,16 @@ async def activate_subscription_for_company(
     currency: str = "INR",
 ) -> None:
     """Synchronize both PostgreSQL Subscription model and Company hr_settings."""
+    if any(invoice.get("razorpay_payment_id") == payment_id for invoice in
+           ((company.hr_settings or {}).get("billing") or {}).get("invoices", [])):
+        return
     now = datetime.now(timezone.utc)
     cycle = billing_cycle.lower()
     days_to_add = 365 if cycle in {"yearly", "annual", "year"} else 30
     expires_at = now + timedelta(days=days_to_add)
 
     # 1. Update/Create Subscription model record
-    sub_stmt = select(Subscription).where(Subscription.company_id == company.id)
+    sub_stmt = select(Subscription).where(Subscription.company_id == company.id).execution_options(bypass_tenant=True)
     sub_res = await session.execute(sub_stmt)
     subscription = sub_res.scalar_one_or_none()
 
@@ -69,7 +73,7 @@ async def activate_subscription_for_company(
             access_granted_by="System (Razorpay)",
             access_granted_at=now,
             access_expires_at=expires_at,
-            mrr=float(plan_dict.get("monthly_price", 0.0)),
+            mrr=float(amount) / (12 if days_to_add == 365 else 1),
         )
         session.add(subscription)
     else:
@@ -80,7 +84,7 @@ async def activate_subscription_for_company(
         subscription.access_granted_by = "System (Razorpay)"
         subscription.access_granted_at = now
         subscription.access_expires_at = expires_at
-        subscription.mrr = float(plan_dict.get("monthly_price", 0.0))
+        subscription.mrr = float(amount) / (12 if days_to_add == 365 else 1)
         session.add(subscription)
 
     # 2. Update Company hr_settings JSON
@@ -134,6 +138,40 @@ async def activate_subscription_for_company(
     hr_settings["billing"] = billing
     company.hr_settings = hr_settings
     flag_modified(company, "hr_settings")
+
+
+async def _credit_capture(session, transaction, payment, *, event_time=None, source="provider_api"):
+    """Caller holds the transaction lock; the company lock serializes invoices.
+
+    Credit evidence and entitlement are committed together. Refunded transactions
+    retain their credit marker so delayed capture callbacks cannot credit again.
+    """
+    metadata = dict(transaction.payment_metadata or {})
+    if (metadata.get("capture") or {}).get("validated"):
+        return False
+    company = (await session.execute(
+        select(Company).where(Company.id == transaction.company_id).with_for_update()
+        .execution_options(bypass_tenant=True, populate_existing=True)
+    )).scalar_one_or_none()
+    if company is None:
+        raise HTTPException(status_code=409, detail="Payment company no longer exists.")
+    plan, _, _ = razorpay_service.get_plan_details(transaction.plan_id, transaction.billing_cycle)
+    await activate_subscription_for_company(
+        session, company, plan, transaction.billing_cycle, payment["id"],
+        transaction.razorpay_order_id, transaction.amount, transaction.currency,
+    )
+    transaction.razorpay_payment_id = payment["id"]
+    transaction.status = PaymentStatus.CAPTURED.value
+    transaction.payment_method = payment.get("method")
+    transaction.failure_reason = None
+    metadata["capture"] = {
+        "validated": True, "payment_id": payment["id"], "source": source,
+        "amount_paise": payment["amount"], "currency": payment["currency"],
+        "occurred_at": provider_timestamp(event_time),
+        "date_basis": "provider_event" if event_time else "provider_confirmation",
+    }
+    transaction.payment_metadata = metadata
+    return True
 
 
 # ===========================================================================
@@ -277,129 +315,71 @@ async def verify_payment(
         )
     company_id = uuid.UUID(co_id_str)
 
-    # 1. Fetch transaction by razorpay_order_id
-    stmt = select(PaymentTransaction).where(
-        PaymentTransaction.razorpay_order_id == payload.razorpay_order_id
-    )
-    res = await session.execute(stmt)
-    transaction = res.scalar_one_or_none()
-
-    if not transaction:
-        raise AppException(
-            message="Payment transaction not found for the provided order ID.",
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    # 2. Prevent cross-company order verification
+    # Serialize browser verification and webhook callbacks for this order.
+    transaction = (await session.execute(
+        select(PaymentTransaction).where(
+            PaymentTransaction.razorpay_order_id == payload.razorpay_order_id
+        ).with_for_update().execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if transaction is None:
+        raise AppException(message="Payment transaction not found.", status_code=404)
     if transaction.company_id != company_id:
-        logger.warning(
-            "Cross-company payment verification attempted: company %s tried to verify order belonging to %s",
-            company_id,
-            transaction.company_id,
-        )
-        raise AppException(
-            message="Access denied. This order does not belong to your organization.",
-            status_code=status.HTTP_403_FORBIDDEN,
-        )
-
-    # 3. Idempotency check: If already CAPTURED with same payment_id, return success immediately
-    if (
-        transaction.status == PaymentStatus.CAPTURED.value
-        and transaction.razorpay_payment_id == payload.razorpay_payment_id
-    ):
-        return APIResponse[Dict[str, Any]](
-            success=True,
-            message="Payment has already been verified and processed.",
-            data={
-                "order_id": transaction.razorpay_order_id,
-                "payment_id": transaction.razorpay_payment_id,
-                "status": transaction.status,
-                "plan_id": transaction.plan_id,
-                "amount": transaction.amount,
-            },
-            errors=None,
-        )
-
-    # 4. Check for duplicate payment ID attached to another order
-    dup_stmt = select(PaymentTransaction).where(
-        PaymentTransaction.razorpay_payment_id == payload.razorpay_payment_id,
-        PaymentTransaction.id != transaction.id,
-    )
-    dup_res = await session.execute(dup_stmt)
-    if dup_res.scalar_one_or_none():
-        raise AppException(
-            message="Duplicate payment detected. This payment ID has already been utilized.",
-            status_code=status.HTTP_409_CONFLICT,
-        )
-
-    # 5. Cryptographic signature verification using SECRET KEY
-    is_valid = razorpay_service.verify_payment_signature(
+        raise AppException(message="This order does not belong to your organization.", status_code=403)
+    if not razorpay_service.verify_payment_signature(
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
         razorpay_signature=payload.razorpay_signature,
-    )
+    ):
+        raise AppException(message="Payment verification failed: Invalid signature.", status_code=400)
+    if transaction.razorpay_payment_id and transaction.razorpay_payment_id != payload.razorpay_payment_id:
+        raise AppException(message="Order already associated with another payment.", status_code=409)
 
-    if not is_valid:
-        transaction.status = PaymentStatus.FAILED.value
-        transaction.failure_reason = "Cryptographic signature verification failed."
-        await session.commit()
-        raise AppException(
-            message="Payment verification failed: Invalid signature.",
-            status_code=status.HTTP_400_BAD_REQUEST,
+    metadata = transaction.payment_metadata or {}
+    already_credited = bool((metadata.get("capture") or {}).get("validated"))
+    if transaction.status == PaymentStatus.REFUNDED.value or already_credited:
+        return APIResponse[Dict[str, Any]](
+            success=True, message="Payment has already been processed.",
+            data={"order_id": transaction.razorpay_order_id,
+                  "payment_id": transaction.razorpay_payment_id,
+                  "status": transaction.status, "plan_id": transaction.plan_id,
+                  "amount": transaction.amount, "currency": transaction.currency}, errors=None,
         )
 
-    # 6. Fetch payment details from Razorpay to verify capture status and amount
-    payment_details = {}
+    duplicate = (await session.execute(select(PaymentTransaction).where(
+        PaymentTransaction.razorpay_payment_id == payload.razorpay_payment_id,
+        PaymentTransaction.id != transaction.id,
+    ).execution_options(bypass_tenant=True))).scalar_one_or_none()
+    if duplicate:
+        raise AppException(message="Duplicate payment ID.", status_code=409)
+
     try:
-        payment_details = razorpay_service.fetch_payment(payload.razorpay_payment_id)
-    except Exception as e:
-        logger.warning("Could not fetch remote payment details during verify: %s", str(e))
+        payment = razorpay_service.fetch_payment(payload.razorpay_payment_id)
+    except Exception:
+        logger.warning("Provider confirmation unavailable for order %s", transaction.razorpay_order_id)
+        payment = {}
+    problem = capture_problem(transaction, payment, payload.razorpay_payment_id) if payment else "Provider confirmation is unavailable."
+    if problem:
+        transaction.status = PaymentStatus.PENDING.value
+        transaction.failure_reason = problem
+        await session.commit()
+        return APIResponse[Dict[str, Any]](
+            success=True, message="Payment is pending provider confirmation.",
+            data={"order_id": transaction.razorpay_order_id,
+                  "payment_id": payload.razorpay_payment_id, "status": transaction.status,
+                  "reason": problem, "plan_id": transaction.plan_id,
+                  "amount": transaction.amount, "currency": transaction.currency}, errors=None,
+        )
 
-    # 7. Update transaction status
-    transaction.razorpay_payment_id = payload.razorpay_payment_id
     transaction.razorpay_signature = payload.razorpay_signature
-    transaction.status = PaymentStatus.CAPTURED.value
-    transaction.payment_method = payment_details.get("method") or "razorpay_checkout"
-    transaction.failure_reason = None
-
-    # 8. Fetch company and activate subscription
-    comp_stmt = select(Company).where(Company.id == company_id)
-    comp_res = await session.execute(comp_stmt)
-    company = comp_res.scalar_one()
-
-    plan_dict, _, _ = razorpay_service.get_plan_details(
-        plan_id=transaction.plan_id,
-        billing_cycle=transaction.billing_cycle,
-    )
-
-    await activate_subscription_for_company(
-        session=session,
-        company=company,
-        plan_dict=plan_dict,
-        billing_cycle=transaction.billing_cycle,
-        payment_id=payload.razorpay_payment_id,
-        order_id=payload.razorpay_order_id,
-        amount=transaction.amount,
-        currency=transaction.currency,
-    )
-
+    await _credit_capture(session, transaction, payment)
     await session.commit()
-    await session.refresh(transaction)
-
     return APIResponse[Dict[str, Any]](
-        success=True,
-        message="Payment verified and subscription activated successfully.",
-        data={
-            "transaction_id": str(transaction.id),
-            "order_id": transaction.razorpay_order_id,
-            "payment_id": transaction.razorpay_payment_id,
-            "status": transaction.status,
-            "plan_id": transaction.plan_id,
-            "plan_name": plan_dict["name"],
-            "amount": transaction.amount,
-            "currency": transaction.currency,
-        },
-        errors=None,
+        success=True, message="Payment verified and subscription activated successfully.",
+        data={"transaction_id": str(transaction.id), "order_id": transaction.razorpay_order_id,
+              "payment_id": transaction.razorpay_payment_id, "status": transaction.status,
+              "plan_id": transaction.plan_id,
+              "plan_name": razorpay_service.get_plan_details(transaction.plan_id, transaction.billing_cycle)[0]["name"],
+              "amount": transaction.amount, "currency": transaction.currency}, errors=None,
     )
 
 
@@ -440,75 +420,74 @@ async def handle_razorpay_webhook(
     logger.info("Processing verified Razorpay webhook event: %s", event_type)
     payload_entity = event_data.get("payload", {})
 
-    # 3. Handle specific webhook events idempotently
+    # Every mutation locks the same transaction as browser verification.
+    payment = payload_entity.get("payment", {}).get("entity", {})
+    refund = payload_entity.get("refund", {}).get("entity", {})
+    order_id = payment.get("order_id")
+    payment_id = payment.get("id") or refund.get("payment_id")
+    if event_type not in {"payment.captured", "order.paid", "payment.failed", "refund.created", "refund.processed", "refund.failed"}:
+        return {"status": "ok", "event": event_type, "processed": False}
+    if order_id:
+        condition = PaymentTransaction.razorpay_order_id == order_id
+    elif payment_id:
+        condition = PaymentTransaction.razorpay_payment_id == payment_id
+    else:
+        raise HTTPException(status_code=400, detail="Webhook is missing its payment identity.")
+    txn = (await session.execute(
+        select(PaymentTransaction).where(condition).with_for_update()
+        .execution_options(bypass_tenant=True, populate_existing=True)
+    )).scalar_one_or_none()
+    if txn is None:
+        return {"status": "ok", "event": event_type, "processed": False}
+    if txn.razorpay_payment_id and txn.razorpay_payment_id != payment_id:
+        raise HTTPException(status_code=409, detail="Payment does not match this transaction.")
+
+    metadata = dict(txn.payment_metadata or {})
     if event_type in {"payment.captured", "order.paid"}:
-        payment_entity = payload_entity.get("payment", {}).get("entity", {})
-        order_id = payment_entity.get("order_id") or payload_entity.get("order", {}).get("entity", {}).get("id")
-        payment_id = payment_entity.get("id")
-
-        if order_id:
-            stmt = select(PaymentTransaction).where(PaymentTransaction.razorpay_order_id == order_id)
-            res = await session.execute(stmt)
-            txn = res.scalar_one_or_none()
-
-            if txn and txn.status != PaymentStatus.CAPTURED.value:
-                txn.status = PaymentStatus.CAPTURED.value
-                if payment_id:
-                    txn.razorpay_payment_id = payment_id
-                txn.payment_method = payment_entity.get("method") or txn.payment_method
-
-                # Activate subscription
-                comp_stmt = select(Company).where(Company.id == txn.company_id)
-                comp_res = await session.execute(comp_stmt)
-                company = comp_res.scalar_one_or_none()
-
-                if company:
-                    plan_dict, _, _ = razorpay_service.get_plan_details(
-                        plan_id=txn.plan_id,
-                        billing_cycle=txn.billing_cycle,
-                    )
-                    await activate_subscription_for_company(
-                        session=session,
-                        company=company,
-                        plan_dict=plan_dict,
-                        billing_cycle=txn.billing_cycle,
-                        payment_id=payment_id or txn.razorpay_order_id,
-                        order_id=order_id,
-                        amount=txn.amount,
-                        currency=txn.currency,
-                    )
-                await session.commit()
-                logger.info("Webhook activated subscription for company %s on event %s", txn.company_id, event_type)
-
+        problem = capture_problem(txn, payment, payment_id)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        duplicate = (await session.execute(select(PaymentTransaction).where(
+            PaymentTransaction.razorpay_payment_id == payment_id,
+            PaymentTransaction.id != txn.id,
+        ).execution_options(bypass_tenant=True))).scalar_one_or_none()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Duplicate payment ID.")
+        # A delayed capture must never reactivate a refunded subscription.
+        if txn.status != PaymentStatus.REFUNDED.value and not any(
+            item.get("status") == "processed" for item in (metadata.get("refunds") or {}).values()
+        ):
+            await _credit_capture(session, txn, payment, event_time=event_data.get("created_at"), source="signed_webhook")
     elif event_type == "payment.failed":
-        payment_entity = payload_entity.get("payment", {}).get("entity", {})
-        order_id = payment_entity.get("order_id")
-        error_desc = payment_entity.get("error_description") or "Payment failed at gateway."
-
-        if order_id:
-            stmt = select(PaymentTransaction).where(PaymentTransaction.razorpay_order_id == order_id)
-            res = await session.execute(stmt)
-            txn = res.scalar_one_or_none()
-            if txn and txn.status != PaymentStatus.CAPTURED.value:
-                txn.status = PaymentStatus.FAILED.value
-                txn.failure_reason = error_desc
-                if payment_entity.get("id"):
-                    txn.razorpay_payment_id = payment_entity.get("id")
-                await session.commit()
-                logger.info("Webhook recorded payment failure for order %s: %s", order_id, error_desc)
-
-    elif event_type in {"refund.created", "refund.processed"}:
-        refund_entity = payload_entity.get("refund", {}).get("entity", {})
-        payment_id = refund_entity.get("payment_id")
-        if payment_id:
-            stmt = select(PaymentTransaction).where(PaymentTransaction.razorpay_payment_id == payment_id)
-            res = await session.execute(stmt)
-            txn = res.scalar_one_or_none()
-            if txn:
-                txn.status = PaymentStatus.REFUNDED.value
-                await session.commit()
-                logger.info("Webhook marked payment %s as REFUNDED", payment_id)
-
+        if txn.status not in {PaymentStatus.CAPTURED.value, PaymentStatus.REFUNDED.value}:
+            txn.status = PaymentStatus.FAILED.value
+            txn.failure_reason = payment.get("error_description") or "Payment failed at gateway."
+    else:
+        refund_id, amount = refund.get("id"), refund.get("amount")
+        if (not refund_id or refund.get("payment_id") != payment_id
+                or refund.get("currency", "").upper() != txn.currency.upper()
+                or isinstance(amount, bool) or not isinstance(amount, int)
+                or amount <= 0 or amount > txn.amount_paise):
+            raise HTTPException(status_code=400, detail="Refund evidence does not match the payment.")
+        refunds = dict(metadata.get("refunds") or {})
+        existing = refunds.get(refund_id)
+        if existing and (existing["amount_paise"] != amount or existing["currency"] != txn.currency):
+            raise HTTPException(status_code=409, detail="Conflicting refund evidence.")
+        # Created is not proof of processing, even when provider snapshots change.
+        state = "processed" if event_type == "refund.processed" and refund.get("status") == "processed" else ("failed" if event_type == "refund.failed" else "pending")
+        if not existing or existing["status"] != "processed":
+            refunds[refund_id] = {"amount_paise": amount, "currency": txn.currency,
+                "status": state, "occurred_at": provider_timestamp(event_data.get("created_at")),
+                "source": "signed_webhook"}
+        refunded = sum(item["amount_paise"] for item in refunds.values() if item["status"] == "processed")
+        if refunded > txn.amount_paise:
+            raise HTTPException(status_code=409, detail="Refunds exceed the captured amount.")
+        txn.razorpay_payment_id = payment_id
+        metadata["refunds"] = refunds
+        txn.payment_metadata = metadata
+        if refunded == txn.amount_paise:
+            txn.status = PaymentStatus.REFUNDED.value
+    await session.commit()
     return {"status": "ok", "event": event_type, "processed": True}
 
 

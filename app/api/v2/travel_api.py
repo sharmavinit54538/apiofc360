@@ -15,6 +15,7 @@ from app.core.rbac import require_employee_or_above, require_admin_or_manager, R
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims, get_current_employee, get_current_company
 from app.models.employee import Employee
+from app.models.company import Company
 from app.models.travel import TravelRequest
 from app.schemas.auth import APIResponse
 
@@ -213,9 +214,9 @@ async def list_travel_requests(
     claims: dict = Depends(get_current_user_claims),
     db: AsyncSession = Depends(get_db_session),
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[List[TravelRequestResponse]]:
-    company_id = current_company.company_id
+    company_id = current_company.id
     user_role = (claims.get("role") or "").lower().strip()
 
     # Base query - tenant isolated
@@ -274,9 +275,9 @@ async def list_travel_requests(
 async def get_travel_stats(
     claims: dict = Depends(get_current_user_claims),
     db: AsyncSession = Depends(get_db_session),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TravelStatsResponse]:
-    company_id = current_company.company_id
+    company_id = current_company.id
     user_role = (claims.get("role") or "").lower().strip()
 
     # Base queries - tenant isolated
@@ -406,9 +407,9 @@ async def update_travel_request(
     claims: dict = Depends(get_current_user_claims),
     db: AsyncSession = Depends(get_db_session),
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TravelRequestResponse]:
-    company_id = current_company.company_id
+    company_id = current_company.id
 
     # Fetch with tenant isolation
     stmt = select(TravelRequest).join(Employee).where(
@@ -488,9 +489,9 @@ async def advance_travel_request(
     claims: dict = Depends(get_current_user_claims),
     db: AsyncSession = Depends(get_db_session),
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[TravelRequestResponse]:
-    company_id = current_company.company_id
+    company_id = current_company.id
     user_role = (claims.get("role") or "").lower().strip()
 
     # Fetch with tenant isolation
@@ -505,33 +506,25 @@ async def advance_travel_request(
     if not travel:
         raise HTTPException(status_code=404, detail="Travel request not found.")
 
-    # Prevent self-approval
-    if travel.employee_id == current_employee.id:
-        raise HTTPException(status_code=403, detail="Cannot approve or advance your own travel request.")
-
-    # Validate status transition
     if not _validate_travel_status_transition(travel.status, body.stage):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid status transition from '{travel.status}' to '{body.stage}'."
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid status transition from '{travel.status}' to '{body.stage}'.")
 
-    # Validate approver authority for the target stage
-    if body.stage in ("manager-review", "hr-review", "finance-review", "approved", "rejected"):
-        if not _validate_approver_authority(user_role, body.stage):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Role '{user_role}' does not have authority to advance to '{body.stage}'."
-            )
-
-        # Additional check for manager-review: must be manager of the employee
-        if body.stage == "manager-review":
-            is_manager = await _check_reporting_relationship(db, current_employee.id, travel.employee_id)
-            if not is_manager and user_role not in (RoleEnum.HR_ADMIN.value, RoleEnum.EXECUTIVE.value):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only the reporting manager, HR Admin, or Executive can advance to manager-review."
-                )
+    is_owner = travel.employee_id == current_employee.id
+    owner_transition = (travel.status, body.stage) in {
+        ("draft", "manager-review"), ("draft", "cancelled"),
+        ("rejected", "draft"), ("cancelled", "draft"),
+    }
+    if is_owner:
+        if not owner_transition:
+            raise HTTPException(status_code=403, detail="Cannot approve your own travel request.")
+    else:
+        # Authority belongs to the stage being reviewed, not the destination stage.
+        review_stage = travel.status if travel.status in STAGE_APPROVER_ROLES else "manager-review"
+        if not _validate_approver_authority(user_role, review_stage):
+            raise HTTPException(status_code=403, detail="Role cannot review the current travel stage.")
+        if user_role == RoleEnum.MANAGER.value:
+            if not await _check_reporting_relationship(db, current_employee.id, travel.employee_id):
+                raise HTTPException(status_code=403, detail="Only the reporting manager can review this request.")
 
     # Apply transition
     travel.status = body.stage
@@ -573,9 +566,9 @@ async def delete_travel_request(
     claims: dict = Depends(get_current_user_claims),
     db: AsyncSession = Depends(get_db_session),
     current_employee: Employee = Depends(get_current_employee),
-    current_company: Employee = Depends(get_current_company),
+    current_company: Company = Depends(get_current_company),
 ) -> APIResponse[None]:
-    company_id = current_company.company_id
+    company_id = current_company.id
 
     # Fetch with tenant isolation
     stmt = select(TravelRequest).join(Employee).where(

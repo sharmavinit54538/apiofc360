@@ -397,7 +397,8 @@ class AuthRepository:
             .where(
                 RefreshToken.token_hash == token_hash,
             )
-            .execution_options(bypass_tenant=True)
+            .with_for_update()
+            .execution_options(bypass_tenant=True, populate_existing=True)
         )
         return result.scalars().first()
 
@@ -430,7 +431,6 @@ class AuthRepository:
             update(RefreshToken)
             .where(
                 RefreshToken.family_id == family_id,
-                RefreshToken.revoked == False,
             )
             .values(revoked=True, revoked_at=now, revoked_reason=reason)
         )
@@ -444,9 +444,8 @@ class AuthRepository:
             update(RefreshToken)
             .where(
                 RefreshToken.user_id == user_id,
-                RefreshToken.revoked == False,
             )
-            .values(revoked=True, revoked_at=now)
+            .values(revoked=True, revoked_at=now, revoked_reason=reason)
         )
         await self.session.flush()
 

@@ -22,6 +22,8 @@ from app.models.user import OFFICIAL_SUPER_ADMIN_EMAIL, User, UserRole
 from app.models.audit_log import AuditLog, create_audit_entry
 from app.models.refresh_token import RefreshToken
 from app.models.subscription import Subscription
+from app.models.payment import PaymentTransaction
+from app.services.payment_evidence import collections_summary
 
 logger = logging.getLogger(__name__)
 
@@ -225,61 +227,60 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         trial_orgs = 0
         suspended_orgs = 0
 
-        # Build plan distribution and calculate real MRR from subscriptions
-        sub_by_company = {s.company_id: s for s in all_subs}
-
-        for c in all_companies:
-            sub = sub_by_company.get(c.id)
-            cp = c.company_profile or {}
-
-            if sub:
-                plan_name = sub.plan or "Starter"
-                mrr_val = float(sub.mrr or 0.0)
-                sub_status = (sub.access_status or "ACTIVE").upper()
-                if "SUSPENDED" in sub_status or "CANCEL" in sub_status:
-                    suspended_orgs += 1
-                elif "TRIAL" in sub_status:
-                    trial_orgs += 1
-                elif c.onboarding_completed:
-                    total_mrr += mrr_val
-            else:
-                plan_name = cp.get("plan") or "Starter"
-                mrr_val = float(cp.get("mrr") or 0.0)
-                if not c.onboarding_completed:
-                    trial_orgs += 1
-                else:
-                    total_mrr += mrr_val
-
-            norm_plan = "Starter"
-            if "growth" in plan_name.lower():
-                norm_plan = "Growth"
-            elif "enterprise" in plan_name.lower():
-                norm_plan = "Enterprise"
-
-            plan_counts[norm_plan] = plan_counts.get(norm_plan, 0) + 1
-
         now = datetime.now(timezone.utc)
-        months_list = []
-        for i in range(5, -1, -1):
-            m_date = now - timedelta(days=i * 30)
-            months_list.append(m_date.strftime("%Y-%m"))
+        recurring_by_currency = {}
+        expired_orgs = 0
+        sub_by_company = {s.company_id: s for s in all_subs}
+        for company in all_companies:
+            sub = sub_by_company.get(company.id)
+            plan_name = (sub.plan if sub else None) or "Starter"
+            if sub:
+                sub_status = (sub.access_status or "").upper()
+                expiry = sub.access_expires_at
+                if expiry and expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                expired = bool(expiry and expiry <= now)
+                expired_orgs += int(expired)
+                suspended_orgs += int(sub_status in {"SUSPENDED", "CANCELLED", "CANCELED"})
+                trial_orgs += int(sub_status == "TRIAL")
+                if (sub_status == "ACTIVE" and not expired
+                        and (sub.payment_status or "").upper() == "PAID"
+                        and (sub.access_type or "").upper() != "COMPLIMENTARY"):
+                    currency = (((company.hr_settings or {}).get("billing") or {}).get("subscription") or {}).get("currency") or "UNKNOWN"
+                    currency = currency.upper()
+                    recurring_by_currency[currency] = recurring_by_currency.get(currency, 0.0) + float(sub.mrr or 0)
+            elif not company.onboarding_completed:
+                trial_orgs += 1
+            norm_plan = "Enterprise" if "enterprise" in plan_name.lower() else ("Growth" if "growth" in plan_name.lower() else "Starter")
+            plan_counts[norm_plan] += 1
 
-        # Real monthly revenue trend from creation dates of companies
-        monthly_rev_map = {m: 0.0 for m in months_list}
-        monthly_mrr_map = {m: 0.0 for m in months_list}
-
-        for c in all_companies:
-            sub = sub_by_company.get(c.id)
-            mrr_val = float(sub.mrr or 0.0) if sub else float((c.company_profile or {}).get("mrr") or 0.0)
-            created_at = c.created_at or now
-            m_key = created_at.strftime("%Y-%m")
-            for m in months_list:
-                if m >= m_key:
-                    monthly_mrr_map[m] += mrr_val
-                    monthly_rev_map[m] += mrr_val
-
+        # Calendar months, not 30-day approximations that duplicate/skip months.
+        month_index = now.year * 12 + now.month - 1
+        months_list = [f"{index // 12:04d}-{index % 12 + 1:02d}" for index in range(month_index - 5, month_index + 1)]
+        transactions = (await db.execute(select(PaymentTransaction))).scalars().all()
+        collections = collections_summary(transactions, months_list)
+        # Legacy scalar contracts are explicitly INR; other currencies remain separate.
+        total_mrr = recurring_by_currency.get("INR", 0.0)
         arr = total_mrr * 12.0
-        total_revenue = sum(monthly_rev_map.values()) if total_mrr > 0 else 0.0
+        inr = collections["by_currency"].get("INR", {"collections": 0.0, "refunds": 0.0, "net_collections": 0.0})
+        total_revenue = inr["net_collections"]
+
+        async def recorded_active_users(since):
+            # Login and token creation (including refresh rotation) are recorded
+            # activity, not estimates from account-enabled flags.
+            from sqlalchemy import union
+            activity = union(
+                select(User.id.label("user_id")).where(User.last_login_at >= since, User.last_login_at <= now),
+                select(RefreshToken.user_id.label("user_id")).where(RefreshToken.created_at >= since, RefreshToken.created_at <= now),
+                select(AuditLog.user_id.label("user_id")).where(
+                    AuditLog.user_id.is_not(None), AuditLog.created_at >= since, AuditLog.created_at <= now,
+                    ~AuditLog.action.ilike("%fail%"), ~AuditLog.action.ilike("%denied%"),
+                    ~AuditLog.action.ilike("%blocked%"),
+                ),
+            ).subquery()
+            return (await db.execute(select(func.count()).select_from(activity))).scalar() or 0
+        dau = await recorded_active_users(now - timedelta(days=1))
+        mau = await recorded_active_users(now - timedelta(days=30))
 
         since_30d = now - timedelta(days=30)
         security_incidents_res = await db.execute(
@@ -296,10 +297,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         )
         active_incidents = security_incidents_res.scalar() or 0
 
-        revenue_trend = [
-            {"month": m, "revenue": round(monthly_rev_map[m], 2), "mrr": round(monthly_mrr_map[m], 2)}
-            for m in months_list
-        ] if total_mrr > 0 else []
+        revenue_trend = collections["trend"]
 
         subscription_distribution = [
             {"plan": k, "count": v}
@@ -323,12 +321,13 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
             "free_organizations": max(0, total_orgs - len(all_subs)),
             "trial_organizations": trial_orgs,
             "suspended_organizations": suspended_orgs,
-            "expired_organizations": 0,
+            "expired_organizations": expired_orgs,
             "total_employees_count": total_workforce,
             "total_workforce_managed": total_workforce,
             "active_security_incidents": active_incidents,
-            "dau": max(int(active_users * 0.7), 0),
-            "mau": total_users,
+            "dau": dau,
+            "mau": mau,
+            "activity_basis": "recorded login, refresh-token issuance and successful audit events; rolling 24h/30d",
         }
 
         financials = {
@@ -337,9 +336,15 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
             "arr": round(arr, 2),
             "monthly_recurring_revenue": round(total_mrr, 2),
             "annual_recurring_revenue": round(arr, 2),
-            "revenue_growth": 0.0,
-            "pending_payments": 0,
-            "failed_payments": 0,
+            "currency": "INR",
+            "collections": inr["collections"], "refunds": inr["refunds"],
+            "net_collections": inr["net_collections"],
+            "collections_by_currency": collections["by_currency"],
+            "recurring_by_currency": {currency: {"mrr": round(mrr, 2), "arr": round(mrr * 12, 2)} for currency, mrr in recurring_by_currency.items()},
+            "unverified_legacy_transactions": collections["unverified_legacy_transactions"],
+            "revenue_growth": None,
+            "pending_payments": sum(t.status in {"CREATED", "PENDING", "AUTHORIZED"} for t in transactions),
+            "failed_payments": sum(t.status == "FAILED" for t in transactions),
         }
 
         charts = {
@@ -1852,31 +1857,20 @@ async def update_super_admin_entitlements(payload: dict = Body(...), db: AsyncSe
 @router.get("/billing")
 @router.get("/payments")
 async def get_super_admin_payments(db: AsyncSession = Depends(get_db_session)) -> list[dict[str, Any]]:
-    """Get platform billing transactions from PostgreSQL subscriptions."""
-    try:
-        subs_res = await db.execute(
-            select(Subscription).options(selectinload(Subscription.company))
-        )
-        subs = subs_res.scalars().all()
-
-        payments = []
-        for i, s in enumerate(subs):
-            payments.append({
-                "id": f"tx_{s.id.hex[:8]}",
-                "amount": float(s.mrr or 0.0),
-                "currency": "USD",
-                "gateway": "Stripe",
-                "invoice_number": f"INV-2026-00{i + 1}",
-                "status": s.payment_status or "PAID",
-                "organization_name": s.company.name if s.company else "Organization",
-                "companyName": s.company.name if s.company else "Organization",
-                "payment_date": s.created_at.isoformat() if s.created_at else datetime.now(timezone.utc).isoformat(),
-            })
-
-        return payments
-    except Exception as exc:
-        logger.error("Error fetching payments: %s", exc)
-        return []
+    """Return recorded gateway transactions; no subscription-derived receipts."""
+    rows = (await db.execute(
+        select(PaymentTransaction, Company.name).join(Company, Company.id == PaymentTransaction.company_id)
+        .order_by(PaymentTransaction.created_at.desc())
+    )).all()
+    return [{
+        "id": str(txn.id), "amount": txn.amount_paise / 100, "currency": txn.currency,
+        "gateway": "Razorpay", "invoice_number": None, "status": txn.status,
+        "organization_name": name, "companyName": name,
+        "payment_date": ((txn.payment_metadata or {}).get("capture") or {}).get("occurred_at"),
+        "created_at": txn.created_at.isoformat(),
+        "refunds": list(((txn.payment_metadata or {}).get("refunds") or {}).values()),
+        "order_id": txn.razorpay_order_id, "payment_id": txn.razorpay_payment_id,
+    } for txn, name in rows]
 
 
 # ─── 7. Security, Events & Sessions ─────────────────────────────────

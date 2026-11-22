@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class AttendanceCheckInRequest(BaseModel):
+    image_base64: Optional[str] = Field(None, description="Live face image required by tenant attendance policy")
     # inferred field — confirm with product/spec owner
     latitude: Optional[float] = Field(None, description="GPS latitude for geofenced check-in")
     # inferred field — confirm with product/spec owner

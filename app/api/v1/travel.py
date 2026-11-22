@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.rbac import require_employee_or_above
 
 # Import handlers from v2 to avoid code duplication
 from app.api.v2.travel_api import (
@@ -14,7 +15,7 @@ from app.api.v2.travel_api import (
     delete_travel_request,
 )
 
-router = APIRouter(prefix="/travel", tags=["Travel Management v1"])
+router = APIRouter(prefix="/travel", tags=["Travel Management v1"], dependencies=[Depends(require_employee_or_above)])
 
 # Re-declare v1 routes using v2 handlers
 router.get(

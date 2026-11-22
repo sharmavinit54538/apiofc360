@@ -89,7 +89,7 @@ class AttendanceCheckInService:
             )
 
         # 4. One attendance per day rule (date-based unique constraint)
-        business_date = now_dt.astimezone(tz).date() if hasattr(tz, 'tzname') else now_dt.date()
+        resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
         await self.validator.assert_no_duplicate_checkin(employee.id, business_date)
 
         # 5 & 6. Decode image, quality checks, anti-spoofing liveness, and embedding extraction
@@ -163,11 +163,12 @@ class AttendanceCheckInService:
             logger.warning("Flexible geofence mode: employee %s checked in outside geofence (distance: %.0fm)", employee.id, geofence_res.get("distance", 0))
 
         # 9. Shift engine evaluation (timezone-aware)
-        resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
         eval_result: CheckinEval = self.shift_service.evaluate_checkin(resolved, now_dt)
 
         # 10. Save image proof locally
         image_url = await save_base64_image(image_base64, prefix="checkin")
+        from app.attendance.services.policy_service import validate_biometric_evidence
+        validate_biometric_evidence(image_url, distance, liveness_score)
 
         # 11. Persist Attendance record with race-condition guard via DB partial unique index
         record = Attendance(
