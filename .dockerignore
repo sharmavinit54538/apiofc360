@@ -19,6 +19,16 @@ tests/
 *.log
 README.md
 
+# Documentation and verification directories
+verification/
+docs/
+*.md
+
+# Stray root files
+qc
+query
+app/templates.zip
+
 # Diagnostic and maintenance tools
 admin_tools/
 inspect_*.py
@@ -47,6 +57,7 @@ categorized_connect_endpoints.json
 categorized_hr_endpoints.json
 connect_endpoints_detailed.json
 connect_full_specs.json
+categorized_connect_endpoints.json
 connect_routes.json
 full_hr_admin_dashboard_report.json
 hr_dashboard_extracted.json
@@ -54,7 +65,6 @@ parsed_endpoints.json
 payroll_all_routes.json
 payroll_submodules_parsed.json
 ui_5_sections_endpoints.json
-app/templates.zip
 
 # One-off report generators at root
 categorize_connect.py

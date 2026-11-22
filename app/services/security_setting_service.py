@@ -22,14 +22,16 @@ from app.models.security_setting import (
 
 class SecuritySettingService:
     @staticmethod
-    async def list_roles(db: AsyncSession) -> List[Dict[str, Any]]:
-        """Fetch all RBAC security roles with permission mappings."""
-        stmt = select(SecurityRole).order_by(SecurityRole.created_at.asc())
+    async def list_roles(db: AsyncSession, company_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Fetch all RBAC security roles with permission mappings for a company."""
+        stmt = select(SecurityRole).where(
+            SecurityRole.company_id == company_id
+        ).order_by(SecurityRole.created_at.asc())
         res = await db.execute(stmt)
         roles = res.scalars().all()
 
         if not roles:
-            # Seed Default Enterprise Roles
+            # Seed Default Enterprise Roles for this company
             default_roles = [
                 ("Super Admin", "SUPER_ADMIN", "Full unrestricted enterprise access to all modules and system settings", True),
                 ("HR Admin", "HR_ADMIN", "Complete management of employees, leaves, attendance, and HR policies", True),
@@ -45,7 +47,8 @@ class SecuritySettingService:
                     role_code=r_code,
                     description=r_desc,
                     is_system_role=is_sys,
-                    is_active=True
+                    is_active=True,
+                    company_id=company_id
                 )
                 db.add(r_obj)
             await db.commit()
@@ -67,14 +70,15 @@ class SecuritySettingService:
         ]
 
     @staticmethod
-    async def get_security_policy(db: AsyncSession) -> Dict[str, Any]:
-        """Fetch enterprise security policy configuration."""
-        stmt = select(SecurityPolicy)
+    async def get_security_policy(db: AsyncSession, company_id: uuid.UUID) -> Dict[str, Any]:
+        """Fetch enterprise security policy configuration for a company."""
+        stmt = select(SecurityPolicy).where(SecurityPolicy.company_id == company_id)
         res = await db.execute(stmt)
         policy = res.scalars().first()
 
         if not policy:
             policy = SecurityPolicy(
+                company_id=company_id,
                 session_timeout_minutes=30,
                 idle_timeout_minutes=15,
                 max_concurrent_sessions=3,
@@ -93,6 +97,7 @@ class SecuritySettingService:
 
         return {
             "id": str(policy.id),
+            "company_id": str(policy.company_id),
             "session_timeout_minutes": policy.session_timeout_minutes,
             "idle_timeout_minutes": policy.idle_timeout_minutes,
             "max_concurrent_sessions": policy.max_concurrent_sessions,
@@ -107,14 +112,14 @@ class SecuritySettingService:
         }
 
     @staticmethod
-    async def update_security_policy(db: AsyncSession, payload: Dict[str, Any], actor_email: str) -> Dict[str, Any]:
-        """Update enterprise security policy configuration."""
-        stmt = select(SecurityPolicy)
+    async def update_security_policy(db: AsyncSession, company_id: uuid.UUID, payload: Dict[str, Any], actor_email: str) -> Dict[str, Any]:
+        """Update enterprise security policy configuration for a company."""
+        stmt = select(SecurityPolicy).where(SecurityPolicy.company_id == company_id)
         res = await db.execute(stmt)
         policy = res.scalars().first()
 
         if not policy:
-            policy = SecurityPolicy()
+            policy = SecurityPolicy(company_id=company_id)
             db.add(policy)
 
         for key, val in payload.items():
@@ -127,14 +132,14 @@ class SecuritySettingService:
         audit = SecurityAuditLog(
             action="SECURITY_POLICY_UPDATE",
             actor=actor_email or "System Admin",
-            details="Updated global security and password policy configuration",
+            details="Updated security and password policy configuration",
             ip_address="127.0.0.1",
             browser="Dashboard Web"
         )
         db.add(audit)
 
         await db.commit()
-        return await SecuritySettingService.get_security_policy(db)
+        return await SecuritySettingService.get_security_policy(db, company_id)
 
     @staticmethod
     async def list_active_sessions(db, company_id, user_id=None):
@@ -156,9 +161,11 @@ class SecuritySettingService:
         return count
 
     @staticmethod
-    async def list_ip_whitelist(db: AsyncSession) -> List[Dict[str, Any]]:
-        """Fetch list of whitelisted corporate IP ranges."""
-        stmt = select(IPWhitelist).order_by(IPWhitelist.created_at.desc())
+    async def list_ip_whitelist(db: AsyncSession, company_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Fetch list of whitelisted corporate IP ranges for a company."""
+        stmt = select(IPWhitelist).where(
+            IPWhitelist.company_id == company_id
+        ).order_by(IPWhitelist.created_at.desc())
         res = await db.execute(stmt)
         items = res.scalars().all()
 
@@ -174,9 +181,10 @@ class SecuritySettingService:
         ]
 
     @staticmethod
-    async def add_ip_whitelist(db: AsyncSession, ip: str, desc: str, actor_email: str) -> Dict[str, Any]:
-        """Add new whitelisted IP range."""
+    async def add_ip_whitelist(db: AsyncSession, company_id: uuid.UUID, ip: str, desc: str, actor_email: str) -> Dict[str, Any]:
+        """Add new whitelisted IP range for a company."""
         item = IPWhitelist(
+            company_id=company_id,
             ip_address_or_range=ip,
             description=desc,
             created_by=actor_email or "System Admin"
@@ -203,9 +211,12 @@ class SecuritySettingService:
         }
 
     @staticmethod
-    async def delete_ip_whitelist(db: AsyncSession, ip_id: uuid.UUID, actor_email: str) -> bool:
-        """Remove IP whitelist entry."""
-        stmt = select(IPWhitelist).where(IPWhitelist.id == ip_id)
+    async def delete_ip_whitelist(db: AsyncSession, company_id: uuid.UUID, ip_id: uuid.UUID, actor_email: str) -> bool:
+        """Remove IP whitelist entry for a company."""
+        stmt = select(IPWhitelist).where(
+            IPWhitelist.id == ip_id,
+            IPWhitelist.company_id == company_id
+        )
         res = await db.execute(stmt)
         item = res.scalars().first()
 
@@ -226,9 +237,11 @@ class SecuritySettingService:
         return True
 
     @staticmethod
-    async def list_audit_logs(db: AsyncSession) -> List[Dict[str, Any]]:
-        """Fetch security audit trail logs."""
-        stmt = select(SecurityAuditLog).order_by(SecurityAuditLog.created_at.desc()).limit(100)
+    async def list_audit_logs(db: AsyncSession, company_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Fetch security audit trail logs for a company."""
+        stmt = select(SecurityAuditLog).where(
+            SecurityAuditLog.company_id == company_id
+        ).order_by(SecurityAuditLog.created_at.desc()).limit(100)
         res = await db.execute(stmt)
         logs = res.scalars().all()
 

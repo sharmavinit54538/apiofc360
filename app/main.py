@@ -44,6 +44,7 @@ from app.api.sidebar import router as sidebar_router
 from app.routers.notifications import router as core_notifications_router
 from app.api.departments import router as departments_router
 from app.api.hr_interview_dashboard import router as hr_interview_dashboard_router
+from app.api.file_downloads import router as file_downloads_router
 
 from app.db.database import engine, get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -349,6 +350,10 @@ def create_app() -> FastAPI:
     from app.middleware.security_headers import SecurityHeadersMiddleware
     app.add_middleware(SecurityHeadersMiddleware)
 
+    # Tenant Context Middleware - added before CORS so CORS remains the outermost layer
+    from app.middleware.tenant_context import TenantContextMiddleware
+    app.add_middleware(TenantContextMiddleware)
+
     # CORS Middleware - MUST be added LAST so it executes FIRST (outermost ASGI layer)
     # This guarantees that preflight OPTIONS requests are answered immediately at the network edge
     # with 200 OK / 204 No Content before reaching rate limiters, session managers, or authentication,
@@ -362,9 +367,6 @@ def create_app() -> FastAPI:
         expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
         max_age=86400,
     )
-
-    from app.middleware.tenant_context import TenantContextMiddleware
-    app.add_middleware(TenantContextMiddleware)
 
     install_exception_handlers(app)
 
@@ -388,7 +390,11 @@ def create_app() -> FastAPI:
     app.include_router(hr_admin_onboarding_router)
     app.include_router(core_notifications_router)
     app.include_router(sidebar_router, prefix="/api")
-    app.include_router(sidebar_router)
+    # Backward-compat alias (non-prefixed) - excluded from OpenAPI schema
+    app.include_router(sidebar_router, include_in_schema=False)
+    
+    # Authenticated file downloads for private uploads (onboarding, connect)
+    app.include_router(file_downloads_router)
     
     # ── HR Interview Dashboard ──────────────────────────────────────────────
     app.include_router(hr_interview_dashboard_router, prefix="/api")
@@ -454,8 +460,9 @@ def create_app() -> FastAPI:
 
     from fastapi.staticfiles import StaticFiles
     import os
-    # Security: Mount only specific public subdirectories if needed, NEVER /uploads/documents
-    public_subdirs = ["onboarding", "qrcodes", "connect", "face_attendance", "logos", "avatars"]
+    # Security: Mount ONLY non-sensitive public assets. Private uploads (onboarding, connect, face_attendance, qrcodes)
+    # MUST be served via authenticated, tenant-scoped download endpoints with path traversal + ownership validation.
+    public_subdirs = ["logos", "avatars"]
     for subdir in public_subdirs:
         dir_path = os.path.join("uploads", subdir)
         try:

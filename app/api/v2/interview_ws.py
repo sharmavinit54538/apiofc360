@@ -205,8 +205,9 @@ async def interview_websocket(
         old_ws = manager.active_connections[session_id]
         try:
             await old_ws.close(code=status.WS_1000_NORMAL_CLOSURE, reason="Reconnected")
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Failed to close old WebSocket connection: %s", exc)
         invitation.reconnect_count += 1
         if invitation.reconnect_count > invitation.max_reconnects:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Max reconnection attempts exceeded")

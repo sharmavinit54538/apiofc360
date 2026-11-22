@@ -156,11 +156,12 @@ class RazorpayService:
         """
         Create a new payment order via Razorpay API.
         """
+        import uuid
         client = self.get_client()
         order_data = {
             "amount": amount_paise,
             "currency": currency or settings.RAZORPAY_CURRENCY or "INR",
-            "receipt": receipt or f"rcpt_{hashlib.md5(str(amount_paise).encode()).hexdigest()[:12]}",
+            "receipt": receipt or f"rcpt_{uuid.uuid4().hex[:16]}",
             "notes": notes or {},
             "payment_capture": 1,  # Auto-capture payment upon authorization
         }

@@ -576,8 +576,20 @@ class EmailService:
         joining_date: str,
         expiry_date: str,
         offer_url: str,
+        company_id: str | None = None,
     ) -> None:
-        """Send job offer email to selected candidate."""
+        """Send job offer email to selected candidate with signed action URLs."""
+
+        # Generate signed accept/reject URLs if company_id is provided
+        accept_url = offer_url
+        reject_url = offer_url
+        if company_id:
+            from app.utils.offer_token import create_offer_action_urls
+            # Extract offer_id from offer_url (format: {FRONTEND_BASE_URL}/offers/{offer_id})
+            offer_id = offer_url.rstrip("/").split("/")[-1]
+            urls = create_offer_action_urls(offer_url, offer_id, company_id, email)
+            accept_url = urls["accept_url"]
+            reject_url = urls["reject_url"]
 
         html = _render_template(
             "recruitment_offer.html",
@@ -588,6 +600,8 @@ class EmailService:
                 "joining_date": joining_date,
                 "expiry_date": expiry_date,
                 "offer_url": offer_url,
+                "accept_url": accept_url,
+                "reject_url": reject_url,
             },
         )
         await send_email(email, f"Job Offer from Aurix - {job_title}", html)

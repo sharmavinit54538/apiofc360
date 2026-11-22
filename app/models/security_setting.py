@@ -16,14 +16,17 @@ from app.db.base import Base
 
 
 class SecurityRole(Base):
-    """Configurable RBAC Role Entity."""
+    """Configurable RBAC Role Entity (tenant-scoped)."""
     __tablename__ = "security_roles"
+    __table_args__ = (
+        Index("ix_security_roles_company_id", "company_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     role_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    role_code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    role_code: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_system_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
@@ -53,11 +56,15 @@ class RolePermission(Base):
 
 
 class SecurityPolicy(Base):
-    """Global Enterprise Security Policy settings."""
+    """Global Enterprise Security Policy settings (one per company)."""
     __tablename__ = "security_policies"
+    __table_args__ = (
+        Index("ix_security_policies_company_id", "company_id"),
+        # One policy per company enforced by unique constraint (added via migration)
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     session_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
     idle_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default=text("15"))
@@ -91,11 +98,14 @@ class UserSession(Base):
 
 
 class IPWhitelist(Base):
-    """Corporate Network IP Whitelist."""
+    """Corporate Network IP Whitelist (tenant-scoped)."""
     __tablename__ = "ip_whitelist"
+    __table_args__ = (
+        Index("ix_ip_whitelist_company_id", "company_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     ip_address_or_range: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)

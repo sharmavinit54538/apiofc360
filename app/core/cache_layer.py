@@ -214,6 +214,7 @@ async def get_cache_stats() -> dict:
             
             # Total keys
             stats["total_keys"] = await redis._redis.dbsize()
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to collect cache stats: %s", exc)
     return stats

@@ -1112,6 +1112,7 @@ Generate realistic content under each heading. Make the tone professional, encou
                     joining_date=str(payload.joining_date),
                     expiry_date=str(payload.offer_expiry_date),
                     offer_url=offer_url,
+                    company_id=str(app.company_id),
                 )
             except Exception as mail_exc:
                 logger.error("create_offer: offer email failed | exc=%s", str(mail_exc))

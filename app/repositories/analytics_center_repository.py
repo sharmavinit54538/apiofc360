@@ -166,9 +166,11 @@ class AnalyticsCenterRepository:
 
             return {
                 "pipeline_health": "EXCELLENT" if sum(app_status_counts.values()) > 0 else "EMPTY",
-                "offer_acceptance_rate": 84.5,  # Placeholder - needs actual offer data
+                "offer_acceptance_rate": None,  # Requires offer acceptance tracking
+                "offer_acceptance_rate_available": False,
                 "time_to_hire": f"{avg_time_to_hire:.1f} days",
-                "candidate_quality_score": 4.3,  # Placeholder
+                "candidate_quality_score": None,  # Requires candidate assessment data
+                "candidate_quality_score_available": False,
                 "open_positions": open_jobs,
                 "by_status": app_status_counts,
                 "total_applications": sum(app_status_counts.values()),
@@ -230,8 +232,10 @@ class AnalyticsCenterRepository:
                 "monthly_payroll_cost": gross,
                 "forecast_payroll_cost": gross * 1.05,  # 5% forecast growth
                 "overtime_cost": overtime,
-                "cost_savings": 14200.0,  # Placeholder
-                "budget_variance": 2.1,  # Placeholder
+                "cost_savings": None,  # Requires budget vs actual comparison
+                "cost_savings_available": False,
+                "budget_variance": None,  # Requires budget data
+                "budget_variance_available": False,
             }
         except Exception as exc:
             logger.error("Error fetching payroll statistics: %s", exc)
@@ -279,10 +283,14 @@ class AnalyticsCenterRepository:
             avg_self_rating = float(rating_res.scalar() or 0)
 
             return {
-                "top_performers_count": 14,  # Placeholder - needs actual calculation
-                "low_performers_count": 2,   # Placeholder
-                "kpi_achievement_pct": 91.5,  # Placeholder
-                "promotion_readiness_pct": 18.0,  # Placeholder
+                "top_performers_count": None,  # Requires performance rating thresholds
+                "top_performers_count_available": False,
+                "low_performers_count": None,  # Requires performance rating thresholds
+                "low_performers_count_available": False,
+                "kpi_achievement_pct": None,  # Requires KPI tracking data
+                "kpi_achievement_pct_available": False,
+                "promotion_readiness_pct": None,  # Requires promotion readiness assessment
+                "promotion_readiness_pct_available": False,
                 "active_goals": active_goals,
                 "completed_reviews": completed_reviews,
                 "avg_self_rating": round(avg_self_rating, 1) if avg_self_rating else 0,
@@ -613,8 +621,10 @@ class AnalyticsCenterRepository:
 
             return {
                 "utilization_rate": round(avg_attendance * 100, 1),
-                "productivity_score": 94.0,  # Placeholder
-                "workforce_health": 92.4,  # Placeholder
+                "productivity_score": None,  # Requires productivity measurement framework
+                "productivity_score_available": False,
+                "workforce_health": None,  # Requires health/wellbeing assessment data
+                "workforce_health_available": False,
                 "total_employees": total_emp,
             }
         except Exception as exc:

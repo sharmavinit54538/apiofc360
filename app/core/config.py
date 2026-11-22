@@ -249,6 +249,10 @@ class Settings(BaseSettings):
     VECTOR_EMBEDDING_DIM: int = 768
 
     # ── Redis / Celery settings ──────────────────────────────────────────────
+    REDIS_PASSWORD: str | None = Field(
+        default=None,
+        description="Redis password for authentication. If set, Redis URLs should include it.",
+    )
     REDIS_URL: str = Field(
         default="",
         description="Redis URL. Must be set via env var in production. Empty defaults to redis://localhost:6379/0 in local dev only.",

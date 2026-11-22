@@ -53,12 +53,14 @@ async def async_cache_get(key: str) -> Any | None:
 
 async def async_cache_set(key: str, value: Any, ttl_seconds: int = 3600) -> None:
     """Async cache write (Redis with in-memory fallback)."""
+    import logging
+    logger = logging.getLogger(__name__)
     redis = get_redis_client()
     try:
         val_str = json.dumps(value) if not isinstance(value, str) else value
         await redis.set(key, val_str, ttl_seconds=ttl_seconds)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Redis cache set failed for key %s: %s", key, exc)
     cache_set(key, value, ttl_seconds=float(ttl_seconds))
 
 
@@ -93,25 +95,30 @@ def get_version_key(company_id: str | None, resource: str) -> str:
 
 async def get_resource_version(company_id: str | None, resource: str) -> int:
     """Get current version for a resource."""
+    import logging
+    logger = logging.getLogger(__name__)
     redis = get_redis_client()
     key = get_version_key(company_id, resource)
     val = await redis.get(key)
     if val:
         try:
             return int(val)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to parse cache version for %s: %s", key, exc)
     return 0
 
 
 async def increment_resource_version(company_id: str | None, resource: str) -> int:
     """Increment version for a resource (invalidates all cached entries)."""
+    import logging
+    logger = logging.getLogger(__name__)
     redis = get_redis_client()
     key = get_version_key(company_id, resource)
     try:
         # Use INCR for atomic increment
         return await redis._redis.incr(key) if redis._redis else 1
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to increment cache version for %s: %s", key, exc)
         return 1
 
 

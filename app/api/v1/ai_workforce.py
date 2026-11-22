@@ -490,7 +490,7 @@ class AgentConfigUpdate(BaseModel):
     auto_approve_low_risk: Optional[bool] = None
 
 
-ai_workforce_direct_router = APIRouter(prefix="/ai-workforce", tags=["AI Agent Runner"])
+ai_workforce_direct_router = APIRouter(prefix="/ai-workforce", tags=["AI Agent Runner"], dependencies=[Depends(get_current_user_claims)])
 
 
 @ai_workforce_direct_router.post(
@@ -503,11 +503,15 @@ ai_workforce_direct_router = APIRouter(prefix="/ai-workforce", tags=["AI Agent R
     status_code=status.HTTP_200_OK,
     summary="Run AI Agent Mode",
 )
-async def run_ai_mode(payload: RunModePayload) -> Dict[str, Any]:
+async def run_ai_mode(
+    payload: RunModePayload,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> Dict[str, Any]:
     """Execute AI agent mode runner task."""
     import uuid
     from datetime import datetime, timezone
     exec_id = f"exec-{uuid.uuid4().hex[:8]}"
+    company_id = get_company_id_from_claims(claims)
     return {
         "execution_id": exec_id,
         "agent_key": payload.agent_key,
@@ -520,6 +524,7 @@ async def run_ai_mode(payload: RunModePayload) -> Dict[str, Any]:
             "details": payload.payload or {},
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "company_id": str(company_id) if company_id else None,
     }
 
 
@@ -533,40 +538,22 @@ async def run_ai_mode(payload: RunModePayload) -> Dict[str, Any]:
     status_code=status.HTTP_200_OK,
     summary="Get AI Agent Telemetry Dashboard Stats",
 )
-async def get_ai_agent_dashboard_stats() -> Dict[str, Any]:
-    """Retrieve telemetry metrics for AI Agent workforce."""
+async def get_ai_agent_dashboard_stats(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> Dict[str, Any]:
+    """Retrieve telemetry metrics for AI Agent workforce (tenant-scoped)."""
+    company_id = get_company_id_from_claims(claims)
+    # Return empty structure if no company - real data would come from DB
     return {
-        "total_hours_saved": 342.5,
-        "total_executions_today": 48,
-        "total_executions_month": 1240,
-        "average_resolution_rate": 98.8,
-        "active_agent_count": 8,
-        "total_agent_count": 8,
-        "pending_hitl_count": 3,
-        "agent_summaries": [
-            {
-                "agent_key": "recruitment_agent",
-                "name": "Recruitment & Resume Screening Agent",
-                "category": "TA_RECRUITMENT",
-                "is_enabled": True,
-                "total_calls_today": 18,
-                "total_calls_month": 412,
-                "resolution_rate": 99.1,
-                "hours_saved": 112.0,
-                "last_active": "2026-08-06T14:00:00Z",
-            },
-            {
-                "agent_key": "attendance_agent",
-                "name": "Attendance & Face Recognition Agent",
-                "category": "TIME_ATTENDANCE",
-                "is_enabled": True,
-                "total_calls_today": 24,
-                "total_calls_month": 680,
-                "resolution_rate": 98.5,
-                "hours_saved": 145.5,
-                "last_active": "2026-08-06T14:10:00Z",
-            },
-        ],
+        "total_hours_saved": 0,
+        "total_executions_today": 0,
+        "total_executions_month": 0,
+        "average_resolution_rate": 0,
+        "active_agent_count": 0,
+        "total_agent_count": 0,
+        "pending_hitl_count": 0,
+        "agent_summaries": [],
+        "company_id": str(company_id) if company_id else None,
     }
 
 
@@ -580,30 +567,13 @@ async def get_ai_agent_dashboard_stats() -> Dict[str, Any]:
     status_code=status.HTTP_200_OK,
     summary="List all AI Agent Configurations",
 )
-async def list_agent_configs() -> List[Dict[str, Any]]:
-    """List configurable parameters for AI Workforce Agents."""
-    return [
-        {
-            "id": "agent-1",
-            "agent_key": "recruitment_agent",
-            "name": "Recruitment & Resume Screening Agent",
-            "category": "TA_RECRUITMENT",
-            "description": "Automated resume parsing, ranking, and candidate screening.",
-            "is_enabled": True,
-            "auto_approve_low_risk": True,
-            "avg_manual_minutes": 25,
-        },
-        {
-            "id": "agent-2",
-            "agent_key": "attendance_agent",
-            "name": "Attendance & Face Recognition Agent",
-            "category": "TIME_ATTENDANCE",
-            "description": "Real-time face verification and anomaly detection.",
-            "is_enabled": True,
-            "auto_approve_low_risk": True,
-            "avg_manual_minutes": 15,
-        },
-    ]
+async def list_agent_configs(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> List[Dict[str, Any]]:
+    """List configurable parameters for AI Workforce Agents (tenant-scoped)."""
+    company_id = get_company_id_from_claims(claims)
+    # Return empty list - real data would come from DB
+    return []
 
 
 @ai_workforce_direct_router.put(
@@ -616,8 +586,13 @@ async def list_agent_configs() -> List[Dict[str, Any]]:
     status_code=status.HTTP_200_OK,
     summary="Update AI Agent Config",
 )
-async def update_agent_config_endpoint(agent_key: str, payload: AgentConfigUpdate) -> Dict[str, Any]:
-    """Toggle agent status or auto-approval settings."""
+async def update_agent_config_endpoint(
+    agent_key: str,
+    payload: AgentConfigUpdate,
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> Dict[str, Any]:
+    """Toggle agent status or auto-approval settings (tenant-scoped)."""
+    company_id = get_company_id_from_claims(claims)
     return {
         "id": f"agent-{agent_key}",
         "agent_key": agent_key,
@@ -626,4 +601,5 @@ async def update_agent_config_endpoint(agent_key: str, payload: AgentConfigUpdat
         "is_enabled": payload.is_enabled if payload.is_enabled is not None else True,
         "auto_approve_low_risk": payload.auto_approve_low_risk if payload.auto_approve_low_risk is not None else True,
         "avg_manual_minutes": 20,
+        "company_id": str(company_id) if company_id else None,
     }

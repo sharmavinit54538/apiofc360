@@ -244,9 +244,12 @@ async def get_executive_dashboard(
     # Role-specific metrics
     if role == "ceo":
         dashboard_data.update({
-            "revenue_per_employee": 0,  # Placeholder
-            "burn_rate": 0,
-            "runway_months": 0,
+            "revenue_per_employee": None,  # Requires financial data integration
+            "revenue_per_employee_available": False,
+            "burn_rate": None,  # Requires financial data integration
+            "burn_rate_available": False,
+            "runway_months": None,  # Requires financial data integration
+            "runway_months_available": False,
             "key_initiatives": [],
         })
     elif role == "cto":
