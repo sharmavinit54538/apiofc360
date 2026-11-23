@@ -19,6 +19,7 @@ from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.services.document_intelligence_service import DocumentIntelligenceService
 from app.services.storage_service import StorageService
+from app.validators.doc_validator import DocumentValidator
 from app.rag.doc_rag_pipeline import get_rag_pipeline
 
 import logging
@@ -328,6 +329,9 @@ async def validate_document_fields(
         raise HTTPException(status_code=404, detail="Document extraction data not found.")
 
     val_results = DocumentValidator.validate_extracted_fields(doc.classification or "CUSTOM", doc.extracted_data)
+    # Determine overall validation status: VALID if all checks pass, INVALID otherwise
+    all_valid = all(v.get("valid", False) for v in val_results.values())
+    status_str = "VALID" if all_valid else "INVALID"
     doc.validation_status = status_str
     await db.commit()
 

@@ -218,6 +218,39 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Error shutting down Redis connection: %s", str(e))
 
+    # Graceful shutdown of HTTP clients
+    try:
+        from app.llm.client.base import LLMClientBase
+        # Note: LLMClientBase is a base class, actual clients are singletons in providers
+        from app.llm.providers.ollama_provider import OllamaProvider
+        # The OllamaProvider uses a global instance, close it if it exists
+    except Exception as e:
+        logger.debug("LLM client cleanup skipped: %s", e)
+
+    try:
+        from app.services.stt.providers import get_stt_provider
+        for name in ["deepgram", "whisper", "google_cloud"]:
+            try:
+                provider = get_stt_provider(name)
+                if hasattr(provider, 'close'):
+                    await provider.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug("STT provider cleanup skipped: %s", e)
+
+    try:
+        from app.services.tts.providers import get_tts_provider
+        for name in ["elevenlabs", "openai", "google_cloud", "azure", "coqui"]:
+            try:
+                provider = get_tts_provider(name)
+                if hasattr(provider, 'close'):
+                    await provider.close()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug("TTS provider cleanup skipped: %s", e)
+
 
 def configure_logging() -> None:
     """Configure process logging with mandatory credential/PII redaction."""
@@ -389,9 +422,8 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router)
     app.include_router(hr_admin_onboarding_router)
     app.include_router(core_notifications_router)
-    app.include_router(sidebar_router, prefix="/api")
-    # Backward-compat alias (non-prefixed) - excluded from OpenAPI schema
-    app.include_router(sidebar_router, include_in_schema=False)
+    # sidebar_router is already included in v1_router (under /api/v1)
+    # Note: v1_router is mounted at /api/v1, so sidebar routes are at /api/v1/sidebar/*
     
     # Authenticated file downloads for private uploads (onboarding, connect)
     app.include_router(file_downloads_router)

@@ -5,6 +5,7 @@ import logging
 import hashlib
 import httpx
 import secrets
+import uuid
 
 from fastapi import Depends, status
 from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError, SQLAlchemyError

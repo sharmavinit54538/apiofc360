@@ -22,6 +22,7 @@ from app.core.exit_state_machine import (
 )
 from app.db.database import get_db_session
 from app.models.asset import Asset
+from app.models.exit import FnfSettlement
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.employee_repository import EmployeeRepository
 from app.repositories.exit_repository import ExitRepository

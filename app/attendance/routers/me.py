@@ -255,7 +255,7 @@ async def create_shift_change_request(
 
     # Get or create manual plan for the period
     from app.attendance.routers.rosters import _get_or_create_manual_plan
-    from app.models.shift_plan import ShiftPlanEntry, ShiftPlanEntryCreate, ShiftType
+    from app.models.shift_plan import ShiftPlanEntry, ShiftType
 
     current_date = payload.start_date
     created_entries = []

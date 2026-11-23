@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from decimal import Decimal
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request

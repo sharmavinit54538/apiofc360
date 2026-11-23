@@ -380,7 +380,7 @@ async def interview_websocket(
                         "type": MessageType.QUESTION_TEXT.value,
                         "question_id": next_q["id"],
                         "text": next_q["text"],
-                        "type": next_q["type"],
+                        "question_type": next_q["type"],
                         "difficulty": next_q["difficulty"],
                     })
                     

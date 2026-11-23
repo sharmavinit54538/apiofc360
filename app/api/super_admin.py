@@ -1,6 +1,7 @@
 """Super Admin SaaS Owner Control Center API Router — 100% Database Backed."""
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 import time
@@ -13,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
 from app.core.rbac import require_super_admin
+from app.core.redis_client import redis_client
 from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.models.company import Company
@@ -23,6 +26,7 @@ from app.models.audit_log import AuditLog, create_audit_entry
 from app.models.refresh_token import RefreshToken
 from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction
+from app.models.communication import Announcement
 from app.services.payment_evidence import collections_summary
 
 logger = logging.getLogger(__name__)
@@ -33,8 +37,14 @@ router = APIRouter(
     dependencies=[Depends(require_super_admin)],
 )
 
-# In-memory platform settings with persistence capability
-GLOBAL_PLATFORM_SETTINGS: Dict[str, Any] = {
+# Redis key prefixes for platform-wide data
+PLATFORM_SETTINGS_KEY = "platform:settings"
+PLATFORM_ANNOUNCEMENTS_KEY = "platform:announcements"
+PLATFORM_BLOCKED_IPS_KEY = "platform:blocked_ips"
+PLATFORM_PLANS_KEY = "platform:plans"
+PLATFORM_ENTITLEMENTS_KEY = "platform:entitlements"
+
+DEFAULT_PLATFORM_SETTINGS = {
     "maintenanceMode": False,
     "allowNewRegistrations": True,
     "enforceMfaGlobally": True,
@@ -47,17 +57,105 @@ GLOBAL_PLATFORM_SETTINGS: Dict[str, Any] = {
     "autoBackupIntervalHours": 6,
 }
 
-GLOBAL_ANNOUNCEMENTS: List[Dict[str, Any]] = [
-    {
+DEFAULT_PLANS = [
+    {"id": "plan_starter", "name": "Starter", "price": 99, "billing_cycle": "Monthly", "max_employees": 25, "is_active": True},
+    {"id": "plan_growth", "name": "Growth", "price": 299, "billing_cycle": "Monthly", "max_employees": 100, "is_active": True},
+    {"id": "plan_enterprise", "name": "Enterprise Pro", "price": 1500, "billing_cycle": "Monthly", "max_employees": 1000, "is_active": True},
+]
+
+DEFAULT_ENTITLEMENTS = {
+    "payroll_enabled": True,
+    "ai_copilot_enabled": True,
+    "face_attendance_enabled": True,
+    "advanced_analytics_enabled": True,
+    "multi_org_enabled": True,
+}
+
+
+async def _get_platform_settings() -> Dict[str, Any]:
+    """Get platform settings from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_SETTINGS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return DEFAULT_PLATFORM_SETTINGS.copy()
+
+
+async def _set_platform_settings(settings_dict: Dict[str, Any]) -> None:
+    """Set platform settings in Redis."""
+    await redis_client.set(PLATFORM_SETTINGS_KEY, json.dumps(settings_dict))
+
+
+async def _get_platform_announcements() -> List[Dict[str, Any]]:
+    """Get platform announcements from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_ANNOUNCEMENTS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return [{
         "id": "ann_platform_init",
         "title": "OFC360 Platform Active",
         "content": "Super Admin Master Control Center, Payroll, Attendance, and Multi-Tenant Engine are active.",
         "target_audience": "ALL_TENANTS",
         "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-]
+    }]
 
-GLOBAL_BLOCKED_IPS: List[str] = []
+
+async def _set_platform_announcements(announcements: List[Dict[str, Any]]) -> None:
+    """Set platform announcements in Redis."""
+    await redis_client.set(PLATFORM_ANNOUNCEMENTS_KEY, json.dumps(announcements))
+
+
+async def _get_blocked_ips() -> List[str]:
+    """Get blocked IPs from Redis."""
+    try:
+        val = await redis_client.get(PLATFORM_BLOCKED_IPS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return []
+
+
+async def _set_blocked_ips(ips: List[str]) -> None:
+    """Set blocked IPs in Redis."""
+    await redis_client.set(PLATFORM_BLOCKED_IPS_KEY, json.dumps(ips))
+
+
+async def _get_platform_plans() -> List[Dict[str, Any]]:
+    """Get platform plans from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_PLANS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return [p.copy() for p in DEFAULT_PLANS]
+
+
+async def _set_platform_plans(plans: List[Dict[str, Any]]) -> None:
+    """Set platform plans in Redis."""
+    await redis_client.set(PLATFORM_PLANS_KEY, json.dumps(plans))
+
+
+async def _get_platform_entitlements() -> Dict[str, Any]:
+    """Get platform entitlements from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_ENTITLEMENTS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return DEFAULT_ENTITLEMENTS.copy()
+
+
+async def _set_platform_entitlements(entitlements: Dict[str, Any]) -> None:
+    """Set platform entitlements in Redis."""
+    await redis_client.set(PLATFORM_ENTITLEMENTS_KEY, json.dumps(entitlements))
 
 
 async def record_super_admin_audit(
@@ -1805,53 +1903,68 @@ async def update_super_admin_subscription(
 @router.get("/plans")
 async def get_super_admin_plans() -> list[dict[str, Any]]:
     """Get platform subscription plans."""
-    return [
-        {"id": "plan_starter", "name": "Starter", "price": 99, "billing_cycle": "Monthly", "max_employees": 25, "is_active": True},
-        {"id": "plan_growth", "name": "Growth", "price": 299, "billing_cycle": "Monthly", "max_employees": 100, "is_active": True},
-        {"id": "plan_enterprise", "name": "Enterprise Pro", "price": 1500, "billing_cycle": "Monthly", "max_employees": 1000, "is_active": True},
-    ]
+    return await _get_platform_plans()
 
 
 @router.post("/plans")
 async def create_super_admin_plan(payload: dict = Body(...)) -> dict[str, Any]:
     """Create subscription plan."""
-    return {"success": True, "plan": payload, "message": "Plan created successfully."}
+    plans = await _get_platform_plans()
+    plan_id = payload.get("id") or f"plan_{uuid.uuid4().hex[:8]}"
+    plan = {
+        "id": plan_id,
+        "name": payload.get("name", "New Plan"),
+        "price": payload.get("price", 0),
+        "billing_cycle": payload.get("billing_cycle", "Monthly"),
+        "max_employees": payload.get("max_employees", 0),
+        "is_active": payload.get("is_active", True),
+    }
+    plans.append(plan)
+    await _set_platform_plans(plans)
+    return {"success": True, "plan": plan, "message": "Plan created successfully."}
 
 
 @router.patch("/plans/{plan_id}")
 async def update_super_admin_plan(plan_id: str, payload: dict = Body(...)) -> dict[str, Any]:
     """Update subscription plan."""
-    return {"success": True, "message": f"Plan {plan_id} updated."}
+    plans = await _get_platform_plans()
+    for i, plan in enumerate(plans):
+        if plan["id"] == plan_id:
+            plans[i].update(payload)
+            plans[i]["id"] = plan_id  # Ensure ID doesn't change
+            await _set_platform_plans(plans)
+            return {"success": True, "plan": plans[i], "message": f"Plan {plan_id} updated."}
+    raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
 
 
 @router.delete("/plans/{plan_id}")
 async def delete_super_admin_plan(plan_id: str) -> dict[str, Any]:
     """Delete subscription plan."""
+    plans = await _get_platform_plans()
+    plans = [p for p in plans if p["id"] != plan_id]
+    await _set_platform_plans(plans)
     return {"success": True, "message": f"Plan {plan_id} deactivated."}
 
 
 @router.get("/entitlements")
 async def get_super_admin_entitlements() -> dict[str, Any]:
     """Get platform feature entitlements."""
-    return {
-        "payroll_enabled": True,
-        "ai_copilot_enabled": True,
-        "face_attendance_enabled": True,
-        "advanced_analytics_enabled": True,
-        "multi_org_enabled": True,
-    }
+    return await _get_platform_entitlements()
 
 
 @router.put("/entitlements")
 @router.patch("/entitlements")
 async def update_super_admin_entitlements(payload: dict = Body(...), db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
     """Update feature entitlements."""
+    entitlements = await _get_platform_entitlements()
+    entitlements.update(payload)
+    await _set_platform_entitlements(entitlements)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UPDATE_ENTITLEMENTS",
         details="Updated platform global feature entitlements.",
     )
-    return {"success": True, "message": "Entitlements updated."}
+    return {"success": True, "entitlements": entitlements, "message": "Entitlements updated."}
 
 
 @router.get("/billing")

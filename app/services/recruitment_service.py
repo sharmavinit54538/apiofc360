@@ -32,6 +32,7 @@ from app.schemas.recruitment import (
     InterviewResponse,
     InterviewScheduleCreate,
     InterviewScheduleResponse,
+    InterviewJoinResponse,
     JobCreate,
     JobDuplicateRequest,
     JobListResponse,

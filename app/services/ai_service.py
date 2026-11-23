@@ -22,7 +22,7 @@ from sqlalchemy.exc import (
 )
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundException, LLMUnavailableError
+from app.core.exceptions import NotFoundException, LLMUnavailableError, map_db_exception
 from app.db.database import get_db_session
 from app.models.ai import AIConversation, AIMessage
 from app.models.employee import Employee
@@ -580,9 +580,10 @@ def rewrite_sql_for_tenant(sql: str, company_id: uuid.UUID | None, is_super_admi
 def get_read_only_session(db: AsyncSession, timeout_seconds: int):
     """Create a read-only session with statement timeout."""
     from sqlalchemy import text
+    timeout_ms = int(timeout_seconds) * 1000
     async def _setup(conn):
         await conn.execute(text("SET TRANSACTION READ ONLY"))
-        await conn.execute(text(f"SET LOCAL statement_timeout = {timeout_seconds * 1000}"))
+        await conn.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
     return _setup
 
 
@@ -678,7 +679,7 @@ async def _execute_sql_loop(
             )
             
             # Set up read-only transaction with timeout
-            sql_timeout = getattr(settings, "AI_SQL_TIMEOUT_SECONDS", 30)
+            sql_timeout = int(getattr(settings, "AI_SQL_TIMEOUT_SECONDS", 30))
             await self.db.execute(text("SET TRANSACTION READ ONLY"))
             await self.db.execute(text(f"SET LOCAL statement_timeout = {sql_timeout * 1000}"))
             
@@ -1087,6 +1088,7 @@ class AIService:
         company_id: uuid.UUID | None,
         message: str,
         conversation_id: uuid.UUID | None = None,
+        claims: dict | None = None,
     ) -> ChatResponse:
         """Process chat message, route intent, and generate response (Sync fallback)."""
         start_time = time.perf_counter()
@@ -1291,6 +1293,7 @@ class AIService:
         company_id: uuid.UUID | None,
         message: str,
         conversation_id: uuid.UUID | None = None,
+        claims: dict | None = None,
     ) -> AsyncGenerator[str, None]:
         """Process chat message, route intent, and stream Ollama response."""
         start_time = time.perf_counter()

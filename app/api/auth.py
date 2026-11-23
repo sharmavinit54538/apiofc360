@@ -975,9 +975,9 @@ async def get_auth_status(request: Request) -> APIResponse[dict]:
 
     try:
         from app.utils.jwt import decode_token
-        from app.services.token_service import is_access_token_blacklisted
+        from app.core.redis_client import redis_client
 
-        if is_access_token_blacklisted(token):
+        if await redis_client.is_token_blacklisted(token):
             return APIResponse[dict](
                 success=True,
                 message="Token blacklisted",

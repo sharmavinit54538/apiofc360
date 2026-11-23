@@ -17,8 +17,10 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator, model_validator
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.rbac import require_employee_or_above
 from app.db.database import get_db_session
+from app.middleware.auth import get_current_user_claims
 from app.models.emotion_chatbot import EmotionAwareChatMessage
 from app.schemas.auth import APIResponse
 from app.services.emotion_chatbot_service import EmotionChatbotService
@@ -149,25 +151,31 @@ async def init_session(
 ) -> APIResponse[dict]:
     """Sets up a dialogue context channel registered for a specific employee.
 
-    company_id is resolved from JWT claims if not provided in the request body.
+    company_id is resolved from JWT claims. Body company_id is rejected if it differs from token's company_id (unless SUPER_ADMIN).
     """
-    # Resolve company_id: body takes precedence, otherwise use JWT claim
+    # Resolve company_id from JWT claims first
     company_id_str = claims.get("company_id")
-    if body.company_id:
-        company_id = body.company_id
-    elif company_id_str:
-        try:
-            company_id = uuid.UUID(company_id_str)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid company_id in authentication token.",
-            )
-    else:
+    if not company_id_str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="company_id could not be resolved. Include it in the request body or ensure your token is valid.",
+            detail="company_id could not be resolved from authentication token.",
         )
+    try:
+        company_id = uuid.UUID(company_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid company_id in authentication token.",
+        )
+
+    # Cross-tenant IDOR protection: reject if body.company_id differs from token's company_id
+    if body.company_id and body.company_id != company_id:
+        role = claims.get("role", "").upper()
+        if role != "SUPER_ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot access resources for a different company.",
+            )
 
     logger.info(
         "POST /emotions/sessions | user=%s | employee_id=%s | company_id=%s",

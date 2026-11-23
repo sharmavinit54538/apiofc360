@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Depends, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -454,6 +454,34 @@ async def pydantic_validation_exception_handler(request: Request, exc: Validatio
     return await request_validation_exception_handler(request, RequestValidationError(exc.errors()))
 
 
+def map_db_exception(exc: Exception) -> str:
+    """Map database exceptions to user-friendly messages without leaking internals."""
+    from sqlalchemy.exc import (
+        IntegrityError,
+        OperationalError,
+        ProgrammingError,
+        DBAPIError,
+    )
+    
+    exc_type = type(exc).__name__
+    msg = str(exc).lower()
+    
+    if isinstance(exc, IntegrityError) or "integrity" in msg:
+        return "A data integrity constraint was violated (duplicate or foreign key)."
+    if isinstance(exc, OperationalError) or "operational" in msg:
+        return "Database operation failed. Please try again."
+    if isinstance(exc, ProgrammingError) or "programming" in msg:
+        return "Invalid database query."
+    if isinstance(exc, DBAPIError) or "dbapi" in msg:
+        return "Database connection error."
+    if "timeout" in msg:
+        return "Database query timed out."
+    if "connection" in msg:
+        return "Database connection failed."
+    
+    return "A database error occurred."
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers on a FastAPI app."""
 

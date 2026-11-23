@@ -426,11 +426,11 @@ class ShiftService:
     ) -> List[date]:
         # Try to find leave request model - skip if not available
         try:
-            from app.models.leave import LeaveRequest, LeaveStatus
+            from app.models.leave import LeaveRequest
             stmt = select(LeaveRequest).where(
                 and_(
                     LeaveRequest.employee_id == employee_id,
-                    LeaveRequest.status == LeaveStatus.APPROVED,
+                    LeaveRequest.status == "APPROVED",
                     LeaveRequest.start_date <= end,
                     LeaveRequest.end_date >= start,
                 )

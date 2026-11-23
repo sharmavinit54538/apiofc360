@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Query, status
+from app.core.exceptions import AppException
 
 from app.api.departments import require_admin_or_hr
 from app.middleware.auth import get_current_user_claims_optional

@@ -12,6 +12,7 @@ from app.core.cache import (
     get_resource_version,
     increment_resource_version,
     make_cache_key,
+    cached_get_or_set,
 )
 from app.core.redis_client import get_redis_client
 
