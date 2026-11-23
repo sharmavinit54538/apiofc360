@@ -510,6 +510,119 @@ async def test_logout_endpoint_succeeds_even_if_access_token_expired():
 # 8. Auth /me API Endpoint Tests
 # ============================================================================
 
+async def _mock_db_with_user(app, user_id: uuid.UUID, comp_id: uuid.UUID, role: str = "hr_admin", email: str = "alice@company.com", name: str = "Alice Johnson"):
+    """Mock database session to return a valid user for authentication."""
+    from app.db.database import get_db_session
+    from app.models.user import User, UserAccountStatus, UserRole
+    from app.models.employee import Employee
+    from app.models.manager import Manager
+    
+    mock_user = MagicMock(spec=User)
+    mock_user.id = user_id
+    mock_user.name = name
+    mock_user.email = email
+    mock_user.phone = "9876543210"
+    mock_user.role = UserRole(role.lower())
+    mock_user.is_verified = True
+    mock_user.account_status = UserAccountStatus.ACTIVE.value
+    mock_user.is_active = True
+    mock_user.is_deleted = False
+    mock_user.must_change_password = False
+    mock_user.onboarding_completed = True
+    mock_user.company_id = comp_id
+    mock_user.company = MagicMock()
+    mock_user.company.name = "Acme Enterprises"
+    mock_user.company.onboarding_completed = True
+
+    mock_session = AsyncMock()
+    
+    async def mock_execute(stmt):
+        stmt_str = str(stmt).lower()
+        from tests.conftest import _create_mock_result
+        if "employee" in stmt_str and "user_id" in stmt_str:
+            # Return no employee record (user is not an employee)
+            return _create_mock_result([])
+        elif "manager" in stmt_str and "user_id" in stmt_str:
+            # Return no manager record
+            return _create_mock_result([])
+        elif "user" in stmt_str and "id" in stmt_str and "actor_id" not in stmt_str:
+            # validate_principal query: select(User).where(User.id == actor_id)
+            return _create_mock_result([mock_user])
+        elif "refreshtoken" in stmt_str or "refresh_token" in stmt_str:
+            # validate_principal query for refresh token
+            return _create_mock_result([MagicMock()])  # Return a mock refresh token
+        return _create_mock_result([])
+    
+    mock_session.execute.side_effect = mock_execute
+    
+    # Mock scalar method to handle session.scalar() calls
+    async def mock_scalar(stmt):
+        result = await mock_execute(stmt)
+        return result.scalars().first()
+    
+    mock_session.scalar.side_effect = mock_scalar
+    
+    mock_session.commit = AsyncMock()
+    mock_session.rollback = AsyncMock()
+    mock_session.close = AsyncMock()
+    mock_session.add = MagicMock()
+    mock_session.refresh = AsyncMock()
+    mock_session.delete = AsyncMock()
+    mock_session.flush = AsyncMock()
+    
+    async def mock_get_db_session():
+        yield mock_session
+
+    app.dependency_overrides[get_db_session] = mock_get_db_session
+    
+    # Mock AuthRepository.get_user_by_id at the middleware module level
+    import app.middleware.auth as auth_middleware
+    from app.repositories.auth_repository import AuthRepository
+    original_get_user_by_id = AuthRepository.get_user_by_id
+    original_auth_repository = auth_middleware.AuthRepository
+    
+    async def mock_get_user_by_id(self, uid: uuid.UUID):
+        if uid == user_id:
+            return mock_user
+        return None
+    
+    # Create a mock AuthRepository class
+    class MockAuthRepository:
+        def __init__(self, session):
+            self.session = session
+        
+        async def get_user_by_id(self, uid: uuid.UUID):
+            return await mock_get_user_by_id(self, uid)
+    
+    AuthRepository.get_user_by_id = mock_get_user_by_id
+    auth_middleware.AuthRepository = MockAuthRepository
+    
+    # Mock Redis cache to avoid cached negative results
+    import app.core.cache as cache_module
+    original_cache_get = cache_module.async_cache_get
+    original_cache_set = cache_module.async_cache_set
+    
+    async def mock_cache_get(key):
+        return None  # Always cache miss to force DB check
+    
+    async def mock_cache_set(key, value, ttl_seconds=None):
+        pass
+    
+    cache_module.async_cache_get = mock_cache_get
+    cache_module.async_cache_set = mock_cache_set
+    
+    # Mock redis_client.check_token_state to return (False, None) - not blacklisted, not revoked
+    import app.core.redis_client as redis_client_module
+    original_check_token_state = redis_client_module.redis_client.check_token_state
+    
+    async def mock_check_token_state(token, user_id):
+        return (False, None)
+    
+    redis_client_module.redis_client.check_token_state = mock_check_token_state
+    
+    return mock_session, original_get_user_by_id, original_cache_get, original_cache_set, original_check_token_state, original_auth_repository
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_get_me_endpoint_returns_200_with_full_profile():
     """Authenticated user /me returns 200 OK with id, name, email, role, company, email_verified, account_status."""
@@ -537,6 +650,8 @@ async def test_get_me_endpoint_returns_200_with_full_profile():
     mock_acc_svc.get_profile.return_value = mock_profile
     app.dependency_overrides[get_account_service] = lambda: mock_acc_svc
 
+    mock_session, original_get_user_by_id, original_cache_get, original_cache_set, original_check_token_state, original_auth_repository = await _mock_db_with_user(app, user_id, comp_id)
+
     # Create valid access token
     valid_token = create_access_token(user_id=user_id, role="hr_admin", company_id=comp_id)
 
@@ -552,6 +667,16 @@ async def test_get_me_endpoint_returns_200_with_full_profile():
         assert data["data"]["account_status"] == "ACTIVE"
         assert data["data"]["company_name"] == "Acme Enterprises"
 
+    # Restore
+    from app.repositories.auth_repository import AuthRepository
+    import app.core.cache as cache_module
+    import app.core.redis_client as redis_client_module
+    import app.middleware.auth as auth_middleware
+    AuthRepository.get_user_by_id = original_get_user_by_id
+    auth_middleware.AuthRepository = original_auth_repository
+    cache_module.async_cache_get = original_cache_get
+    cache_module.async_cache_set = original_cache_set
+    redis_client_module.redis_client.check_token_state = original_check_token_state
     app.dependency_overrides.clear()
 
 
@@ -623,8 +748,9 @@ async def test_reset_password_endpoint_returns_200():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/v1/auth/reset-password", json={
-            "token": "valid_reset_tok",
-            "password": "NewSecurePassword@2026",
+            "email": "user@example.com",
+            "reset_token": "valid_reset_tok",
+            "new_password": "NewSecurePassword@2026",
             "confirm_password": "NewSecurePassword@2026",
         })
         assert resp.status_code == 200
@@ -647,6 +773,9 @@ async def test_hr_admin_create_internal_users_returns_201():
 
     mock_hr_svc = AsyncMock()
     app.dependency_overrides[get_hr_admin_service] = lambda: mock_hr_svc
+
+    # Mock database with admin user
+    mock_session, original_get_user_by_id, original_cache_get, original_cache_set, original_check_token_state, original_auth_repository = await _mock_db_with_user(app, admin_id, comp_id, role="hr_admin")
 
     # Create admin token
     admin_token = create_access_token(user_id=admin_id, role="hr_admin", company_id=comp_id)
@@ -687,6 +816,16 @@ async def test_hr_admin_create_internal_users_returns_201():
             assert data["success"] is True
             assert data["data"]["role"] == role.lower()
 
+    # Restore
+    from app.repositories.auth_repository import AuthRepository
+    import app.core.cache as cache_module
+    import app.core.redis_client as redis_client_module
+    import app.middleware.auth as auth_middleware
+    AuthRepository.get_user_by_id = original_get_user_by_id
+    auth_middleware.AuthRepository = original_auth_repository
+    cache_module.async_cache_get = original_cache_get
+    cache_module.async_cache_set = original_cache_set
+    redis_client_module.redis_client.check_token_state = original_check_token_state
     app.dependency_overrides.clear()
 
 
@@ -696,6 +835,9 @@ async def test_employee_cannot_create_users_returns_403():
     app = shared_app
     emp_id = uuid.uuid4()
     comp_id = uuid.uuid4()
+
+    # Mock database with employee user
+    mock_session, original_get_user_by_id, original_cache_get, original_cache_set, original_check_token_state, original_auth_repository = await _mock_db_with_user(app, emp_id, comp_id, role="employee")
 
     # Employee token (not admin)
     emp_token = create_access_token(user_id=emp_id, role="employee", company_id=comp_id)
@@ -716,3 +858,15 @@ async def test_employee_cannot_create_users_returns_403():
         assert resp.status_code == 403
         data = resp.json()
         assert data["success"] is False
+
+    # Restore
+    from app.repositories.auth_repository import AuthRepository
+    import app.core.cache as cache_module
+    import app.core.redis_client as redis_client_module
+    import app.middleware.auth as auth_middleware
+    AuthRepository.get_user_by_id = original_get_user_by_id
+    auth_middleware.AuthRepository = original_auth_repository
+    cache_module.async_cache_get = original_cache_get
+    cache_module.async_cache_set = original_cache_set
+    redis_client_module.redis_client.check_token_state = original_check_token_state
+    app.dependency_overrides.clear()

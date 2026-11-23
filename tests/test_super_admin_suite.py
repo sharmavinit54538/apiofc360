@@ -43,10 +43,13 @@ async def test_seed_super_admin_creates_platform_account():
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
 
-    # User does not exist
-    mock_exec_res = MagicMock()
-    mock_exec_res.scalars.return_value.first.return_value = None
-    mock_session.execute.return_value = mock_exec_res
+    # Mock scalars().all() to return empty list (no existing owners)
+    mock_scalars_result = MagicMock()
+    mock_scalars_result.all.return_value = []
+    mock_session.scalars.return_value = mock_scalars_result
+
+    # Mock scalar() to return None (no existing user with that email)
+    mock_session.scalar.return_value = None
 
     with pytest.MonkeyPatch.context() as mp:
         mock_ctx = MagicMock()
@@ -59,10 +62,11 @@ async def test_seed_super_admin_creates_platform_account():
             password="SuperPassword@123",
             name="Platform Super Admin",
             phone="9999999999",
+            operator="test-operator",
         )
 
     added_objects = [c.args[0] for c in mock_session.add.call_args_list]
-    assert len(added_objects) == 1
+    assert len(added_objects) == 2  # User + AuditLog
     sa_user = added_objects[0]
     assert isinstance(sa_user, User)
     assert sa_user.email == "superadmin@ofc360.com"
@@ -71,4 +75,4 @@ async def test_seed_super_admin_creates_platform_account():
     assert sa_user.is_active is True
     assert sa_user.is_verified is True
     assert sa_user.account_status == "ACTIVE"
-    assert sa_user.must_change_password is False
+    assert sa_user.must_change_password is True  # Should be True on initial provisioning
