@@ -74,15 +74,23 @@ class DuplicateDetectorService:
                 stmt = select(AIResumeDocument).where(AIResumeDocument.candidate_id.isnot(None))
                 res = await self.session.execute(stmt)
                 docs = res.scalars().all()
-                for d in docs:
-                    if d.parsed_data and isinstance(d.parsed_data, dict):
-                        doc_linkedin = str(d.parsed_data.get("linkedin") or d.parsed_data.get("linkedin_url") or "")
-                        if handle in doc_linkedin.lower():
-                            cand = await self.session.get(Candidate, d.candidate_id)
-                            if cand:
-                                duplicate_candidate = cand
-                                matched_by.append("linkedin_url")
-                                break
+                if docs:
+                    candidate_ids = {d.candidate_id for d in docs if d.candidate_id}
+                    cand_map = {}
+                    if candidate_ids:
+                        cand_stmt = select(Candidate).where(Candidate.id.in_(candidate_ids))
+                        cand_res = await self.session.execute(cand_stmt)
+                        cand_map = {c.id: c for c in cand_res.scalars().all()}
+                    
+                    for d in docs:
+                        if d.parsed_data and isinstance(d.parsed_data, dict):
+                            doc_linkedin = str(d.parsed_data.get("linkedin") or d.parsed_data.get("linkedin_url") or "")
+                            if handle in doc_linkedin.lower():
+                                cand = cand_map.get(d.candidate_id)
+                                if cand:
+                                    duplicate_candidate = cand
+                                    matched_by.append("linkedin_url")
+                                    break
 
         # 4. Name + Company similarity check
         if not duplicate_candidate and name and company:
