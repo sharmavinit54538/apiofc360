@@ -239,6 +239,7 @@ async def test_login_endpoint_success_returns_200():
         "access_token_123",
         "refresh_token_456",
         900,
+        False,  # requires_verification
     )
     app.dependency_overrides[get_auth_service] = lambda: mock_auth_svc
 

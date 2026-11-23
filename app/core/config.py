@@ -489,19 +489,26 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():
                 raise ValueError("REDIS_URL must be set via environment variable in production")
+            # JWT algorithm MUST be RS256 in production
+            if self.JWT_ALGORITHM.upper() != "RS256":
+                raise ValueError("JWT_ALGORITHM must be RS256 in production (got: " + self.JWT_ALGORITHM + ")")
             # JWT keys required for RS256 in production
-            if self.JWT_ALGORITHM.upper().startswith("RS"):
-                private_key = self.JWT_PRIVATE_KEY.get_secret_value()
-                public_key = self.JWT_PUBLIC_KEY.get_secret_value()
-                if not private_key or not private_key.strip():
-                    raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production when using RS256")
-                if not public_key or not public_key.strip():
-                    raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production when using RS256")
-                # Validate key format
-                if not private_key.strip().startswith("-----BEGIN"):
-                    raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
-                if not public_key.strip().startswith("-----BEGIN"):
-                    raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            private_key = self.JWT_PRIVATE_KEY.get_secret_value()
+            public_key = self.JWT_PUBLIC_KEY.get_secret_value()
+            if not private_key or not private_key.strip():
+                raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production when using RS256")
+            if not public_key or not public_key.strip():
+                raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production when using RS256")
+            # Validate key format
+            if not private_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
+            if not public_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            # DigiLocker redirect URI must not be localhost in production when DigiLocker is configured
+            if self.DIGILOCKER_CLIENT_ID and self.DIGILOCKER_CLIENT_ID.strip():
+                redirect_uri = self.DIGILOCKER_REDIRECT_URI.lower()
+                if any(local_addr in redirect_uri for local_addr in ("localhost", "127.0.0.1")):
+                    raise ValueError("DIGILOCKER_REDIRECT_URI must not use localhost/127.0.0.1 in production when DIGILOCKER_CLIENT_ID is set")
             # Cloudinary required in production
             if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
                 raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
