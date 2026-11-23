@@ -335,26 +335,75 @@ class DepartmentService:
                 parent_id=parent_id,
             )
 
+            # Batch fetch employee counts for all departments
+            dept_ids = [d.id for d in departments]
+            emp_counts = {}
+            if dept_ids:
+                from sqlalchemy import select, func
+                from app.models.employee import Employee
+                emp_stmt = select(Employee.department_id, func.count(Employee.id)).where(
+                    Employee.department_id.in_(dept_ids),
+                    Employee.is_deleted == False,
+                    Employee.status == "ACTIVE"
+                ).group_by(Employee.department_id)
+                emp_result = await self.session.execute(emp_stmt)
+                emp_counts = {dept_id: count for dept_id, count in emp_result.all()}
+
+            # Batch fetch parent department names and manager users
+            parent_dept_ids = [d.parent_department_id for d in departments if d.parent_department_id]
+            parent_dept_names = {}
+            parent_manager_ids = set()
+            if parent_dept_ids:
+                from app.models.department import Department
+                parent_stmt = select(Department.id, Department.department_name, Department.manager_id).where(
+                    Department.id.in_(parent_dept_ids)
+                )
+                parent_result = await self.session.execute(parent_stmt)
+                for pid, pname, pmgr_id in parent_result.all():
+                    parent_dept_names[pid] = pname
+                    if pmgr_id:
+                        parent_manager_ids.add(pmgr_id)
+            
+            # Batch fetch manager users
+            manager_users = {}
+            all_manager_ids = set()
+            for d in departments:
+                if d.manager_id:
+                    all_manager_ids.add(d.manager_id)
+            all_manager_ids.update(parent_manager_ids)
+            
+            if all_manager_ids:
+                from app.models.user import User
+                user_stmt = select(User).where(User.id.in_(all_manager_ids))
+                user_result = await self.session.execute(user_stmt)
+                manager_users = {u.id: u.name for u in user_result.scalars().all()}
+
             items = []
             for d in departments:
-                emp_count = await self.repo.get_employee_count(d.id)
-                manager_name = d.manager_user.name if d.manager_user else None
+                emp_count = emp_counts.get(d.id, 0)
+                manager_name = manager_users.get(d.manager_id) if d.manager_id else None
                 
                 parent_department_name = None
                 reporting_manager_id = None
                 reporting_manager_name = None
                 
-                if d.parent_department:
-                    parent_department_name = d.parent_department.department_name
-                    reporting_manager_id = d.parent_department.manager_id
-                    if reporting_manager_id:
-                        from app.models.user import User
-                        from sqlalchemy import select
-                        user_stmt = select(User).where(User.id == reporting_manager_id)
-                        res = await self.session.execute(user_stmt)
-                        parent_user = res.scalar_one_or_none()
-                        if parent_user:
-                            reporting_manager_name = parent_user.name
+                if d.parent_department_id:
+                    parent_department_name = parent_dept_names.get(d.parent_department_id)
+                    reporting_manager_id = None
+                    # Find the parent department's manager_id from the parent query result
+                    if d.parent_department_id:
+                        # We need to get the manager_id from the parent department
+                        # Since we only fetched names, we need to check if we have the manager_id
+                        # Let's fetch it from the parent department if needed
+                        pass
+                    
+                    # Get the parent department's manager_id from the original department object
+                    # We can get it from the parent_dept_names dict but we need manager_id too
+                    # Let's just query it if we don't have it
+                    if d.parent_department:
+                        reporting_manager_id = d.parent_department.manager_id
+                        if reporting_manager_id:
+                            reporting_manager_name = manager_users.get(reporting_manager_id)
 
                 items.append(
                     DepartmentListItem(
@@ -835,13 +884,38 @@ class DepartmentService:
         success_ids: list[uuid.UUID] = []
         errors: list[dict[str, Any]] = []
 
+        # Batch fetch departments
+        departments = {}
+        if department_ids:
+            from sqlalchemy import select
+            from app.models.department import Department
+            dept_stmt = select(Department).where(Department.id.in_(department_ids))
+            if company_id:
+                dept_stmt = dept_stmt.where(Department.company_id == company_id)
+            dept_result = await self.session.execute(dept_stmt)
+            for dept in dept_result.scalars().all():
+                departments[dept.id] = dept
+
+        # Batch fetch employee counts
+        emp_counts = {}
+        if department_ids:
+            from sqlalchemy import select, func
+            from app.models.employee import Employee
+            emp_stmt = select(Employee.department_id, func.count(Employee.id)).where(
+                Employee.department_id.in_(department_ids),
+                Employee.is_deleted == False,
+                Employee.status == "ACTIVE"
+            ).group_by(Employee.department_id)
+            emp_result = await self.session.execute(emp_stmt)
+            emp_counts = {dept_id: count for dept_id, count in emp_result.all()}
+
         for dept_id in department_ids:
-            dept = await self.repo.get_by_id_raw(dept_id, company_id=company_id)
+            dept = departments.get(dept_id)
             if not dept or dept.is_deleted:
                 errors.append({"id": str(dept_id), "message": "Department not found or already deleted."})
                 continue
 
-            emp_cnt = await self.repo.get_employee_count(dept_id, company_id=company_id)
+            emp_cnt = emp_counts.get(dept_id, 0)
             if emp_cnt > 0:
                 errors.append({
                     "id": str(dept_id),

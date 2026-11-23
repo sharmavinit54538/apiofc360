@@ -1128,11 +1128,25 @@ Please generate the specific recruiter outcome. Be precise, clear, and professio
             CompanyPolicyDocument.company_id == company_id,
             CompanyPolicyDocument.status.in_(("PUBLISHED", "ACTIVE", "APPROVED")),
         ))).scalars().all()
+        
+        # Batch fetch all chunks for these documents to avoid N+1 queries
+        document_ids = [doc.id for doc in documents]
+        chunks_map: dict[uuid.UUID, list] = {}
+        if document_ids:
+            from sqlalchemy import select
+            chunks_result = await self.session.execute(
+                select(CompanyPolicyChunk).where(
+                    CompanyPolicyChunk.policy_document_id.in_(document_ids)
+                ).order_by(CompanyPolicyChunk.policy_document_id, CompanyPolicyChunk.chunk_order)
+            )
+            for chunk in chunks_result.scalars().all():
+                if chunk.policy_document_id not in chunks_map:
+                    chunks_map[chunk.policy_document_id] = []
+                chunks_map[chunk.policy_document_id].append(chunk)
+        
         policy_rows: list[dict[str, Any]] = []
         for document in documents:
-            chunks = (await self.session.execute(select(CompanyPolicyChunk).where(
-                CompanyPolicyChunk.policy_document_id == document.id,
-            ).order_by(CompanyPolicyChunk.chunk_order))).scalars().all()
+            chunks = chunks_map.get(document.id, [])
             if chunks:
                 for chunk in chunks:
                     policy_rows.append({

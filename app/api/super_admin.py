@@ -2016,7 +2016,7 @@ async def get_super_admin_security(db: AsyncSession = Depends(get_db_session)) -
         "security_score": 98 if failed_logins == 0 else max(75, 98 - failed_logins * 2),
         "active_sessions_count": max(1, active_sessions),
         "jwt_algorithm": "HS256",
-        "mfa_enforced": GLOBAL_PLATFORM_SETTINGS.get("enforceMfaGlobally", True),
+        "mfa_enforced": (await _get_platform_settings()).get("enforceMfaGlobally", True),
         "failed_logins_24h": failed_logins,
     }
 
@@ -2096,8 +2096,10 @@ async def block_ip_address(
 ) -> dict[str, Any]:
     """Add IP to global blocklist."""
     ip = payload.get("ip") or payload.get("ipAddress")
-    if ip and ip not in GLOBAL_BLOCKED_IPS:
-        GLOBAL_BLOCKED_IPS.append(ip)
+    blocked_ips = await _get_blocked_ips()
+    if ip and ip not in blocked_ips:
+        blocked_ips.append(ip)
+        await _set_blocked_ips(blocked_ips)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_BLOCK_IP",
@@ -2113,8 +2115,10 @@ async def unblock_ip_address(
 ) -> dict[str, Any]:
     """Remove IP from global blocklist."""
     ip = payload.get("ip") or payload.get("ipAddress")
-    if ip and ip in GLOBAL_BLOCKED_IPS:
-        GLOBAL_BLOCKED_IPS.remove(ip)
+    blocked_ips = await _get_blocked_ips()
+    if ip and ip in blocked_ips:
+        blocked_ips.remove(ip)
+        await _set_blocked_ips(blocked_ips)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UNBLOCK_IP",
@@ -2300,7 +2304,7 @@ async def get_super_admin_system_health(db: AsyncSession = Depends(get_db_sessio
 @router.get("/settings")
 async def get_super_admin_settings() -> dict[str, Any]:
     """Get global platform configuration settings."""
-    return GLOBAL_PLATFORM_SETTINGS
+    return await _get_platform_settings()
 
 
 @router.patch("/settings")
@@ -2310,13 +2314,15 @@ async def update_super_admin_settings(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Persist super admin platform settings."""
-    GLOBAL_PLATFORM_SETTINGS.update(payload)
+    settings = await _get_platform_settings()
+    settings.update(payload)
+    await _set_platform_settings(settings)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UPDATE_SETTINGS",
         details=f"Updated platform configuration: {list(payload.keys())}.",
     )
-    return {"success": True, "settings": GLOBAL_PLATFORM_SETTINGS, "message": "Platform settings saved."}
+    return {"success": True, "settings": settings, "message": "Platform settings saved."}
 
 
 # ─── 11. Onboarding Tracker ─────────────────────────────────────────
@@ -2459,12 +2465,13 @@ async def get_super_admin_ai_usage() -> dict[str, Any]:
 @router.get("/announcements")
 async def get_super_admin_announcements() -> list[dict[str, Any]]:
     """Get global platform announcements."""
-    return GLOBAL_ANNOUNCEMENTS
+    return await _get_platform_announcements()
 
 
 @router.post("/announcements")
 async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
     """Broadcast global announcement."""
+    announcements = await _get_platform_announcements()
     new_ann = {
         "id": f"ann_{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "Platform Notice"),
@@ -2472,7 +2479,8 @@ async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSe
         "target_audience": payload.get("target_audience", "ALL_TENANTS"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    GLOBAL_ANNOUNCEMENTS.insert(0, new_ann)
+    announcements.insert(0, new_ann)
+    await _set_platform_announcements(announcements)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_CREATE_ANNOUNCEMENT",
@@ -2484,9 +2492,11 @@ async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSe
 @router.patch("/announcements/{ann_id}")
 async def update_super_admin_announcement(ann_id: str, payload: dict = Body(...)) -> dict[str, Any]:
     """Update announcement."""
-    for a in GLOBAL_ANNOUNCEMENTS:
+    announcements = await _get_platform_announcements()
+    for a in announcements:
         if a["id"] == ann_id:
             a.update(payload)
+            await _set_platform_announcements(announcements)
             return {"success": True, "announcement": a}
     raise HTTPException(status_code=404, detail="Announcement not found.")
 
@@ -2494,6 +2504,7 @@ async def update_super_admin_announcement(ann_id: str, payload: dict = Body(...)
 @router.delete("/announcements/{ann_id}")
 async def delete_super_admin_announcement(ann_id: str) -> dict[str, Any]:
     """Delete announcement."""
-    global GLOBAL_ANNOUNCEMENTS
-    GLOBAL_ANNOUNCEMENTS = [a for a in GLOBAL_ANNOUNCEMENTS if a["id"] != ann_id]
+    announcements = await _get_platform_announcements()
+    announcements = [a for a in announcements if a["id"] != ann_id]
+    await _set_platform_announcements(announcements)
     return {"success": True, "message": f"Announcement {ann_id} removed."}

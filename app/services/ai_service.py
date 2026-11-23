@@ -580,7 +580,7 @@ def rewrite_sql_for_tenant(sql: str, company_id: uuid.UUID | None, is_super_admi
 def get_read_only_session(db: AsyncSession, timeout_seconds: int):
     """Create a read-only session with statement timeout."""
     from sqlalchemy import text
-    timeout_ms = int(timeout_seconds) * 1000
+    timeout_ms = max(1000, int(timeout_seconds) * 1000)
     async def _setup(conn):
         await conn.execute(text("SET TRANSACTION READ ONLY"))
         await conn.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
@@ -679,9 +679,9 @@ async def _execute_sql_loop(
             )
             
             # Set up read-only transaction with timeout
-            sql_timeout = int(getattr(settings, "AI_SQL_TIMEOUT_SECONDS", 30))
+            sql_timeout = max(1000, int(getattr(settings, "AI_SQL_TIMEOUT_SECONDS", 30)) * 1000)
             await self.db.execute(text("SET TRANSACTION READ ONLY"))
-            await self.db.execute(text(f"SET LOCAL statement_timeout = {sql_timeout * 1000}"))
+            await self.db.execute(text(f"SET LOCAL statement_timeout = {sql_timeout}"))
             
             # Execute with bound parameter for company_id
             result = await self.db.execute(

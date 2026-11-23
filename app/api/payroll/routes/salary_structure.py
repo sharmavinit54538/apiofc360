@@ -118,10 +118,11 @@ async def get_salary_structures_ai_insights(
     structure_ids = [str(s) for s in struct_result.scalars().all()]
 
     if structure_ids:
-        emp_stmt = select(func.count(Employee.id)).where(
-            Employee.salary_structure_id.in_([uuid.UUID(s) for s in structure_ids]),
-            Employee.is_deleted == False,
-            Employee.status == "ACTIVE"
+        # Query SalaryStructure to find which have employees assigned
+        # SalaryStructure has employee_id, so we check for non-null employee_id
+        emp_stmt = select(func.count(SalaryStructure.id)).where(
+            SalaryStructure.id.in_([uuid.UUID(s) for s in structure_ids]),
+            SalaryStructure.employee_id.is_not(None),
         )
         emp_result = await db.execute(emp_stmt)
         assigned_count = emp_result.scalar() or 0
@@ -139,35 +140,35 @@ async def get_salary_structures_ai_insights(
                 "appliedCount": 0,
             })
 
-    # Check for structures with very low/high bands
-    from app.models.payroll import CompensationBand
-    band_stmt = select(CompensationBand).where(CompensationBand.is_active == True)
+    # Check for structures with very low/high spreads using SalaryStructure fields
+    struct_stmt2 = select(SalaryStructure).where(SalaryStructure.is_active == True)
     if company_id:
-        band_stmt = band_stmt.where(CompensationBand.company_id == company_id)
-    band_result = await db.execute(band_stmt)
-    bands = band_result.scalars().all()
+        struct_stmt2 = struct_stmt2.where(SalaryStructure.company_id == company_id)
+    struct_result2 = await db.execute(struct_stmt2)
+    structures = struct_result2.scalars().all()
 
-    for band in bands:
-        if band.min_amount and band.max_amount:
-            spread = float(band.max_amount - band.min_amount) / float(band.min_amount) * 100
+    for struct in structures:
+        # Use basic and gross to compute spread if available
+        if struct.basic_salary and struct.gross_salary and struct.gross_salary > 0:
+            spread = float(struct.gross_salary - struct.basic_salary) / float(struct.basic_salary) * 100
             if spread < 10:
                 insights.append({
-                    "id": f"ins_narrow_band_{band.id}",
-                    "title": f"Narrow Salary Band: {band.name}",
+                    "id": f"ins_narrow_struct_{struct.id}",
+                    "title": f"Narrow Salary Structure: {struct.name}",
                     "category": "OPTIMIZATION",
                     "severity": "LOW",
-                    "description": f"Band '{band.name}' has only {spread:.1f}% spread between min and max.",
+                    "description": f"Structure '{struct.name}' has only {spread:.1f}% spread between basic and gross.",
                     "impactMetric": f"Spread: {spread:.1f}%",
-                    "recommendation": "Review band width for competitive positioning.",
+                    "recommendation": "Review structure width for competitive positioning.",
                     "appliedCount": 0,
                 })
             elif spread > 100:
                 insights.append({
-                    "id": f"ins_wide_band_{band.id}",
-                    "title": f"Wide Salary Band: {band.name}",
+                    "id": f"ins_wide_struct_{struct.id}",
+                    "title": f"Wide Salary Structure: {struct.name}",
                     "category": "OPTIMIZATION",
                     "severity": "LOW",
-                    "description": f"Band '{band.name}' has {spread:.1f}% spread - may lack internal equity.",
+                    "description": f"Structure '{struct.name}' has {spread:.1f}% spread - may lack internal equity.",
                     "impactMetric": f"Spread: {spread:.1f}%",
                     "recommendation": "Consider splitting into multiple grades.",
                     "appliedCount": 0,

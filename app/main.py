@@ -220,12 +220,12 @@ async def lifespan(app: FastAPI):
 
     # Graceful shutdown of HTTP clients
     try:
-        from app.llm.client.base import LLMClientBase
-        # Note: LLMClientBase is a base class, actual clients are singletons in providers
-        from app.llm.providers.ollama_provider import OllamaProvider
-        # The OllamaProvider uses a global instance, close it if it exists
+        from app.llm.providers.registry import get_provider_registry
+        registry = get_provider_registry()
+        await registry.close_all()
+        logger.info("LLM provider registry closed")
     except Exception as e:
-        logger.debug("LLM client cleanup skipped: %s", e)
+        logger.debug("LLM provider cleanup skipped: %s", e)
 
     try:
         from app.services.stt.providers import get_stt_provider
