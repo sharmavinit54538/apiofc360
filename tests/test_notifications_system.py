@@ -529,24 +529,43 @@ async def test_notifications_sse_stream():
                 )
                 await session.commit()
 
-            # 3. Connect stream passing Last-Event-ID = str(last_id)
-            async with client.stream(
-                "GET",
-                "/api/v1/notifications/stream",
-                headers={"Last-Event-ID": str(last_id)},
-            ) as response:
-                assert response.status_code == 200
-                assert "text/event-stream" in response.headers.get("content-type", "")
+            # ASGITransport buffers the entire response and cannot consume an
+            # endless SSE stream. Drive actual ASGI messages and disconnect
+            # after the required events, with a bounded timeout.
+            disconnected = asyncio.Event()
+            request_sent = False
+            messages = []
+            body = bytearray()
 
-                received_events = []
-                async for line in response.aiter_lines():
-                    if line.startswith("event: "):
-                        received_events.append(line.split("event: ")[1].strip())
-                    if "unread_count" in received_events:
-                        break
+            async def receive():
+                nonlocal request_sent
+                if not request_sent:
+                    request_sent = True
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                await disconnected.wait()
+                return {"type": "http.disconnect"}
 
-                assert "notification.created" in received_events
-                assert "unread_count" in received_events
+            async def send(message):
+                messages.append(message)
+                if message["type"] == "http.response.body":
+                    body.extend(message.get("body", b""))
+                    if b"event: unread_count" in body:
+                        disconnected.set()
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1", "method": "GET", "scheme": "http",
+                "path": "/api/v1/notifications/stream", "raw_path": b"/api/v1/notifications/stream",
+                "query_string": b"", "root_path": "", "server": ("test", 80),
+                "client": ("127.0.0.1", 12345),
+                "headers": [(b"last-event-id", str(last_id).encode())],
+            }
+            await asyncio.wait_for(app(scope, receive, send), timeout=10)
+            response_start = next(message for message in messages if message["type"] == "http.response.start")
+            assert response_start["status"] == 200
+            assert b"text/event-stream" in dict(response_start["headers"])[b"content-type"]
+            assert b"event: notification.created" in body
+            assert b"event: unread_count" in body
     finally:
         app.dependency_overrides.clear()
         await _cleanup_test_data([company_id], [user_id])

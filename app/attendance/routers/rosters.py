@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -159,8 +159,8 @@ async def list_rosters(
     # Only approved entries from published plans
     stmt = stmt.where(
         and_(
-            ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
-            ShiftPlan.status == ShiftPlanStatus.PUBLISHED,
+            text("shift_plan_entries.approval_status = 'APPROVED'"),
+            text("shift_plans.status = 'PUBLISHED'"),
         )
     )
 

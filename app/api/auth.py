@@ -60,12 +60,22 @@ from app.core.rate_limiter import (
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+def _browser_session(request: Request) -> bool:
+    """Browsers recover sessions exclusively through the HttpOnly cookie."""
+    return bool(
+        request.headers.get("origin") or request.headers.get("referer")
+        or request.headers.get("sec-fetch-mode")
+        or "mozilla/" in request.headers.get("user-agent", "").lower()
+        or any(name in request.cookies for name in (settings.COOKIE_NAME, "ofc360_refresh_token", "refresh_token"))
+    )
+
+
 def set_auth_cookies(response: Response, refresh_token: str) -> None:
     """Set HttpOnly, Secure SameSite refresh token cookie for browser session recovery."""
     from app.core.config import settings
 
     is_prod = settings.is_production
-    secure = settings.COOKIE_SECURE if settings.COOKIE_SECURE is not None else is_prod
+    secure = is_prod or bool(settings.COOKIE_SECURE)
 
     kwargs: dict[str, Any] = {
         "key": settings.COOKIE_NAME,
@@ -116,7 +126,7 @@ def _verify_trusted_origin(request: Request) -> None:
     allowed = {o.rstrip("/").lower() for o in settings.CORS_ORIGINS}
     if getattr(settings, "BACKEND_CORS_ORIGINS", None):
         allowed.update(o.rstrip("/").lower() for o in settings.BACKEND_CORS_ORIGINS)
-    if getattr(settings, "DEV_CORS_ORIGINS", None):
+    if not settings.is_production and getattr(settings, "DEV_CORS_ORIGINS", None):
         allowed.update(o.rstrip("/").lower() for o in settings.DEV_CORS_ORIGINS)
     if getattr(settings, "ALLOWED_ORIGINS", None):
         allowed.update(o.rstrip("/").lower() for o in settings.ALLOWED_ORIGINS)
@@ -242,6 +252,7 @@ async def resend_otp(
     "/login",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
+    response_model_exclude_none=True,
     dependencies=[Depends(check_login_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Login failed"},
@@ -379,7 +390,7 @@ async def login(
         data=LoginResponseData(
             user=user_data,
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=None if _browser_session(request) else refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -391,6 +402,7 @@ async def login(
     "/verify-email-otp",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
+    response_model_exclude_none=True,
     dependencies=[Depends(check_otp_rate_limit)],
     responses={
         status.HTTP_400_BAD_REQUEST: {"model": APIResponse[None], "description": "Invalid, expired, or exhausted OTP"},
@@ -462,7 +474,7 @@ async def verify_email_otp(
         data=LoginResponseData(
             user=user_data,
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=None if _browser_session(request) else refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -536,6 +548,7 @@ async def get_google_auth_url(redirect_uri: str | None = None) -> GoogleAuthUrlR
     "/google",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
+    response_model_exclude_none=True,
     summary="Google OAuth SSO Login",
     dependencies=[Depends(check_login_rate_limit)],
     responses={
@@ -609,7 +622,7 @@ async def google_auth(
         data=LoginResponseData(
             user=user_data,
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=None if _browser_session(request) else refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -648,6 +661,7 @@ async def get_github_auth_url(redirect_uri: str | None = None) -> GitHubAuthUrlR
     "/github",
     status_code=status.HTTP_200_OK,
     response_model=LoginResponse,
+    response_model_exclude_none=True,
     summary="GitHub OAuth SSO Login",
     dependencies=[Depends(check_login_rate_limit)],
     responses={
@@ -720,7 +734,7 @@ async def github_auth(
         data=LoginResponseData(
             user=user_data,
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=None if _browser_session(request) else refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -734,6 +748,7 @@ async def github_auth(
     "/refresh",
     status_code=status.HTTP_200_OK,
     response_model=RefreshTokenResponse,
+    response_model_exclude_none=True,
     summary="Rotate an active refresh token for a new access and refresh token pair.",
     responses={
         status.HTTP_401_UNAUTHORIZED: {"model": APIResponse[None], "description": "Invalid or expired token"},
@@ -746,6 +761,7 @@ async def github_auth(
     "/refresh-token",
     status_code=status.HTTP_200_OK,
     response_model=RefreshTokenResponse,
+    response_model_exclude_none=True,
     include_in_schema=False,
 )
 async def refresh(
@@ -789,7 +805,7 @@ async def refresh(
         message="Token refreshed successfully.",
         data=RefreshTokenResponseData(
             access_token=access_token,
-            refresh_token=new_refresh_token,
+            refresh_token=None if _browser_session(request) else new_refresh_token,
             token_type="Bearer",
             expires_in=expires_in,
         ),
@@ -959,9 +975,9 @@ async def get_auth_status(request: Request) -> APIResponse[dict]:
 
     try:
         from app.utils.jwt import decode_token
-        from app.services.token_service import is_access_token_blacklisted
+        from app.core.redis_client import redis_client
 
-        if is_access_token_blacklisted(token):
+        if await redis_client.is_token_blacklisted(token):
             return APIResponse[dict](
                 success=True,
                 message="Token blacklisted",
@@ -1193,7 +1209,10 @@ async def _issue_enterprise_sso_session(*, user, request: Request, response: Res
     )
     await db.commit()
     set_auth_cookies(response, refresh_token)
-    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer", "expires_in": expires_in, "user_id": str(user.id)}
+    data = {"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "user_id": str(user.id)}
+    if not _browser_session(request):
+        data["refresh_token"] = refresh_token
+    return data
 
 
 @router.get("/sso/{provider}/url", name="enterprise_oidc_url")

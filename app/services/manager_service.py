@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
 from app.core.redis_client import redis_client
-from app.core.security import hash_password
+from app.core.security import hash_password, hash_password_async
 from app.db.database import get_db_session
 from app.models.user import User, UserRole
 from app.repositories.auth_repository import AuthRepository

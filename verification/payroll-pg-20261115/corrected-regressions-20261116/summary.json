@@ -1,0 +1,25 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "tests/test_rbac_and_role_enum_standardization.py::test_require_employee_or_above_dependency",
+    "tests/test_executive_complete_lifecycle.py::test_executive_soft_delete_and_token_revocation",
+    "tests/test_executive_complete_lifecycle.py::test_hr_admin_service_creates_executive_user_and_employee",
+    "tests/test_core_modules_smoke.py::test_analytics_metrics",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\corrected-regressions-20261116\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\corrected-regressions-20261116-tmp"
+  ],
+  "database": "payroll_verify_focused",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 29.427,
+  "tests": 4,
+  "failed": 1,
+  "errors": 0,
+  "skipped": 0,
+  "passed": 3
+}

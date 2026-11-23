@@ -503,6 +503,7 @@ class InterviewScheduleCreate(BaseModel):
     mode: str = "ONLINE"
     meeting_url: str | None = Field(None, max_length=500)
     office_address: str | None = Field(None, max_length=500)
+    invitation_token: str | None = Field(None, description="Secure invitation token for candidate scheduling")
 
     @field_validator("mode")
     @classmethod
@@ -533,6 +534,25 @@ class InterviewScheduleResponse(BaseModel):
     meeting_url: str | None
     office_address: str | None
     created_at: datetime
+
+
+class InterviewJoinResponse(BaseModel):
+    """Response for validated interview invitation."""
+    interview_id: uuid.UUID
+    round_id: uuid.UUID
+    round_name: str
+    round_order: int
+    job_title: str
+    company_name: str
+    candidate_name: str
+    scheduled_date: date
+    scheduled_time: str
+    mode: str
+    meeting_url: str | None
+    expires_at: datetime
+    requires_device_check: bool
+    requires_consent: bool
+    grace_period_ends_at: datetime | None = None
 
 
 class InterviewResponse(BaseModel):
@@ -729,6 +749,7 @@ class CandidateCreate(BaseModel):
     source: str = "DIRECT"
     is_talent_pool: bool = False
     vendor_id: uuid.UUID | None = None
+    company_id: uuid.UUID | None = None
 
 
 class CandidateUpdate(BaseModel):
@@ -770,6 +791,7 @@ class CandidateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    company_id: uuid.UUID | None
     first_name: str
     last_name: str
     email: str
@@ -991,6 +1013,8 @@ class RecruitmentRecentActivity(BaseModel):
 class RequisitionApproval(BaseModel):
     requisition_id: uuid.UUID
     approve: bool
+    location: str | None = Field(None, min_length=1, max_length=100)
+    employment_type: str = "FULL_TIME"
 
 
 class JobPublishResponse(BaseModel):

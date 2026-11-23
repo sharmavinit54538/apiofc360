@@ -1,0 +1,22 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "tests/test_notifications_system.py::test_notifications_sse_stream",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\sse-fixture\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\sse-fixture-tmp"
+  ],
+  "database": "payroll_verify_suite",
+  "port": 55441,
+  "exit_code": 4,
+  "seconds": 25.089,
+  "tests": 1,
+  "failed": 0,
+  "errors": 1,
+  "skipped": 0,
+  "passed": 0
+}

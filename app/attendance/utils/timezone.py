@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.onboarding import CompanySettings
+from app.models.company import Company
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ async def get_company_tz(db: AsyncSession, company_id: str) -> ZoneInfo:
     stmt = select(CompanySettings.timezone).where(CompanySettings.company_id == company_id)
     result = await db.execute(stmt)
     tz_str = result.scalar_one_or_none()
+
+    if not tz_str:
+        tz_str = (await db.execute(select(Company.timezone).where(Company.id == company_id))).scalar_one_or_none()
 
     if not tz_str:
         logger.warning(

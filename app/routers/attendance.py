@@ -1,4 +1,9 @@
-"""Attendance router for OFC360 / Aurix HRMS Core Modules."""
+"""Attendance router for OFC360 / Aurix HRMS Core Modules.
+
+Note: Face biometric check-in/check-out endpoints have been moved to
+/app/attendance/routers/ for real biometric verification with liveness detection.
+This router provides non-biometric attendance operations only.
+"""
 
 from __future__ import annotations
 
@@ -205,13 +210,12 @@ async def get_attendance_calendar(
     month: int = Query(9, ge=1, le=12),
     year: int = Query(2026, ge=2000, le=2100),
 ):
-    return _ok({
-        "month": month,
-        "year": year,
-        "working_days": 22,
-        "holidays": 2,
-        "calendar_summary": "All calendar logs synchronized",
-    })
+    cid = _get_cid(claims)
+    if not cid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Company context required")
+    srv = AttendanceCoreService(session)
+    cal = await srv.get_calendar(company_id=cid, month=month, year=year)
+    return _ok(cal)
 
 
 @router.get("/late")
@@ -269,15 +273,46 @@ async def get_overtime_records(
 @router.get("/export")
 async def export_attendance(
     claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
 ):
     _require_admin_or_manager(claims)
-    return _ok({
-        "status": "QUEUED",
-        "task_id": f"task-att-exp-{uuid.uuid4().hex[:8]}",
-        "message": "Attendance export initiated in background via Celery. Download link will be available soon.",
-    })
+    cid = _get_cid(claims)
+    srv = AttendanceCoreService(session)
+    res = await srv.list_records(company_id=cid, from_date=from_date, to_date=to_date, page=1, limit=10000)
+    
+    # Generate CSV
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Employee ID", "Date", "Check In", "Check Out", "Status", 
+        "Is Late", "Late Minutes", "Working Hours", "Notes"
+    ])
+    for item in res["items"]:
+        writer.writerow([
+            item["employee_id"],
+            item["date"],
+            item["check_in_time"] or "",
+            item["check_out_time"] or "",
+            item["status"],
+            "Yes" if item["is_late"] else "No",
+            item["late_minutes"],
+            item["working_hours"],
+            item["notes"] or "",
+        ])
+    
+    output.seek(0)
+    filename = f"attendance_export_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.post("/check-in")
@@ -312,38 +347,6 @@ async def check_out(
     return _ok({"id": str(record.id), "status": record.status, "check_out_time": record.check_out_time.isoformat() if record.check_out_time else None})
 
 
-@router.post("/face/check-in")
-async def face_check_in(
-    payload: AttendanceCheckInRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    uid = _uid(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    emp = await srv.get_employee_by_user_id(uid)
-    if not emp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
-    record = await srv.face_check_in(emp.id, cid, payload)
-    return _ok({"id": str(record.id), "verified": True, "punch_type": "IN"})
-
-
-@router.post("/face/check-out")
-async def face_check_out(
-    payload: AttendanceCheckInRequest,
-    claims: dict = Depends(get_current_user_claims),
-    session: AsyncSession = Depends(get_db_session),
-):
-    uid = _uid(claims)
-    cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    emp = await srv.get_employee_by_user_id(uid)
-    if not emp:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee profile not found")
-    record = await srv.face_check_out(emp.id, cid, payload)
-    return _ok({"id": str(record.id), "verified": True, "punch_type": "OUT"})
-
-
 @router.put("/{attendance_id}")
 @router.patch("/{attendance_id}")
 async def update_attendance_record(
@@ -354,8 +357,9 @@ async def update_attendance_record(
 ):
     _require_admin_or_manager(claims)
     uid = _uid(claims)
+    cid = _get_cid(claims)
     srv = AttendanceCoreService(session)
-    record = await srv.update_attendance(attendance_id, payload, editor_id=uid)
+    record = await srv.update_attendance(attendance_id, payload, editor_id=uid, requester_company_id=cid)
     return _ok({"id": str(record.id), "updated": True, "notes": record.notes})
 
 
@@ -366,8 +370,9 @@ async def delete_attendance_record(
     session: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    cid = _get_cid(claims)
     srv = AttendanceCoreService(session)
-    deleted = await srv.delete_attendance(attendance_id)
+    deleted = await srv.delete_attendance(attendance_id, requester_company_id=cid)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     return _ok({"id": str(attendance_id), "deleted": True})

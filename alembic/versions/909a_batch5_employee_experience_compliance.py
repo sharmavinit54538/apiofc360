@@ -1,6 +1,6 @@
 """Batch 5: mobile, WhatsApp, grievance/POSH, policy, compliance and entities.
 
-Revision ID: 909a_batch5_employee_experience
+Revision ID: 909a_batch5_employee_exp
 Revises: 908a_batch4_onboarding_fnf
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "909a_batch5_employee_experience"
+revision = "909a_batch5_employee_exp"
 down_revision = "908a_batch4_onboarding_fnf"
 branch_labels = None
 depends_on = None

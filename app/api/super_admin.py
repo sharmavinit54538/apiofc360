@@ -1,6 +1,7 @@
 """Super Admin SaaS Owner Control Center API Router — 100% Database Backed."""
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 import time
@@ -13,14 +14,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
 from app.core.rbac import require_super_admin
+from app.core.redis_client import redis_client
+from app.core.security import hash_password
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
-from app.models.user import User, UserRole
+from app.models.user import OFFICIAL_SUPER_ADMIN_EMAIL, User, UserRole
 from app.models.audit_log import AuditLog, create_audit_entry
 from app.models.refresh_token import RefreshToken
 from app.models.subscription import Subscription
+from app.models.payment import PaymentTransaction
+from app.models.communication import Announcement
+from app.services.payment_evidence import collections_summary
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +37,14 @@ router = APIRouter(
     dependencies=[Depends(require_super_admin)],
 )
 
-# In-memory platform settings with persistence capability
-GLOBAL_PLATFORM_SETTINGS: Dict[str, Any] = {
+# Redis key prefixes for platform-wide data
+PLATFORM_SETTINGS_KEY = "platform:settings"
+PLATFORM_ANNOUNCEMENTS_KEY = "platform:announcements"
+PLATFORM_BLOCKED_IPS_KEY = "platform:blocked_ips"
+PLATFORM_PLANS_KEY = "platform:plans"
+PLATFORM_ENTITLEMENTS_KEY = "platform:entitlements"
+
+DEFAULT_PLATFORM_SETTINGS = {
     "maintenanceMode": False,
     "allowNewRegistrations": True,
     "enforceMfaGlobally": True,
@@ -44,17 +57,105 @@ GLOBAL_PLATFORM_SETTINGS: Dict[str, Any] = {
     "autoBackupIntervalHours": 6,
 }
 
-GLOBAL_ANNOUNCEMENTS: List[Dict[str, Any]] = [
-    {
+DEFAULT_PLANS = [
+    {"id": "plan_starter", "name": "Starter", "price": 99, "billing_cycle": "Monthly", "max_employees": 25, "is_active": True},
+    {"id": "plan_growth", "name": "Growth", "price": 299, "billing_cycle": "Monthly", "max_employees": 100, "is_active": True},
+    {"id": "plan_enterprise", "name": "Enterprise Pro", "price": 1500, "billing_cycle": "Monthly", "max_employees": 1000, "is_active": True},
+]
+
+DEFAULT_ENTITLEMENTS = {
+    "payroll_enabled": True,
+    "ai_copilot_enabled": True,
+    "face_attendance_enabled": True,
+    "advanced_analytics_enabled": True,
+    "multi_org_enabled": True,
+}
+
+
+async def _get_platform_settings() -> Dict[str, Any]:
+    """Get platform settings from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_SETTINGS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return DEFAULT_PLATFORM_SETTINGS.copy()
+
+
+async def _set_platform_settings(settings_dict: Dict[str, Any]) -> None:
+    """Set platform settings in Redis."""
+    await redis_client.set(PLATFORM_SETTINGS_KEY, json.dumps(settings_dict))
+
+
+async def _get_platform_announcements() -> List[Dict[str, Any]]:
+    """Get platform announcements from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_ANNOUNCEMENTS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return [{
         "id": "ann_platform_init",
         "title": "OFC360 Platform Active",
         "content": "Super Admin Master Control Center, Payroll, Attendance, and Multi-Tenant Engine are active.",
         "target_audience": "ALL_TENANTS",
         "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-]
+    }]
 
-GLOBAL_BLOCKED_IPS: List[str] = []
+
+async def _set_platform_announcements(announcements: List[Dict[str, Any]]) -> None:
+    """Set platform announcements in Redis."""
+    await redis_client.set(PLATFORM_ANNOUNCEMENTS_KEY, json.dumps(announcements))
+
+
+async def _get_blocked_ips() -> List[str]:
+    """Get blocked IPs from Redis."""
+    try:
+        val = await redis_client.get(PLATFORM_BLOCKED_IPS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return []
+
+
+async def _set_blocked_ips(ips: List[str]) -> None:
+    """Set blocked IPs in Redis."""
+    await redis_client.set(PLATFORM_BLOCKED_IPS_KEY, json.dumps(ips))
+
+
+async def _get_platform_plans() -> List[Dict[str, Any]]:
+    """Get platform plans from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_PLANS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return [p.copy() for p in DEFAULT_PLANS]
+
+
+async def _set_platform_plans(plans: List[Dict[str, Any]]) -> None:
+    """Set platform plans in Redis."""
+    await redis_client.set(PLATFORM_PLANS_KEY, json.dumps(plans))
+
+
+async def _get_platform_entitlements() -> Dict[str, Any]:
+    """Get platform entitlements from Redis with defaults."""
+    try:
+        val = await redis_client.get(PLATFORM_ENTITLEMENTS_KEY)
+        if val:
+            return json.loads(val)
+    except Exception:
+        pass
+    return DEFAULT_ENTITLEMENTS.copy()
+
+
+async def _set_platform_entitlements(entitlements: Dict[str, Any]) -> None:
+    """Set platform entitlements in Redis."""
+    await redis_client.set(PLATFORM_ENTITLEMENTS_KEY, json.dumps(entitlements))
 
 
 async def record_super_admin_audit(
@@ -80,6 +181,20 @@ async def record_super_admin_audit(
         await db.commit()
     except Exception as exc:
         logger.warning("Failed to record audit log: %s", exc)
+
+
+def _is_platform_owner(user: User) -> bool:
+    """Treat any apparent owner identity as immutable outside the recovery CLI."""
+    role = user.role.value if hasattr(user.role, "value") else str(user.role).lower()
+    return role == UserRole.SUPER_ADMIN.value or (user.email or "").strip().lower() == OFFICIAL_SUPER_ADMIN_EMAIL
+
+
+def _reject_platform_owner_mutation(user: User) -> None:
+    if _is_platform_owner(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform owner changes require the audited recovery CLI.",
+        )
 
 
 
@@ -210,61 +325,60 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         trial_orgs = 0
         suspended_orgs = 0
 
-        # Build plan distribution and calculate real MRR from subscriptions
-        sub_by_company = {s.company_id: s for s in all_subs}
-
-        for c in all_companies:
-            sub = sub_by_company.get(c.id)
-            cp = c.company_profile or {}
-
-            if sub:
-                plan_name = sub.plan or "Starter"
-                mrr_val = float(sub.mrr or 0.0)
-                sub_status = (sub.access_status or "ACTIVE").upper()
-                if "SUSPENDED" in sub_status or "CANCEL" in sub_status:
-                    suspended_orgs += 1
-                elif "TRIAL" in sub_status:
-                    trial_orgs += 1
-                elif c.onboarding_completed:
-                    total_mrr += mrr_val
-            else:
-                plan_name = cp.get("plan") or "Starter"
-                mrr_val = float(cp.get("mrr") or 0.0)
-                if not c.onboarding_completed:
-                    trial_orgs += 1
-                else:
-                    total_mrr += mrr_val
-
-            norm_plan = "Starter"
-            if "growth" in plan_name.lower():
-                norm_plan = "Growth"
-            elif "enterprise" in plan_name.lower():
-                norm_plan = "Enterprise"
-
-            plan_counts[norm_plan] = plan_counts.get(norm_plan, 0) + 1
-
         now = datetime.now(timezone.utc)
-        months_list = []
-        for i in range(5, -1, -1):
-            m_date = now - timedelta(days=i * 30)
-            months_list.append(m_date.strftime("%Y-%m"))
+        recurring_by_currency = {}
+        expired_orgs = 0
+        sub_by_company = {s.company_id: s for s in all_subs}
+        for company in all_companies:
+            sub = sub_by_company.get(company.id)
+            plan_name = (sub.plan if sub else None) or "Starter"
+            if sub:
+                sub_status = (sub.access_status or "").upper()
+                expiry = sub.access_expires_at
+                if expiry and expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                expired = bool(expiry and expiry <= now)
+                expired_orgs += int(expired)
+                suspended_orgs += int(sub_status in {"SUSPENDED", "CANCELLED", "CANCELED"})
+                trial_orgs += int(sub_status == "TRIAL")
+                if (sub_status == "ACTIVE" and not expired
+                        and (sub.payment_status or "").upper() == "PAID"
+                        and (sub.access_type or "").upper() != "COMPLIMENTARY"):
+                    currency = (((company.hr_settings or {}).get("billing") or {}).get("subscription") or {}).get("currency") or "UNKNOWN"
+                    currency = currency.upper()
+                    recurring_by_currency[currency] = recurring_by_currency.get(currency, 0.0) + float(sub.mrr or 0)
+            elif not company.onboarding_completed:
+                trial_orgs += 1
+            norm_plan = "Enterprise" if "enterprise" in plan_name.lower() else ("Growth" if "growth" in plan_name.lower() else "Starter")
+            plan_counts[norm_plan] += 1
 
-        # Real monthly revenue trend from creation dates of companies
-        monthly_rev_map = {m: 0.0 for m in months_list}
-        monthly_mrr_map = {m: 0.0 for m in months_list}
-
-        for c in all_companies:
-            sub = sub_by_company.get(c.id)
-            mrr_val = float(sub.mrr or 0.0) if sub else float((c.company_profile or {}).get("mrr") or 0.0)
-            created_at = c.created_at or now
-            m_key = created_at.strftime("%Y-%m")
-            for m in months_list:
-                if m >= m_key:
-                    monthly_mrr_map[m] += mrr_val
-                    monthly_rev_map[m] += mrr_val
-
+        # Calendar months, not 30-day approximations that duplicate/skip months.
+        month_index = now.year * 12 + now.month - 1
+        months_list = [f"{index // 12:04d}-{index % 12 + 1:02d}" for index in range(month_index - 5, month_index + 1)]
+        transactions = (await db.execute(select(PaymentTransaction))).scalars().all()
+        collections = collections_summary(transactions, months_list)
+        # Legacy scalar contracts are explicitly INR; other currencies remain separate.
+        total_mrr = recurring_by_currency.get("INR", 0.0)
         arr = total_mrr * 12.0
-        total_revenue = sum(monthly_rev_map.values()) if total_mrr > 0 else 0.0
+        inr = collections["by_currency"].get("INR", {"collections": 0.0, "refunds": 0.0, "net_collections": 0.0})
+        total_revenue = inr["net_collections"]
+
+        async def recorded_active_users(since):
+            # Login and token creation (including refresh rotation) are recorded
+            # activity, not estimates from account-enabled flags.
+            from sqlalchemy import union
+            activity = union(
+                select(User.id.label("user_id")).where(User.last_login_at >= since, User.last_login_at <= now),
+                select(RefreshToken.user_id.label("user_id")).where(RefreshToken.created_at >= since, RefreshToken.created_at <= now),
+                select(AuditLog.user_id.label("user_id")).where(
+                    AuditLog.user_id.is_not(None), AuditLog.created_at >= since, AuditLog.created_at <= now,
+                    ~AuditLog.action.ilike("%fail%"), ~AuditLog.action.ilike("%denied%"),
+                    ~AuditLog.action.ilike("%blocked%"),
+                ),
+            ).subquery()
+            return (await db.execute(select(func.count()).select_from(activity))).scalar() or 0
+        dau = await recorded_active_users(now - timedelta(days=1))
+        mau = await recorded_active_users(now - timedelta(days=30))
 
         since_30d = now - timedelta(days=30)
         security_incidents_res = await db.execute(
@@ -281,10 +395,7 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
         )
         active_incidents = security_incidents_res.scalar() or 0
 
-        revenue_trend = [
-            {"month": m, "revenue": round(monthly_rev_map[m], 2), "mrr": round(monthly_mrr_map[m], 2)}
-            for m in months_list
-        ] if total_mrr > 0 else []
+        revenue_trend = collections["trend"]
 
         subscription_distribution = [
             {"plan": k, "count": v}
@@ -308,12 +419,13 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
             "free_organizations": max(0, total_orgs - len(all_subs)),
             "trial_organizations": trial_orgs,
             "suspended_organizations": suspended_orgs,
-            "expired_organizations": 0,
+            "expired_organizations": expired_orgs,
             "total_employees_count": total_workforce,
             "total_workforce_managed": total_workforce,
             "active_security_incidents": active_incidents,
-            "dau": max(int(active_users * 0.7), 0),
-            "mau": total_users,
+            "dau": dau,
+            "mau": mau,
+            "activity_basis": "recorded login, refresh-token issuance and successful audit events; rolling 24h/30d",
         }
 
         financials = {
@@ -322,9 +434,15 @@ async def get_super_admin_statistics(db: AsyncSession = Depends(get_db_session))
             "arr": round(arr, 2),
             "monthly_recurring_revenue": round(total_mrr, 2),
             "annual_recurring_revenue": round(arr, 2),
-            "revenue_growth": 0.0,
-            "pending_payments": 0,
-            "failed_payments": 0,
+            "currency": "INR",
+            "collections": inr["collections"], "refunds": inr["refunds"],
+            "net_collections": inr["net_collections"],
+            "collections_by_currency": collections["by_currency"],
+            "recurring_by_currency": {currency: {"mrr": round(mrr, 2), "arr": round(mrr * 12, 2)} for currency, mrr in recurring_by_currency.items()},
+            "unverified_legacy_transactions": collections["unverified_legacy_transactions"],
+            "revenue_growth": None,
+            "pending_payments": sum(t.status in {"CREATED", "PENDING", "AUTHORIZED"} for t in transactions),
+            "failed_payments": sum(t.status == "FAILED" for t in transactions),
         }
 
         charts = {
@@ -612,6 +730,7 @@ async def create_super_admin_organization(
             ).scalars().first()
 
             if existing_user:
+                _reject_platform_owner_mutation(existing_user)
                 existing_user.company_id = new_org_id
                 existing_user.role = UserRole.HR_ADMIN
                 if hr_admin_name:
@@ -620,17 +739,24 @@ async def create_super_admin_organization(
                 existing_user.updated_at = now
                 hr_admin_user = existing_user
             else:
-                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
+                phone = (payload.get("phone") or "").strip()
+                initial_password = payload.get("initial_password") or ""
+                if not phone or not isinstance(initial_password, str) or len(initial_password) < 12:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="New HR Admin provisioning requires phone and initial_password of at least 12 characters.",
+                    )
                 new_user = User(
                     id=uuid.uuid4(),
                     email=hr_admin_email,
                     name=hr_admin_name,
-                    phone=gen_phone,
+                    phone=phone,
                     role=UserRole.HR_ADMIN,
                     company_id=new_org_id,
                     is_active=True,
                     is_verified=True,
-                    password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+                    password_hash=hash_password(initial_password),
+                    must_change_password=True,
                     created_at=now,
                     updated_at=now,
                 )
@@ -887,6 +1013,7 @@ async def update_super_admin_organization(
                 await db.execute(select(User).where(User.email == hr_admin_email))
             ).scalars().first()
             if existing_user:
+                _reject_platform_owner_mutation(existing_user)
                 existing_user.company_id = company.id
                 existing_user.role = UserRole.HR_ADMIN
                 if hr_admin_name:
@@ -894,33 +1021,29 @@ async def update_super_admin_organization(
                 existing_user.is_active = True
                 existing_user.updated_at = datetime.now(timezone.utc)
             else:
-                gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
+                phone = (payload.get("phone") or "").strip()
+                initial_password = payload.get("initial_password") or ""
+                if not phone or not isinstance(initial_password, str) or len(initial_password) < 12:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="New HR Admin provisioning requires phone and initial_password of at least 12 characters.",
+                    )
                 new_hr = User(
                     id=uuid.uuid4(),
                     email=hr_admin_email,
                     name=hr_admin_name or "HR Administrator",
-                    phone=gen_phone,
+                    phone=phone,
                     role=UserRole.HR_ADMIN,
                     company_id=company.id,
                     is_active=True,
                     is_verified=True,
-                    password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+                    password_hash=hash_password(initial_password),
+                    must_change_password=True,
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
                 )
                 db.add(new_hr)
 
-    await db.commit()
-    await db.refresh(company)
-
-    await record_super_admin_audit(
-        db,
-        action="SUPER_ADMIN_UPDATE_ORGANIZATION",
-        details=f"Updated organization '{company.name}' ({org_id}).",
-        company_id=company.id,
-    )
-
-    return {"success": True, "message": f"Organization '{company.name}' updated successfully."}
     await db.commit()
     await db.refresh(company)
 
@@ -1315,30 +1438,49 @@ async def create_super_admin_user(
         raise HTTPException(status_code=400, detail="Name and Email are required.")
 
     role_str = (payload.get("role") or "employee").lower()
+    if role_str == UserRole.SUPER_ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform owner provisioning is only available through the audited operator CLI.",
+        )
     try:
         role_enum = UserRole(role_str)
     except ValueError:
         role_enum = UserRole.EMPLOYEE
 
     company_id_str = payload.get("companyId") or payload.get("organization_id")
-    company_id = uuid.UUID(company_id_str) if company_id_str else None
+    if not company_id_str:
+        raise HTTPException(status_code=422, detail="A company assignment is required for non-platform users.")
+    try:
+        company_id = uuid.UUID(str(company_id_str))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid company assignment.") from exc
 
     existing = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if existing:
         raise HTTPException(status_code=400, detail=f"User with email '{email}' already exists.")
 
+    phone = (payload.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=422, detail="A phone number is required; no placeholder identity is created.")
+    initial_password = payload.get("initial_password") or ""
+    if not isinstance(initial_password, str) or len(initial_password) < 12:
+        raise HTTPException(
+            status_code=422,
+            detail="An initial_password of at least 12 characters is required; no default credential is created.",
+        )
     now = datetime.now(timezone.utc)
-    gen_phone = (payload.get("phone") or f"9{uuid.uuid4().int % 1000000000:09d}")[:10]
     new_user = User(
         id=uuid.uuid4(),
         name=name,
         email=email,
-        phone=gen_phone,
+        phone=phone,
         role=role_enum,
         company_id=company_id,
         is_active=True,
         is_verified=True,
-        password_hash="$2b$12$eX9ZpW8E5e.L.q8zZp6pKu5hX5m4.N5wZp5x5e.L.q8zZp6pK",
+        password_hash=hash_password(initial_password),
+        must_change_password=True,
         created_at=now,
         updated_at=now,
     )
@@ -1381,12 +1523,18 @@ async def update_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user or user.is_deleted:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     if "name" in payload and payload["name"]:
         user.name = payload["name"].strip()
     if "phone" in payload:
         user.phone = payload["phone"]
     if "role" in payload and payload["role"]:
+        if str(payload["role"]).lower() == UserRole.SUPER_ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Platform owner promotion is only available through the audited operator CLI.",
+            )
         try:
             user.role = UserRole(payload["role"].lower())
         except ValueError:
@@ -1426,6 +1574,7 @@ async def delete_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_deleted = True
     user.is_active = False
@@ -1457,6 +1606,7 @@ async def activate_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = True
     user.updated_at = datetime.now(timezone.utc)
@@ -1486,6 +1636,7 @@ async def deactivate_super_admin_user(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = False
     user.updated_at = datetime.now(timezone.utc)
@@ -1515,6 +1666,7 @@ async def toggle_super_admin_user_status(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    _reject_platform_owner_mutation(user)
 
     user.is_active = not user.is_active
     user.updated_at = datetime.now(timezone.utc)
@@ -1545,16 +1697,11 @@ async def reset_super_admin_user_password(
     user = await db.get(User, u_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-
-    await record_super_admin_audit(
-        db,
-        action="SUPER_ADMIN_RESET_USER_PASSWORD",
-        details=f"Issued password reset instructions for '{user.email}'.",
-        company_id=user.company_id,
-        user_id=user.id,
+    _reject_platform_owner_mutation(user)
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Password-reset delivery is not configured; no reset was issued.",
     )
-
-    return {"success": True, "message": f"Password reset instructions sent for '{user.email}'."}
 
 
 # ─── 5. HR Admins Specific Endpoints ────────────────────────────────
@@ -1756,83 +1903,87 @@ async def update_super_admin_subscription(
 @router.get("/plans")
 async def get_super_admin_plans() -> list[dict[str, Any]]:
     """Get platform subscription plans."""
-    return [
-        {"id": "plan_starter", "name": "Starter", "price": 99, "billing_cycle": "Monthly", "max_employees": 25, "is_active": True},
-        {"id": "plan_growth", "name": "Growth", "price": 299, "billing_cycle": "Monthly", "max_employees": 100, "is_active": True},
-        {"id": "plan_enterprise", "name": "Enterprise Pro", "price": 1500, "billing_cycle": "Monthly", "max_employees": 1000, "is_active": True},
-    ]
+    return await _get_platform_plans()
 
 
 @router.post("/plans")
 async def create_super_admin_plan(payload: dict = Body(...)) -> dict[str, Any]:
     """Create subscription plan."""
-    return {"success": True, "plan": payload, "message": "Plan created successfully."}
+    plans = await _get_platform_plans()
+    plan_id = payload.get("id") or f"plan_{uuid.uuid4().hex[:8]}"
+    plan = {
+        "id": plan_id,
+        "name": payload.get("name", "New Plan"),
+        "price": payload.get("price", 0),
+        "billing_cycle": payload.get("billing_cycle", "Monthly"),
+        "max_employees": payload.get("max_employees", 0),
+        "is_active": payload.get("is_active", True),
+    }
+    plans.append(plan)
+    await _set_platform_plans(plans)
+    return {"success": True, "plan": plan, "message": "Plan created successfully."}
 
 
 @router.patch("/plans/{plan_id}")
 async def update_super_admin_plan(plan_id: str, payload: dict = Body(...)) -> dict[str, Any]:
     """Update subscription plan."""
-    return {"success": True, "message": f"Plan {plan_id} updated."}
+    plans = await _get_platform_plans()
+    for i, plan in enumerate(plans):
+        if plan["id"] == plan_id:
+            plans[i].update(payload)
+            plans[i]["id"] = plan_id  # Ensure ID doesn't change
+            await _set_platform_plans(plans)
+            return {"success": True, "plan": plans[i], "message": f"Plan {plan_id} updated."}
+    raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
 
 
 @router.delete("/plans/{plan_id}")
 async def delete_super_admin_plan(plan_id: str) -> dict[str, Any]:
     """Delete subscription plan."""
+    plans = await _get_platform_plans()
+    plans = [p for p in plans if p["id"] != plan_id]
+    await _set_platform_plans(plans)
     return {"success": True, "message": f"Plan {plan_id} deactivated."}
 
 
 @router.get("/entitlements")
 async def get_super_admin_entitlements() -> dict[str, Any]:
     """Get platform feature entitlements."""
-    return {
-        "payroll_enabled": True,
-        "ai_copilot_enabled": True,
-        "face_attendance_enabled": True,
-        "advanced_analytics_enabled": True,
-        "multi_org_enabled": True,
-    }
+    return await _get_platform_entitlements()
 
 
 @router.put("/entitlements")
 @router.patch("/entitlements")
 async def update_super_admin_entitlements(payload: dict = Body(...), db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
     """Update feature entitlements."""
+    entitlements = await _get_platform_entitlements()
+    entitlements.update(payload)
+    await _set_platform_entitlements(entitlements)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UPDATE_ENTITLEMENTS",
         details="Updated platform global feature entitlements.",
     )
-    return {"success": True, "message": "Entitlements updated."}
+    return {"success": True, "entitlements": entitlements, "message": "Entitlements updated."}
 
 
 @router.get("/billing")
 @router.get("/payments")
 async def get_super_admin_payments(db: AsyncSession = Depends(get_db_session)) -> list[dict[str, Any]]:
-    """Get platform billing transactions from PostgreSQL subscriptions."""
-    try:
-        subs_res = await db.execute(
-            select(Subscription).options(selectinload(Subscription.company))
-        )
-        subs = subs_res.scalars().all()
-
-        payments = []
-        for i, s in enumerate(subs):
-            payments.append({
-                "id": f"tx_{s.id.hex[:8]}",
-                "amount": float(s.mrr or 0.0),
-                "currency": "USD",
-                "gateway": "Stripe",
-                "invoice_number": f"INV-2026-00{i + 1}",
-                "status": s.payment_status or "PAID",
-                "organization_name": s.company.name if s.company else "Organization",
-                "companyName": s.company.name if s.company else "Organization",
-                "payment_date": s.created_at.isoformat() if s.created_at else datetime.now(timezone.utc).isoformat(),
-            })
-
-        return payments
-    except Exception as exc:
-        logger.error("Error fetching payments: %s", exc)
-        return []
+    """Return recorded gateway transactions; no subscription-derived receipts."""
+    rows = (await db.execute(
+        select(PaymentTransaction, Company.name).join(Company, Company.id == PaymentTransaction.company_id)
+        .order_by(PaymentTransaction.created_at.desc())
+    )).all()
+    return [{
+        "id": str(txn.id), "amount": txn.amount_paise / 100, "currency": txn.currency,
+        "gateway": "Razorpay", "invoice_number": None, "status": txn.status,
+        "organization_name": name, "companyName": name,
+        "payment_date": ((txn.payment_metadata or {}).get("capture") or {}).get("occurred_at"),
+        "created_at": txn.created_at.isoformat(),
+        "refunds": list(((txn.payment_metadata or {}).get("refunds") or {}).values()),
+        "order_id": txn.razorpay_order_id, "payment_id": txn.razorpay_payment_id,
+    } for txn, name in rows]
 
 
 # ─── 7. Security, Events & Sessions ─────────────────────────────────
@@ -1865,7 +2016,7 @@ async def get_super_admin_security(db: AsyncSession = Depends(get_db_session)) -
         "security_score": 98 if failed_logins == 0 else max(75, 98 - failed_logins * 2),
         "active_sessions_count": max(1, active_sessions),
         "jwt_algorithm": "HS256",
-        "mfa_enforced": GLOBAL_PLATFORM_SETTINGS.get("enforceMfaGlobally", True),
+        "mfa_enforced": (await _get_platform_settings()).get("enforceMfaGlobally", True),
         "failed_logins_24h": failed_logins,
     }
 
@@ -1945,8 +2096,10 @@ async def block_ip_address(
 ) -> dict[str, Any]:
     """Add IP to global blocklist."""
     ip = payload.get("ip") or payload.get("ipAddress")
-    if ip and ip not in GLOBAL_BLOCKED_IPS:
-        GLOBAL_BLOCKED_IPS.append(ip)
+    blocked_ips = await _get_blocked_ips()
+    if ip and ip not in blocked_ips:
+        blocked_ips.append(ip)
+        await _set_blocked_ips(blocked_ips)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_BLOCK_IP",
@@ -1962,8 +2115,10 @@ async def unblock_ip_address(
 ) -> dict[str, Any]:
     """Remove IP from global blocklist."""
     ip = payload.get("ip") or payload.get("ipAddress")
-    if ip and ip in GLOBAL_BLOCKED_IPS:
-        GLOBAL_BLOCKED_IPS.remove(ip)
+    blocked_ips = await _get_blocked_ips()
+    if ip and ip in blocked_ips:
+        blocked_ips.remove(ip)
+        await _set_blocked_ips(blocked_ips)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UNBLOCK_IP",
@@ -2149,7 +2304,7 @@ async def get_super_admin_system_health(db: AsyncSession = Depends(get_db_sessio
 @router.get("/settings")
 async def get_super_admin_settings() -> dict[str, Any]:
     """Get global platform configuration settings."""
-    return GLOBAL_PLATFORM_SETTINGS
+    return await _get_platform_settings()
 
 
 @router.patch("/settings")
@@ -2159,13 +2314,15 @@ async def update_super_admin_settings(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """Persist super admin platform settings."""
-    GLOBAL_PLATFORM_SETTINGS.update(payload)
+    settings = await _get_platform_settings()
+    settings.update(payload)
+    await _set_platform_settings(settings)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_UPDATE_SETTINGS",
         details=f"Updated platform configuration: {list(payload.keys())}.",
     )
-    return {"success": True, "settings": GLOBAL_PLATFORM_SETTINGS, "message": "Platform settings saved."}
+    return {"success": True, "settings": settings, "message": "Platform settings saved."}
 
 
 # ─── 11. Onboarding Tracker ─────────────────────────────────────────
@@ -2308,12 +2465,13 @@ async def get_super_admin_ai_usage() -> dict[str, Any]:
 @router.get("/announcements")
 async def get_super_admin_announcements() -> list[dict[str, Any]]:
     """Get global platform announcements."""
-    return GLOBAL_ANNOUNCEMENTS
+    return await _get_platform_announcements()
 
 
 @router.post("/announcements")
 async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSession = Depends(get_db_session)) -> dict[str, Any]:
     """Broadcast global announcement."""
+    announcements = await _get_platform_announcements()
     new_ann = {
         "id": f"ann_{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "Platform Notice"),
@@ -2321,7 +2479,8 @@ async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSe
         "target_audience": payload.get("target_audience", "ALL_TENANTS"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    GLOBAL_ANNOUNCEMENTS.insert(0, new_ann)
+    announcements.insert(0, new_ann)
+    await _set_platform_announcements(announcements)
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_CREATE_ANNOUNCEMENT",
@@ -2333,9 +2492,11 @@ async def create_super_admin_announcement(payload: dict = Body(...), db: AsyncSe
 @router.patch("/announcements/{ann_id}")
 async def update_super_admin_announcement(ann_id: str, payload: dict = Body(...)) -> dict[str, Any]:
     """Update announcement."""
-    for a in GLOBAL_ANNOUNCEMENTS:
+    announcements = await _get_platform_announcements()
+    for a in announcements:
         if a["id"] == ann_id:
             a.update(payload)
+            await _set_platform_announcements(announcements)
             return {"success": True, "announcement": a}
     raise HTTPException(status_code=404, detail="Announcement not found.")
 
@@ -2343,6 +2504,7 @@ async def update_super_admin_announcement(ann_id: str, payload: dict = Body(...)
 @router.delete("/announcements/{ann_id}")
 async def delete_super_admin_announcement(ann_id: str) -> dict[str, Any]:
     """Delete announcement."""
-    global GLOBAL_ANNOUNCEMENTS
-    GLOBAL_ANNOUNCEMENTS = [a for a in GLOBAL_ANNOUNCEMENTS if a["id"] != ann_id]
+    announcements = await _get_platform_announcements()
+    announcements = [a for a in announcements if a["id"] != ann_id]
+    await _set_platform_announcements(announcements)
     return {"success": True, "message": f"Announcement {ann_id} removed."}

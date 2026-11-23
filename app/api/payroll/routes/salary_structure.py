@@ -4,7 +4,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, func
+from datetime import datetime, timedelta
 
 from app.api.payroll.dependencies import DB, Claims, OptionalClaims
 from app.api.payroll.permissions import _require_admin_or_manager, _is_admin_or_manager
@@ -12,6 +13,7 @@ from app.api.payroll.responses import success_response
 from app.api.payroll.serializers import _salary_dict
 from app.api.payroll.services.salary_service import SalaryService
 from app.models.payroll import SalaryStructure
+from app.models.audit_log import AuditLog
 from app.schemas.auth import APIResponse
 
 router = APIRouter()
@@ -56,38 +58,134 @@ async def list_salary_structures_alias(
 @router.get("/salary-structures/audit", response_model=APIResponse[dict], summary="Get salary structures audit log")
 async def get_salary_structures_audit(
     claims: OptionalClaims,
+    db: DB,
 ) -> APIResponse[dict]:
-    return success_response({"items": [], "total": 0}, "Audit log retrieved.")
+    _require_admin_or_manager(claims)
+    company_id = None
+    if claims and claims.get("company_id"):
+        try:
+            company_id = uuid.UUID(str(claims["company_id"]))
+        except (ValueError, TypeError):
+            company_id = None
+
+    stmt = select(AuditLog).where(AuditLog.action.ilike("%salary%")).order_by(AuditLog.created_at.desc()).limit(100)
+    if company_id is not None:
+        stmt = stmt.where(AuditLog.company_id == company_id)
+
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+
+    items = [
+        {
+            "id": str(log.id),
+            "action": log.action,
+            "entity_type": log.entity_type,
+            "entity_id": log.entity_id,
+            "user_id": str(log.user_id) if log.user_id else None,
+            "email": log.email,
+            "details": log.details,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in logs
+    ]
+
+    return success_response({"items": items, "total": len(items)}, "Audit log retrieved.")
 
 
 @router.get("/salary-structures/ai-insights", response_model=APIResponse[dict], summary="Get salary structure AI insights")
 async def get_salary_structures_ai_insights(
     claims: OptionalClaims,
+    db: DB,
 ) -> APIResponse[dict]:
     if not _is_admin_or_manager(claims):
         return success_response({"items": [], "total": 0}, "Salary structure AI insights retrieved.")
-    insights = [
-        {
-            "id": "ins_01",
-            "title": "Unused Salary Bands Detected",
-            "category": "OPTIMIZATION",
-            "severity": "MEDIUM",
-            "description": "3 salary structures have no active employees assigned.",
-            "impactMetric": "Band Utilization: 65%",
-            "recommendation": "Archive or consolidate inactive structures.",
-            "appliedCount": 0,
-        },
-        {
-            "id": "ins_02",
-            "title": "Minimum Wage Compliance Check",
+
+    company_id = None
+    if claims and claims.get("company_id"):
+        try:
+            company_id = uuid.UUID(str(claims["company_id"]))
+        except (ValueError, TypeError):
+            company_id = None
+
+    insights = []
+
+    # Check for unused salary structures (no active employees assigned)
+    from app.models.employee import Employee
+    struct_stmt = select(SalaryStructure.id).where(SalaryStructure.is_active == True)
+    if company_id:
+        struct_stmt = struct_stmt.where(SalaryStructure.company_id == company_id)
+    struct_result = await db.execute(struct_stmt)
+    structure_ids = [str(s) for s in struct_result.scalars().all()]
+
+    if structure_ids:
+        # Query SalaryStructure to find which have employees assigned
+        # SalaryStructure has employee_id, so we check for non-null employee_id
+        emp_stmt = select(func.count(SalaryStructure.id)).where(
+            SalaryStructure.id.in_([uuid.UUID(s) for s in structure_ids]),
+            SalaryStructure.employee_id.is_not(None),
+        )
+        emp_result = await db.execute(emp_stmt)
+        assigned_count = emp_result.scalar() or 0
+
+        if assigned_count < len(structure_ids):
+            unused_count = len(structure_ids) - assigned_count
+            insights.append({
+                "id": "ins_unused_bands",
+                "title": "Unused Salary Bands Detected",
+                "category": "OPTIMIZATION",
+                "severity": "MEDIUM",
+                "description": f"{unused_count} salary structures have no active employees assigned.",
+                "impactMetric": f"Band Utilization: {int((assigned_count / len(structure_ids)) * 100)}%",
+                "recommendation": "Archive or consolidate inactive structures.",
+                "appliedCount": 0,
+            })
+
+    # Check for structures with very low/high spreads using SalaryStructure fields
+    struct_stmt2 = select(SalaryStructure).where(SalaryStructure.is_active == True)
+    if company_id:
+        struct_stmt2 = struct_stmt2.where(SalaryStructure.company_id == company_id)
+    struct_result2 = await db.execute(struct_stmt2)
+    structures = struct_result2.scalars().all()
+
+    for struct in structures:
+        # Use basic and gross to compute spread if available
+        if struct.basic_salary and struct.gross_salary and struct.gross_salary > 0:
+            spread = float(struct.gross_salary - struct.basic_salary) / float(struct.basic_salary) * 100
+            if spread < 10:
+                insights.append({
+                    "id": f"ins_narrow_struct_{struct.id}",
+                    "title": f"Narrow Salary Structure: {struct.name}",
+                    "category": "OPTIMIZATION",
+                    "severity": "LOW",
+                    "description": f"Structure '{struct.name}' has only {spread:.1f}% spread between basic and gross.",
+                    "impactMetric": f"Spread: {spread:.1f}%",
+                    "recommendation": "Review structure width for competitive positioning.",
+                    "appliedCount": 0,
+                })
+            elif spread > 100:
+                insights.append({
+                    "id": f"ins_wide_struct_{struct.id}",
+                    "title": f"Wide Salary Structure: {struct.name}",
+                    "category": "OPTIMIZATION",
+                    "severity": "LOW",
+                    "description": f"Structure '{struct.name}' has {spread:.1f}% spread - may lack internal equity.",
+                    "impactMetric": f"Spread: {spread:.1f}%",
+                    "recommendation": "Consider splitting into multiple grades.",
+                    "appliedCount": 0,
+                })
+
+    if not insights:
+        insights.append({
+            "id": "ins_healthy",
+            "title": "Salary Structure Health Check",
             "category": "COMPLIANCE",
             "severity": "INFO",
-            "description": "All active structures satisfy regional minimum wage regulations.",
-            "impactMetric": "100% Compliant",
-            "recommendation": "No action required.",
-            "appliedCount": 1,
-        },
-    ]
+            "description": "All salary structures appear healthy with no major issues detected.",
+            "impactMetric": "No issues found",
+            "recommendation": "Continue regular monitoring.",
+            "appliedCount": 0,
+        })
+
     return success_response({"items": insights, "total": len(insights)}, "Salary structure AI insights retrieved.")
 
 

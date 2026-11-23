@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from zoneinfo import ZoneInfo
 
-from app.attendance.models.attendance import Attendance
+from app.attendance.models.attendance import Attendance, AttendanceState
 from app.attendance.repositories.attendance_repository import AttendanceRepository
 from app.attendance.services.face_service import FaceRecognitionService, MATCH_DISTANCE_THRESHOLD
 from app.attendance.services.geofence_service import GeofenceService
@@ -46,6 +46,7 @@ class AttendanceCheckInService:
         device_info: Optional[str] = None,
         ip_address: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        work_mode: Optional[str] = None,
     ) -> Attendance:
         """Execute AI face verification check-in.
 
@@ -88,7 +89,7 @@ class AttendanceCheckInService:
             )
 
         # 4. One attendance per day rule (date-based unique constraint)
-        business_date = now_dt.astimezone(tz).date() if hasattr(tz, 'tzname') else now_dt.date()
+        resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
         await self.validator.assert_no_duplicate_checkin(employee.id, business_date)
 
         # 5 & 6. Decode image, quality checks, anti-spoofing liveness, and embedding extraction
@@ -108,6 +109,7 @@ class AttendanceCheckInService:
         lat_val: Optional[float] = None
         lng_val: Optional[float] = None
         accuracy_val: Optional[float] = None
+        work_mode: Optional[str] = None
         if location and isinstance(location, dict):
             try:
                 lat_raw = location.get("latitude") or location.get("lat")
@@ -121,6 +123,9 @@ class AttendanceCheckInService:
                     accuracy_val = float(acc_raw)
             except (ValueError, TypeError):
                 pass
+        
+        # Extract work_mode from payload (passed via request body, not location dict)
+        # This will be set by the router from the request body
 
         geofence_res = await self.geofence_service.verify_geofence(
             employee=employee,
@@ -128,17 +133,21 @@ class AttendanceCheckInService:
             latitude=lat_val,
             longitude=lng_val,
             accuracy=accuracy_val,
+            work_mode=work_mode,
         )
 
-        if not geofence_res["inside_geofence"] and geofence_res["status"] == "OUTSIDE_GEOFENCE":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": "OUTSIDE_GEOFENCE",
-                    "message": geofence_res["message"],
-                    "data": geofence_res,
-                },
-            )
+        # Handle geofence results based on status
+        if not geofence_res["inside_geofence"]:
+            # Block punch for strict mode outside geofence or missing coordinates
+            if geofence_res["status"] in ("OUTSIDE_GEOFENCE", "LOCATION_MISSING", "INVALID_COORDINATES", "GEOFENCE_REQUIRED_NOT_CONFIGURED"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "code": geofence_res["status"],
+                        "message": geofence_res["message"],
+                        "data": geofence_res,
+                    },
+                )
         if geofence_res["status"] == "ACCURACY_LOW":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -148,13 +157,18 @@ class AttendanceCheckInService:
                     "data": geofence_res,
                 },
             )
+        
+        # Log flexible mode warnings
+        if geofence_res.get("flexible_mode_warning"):
+            logger.warning("Flexible geofence mode: employee %s checked in outside geofence (distance: %.0fm)", employee.id, geofence_res.get("distance", 0))
 
         # 9. Shift engine evaluation (timezone-aware)
-        resolved, business_date = await self.shift_service.resolve_for_timestamp(employee, now_dt, tz)
         eval_result: CheckinEval = self.shift_service.evaluate_checkin(resolved, now_dt)
 
         # 10. Save image proof locally
         image_url = await save_base64_image(image_base64, prefix="checkin")
+        from app.attendance.services.policy_service import validate_biometric_evidence
+        validate_biometric_evidence(image_url, distance, liveness_score)
 
         # 11. Persist Attendance record with race-condition guard via DB partial unique index
         record = Attendance(
@@ -170,6 +184,7 @@ class AttendanceCheckInService:
             punch_type="IN",
             verified=True,
             punch_verified_by="FACE",
+            attendance_state=AttendanceState.CHECKED_IN,
             notes=notes,
             latitude=lat_val,
             longitude=lng_val,

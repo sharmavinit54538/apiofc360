@@ -1,0 +1,2451 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="25" failures="3" skipped="0" tests="55" time="42.534" timestamp="2026-11-17T12:08:49.820149+05:30" hostname="DESKTOP-38AQMEN"><testcase classname="app.tests.test_admissions" name="test_admission_workflow" time="1.152"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E7F0140&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E7F0140&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E7F0140&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_admissions" name="test_duplicate_admission_application" time="0.740"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC092E0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC092E0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC092E0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_attendance" name="test_bulk_mark_and_report" time="0.796"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5116C4800&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5116C4800&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5116C4800&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_attendance" name="test_duplicate_attendance_updates_not_duplicates" time="0.820"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E407380&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E407380&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50E407380&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_attendance" name="test_export_csv" time="0.837"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC0F410&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC0F410&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EC0F410&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_attendance" name="test_student_role_cannot_mark_attendance" time="0.738"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EBFF170&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EBFF170&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50EBFF170&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_valid_login" time="0.864"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF00BF0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF00BF0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF00BF0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_invalid_password" time="0.800"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC1C40&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC1C40&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC1C40&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_invalid_school_code" time="0.519"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF25B20&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF25B20&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF25B20&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_no_token_rejected" time="0.406"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF6990&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF6990&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF6990&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_refresh_rotation" time="0.776"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE3770&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE3770&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE3770&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_inactive_user_login_blocked" time="0.868"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE12E0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE12E0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CE12E0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_auth" name="test_suspended_school_blocks_login" time="0.787"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF231D0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF231D0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FF231D0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_exit_management.TestFnFDownloadAuthentication" name="test_anonymous_fnf_download_denied" time="0.005" /><testcase classname="app.tests.test_exit_management.TestFnFDownloadAuthentication" name="test_cross_tenant_fnf_download_denied" time="0.003" /><testcase classname="app.tests.test_exit_management.TestExitDocumentAuthorization" name="test_unrelated_employee_cannot_access_documents" time="0.004" /><testcase classname="app.tests.test_exit_management.TestNoticePeriodBypass" name="test_notice_start_from_pending_hr_denied" time="0.004" /><testcase classname="app.tests.test_exit_management.TestNoticePeriodBypass" name="test_notice_start_from_hr_approved_allowed" time="0.005" /><testcase classname="app.tests.test_exit_management.TestManagerApprovalAuthorization" name="test_unrelated_manager_cannot_approve" time="0.015" /><testcase classname="app.tests.test_exit_management.TestManagerApprovalAuthorization" name="test_direct_manager_can_approve" time="0.012" /><testcase classname="app.tests.test_exit_management.TestExitStateMachine" name="test_valid_transitions" time="0.001" /><testcase classname="app.tests.test_exit_management.TestExitStateMachine" name="test_invalid_transitions_denied" time="0.001" /><testcase classname="app.tests.test_exit_management.TestExitStateMachine" name="test_terminal_states" time="0.001" /><testcase classname="app.tests.test_exit_management.TestAssetReturnIntegration" name="test_asset_return_updates_inventory" time="0.899" /><testcase classname="app.tests.test_exit_management.TestNoFakeAssetChecklists" name="test_no_placeholder_for_no_assets" time="0.011" /><testcase classname="app.tests.test_exit_management.TestFnFLedgerConsolidation" name="test_reconcile_detects_discrepancies" time="0.005" /><testcase classname="app.tests.test_exit_management.TestPayrollAPIPrefix" name="test_fnf_download_route_format" time="0.001" /><testcase classname="app.tests.test_exit_management.TestPreventFakePaidState" name="test_fnf_create_schema_excludes_payment_status" time="0.001" /><testcase classname="app.tests.test_exit_management.TestPreventFakePaidState" name="test_submit_fnf_sets_pending" time="0.008" /><testcase classname="app.tests.test_exit_management.TestSecureDeactivation" name="test_complete_exit_revokes_tokens" time="0.012" /><testcase classname="app.tests.test_exit_management.TestNoticeDaysCalculation" name="test_notice_days_from_attendance_not_calendar" time="0.010"><failure message="TypeError: '&gt;' not supported between instances of 'MagicMock' and 'int'">app\tests\test_exit_management.py:820: in test_notice_days_from_attendance_not_calendar
+    preview = await calc_service.calculate_fnf_preview(sample_exit_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\fnf_calculation_service.py:327: in calculate_fnf_preview
+    shortfall_days = max(0, required_notice_days - actual_notice_days)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: '&gt;' not supported between instances of 'MagicMock' and 'int'</failure></testcase><testcase classname="app.tests.test_exit_management.TestPendingSalaryCalculation" name="test_pending_salary_from_unpaid_runs" time="0.014"><failure message="AttributeError: Mock object has no attribute 'outstanding_balance'">app\tests\test_exit_management.py:909: in test_pending_salary_from_unpaid_runs
+    preview = await calc_service.calculate_fnf_preview(sample_exit_id)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\fnf_calculation_service.py:332: in calculate_fnf_preview
+    loan_recovery = sum((Decimal(str(loan.outstanding_balance or 0)) for loan in loans), Decimal("0.00"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\fnf_calculation_service.py:332: in &lt;genexpr&gt;
+    loan_recovery = sum((Decimal(str(loan.outstanding_balance or 0)) for loan in loans), Decimal("0.00"))
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\unittest\mock.py:660: in __getattr__
+    raise AttributeError("Mock object has no attribute %r" % name)
+E   AttributeError: Mock object has no attribute 'outstanding_balance'</failure></testcase><testcase classname="app.tests.test_exit_management.TestExitDashboard" name="test_dashboard_uses_distinct_counts" time="0.004" /><testcase classname="app.tests.test_exit_management.TestReapplicationAfterRejection" name="test_rejected_resignation_allows_new" time="0.012" /><testcase classname="app.tests.test_exit_management.TestDatabaseConstraints" name="test_active_exit_unique_index_exists" time="0.001" /><testcase classname="app.tests.test_exit_management.TestStatusConstants" name="test_state_machine_matches_model_check_constraint" time="0.003" /><testcase classname="app.tests.test_exit_management.TestHRInitiatedExits" name="test_hr_initiate_termination" time="0.013"><failure message="AttributeError: 'MockEmployee' object has no attribute 'personal_email'">app\tests\test_exit_management.py:1070: in test_hr_initiate_termination
+    result = await service.hr_initiate_exit(payload, sample_hr_user.id, "hr_admin")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\services\exit_service.py:123: in hr_initiate_exit
+    return await self._initiate_exit(
+app\services\exit_service.py:162: in _initiate_exit
+    personal_email = payload.personal_email or employee.personal_email
+                                               ^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'MockEmployee' object has no attribute 'personal_email'</failure></testcase><testcase classname="app.tests.test_exit_management.TestHRInitiatedExits" name="test_hr_initiate_retirement_requires_effective_date" time="0.009" /><testcase classname="app.tests.test_exit_management.TestDepartmentalNoDues" name="test_clearance_creates_auditable_record" time="0.007" /><testcase classname="app.tests.test_exit_management.TestAssetListAuthorization" name="test_cross_tenant_asset_list_denied" time="0.007" /><testcase classname="app.tests.test_exit_management.TestEndToEnd" name="test_full_resignation_to_completion" time="0.004" /><testcase classname="app.tests.test_exit_management.TestMigrations" name="test_all_migrations_exist" time="0.001" /><testcase classname="app.tests.test_exit_management.TestMigrations" name="test_migration_order" time="0.001" /><testcase classname="app.tests.test_permissions" name="test_teacher_cannot_create_student" time="0.851"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B6840&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B6840&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B6840&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_permissions" name="test_teacher_can_read_students" time="0.693"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5105155E0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5105155E0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5105155E0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_permissions" name="test_accountant_cannot_manage_users" time="0.759"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B1790&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B1790&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E5104B1790&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_permissions" name="test_accountant_can_manage_fees" time="0.774"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510485A90&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510485A90&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510485A90&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_permissions" name="test_malformed_jwt_rejected" time="0.693"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510DC2330&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510DC2330&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510DC2330&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_permissions" name="test_admin_cannot_change_own_role" time="0.736"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510D58A10&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510D58A10&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510D58A10&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_students" name="test_create_list_get_update_delete_student" time="0.486"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51031ECF0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51031ECF0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51031ECF0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_students" name="test_duplicate_admission_number_rejected" time="0.722"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEECF80&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEECF80&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEECF80&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_tenant_isolation" name="test_tenant_a_cannot_read_tenant_b_student" time="0.751"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC17C0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC17C0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEC17C0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_tenant_isolation" name="test_tenant_a_list_never_contains_tenant_b_students" time="0.490"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF5220&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF5220&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E50FEF5220&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_tenant_isolation" name="test_forged_tenant_header_is_rejected" time="0.562"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CBD7C0&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CBD7C0&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E510CBD7C0&gt; can't render element of type JSONB</error></testcase><testcase classname="app.tests.test_tenant_isolation" name="test_cross_tenant_fee_access_blocked" time="0.500"><error message="failed on setup with &quot;sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51043ED80&gt; can't render element of type JSONB&quot;">..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:134: in _compiler_dispatch
+    meth = getter(visitor)
+           ^^^^^^^^^^^^^^^
+E   AttributeError: 'SQLiteTypeCompiler' object has no attribute 'visit_JSONB'. Did you mean: 'visit_JSON'?
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6838: in visit_create_table
+    processed = self.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6869: in visit_create_column
+    text = self.get_column_specification(column, first_pk=first_pk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\dialects\sqlite\base.py:1703: in get_column_specification
+    coltype = self.dialect.type_compiler_instance.process(
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:992: in process
+    return type_._compiler_dispatch(self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:136: in _compiler_dispatch
+    return visitor.visit_unsupported_compilation(self, err, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:997: in visit_unsupported_compilation
+    raise exc.UnsupportedCompilationError(self, element) from err
+E   sqlalchemy.exc.UnsupportedCompilationError: Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51043ED80&gt; can't render element of type JSONB (Background on this error at: https://sqlalche.me/e/20/l7de)
+
+The above exception was the direct cause of the following exception:
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:458: in setup
+    return super().setup()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:743: in pytest_fixture_setup
+    hook_result = yield
+                  ^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:313: in _asyncgen_fixture_wrapper
+    result = runner.run(setup(), context=context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\python312\Lib\asyncio\base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\pytest_asyncio\plugin.py:309: in setup
+    res = await gen_obj.__anext__()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+app\tests\conftest.py:22: in engine
+    await conn.run_sync(Base.metadata.create_all)
+..\venv312\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:888: in run_sync
+    return await greenlet_spawn(
+..\venv312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\schema.py:5928: in create_all
+    bind._run_ddl_visitor(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:2467: in _run_ddl_visitor
+    ).traverse_single(element)
+      ^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:984: in visit_metadata
+    self.traverse_single(
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:661: in traverse_single
+    return meth(obj, **kw)
+           ^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:1022: in visit_table
+    )._invoke_with(self.connection)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:321: in _invoke_with
+    return bind.execute(self)
+           ^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:187: in _execute_on_connection
+    return connection._execute_ddl(
+..\venv312\Lib\site-packages\sqlalchemy\engine\base.py:1527: in _execute_ddl
+    compiled = ddl.compile(
+..\venv312\Lib\site-packages\sqlalchemy\sql\elements.py:312: in compile
+    return self._compiler(dialect, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\ddl.py:76: in _compiler
+    return dialect.ddl_compiler(dialect, self, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:901: in __init__
+    self.string = self.process(self.statement, **compile_kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:947: in process
+    return obj._compiler_dispatch(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\visitors.py:138: in _compiler_dispatch
+    return meth(self, **kw)  # type: ignore  # noqa: E501
+           ^^^^^^^^^^^^^^^^
+..\venv312\Lib\site-packages\sqlalchemy\sql\compiler.py:6848: in visit_create_table
+    raise exc.CompileError(
+E   sqlalchemy.exc.CompileError: (in table 'employees', column 'onboarding_data'): Compiler &lt;sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler object at 0x000001E51043ED80&gt; can't render element of type JSONB</error></testcase></testsuite></testsuites>

@@ -1,20 +1,24 @@
-"""FastAPI endpoint for POST /api/generate using local Ollama ONLY."""
+"""FastAPI endpoint for POST /api/generate using local Ollama ONLY.
+
+SECURITY: This endpoint requires authentication.
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.llm.providers.registry import get_provider_registry
+from app.middleware.auth import get_current_user_claims
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Ollama Generation"])
+router = APIRouter(tags=["Ollama Generation"], dependencies=[Depends(get_current_user_claims)])
 
 
 class GenerateRequest(BaseModel):
@@ -31,14 +35,17 @@ class GenerateRequest(BaseModel):
 @router.post(
     "/generate",
     status_code=status.HTTP_200_OK,
-    summary="Generate text via Ollama",
+    summary="Generate text via Ollama (authenticated)",
 )
 @router.post(
     "/v1/generate",
     status_code=status.HTTP_200_OK,
-    summary="Generate text via Ollama (v1 prefix)",
+    summary="Generate text via Ollama (v1 prefix, authenticated)",
 )
-async def generate_text(payload: GenerateRequest):
+async def generate_text(
+    payload: GenerateRequest,
+    claims: dict = Depends(get_current_user_claims),
+):
     """Generate completion using Ollama local AI server.
 
     If Ollama is unavailable, returns HTTP 503 Service Unavailable with:

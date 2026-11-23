@@ -49,9 +49,8 @@ async def child_fees(student_id: str, current: CurrentUser = Depends(get_current
     if current.role != "parent":
         raise permission_denied()
     await _my_child_or_404(student_id, current, db)
-    from app.api.v1.fees import _out
     q = select(Fee).where(Fee.tenant_id == current.tenant_id, Fee.student_id == student_id)
-    return [_out(f) for f in (await db.execute(q)).scalars().all()]
+    return [FeeOut.model_validate(f) for f in (await db.execute(q)).scalars().all()]
 
 
 @router.get("/children/{student_id}/notices", response_model=list[NotificationOut])

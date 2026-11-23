@@ -1,0 +1,10 @@
+[
+  "py",
+  "-3.14",
+  "-m",
+  "pytest",
+  "-q",
+  "--tb=short",
+  "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\suite-20261116\\results.xml",
+  "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\payroll-verification-20261115\\suite-20261116-tmp"
+]

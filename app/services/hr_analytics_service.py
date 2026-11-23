@@ -110,11 +110,22 @@ class HRAnalyticsService:
         sal_res = await self.db.execute(sal_stmt)
         salaries = sal_res.scalars().all()
         
+        # Batch fetch employees to avoid N+1 queries
+        employee_ids = [sal.employee_id for sal in salaries]
+        emp_map = {}
+        if employee_ids:
+            emp_stmt = select(Employee).where(Employee.id.in_(employee_ids))
+            emp_res = await self.db.execute(emp_stmt)
+            for emp in emp_res.scalars().all():
+                emp_map[emp.id] = emp
+        
         dept_salaries = {}
         total_payroll_budget = 0.0
+        male_salaries = []
+        female_salaries = []
+        
         for sal in salaries:
-            emp_sal_res = await self.db.execute(select(Employee).where(Employee.id == sal.employee_id))
-            emp_sal = emp_sal_res.scalar_one_or_none()
+            emp_sal = emp_map.get(sal.employee_id)
             dept_name = emp_sal.department if emp_sal else "General"
             monthly_gross = float(sal.basic_monthly or 0)
             total_payroll_budget += monthly_gross
@@ -123,24 +134,18 @@ class HRAnalyticsService:
                 dept_salaries[dept_name] = []
             dept_salaries[dept_name].append(monthly_gross)
 
-        dept_averages = {
-            d: round(sum(vals) / len(vals), 2) if vals else 0.0
-            for d, vals in dept_salaries.items()
-        }
-
-        # Calculate actual gender pay gap ratio from database salaries
-        male_salaries = []
-        female_salaries = []
-        for sal in salaries:
-            emp_sal_res = await self.db.execute(select(Employee).where(Employee.id == sal.employee_id))
-            emp_sal = emp_sal_res.scalar_one_or_none()
             if emp_sal:
-                val = float(sal.basic_monthly or 0)
+                val = monthly_gross
                 g = str(emp_sal.gender or "").upper().strip()
                 if g == "MALE":
                     male_salaries.append(val)
                 elif g == "FEMALE":
                     female_salaries.append(val)
+
+        dept_averages = {
+            d: round(sum(vals) / len(vals), 2) if vals else 0.0
+            for d, vals in dept_salaries.items()
+        }
         avg_m = sum(male_salaries) / len(male_salaries) if male_salaries else 0.0
         avg_f = sum(female_salaries) / len(female_salaries) if female_salaries else 0.0
         gender_pay_gap = round(abs(avg_m - avg_f) / avg_m, 4) if avg_m > 0 else 0.0
@@ -454,20 +459,33 @@ class HRAnalyticsService:
         pending_requests = pending_res.scalars().all()
         pending_count = len(pending_requests)
 
-        # Let's check overlaps (conflicts)
+        # Let's check overlaps (conflicts) - batch check instead of N+1
         conflicts_count = 0
-        for req in pending_requests:
-            # Check overlap with any APPROVED or other PENDING leave of OTHER employees in the same company
-            overlap_stmt = select(LeaveRequest).where(
-                LeaveRequest.id != req.id,
-                LeaveRequest.employee_id.in_(employee_ids),
-                LeaveRequest.status.in_(["PENDING", "APPROVED"]),
-                LeaveRequest.start_date <= req.end_date,
-                LeaveRequest.end_date >= req.start_date
-            )
-            overlap_res = await self.db.execute(overlap_stmt)
-            if overlap_res.scalars().first():
-                conflicts_count += 1
+        if pending_requests:
+            # Build a single query to find all overlaps
+            # We need to check for each pending request if there's another request (approved/pending) 
+            # from a different employee that overlaps in date range
+            req_conditions = []
+            for req in pending_requests:
+                req_conditions.append(
+                    (LeaveRequest.start_date <= req.end_date) & 
+                    (LeaveRequest.end_date >= req.start_date) &
+                    (LeaveRequest.employee_id != req.employee_id)
+                )
+            
+            if req_conditions:
+                from sqlalchemy import or_
+                overlap_stmt = select(LeaveRequest.id).where(
+                    LeaveRequest.employee_id.in_(employee_ids),
+                    LeaveRequest.status.in_(["PENDING", "APPROVED"]),
+                    or_(*req_conditions)
+                )
+                overlap_res = await self.db.execute(overlap_stmt)
+                overlapping_ids = {row[0] for row in overlap_res.all()}
+                # Count unique pending requests that have overlaps
+                for req in pending_requests:
+                    if req.id in overlapping_ids:
+                        conflicts_count += 1
 
         approval_suggestions = max(0, pending_count - conflicts_count)
 

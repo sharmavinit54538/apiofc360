@@ -75,16 +75,21 @@ class Settings(BaseSettings):
         description="RSA public key (PEM format) for verifying JWT tokens. Set via env var in production.",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 365
     REFRESH_TOKEN_GRACE_SECONDS: int = 15
     REFRESH_REUSE_GRACE_SECONDS: int = 15
 
     # Auth cookie settings
+    DIGILOCKER_CLIENT_ID: str = ""
+    DIGILOCKER_CLIENT_SECRET: str = ""
+    DIGILOCKER_REDIRECT_URI: str = "http://localhost:8000/api/v1/employee/document-verification/digilocker/callback"
+    DIGILOCKER_API_BASE_URL: str = "https://digilocker.meripehchaan.gov.in/public/oauth2"
+
     COOKIE_NAME: str = "ofc360_refresh_token"
     COOKIE_DOMAIN: str | None = None
     COOKIE_SECURE: bool | None = None
     COOKIE_SAMESITE: str = "lax"
-    REFRESH_COOKIE_MAX_AGE: int = 30 * 24 * 3600
+    REFRESH_COOKIE_MAX_AGE: int = 365 * 24 * 3600
 
     SUPER_ADMIN_EMAIL: str = "superadmin@ofc360.com"
     SUPER_ADMIN_PASSWORD: SecretStr = Field(
@@ -99,8 +104,6 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     # Consolidated CORS origins - supported in all environments (production & development)
     CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://api.ofc360.com",
@@ -109,8 +112,6 @@ class Settings(BaseSettings):
     ]
     # Production CORS origins - only explicitly configured origins
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
@@ -132,14 +133,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:4173",
     ]
     ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
         "https://api.ofc360.com",
         "https://ofc360.com",
         "https://www.ofc360.com",
         "https://app.ofc360.com",
         "https://ofc360.vercel.app",
     ]
+    TRUSTED_PROXY_CIDRS: str = ""
     REGISTER_RATE_LIMIT: str = "5/minute"
     LOGIN_RATE_LIMIT_LIMIT: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 60
@@ -249,6 +249,10 @@ class Settings(BaseSettings):
     VECTOR_EMBEDDING_DIM: int = 768
 
     # ── Redis / Celery settings ──────────────────────────────────────────────
+    REDIS_PASSWORD: str | None = Field(
+        default=None,
+        description="Redis password for authentication. If set, Redis URLs should include it.",
+    )
     REDIS_URL: str = Field(
         default="",
         description="Redis URL. Must be set via env var in production. Empty defaults to redis://localhost:6379/0 in local dev only.",
@@ -282,6 +286,44 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    
+    # ── Biometric Storage (S3/GCS-compatible) ────────────────────────────────
+    BIOMETRIC_STORAGE_BUCKET: str = Field(
+        default="",
+        description="S3/GCS bucket name for biometric face attendance images. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_REGION: str = Field(
+        default="us-east-1",
+        description="Storage region (e.g., us-east-1, eu-west-1).",
+    )
+    BIOMETRIC_STORAGE_ENDPOINT_URL: str | None = Field(
+        default=None,
+        description="Custom S3-compatible endpoint URL (for MinIO, GCS, etc.). Leave empty for AWS S3.",
+    )
+    BIOMETRIC_STORAGE_ACCESS_KEY: str = Field(
+        default="",
+        description="Storage access key ID. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_SECRET_KEY: SecretStr = Field(
+        default=SecretStr(""),
+        description="Storage secret access key. Must be set in production.",
+    )
+    BIOMETRIC_STORAGE_USE_SSL: bool = Field(
+        default=True,
+        description="Use HTTPS for storage connections.",
+    )
+    BIOMETRIC_STORAGE_SSE_ALGORITHM: str = Field(
+        default="AES256",
+        description="Server-side encryption algorithm (AES256, aws:kms, or empty for none).",
+    )
+    BIOMETRIC_STORAGE_KMS_KEY_ID: str | None = Field(
+        default=None,
+        description="KMS key ID for SSE-KMS encryption (required if SSE_ALGORITHM=aws:kms).",
+    )
+    BIOMETRIC_STORAGE_RETENTION_DAYS: int = Field(
+        default=2555,  # ~7 years
+        description="Default retention period for biometric images in days.",
+    )
 
 
     # LLM Routing & Limits
@@ -447,22 +489,37 @@ class Settings(BaseSettings):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():
                 raise ValueError("REDIS_URL must be set via environment variable in production")
+            # JWT algorithm MUST be RS256 in production
+            if self.JWT_ALGORITHM.upper() != "RS256":
+                raise ValueError("JWT_ALGORITHM must be RS256 in production (got: " + self.JWT_ALGORITHM + ")")
             # JWT keys required for RS256 in production
-            if self.JWT_ALGORITHM.upper().startswith("RS"):
-                private_key = self.JWT_PRIVATE_KEY.get_secret_value()
-                public_key = self.JWT_PUBLIC_KEY.get_secret_value()
-                if not private_key or not private_key.strip():
-                    raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production when using RS256")
-                if not public_key or not public_key.strip():
-                    raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production when using RS256")
-                # Validate key format
-                if not private_key.strip().startswith("-----BEGIN"):
-                    raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
-                if not public_key.strip().startswith("-----BEGIN"):
-                    raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            private_key = self.JWT_PRIVATE_KEY.get_secret_value()
+            public_key = self.JWT_PUBLIC_KEY.get_secret_value()
+            if not private_key or not private_key.strip():
+                raise ValueError("JWT_PRIVATE_KEY must be set via environment variable in production when using RS256")
+            if not public_key or not public_key.strip():
+                raise ValueError("JWT_PUBLIC_KEY must be set via environment variable in production when using RS256")
+            # Validate key format
+            if not private_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PRIVATE_KEY must be in PEM format")
+            if not public_key.strip().startswith("-----BEGIN"):
+                raise ValueError("JWT_PUBLIC_KEY must be in PEM format")
+            # DigiLocker redirect URI must not be localhost in production when DigiLocker is configured
+            if self.DIGILOCKER_CLIENT_ID and self.DIGILOCKER_CLIENT_ID.strip():
+                redirect_uri = self.DIGILOCKER_REDIRECT_URI.lower()
+                if any(local_addr in redirect_uri for local_addr in ("localhost", "127.0.0.1")):
+                    raise ValueError("DIGILOCKER_REDIRECT_URI must not use localhost/127.0.0.1 in production when DIGILOCKER_CLIENT_ID is set")
             # Cloudinary required in production
             if not self.CLOUDINARY_CLOUD_NAME or not self.CLOUDINARY_API_KEY or not self.CLOUDINARY_API_SECRET:
                 raise ValueError("CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be set via env vars in production")
+            # Biometric storage required in production
+            if not self.BIOMETRIC_STORAGE_BUCKET:
+                raise ValueError("BIOMETRIC_STORAGE_BUCKET must be set via environment variable in production")
+            if not self.BIOMETRIC_STORAGE_ACCESS_KEY:
+                raise ValueError("BIOMETRIC_STORAGE_ACCESS_KEY must be set via environment variable in production")
+            secret_key_val = self.BIOMETRIC_STORAGE_SECRET_KEY.get_secret_value()
+            if not secret_key_val or not secret_key_val.strip():
+                raise ValueError("BIOMETRIC_STORAGE_SECRET_KEY must be set via environment variable in production")
             # Super Admin password: if provided in production, ensure it is strong and not default
             sa_pwd = self.SUPER_ADMIN_PASSWORD.get_secret_value()
             if sa_pwd and (sa_pwd == "SuperAdmin@2026" or len(sa_pwd) < 12):

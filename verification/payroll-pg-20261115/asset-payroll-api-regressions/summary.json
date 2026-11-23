@@ -1,0 +1,21 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_payroll_full_suite.py",
+    "-v",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-payroll-api-regressions\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-payroll-api-regressions-tmp"
+  ],
+  "database": "asset_verify_migration",
+  "port": 55442,
+  "exit_code": 0,
+  "seconds": 88.429,
+  "tests": 11,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "passed": 11
+}

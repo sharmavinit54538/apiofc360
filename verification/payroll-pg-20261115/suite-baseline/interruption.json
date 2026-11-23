@@ -1,0 +1,5 @@
+{
+  "reason": "ASGITransport buffers infinite SSE response; suite stalled in test_notifications_sse_stream",
+  "terminated_pid": 24208,
+  "result": "incomplete, not a passing full-suite result"
+}

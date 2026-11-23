@@ -19,6 +19,13 @@ from app.models.subscription import Subscription
 from app.models.payment import PaymentTransaction, PaymentStatus
 from app.models.user_mfa import UserMFA
 from app.models.onboarding import CompanySettings, Designation, LeavePolicy, OnboardingProgress
+from app.models.settings_models import (
+    EmployeeSettings,
+    LeaveSettings,
+    DocumentSettings,
+    AssetSettings,
+)
+from app.models.labour_codes_config import LabourCodesConfig
 from app.models.shift import Shift, ShiftAllowancePolicy
 from app.models.employee_invitation import EmployeeInvitation
 
@@ -435,6 +442,13 @@ from app.models.helpdesk import (
     HelpdeskFAQ,
 )
 
+# Autopilot HR models
+from app.models.autopilot_hr import (
+    AutopilotPolicyRule,
+    AutopilotExceptionItem,
+    AutopilotAuditLog,
+)
+
 # AI Hub module models
 from app.models.ai_hub import (
     AgentRun,
@@ -471,6 +485,9 @@ from app.attendance.models import office_location  # noqa: F401  (office_locatio
 
 
 __all__ = [
+    "AutopilotPolicyRule",
+    "AutopilotExceptionItem",
+    "AutopilotAuditLog",
     "AgentRun",
     "AgentFeedback",
     "GeneratedDocument",
@@ -741,3 +758,5 @@ __all__ += [
     "OrgTwinSimulation", "WorkforcePlan", "MarketplaceIntegration",
     "TenantIntegration", "IntegrationConnection", "IntegrationSyncLog",
 ]
+
+from app.models.automation_jobs import NotificationAutomationRule, AutomationExecution

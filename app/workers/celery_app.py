@@ -17,7 +17,10 @@ try:
         backend=settings.CELERY_RESULT_BACKEND,
         include=[
             "app.workers.resume_tasks",
+            "app.workers.screening_tasks",
+            "app.workers.automation_tasks",
             "app.workers.notification_tasks",
+            "app.workers.payroll_tasks",
         ],
     )
 
@@ -38,10 +41,19 @@ try:
             "app.workers.notification_tasks.*": {"queue": "notifications"},
         },
         task_default_queue="default",
+        beat_schedule={
+            "execute-durable-automation": {
+                "task": "app.workers.automation_tasks.drain", "schedule": 15.0,
+            },
+            "recover-abandoned-payroll-claims": {
+                "task": "app.workers.payroll_tasks.recover_abandoned_payroll_runs_task",
+                "schedule": 60.0,
+            },
+        },
     )
 
     CELERY_AVAILABLE = True
-    logger.info("Celery configured with broker: %s", settings.CELERY_BROKER_URL)
+    logger.info("Celery configured")
 
 except ImportError:
     logger.warning("celery not installed — background task processing disabled")

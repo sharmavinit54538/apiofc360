@@ -1,0 +1,30 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_employee_database_and_crud.py",
+    "tests/test_employee_salary_and_crud_lifecycle.py",
+    "tests/test_employee_creation_payload_robustness.py",
+    "tests/test_auth_employee_login_lifecycle.py",
+    "tests/test_auth_refresh_cookie_production_hardening.py",
+    "tests/test_token_revocation_and_rotation.py",
+    "tests/test_dpdp_compliance_and_encryption.py",
+    "tests/test_batch4_onboarding_letters_fnf_migration.py",
+    "tests/test_payroll_postgres_concurrency.py",
+    "tests/test_alembic_single_head.py",
+    "-v",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-regressions-initial\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-regressions-initial-tmp"
+  ],
+  "database": "asset_verify_regression",
+  "port": 55442,
+  "exit_code": 1,
+  "seconds": 54.818,
+  "tests": 84,
+  "failed": 5,
+  "errors": 7,
+  "skipped": 0,
+  "passed": 72
+}

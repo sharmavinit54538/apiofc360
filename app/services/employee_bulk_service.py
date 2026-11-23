@@ -8,7 +8,11 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from openpyxl import Workbook, load_workbook
+try:
+    from openpyxl import Workbook, load_workbook
+except ImportError:
+    Workbook = None
+    load_workbook = None
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +123,34 @@ class EmployeeBulkService:
             )).scalars().all()
             existing_emails.update(email.lower() for email in global_duplicates)
 
+        # Pre-fetch all branches and departments to avoid N+1 queries
+        branch_codes = {_text(row, "branch_code") for row in rows if _text(row, "branch_code")}
+        department_codes = {_text(row, "department_code") for row in rows if _text(row, "department_code")}
+        department_names = {_text(row, "department", "department_name", default="General") for row in rows}
+        
+        branch_map = {}
+        if branch_codes:
+            branch_stmt = select(Branch).where(Branch.company_id == company_id, Branch.code.in_(branch_codes))
+            branch_res = await self.session.execute(branch_stmt)
+            branch_map = {b.code: b.id for b in branch_res.scalars().all()}
+        
+        dept_map = {}
+        if department_codes or department_names:
+            from sqlalchemy import or_
+            dept_stmt = select(Department).where(
+                Department.company_id == company_id,
+                Department.is_deleted == False,
+                or_(
+                    Department.department_code.in_(department_codes) if department_codes else False,
+                    Department.department_name.in_(department_names) if department_names else False,
+                )
+            )
+            dept_res = await self.session.execute(dept_stmt)
+            for dept in dept_res.scalars().all():
+                if dept.department_code:
+                    dept_map[dept.department_code] = dept.id
+                dept_map[dept.department_name] = dept.id
+
         for index, row in enumerate(rows, start=2):
             row_errors: list[str] = []
             first_name = _text(row, "first_name", "firstname")
@@ -157,25 +189,15 @@ class EmployeeBulkService:
 
             branch_code = _text(row, "branch_code")
             if branch_code and branch_id is None:
-                branch = (await self.session.execute(select(Branch).where(
-                    Branch.company_id == company_id, Branch.code == branch_code
-                ))).scalar_one_or_none()
-                if branch is None:
+                branch_id = branch_map.get(branch_code)
+                if branch_id is None:
                     row_errors.append(f"Unknown branch_code: {branch_code}.")
-                else:
-                    branch_id = branch.id
             department_code = _text(row, "department_code")
             department_name = _text(row, "department", "department_name", default="General")
             if department_id is None and (department_code or department_name):
-                stmt = select(Department).where(Department.company_id == company_id, Department.is_deleted == False)  # noqa: E712
-                if department_code:
-                    stmt = stmt.where(Department.department_code == department_code)
-                else:
-                    stmt = stmt.where(Department.department_name == department_name)
-                department = (await self.session.execute(stmt)).scalar_one_or_none()
-                if department is not None:
-                    department_id = department.id
-                    department_name = department.department_name
+                dept_id = dept_map.get(department_code) or dept_map.get(department_name)
+                if dept_id is not None:
+                    department_id = dept_id
                 elif department_code:
                     row_errors.append(f"Unknown department_code: {department_code}.")
 

@@ -1,6 +1,7 @@
 """Company News API routes."""
 
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status

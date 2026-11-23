@@ -1,0 +1,14 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "-m",
+    "alembic",
+    "upgrade",
+    "head"
+  ],
+  "database": "payroll_verify_suite",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 42.391
+}

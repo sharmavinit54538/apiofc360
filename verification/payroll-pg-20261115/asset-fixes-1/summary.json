@@ -1,0 +1,21 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_asset_management_comprehensive.py",
+    "-v",
+    "--tb=short",
+    "--junitxml=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\verification\\payroll-pg-20261115\\asset-fixes-1\\results.xml",
+    "--basetemp=C:\\Users\\Dell\\OneDrive\\Desktop\\ofcb\\apiofc360\\scratch\\asset-verification-20261116\\asset-fixes-1-tmp"
+  ],
+  "database": "asset_verify_suite",
+  "port": 55442,
+  "exit_code": 1,
+  "seconds": 17.977,
+  "tests": 41,
+  "failed": 1,
+  "errors": 0,
+  "skipped": 0,
+  "passed": 40
+}

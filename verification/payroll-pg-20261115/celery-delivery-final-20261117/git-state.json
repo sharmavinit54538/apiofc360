@@ -1,0 +1,4 @@
+{
+  "head": "7eacd20df13f285e3b759dc446b139edd8ecf6e6",
+  "status": " M app/api/v1/router.py\n M app/services/fnf_calculation_service.py\n M app/tests/test_exit_management.py\n M scripts/payroll_disposable_pg.py\n M tests/test_ai_resume_parser_comprehensive.py\n M tests/test_hr_admin_user_management.py\n M tests/test_super_admin_suite.py\n"
+}

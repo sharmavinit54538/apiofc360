@@ -21,6 +21,7 @@ class HRSettingsResponseData(BaseModel):
     working_hours_end: str = "18:00"
     timezone: str = "Asia/Kolkata"
     attendance_enabled: bool = True
+    daily_face_verification_required: bool = True
     leave_enabled: bool = True
     payroll_enabled: bool = True
     week_start_day: Optional[str] = "Monday"
@@ -36,6 +37,7 @@ class HRSettingsResponseData(BaseModel):
 
 class HRSettingsUpdatePayload(BaseModel):
     """Schema for updating company HR settings."""
+    daily_face_verification_required: Optional[bool] = None
     hr_name: Optional[str] = Field(None, min_length=2, max_length=100)
     hr_email: Optional[EmailStr] = None
     hr_phone: Optional[str] = None
@@ -216,3 +218,169 @@ class InvoicesPaginationData(BaseModel):
     page_size: int = 20
     total: int = 0
     pages: int = 1
+
+
+# ===========================================================================
+# 4. Settings Management Module Schemas (Employee, Leave, Document, Asset, Logo)
+# ===========================================================================
+
+class CompanyLogoResponse(BaseModel):
+    """Company logo upload response."""
+    logo_url: str
+    updated_at: str
+    logo: Optional[str] = None
+    logoUrl: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+
+class EmployeeSettingsResponse(BaseModel):
+    """Organization-wide employee configuration response."""
+    employee_id_prefix: str = "EMP"
+    employee_id_start_number: int = 1001
+    probation_period_days: int = 90
+    default_employment_type: str = "full_time"
+    default_employee_status: str = "active"
+    allow_employee_profile_edit: bool = True
+    require_manager_assignment: bool = False
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+
+class EmployeeSettingsUpdate(BaseModel):
+    """Organization-wide employee configuration update payload."""
+    employee_id_prefix: Optional[str] = Field(None, min_length=1, max_length=10)
+    employee_id_start_number: Optional[int] = Field(None, ge=1)
+    probation_period_days: Optional[int] = Field(None, ge=0, le=365)
+    default_employment_type: Optional[str] = Field(None, max_length=50)
+    default_employee_status: Optional[str] = Field(None, max_length=50)
+    allow_employee_profile_edit: Optional[bool] = None
+    require_manager_assignment: Optional[bool] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("employee_id_prefix")
+    @classmethod
+    def validate_prefix(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip().upper()
+            if not re.match(r"^[A-Z0-9\-_]{1,10}$", clean):
+                raise ValueError("Employee ID prefix must be 1-10 alphanumeric characters (hyphens and underscores allowed).")
+            return clean
+        return v
+
+
+class LeaveSettingsResponse(BaseModel):
+    """Organization-wide leave management configuration response."""
+    leave_year_start_month: int = 1
+    allow_half_day_leave: bool = True
+    allow_negative_balance: bool = False
+    require_manager_approval: bool = True
+    max_consecutive_leave_days: int = 30
+    carry_forward_enabled: bool = True
+    carry_forward_limit: int = 10
+    leave_encashment_enabled: bool = False
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+
+class LeaveSettingsUpdate(BaseModel):
+    """Organization-wide leave management configuration update payload."""
+    leave_year_start_month: Optional[int] = Field(None, ge=1, le=12)
+    allow_half_day_leave: Optional[bool] = None
+    allow_negative_balance: Optional[bool] = None
+    require_manager_approval: Optional[bool] = None
+    max_consecutive_leave_days: Optional[int] = Field(None, ge=1, le=365)
+    carry_forward_enabled: Optional[bool] = None
+    carry_forward_limit: Optional[int] = Field(None, ge=0)
+    leave_encashment_enabled: Optional[bool] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+FORBIDDEN_FILE_EXTENSIONS = {
+    "exe", "bat", "cmd", "sh", "py", "pl", "php", "js", "html", "htm",
+    "vbs", "jar", "svg", "dll", "so", "bin", "com", "scr", "msi", "app",
+}
+
+
+class DocumentSettingsResponse(BaseModel):
+    """Organization-wide document management configuration response."""
+    allowed_file_types: List[str] = ["pdf", "jpg", "jpeg", "png"]
+    max_file_size_mb: int = 10
+    require_document_verification: bool = True
+    document_expiry_alert_days: int = 30
+    employee_can_upload_documents: bool = True
+    manager_can_view_documents: bool = False
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+
+class DocumentSettingsUpdate(BaseModel):
+    """Organization-wide document management configuration update payload."""
+    allowed_file_types: Optional[List[str]] = None
+    max_file_size_mb: Optional[int] = Field(None, ge=1, le=100)
+    require_document_verification: Optional[bool] = None
+    document_expiry_alert_days: Optional[int] = Field(None, ge=0, le=365)
+    employee_can_upload_documents: Optional[bool] = None
+    manager_can_view_documents: Optional[bool] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("allowed_file_types")
+    @classmethod
+    def validate_file_types(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            if not v:
+                raise ValueError("Allowed file types list cannot be empty.")
+            cleaned: List[str] = []
+            for ext in v:
+                clean_ext = str(ext).strip().lower().lstrip(".")
+                if not clean_ext:
+                    continue
+                if clean_ext in FORBIDDEN_FILE_EXTENSIONS:
+                    raise ValueError(f"File type '{clean_ext}' is strictly forbidden for security reasons.")
+                if not re.match(r"^[a-z0-9]{1,10}$", clean_ext):
+                    raise ValueError(f"Invalid file extension format: '{clean_ext}'.")
+                if clean_ext not in cleaned:
+                    cleaned.append(clean_ext)
+            if not cleaned:
+                raise ValueError("At least one valid file type extension must be specified.")
+            return cleaned
+        return v
+
+
+class AssetSettingsResponse(BaseModel):
+    """Organization-wide asset management configuration response."""
+    asset_id_prefix: str = "AST"
+    require_assignment_approval: bool = True
+    enable_asset_return_tracking: bool = True
+    enable_asset_condition_tracking: bool = True
+    enable_warranty_reminders: bool = True
+    warranty_reminder_days: int = 30
+    enable_asset_depreciation: bool = False
+
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+
+class AssetSettingsUpdate(BaseModel):
+    """Organization-wide asset management configuration update payload."""
+    asset_id_prefix: Optional[str] = Field(None, min_length=1, max_length=10)
+    require_assignment_approval: Optional[bool] = None
+    enable_asset_return_tracking: Optional[bool] = None
+    enable_asset_condition_tracking: Optional[bool] = None
+    enable_warranty_reminders: Optional[bool] = None
+    warranty_reminder_days: Optional[int] = Field(None, ge=0, le=365)
+    enable_asset_depreciation: Optional[bool] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("asset_id_prefix")
+    @classmethod
+    def validate_asset_prefix(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip().upper()
+            if not re.match(r"^[A-Z0-9\-_]{1,10}$", clean):
+                raise ValueError("Asset ID prefix must be 1-10 alphanumeric characters (hyphens and underscores allowed).")
+            return clean
+        return v

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="25.952" timestamp="2026-11-15T07:47:04.616907+05:30" hostname="DESKTOP-38AQMEN"><testcase classname="" name="tests.test_payroll_lock_arrears_ot_parallel" time="0.000"><error message="collection failure">ImportError while importing test module 'C:\Users\Dell\OneDrive\Desktop\ofcb\apiofc360\tests\test_payroll_lock_arrears_ot_parallel.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_payroll_lock_arrears_ot_parallel.py:17: in &lt;module&gt;
+    from openpyxl import Workbook
+E   ModuleNotFoundError: No module named 'openpyxl'</error></testcase></testsuite></testsuites>

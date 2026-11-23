@@ -15,6 +15,7 @@ from app.schemas.security_setting import (
     SecurityPolicyUpdateSchema,
     IPWhitelistCreateSchema,
 )
+from app.api.v2.enterprise_dependencies import company_id
 from app.services.security_setting_service import SecuritySettingService
 
 router = APIRouter(prefix="/security", tags=["Enterprise Payroll Security"])
@@ -27,7 +28,8 @@ async def list_security_roles(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    roles = await SecuritySettingService.list_roles(db)
+    co_id = company_id(claims)
+    roles = await SecuritySettingService.list_roles(db, co_id)
     return success_response(roles, "Security roles retrieved successfully.")
 
 
@@ -38,7 +40,8 @@ async def get_security_policy(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    policy = await SecuritySettingService.get_security_policy(db)
+    co_id = company_id(claims)
+    policy = await SecuritySettingService.get_security_policy(db, co_id)
     return success_response(policy, "Security policy retrieved successfully.")
 
 
@@ -49,8 +52,9 @@ async def update_security_policy(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    co_id = company_id(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    updated = await SecuritySettingService.update_security_policy(db, payload.model_dump(exclude_none=True), actor_email)
+    updated = await SecuritySettingService.update_security_policy(db, co_id, payload.model_dump(exclude_none=True), actor_email)
     return success_response(updated, "Security policy updated successfully.")
 
 
@@ -60,7 +64,8 @@ async def get_active_sessions(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    sessions = await SecuritySettingService.list_active_sessions(db)
+    co_id = company_id(claims)
+    sessions = await SecuritySettingService.list_active_sessions(db, co_id)
     return success_response(sessions, "Active user sessions retrieved.")
 
 
@@ -71,8 +76,9 @@ async def revoke_user_session(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    co_id = company_id(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    revoked = await SecuritySettingService.revoke_session(db, session_id, actor_email)
+    revoked = await SecuritySettingService.revoke_session(db, session_id, actor_email, co_id)
     if not revoked:
         raise HTTPException(status_code=404, detail="Session not found.")
     return success_response({"session_id": str(session_id)}, "Session revoked successfully.")
@@ -84,8 +90,9 @@ async def force_logout_all(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    co_id = company_id(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    count = await SecuritySettingService.logout_all_sessions(db, actor_email)
+    count = await SecuritySettingService.logout_all_sessions(db, actor_email, co_id)
     return success_response({"revoked_count": count}, f"Force logged out {count} active sessions.")
 
 
@@ -95,7 +102,8 @@ async def get_ip_whitelist(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    items = await SecuritySettingService.list_ip_whitelist(db)
+    co_id = company_id(claims)
+    items = await SecuritySettingService.list_ip_whitelist(db, co_id)
     return success_response(items, "IP whitelist retrieved.")
 
 
@@ -106,8 +114,9 @@ async def add_ip_whitelist(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    co_id = company_id(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    added = await SecuritySettingService.add_ip_whitelist(db, payload.ip_address_or_range, payload.description or "", actor_email)
+    added = await SecuritySettingService.add_ip_whitelist(db, co_id, payload.ip_address_or_range, payload.description or "", actor_email)
     return success_response(added, "IP range whitelisted successfully.")
 
 
@@ -118,8 +127,9 @@ async def delete_ip_whitelist(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    co_id = company_id(claims)
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
-    deleted = await SecuritySettingService.delete_ip_whitelist(db, ip_id, actor_email)
+    deleted = await SecuritySettingService.delete_ip_whitelist(db, co_id, ip_id, actor_email)
     if not deleted:
         raise HTTPException(status_code=404, detail="IP whitelist entry not found.")
     return success_response({"id": str(ip_id)}, "IP whitelist entry removed.")
@@ -131,5 +141,6 @@ async def get_security_audit(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    logs = await SecuritySettingService.list_audit_logs(db)
+    co_id = company_id(claims)
+    logs = await SecuritySettingService.list_audit_logs(db, co_id)
     return success_response(logs, "Security audit log retrieved.")

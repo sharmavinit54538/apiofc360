@@ -39,7 +39,7 @@ class EmployeeExit(Base):
     employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
 
     last_working_date: Mapped[date] = mapped_column(Date, nullable=False)
-    reason: Mapped[str] = mapped_column(String(100), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)  # Increased from 100
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     personal_email: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -57,6 +57,12 @@ class EmployeeExit(Base):
     manager_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     hr_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # HR-initiated exit fields
+    exit_type: Mapped[str] = mapped_column(String(30), nullable=False, default="resignation", server_default=text("'resignation'"))
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    initiated_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    initiated_by_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Audit & Soft Delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -68,6 +74,7 @@ class EmployeeExit(Base):
     knowledge_transfers: Mapped[list[KnowledgeTransfer]] = relationship("KnowledgeTransfer", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
     asset_returns: Mapped[list[AssetReturn]] = relationship("AssetReturn", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
     clearances: Mapped[list[ClearanceRequest]] = relationship("ClearanceRequest", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
+    departmental_clearances: Mapped[list[DepartmentalClearance]] = relationship("DepartmentalClearance", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
     exit_interviews: Mapped[list[ExitInterview]] = relationship("ExitInterview", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
     fnf_settlements: Mapped[list[FnfSettlement]] = relationship("FnfSettlement", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
     documents: Mapped[list[ExitDocument]] = relationship("ExitDocument", back_populates="exit_rel", cascade="all, delete-orphan", lazy="select")
@@ -110,7 +117,7 @@ class AssetReturn(Base):
 
 
 class ClearanceRequest(Base):
-    """No Dues Department Clearances."""
+    """No Dues Department Clearances - legacy summary fields for backward compatibility."""
 
     __tablename__ = "clearance_requests"
 
@@ -127,6 +134,48 @@ class ClearanceRequest(Base):
     overall_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING/CLEARED
 
     exit_rel: Mapped[EmployeeExit] = relationship("EmployeeExit", back_populates="clearances")
+
+
+class DepartmentalClearance(Base):
+    """Auditable departmental No Dues approval records.
+    
+    Each department (IT, HR, Finance, Admin, Manager, Security) has a separate
+    approval record with authorized approver, status, comments, timestamp, and evidence.
+    """
+
+    __tablename__ = "departmental_clearances"
+    __table_args__ = (
+        Index("ix_dept_clearance_exit_id", "exit_id"),
+        Index("ix_dept_clearance_department", "department"),
+        Index("ix_dept_clearance_approver_id", "approver_id"),
+        Index("ix_dept_clearance_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exit_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employee_exits.id", ondelete="CASCADE"), nullable=False)
+    
+    department: Mapped[str] = mapped_column(String(50), nullable=False)  # IT, HR, FINANCE, ADMIN, MANAGER, SECURITY
+    
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING, APPROVED, REJECTED, NOT_APPLICABLE
+    
+    approver_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approver_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    approver_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    
+    comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Document ID, ticket number, etc.
+    
+    actioned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    # Relation to exit
+    exit_rel: Mapped[EmployeeExit] = relationship("EmployeeExit", back_populates="departmental_clearances", lazy="select")
+
+    # For backward compatibility, populate legacy ClearanceRequest summary fields
+    @classmethod
+    def get_required_departments(cls) -> list[str]:
+        return ["IT", "HR", "FINANCE", "ADMIN", "MANAGER", "SECURITY"]
 
 
 class ExitInterview(Base):
@@ -174,6 +223,14 @@ class FnfSettlement(Base):
     net_payable_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0.0)
     payment_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")  # PENDING/PAID
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    
+    # Payment confirmation audit fields
+    payment_reference: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+    payment_utr: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payment_confirmed_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    payment_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'"))
     settlement_breakup: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     statement_path: Mapped[str | None] = mapped_column(String(500), nullable=True)

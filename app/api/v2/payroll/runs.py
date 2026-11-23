@@ -170,6 +170,19 @@ async def delete_run_v2(
     return _ok(res, "Payroll run deleted successfully")
 
 
+# 1b. POST /api/v2/payroll/runs/{runId}/cancel - Cancel payroll run (alias for delete with different semantics)
+@router.post("/runs/{runId}/cancel", summary="Cancel payroll run")
+async def cancel_run_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    # Cancel is similar to delete but may have different business logic in the future
+    res = await PayrollRunService.delete_run(db, run_id=runId)
+    return _ok(res, "Payroll run cancelled successfully")
+
+
 # 2. GET /api/v2/payroll/runs/{runId}/approval
 @router.get("/runs/{runId}/approval", summary="Get approval status and details for payroll run")
 async def get_run_approval_details(
@@ -364,6 +377,9 @@ async def create_payment_batch_from_run(
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    tenant = claims.get("company_id") if claims else None
+    if not tenant and user_role != "super_admin":
+        raise HTTPException(status_code=403, detail="Company scope is required for payment operations.")
     src_uuid = uuid.UUID(payload.source_account_id)
     batch = await PaymentBatchService.create_batch_from_run(
         session=db,
@@ -374,6 +390,7 @@ async def create_payment_batch_from_run(
         notes=payload.notes,
         user_id=user_id,
         user_role=user_role,
+        company_id=uuid.UUID(str(tenant)) if tenant else None,
     )
     return _ok({
         "id": str(batch.id),
@@ -470,8 +487,9 @@ async def process_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    # Trigger calculation async
-    job_id = await dispatch_payroll_processing(run_id=runId)
+    company_id = uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None
+    await PayrollRunService.get_run(db, runId, company_id=company_id)
+    job_id = await dispatch_payroll_processing(run_id=runId, company_id=company_id)
     return _ok({"job_id": job_id, "status": "PROCESSING"}, "Payroll run processing initiated")
 
 

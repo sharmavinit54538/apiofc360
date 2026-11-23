@@ -1,0 +1,11 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "scripts/payroll_verify_schema.py"
+  ],
+  "database": "payroll_verify_focused",
+  "port": 55441,
+  "exit_code": 0,
+  "seconds": 1.008
+}

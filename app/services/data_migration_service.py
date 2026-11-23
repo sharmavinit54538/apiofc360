@@ -193,16 +193,28 @@ class DataMigrationService:
             if row_errors:
                 errors.extend({"row": row_number, "message": message} for message in row_errors)
                 continue
-            existing = (await self.session.execute(select(LeaveBalance).where(
-                LeaveBalance.employee_id == employee.id, LeaveBalance.leave_type == leave_type,
-                LeaveBalance.year == year,
-            ))).scalars().first() if employee else None
             valid.append({
                 "_row_number": row_number, "employee": employee, "leave_type": leave_type, "year": year,
                 "allocated_days": allocated, "used_days": used, "carried_forward_days": carried,
                 "balance_days": balance, "encashable": encashable, "encashable_days": encashable_days,
-                "encashment_base": basis, "encashment_divisor": divisor, "existing": existing,
+                "encashment_base": basis, "encashment_divisor": divisor,
             })
+        
+        # Batch fetch existing LeaveBalances to avoid N+1 queries
+        if valid:
+            emp_ids = [v["employee"].id for v in valid]
+            from sqlalchemy import tuple_
+            keys = [(v["employee"].id, v["leave_type"], v["year"]) for v in valid]
+            lb_stmt = select(LeaveBalance).where(
+                LeaveBalance.company_id == company_id,
+                tuple_(LeaveBalance.employee_id, LeaveBalance.leave_type, LeaveBalance.year).in_(keys)
+            )
+            lb_res = await self.session.execute(lb_stmt)
+            existing_map = {(lb.employee_id, lb.leave_type, lb.year): lb for lb in lb_res.scalars().all()}
+            for v in valid:
+                key = (v["employee"].id, v["leave_type"], v["year"])
+                v["existing"] = existing_map.get(key)
+        
         return valid, errors
 
     async def _validate_ytd(self, company_id: uuid.UUID, rows: list[dict[str, Any]]):
@@ -250,17 +262,28 @@ class DataMigrationService:
             if row_errors:
                 errors.extend({"row": row_number, "message": message} for message in row_errors)
                 continue
-            existing = (await self.session.execute(select(EmployeeYTDSalary).where(
-                EmployeeYTDSalary.employee_id == employee.id,
-                EmployeeYTDSalary.period_month == month, EmployeeYTDSalary.period_year == year,
-            ))).scalar_one_or_none()
             valid.append({
                 "_row_number": row_number, "employee": employee, "financial_year": financial_year,
                 "period_month": month, "period_year": year, "gross_earnings_paise": gross,
                 "arrears_paise": arrears_amount, "pf_paise": pf, "esi_paise": esi, "pt_paise": pt,
                 "lwf_paise": lwf, "tds_paise": tds, "total_deductions_paise": deductions,
-                "net_pay_paise": net, "existing": existing,
+                "net_pay_paise": net,
             })
+        
+        # Batch fetch existing EmployeeYTDSalary to avoid N+1 queries
+        if valid:
+            keys = [(v["employee"].id, v["period_month"], v["period_year"]) for v in valid]
+            from sqlalchemy import tuple_
+            ytd_stmt = select(EmployeeYTDSalary).where(
+                EmployeeYTDSalary.company_id == company_id,
+                tuple_(EmployeeYTDSalary.employee_id, EmployeeYTDSalary.period_month, EmployeeYTDSalary.period_year).in_(keys)
+            )
+            ytd_res = await self.session.execute(ytd_stmt)
+            existing_map = {(ytd.employee_id, ytd.period_month, ytd.period_year): ytd for ytd in ytd_res.scalars().all()}
+            for v in valid:
+                key = (v["employee"].id, v["period_month"], v["period_year"])
+                v["existing"] = existing_map.get(key)
+        
         return valid, errors
 
     async def commit_batch(self, batch_id: uuid.UUID, *, company_id: uuid.UUID) -> DataMigrationBatch:

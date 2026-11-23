@@ -48,7 +48,7 @@ class TokenService:
         assigned_family_id = family_id or uuid.uuid4()
         family_id = assigned_family_id
 
-        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email)
+        access_token = create_access_token(user_id=user_id, role=role, company_id=company_id, email=email, session_id=assigned_family_id)
         refresh_token = create_refresh_token(user_id=user_id)
         
         # Save refresh token hash to database
@@ -297,9 +297,12 @@ class TokenService:
         """Revoke a refresh token by hashing it and setting revoked=True in DB."""
 
         token_hash = hash_token(refresh_token)
-        token_record = await self.auth_repository.get_refresh_token_by_hash(token_hash)
+        token_record = await self.auth_repository.get_refresh_token_by_hash_raw(token_hash)
         if token_record:
-            await self.auth_repository.revoke_refresh_token(token_record.id, reason="EXPLICIT_REVOCATION")
+            if token_record.family_id:
+                await self.auth_repository.revoke_token_family(token_record.family_id, reason="EXPLICIT_REVOCATION")
+            else:
+                await self.auth_repository.revoke_refresh_token(token_record.id, reason="EXPLICIT_REVOCATION")
 
 
 async def get_token_service(session: AsyncSession = Depends(get_db_session)) -> TokenService:

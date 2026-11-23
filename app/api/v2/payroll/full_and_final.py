@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
 from app.db.database import get_db_session
+from app.middleware.auth import get_current_user_claims
 from app.schemas.payroll_v2.full_and_final import (
     FullAndFinalApproveRequest,
     FullAndFinalCreateRequest,
@@ -216,9 +217,14 @@ async def settle_full_and_final(
 @router.get("/full-and-final/{fnfId}/statement/download", summary="Download full and final settlement statement")
 async def download_full_and_final_statement(
     fnfId: uuid.UUID,
-    claims: Claims = None,
+    claims: Claims,
     db: AsyncSession = Depends(get_db_session),
 ):
+    _require_admin_or_manager(claims)
+    settlement = await FullAndFinalService.get_settlement(db, fnfId)
+    company_id = claims.get("company_id") if claims else None
+    if _role(claims) != "super_admin" and str(settlement.company_id) != str(company_id):
+        raise HTTPException(status_code=404, detail="Full and final settlement not found")
     content_bytes, filename = await FullAndFinalService.generate_statement(db, fnf_id=fnfId)
     return Response(
         content=content_bytes,

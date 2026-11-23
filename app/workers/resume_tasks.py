@@ -165,13 +165,13 @@ async def _batch_screen_async(
     logger.info("Starting batch screening for job %s with %d candidates", job_id, len(candidate_ids))
     success_count = 0
     from app.db.database import AsyncSessionLocal
-    from app.models.recruitment import CandidateApplication
+    from app.models.recruitment import Application
     from sqlalchemy import select
 
     async with AsyncSessionLocal() as session:
-        stmt = select(CandidateApplication).where(CandidateApplication.job_id == job_id)
+        stmt = select(Application).where(Application.job_id == job_id)
         if candidate_ids:
-            stmt = stmt.where(CandidateApplication.id.in_(candidate_ids))
+            stmt = stmt.where(Application.id.in_(candidate_ids))
         res = await session.execute(stmt)
         candidates = res.scalars().all()
 

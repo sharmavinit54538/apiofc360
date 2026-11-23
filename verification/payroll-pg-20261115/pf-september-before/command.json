@@ -1,0 +1,6 @@
+[
+  "py",
+  "-3.14",
+  "-c",
+  "from datetime import date; from app.services.payroll.statutory_service import StatutoryService; r=StatutoryService.calculate_pf(basic_paise=2000000,period_start_date=date(2026,9,1),period_end_date=date(2026,9,30)); print(r); assert r['pf_wage_paise']==1733333, 'EPFO FAQ Q7 C requires 1733333 paise'"
+]

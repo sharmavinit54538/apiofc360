@@ -19,6 +19,7 @@ from app.core.redis_client import redis_client
 from app.models.employee import Employee
 from app.models.payroll_models import Compensation, CompensationRevision
 from app.services.payroll.audit_service import PayrollAuditService
+from app.services.payroll.money import as_decimal
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +141,14 @@ class CompensationService:
                 raise ValueError("INR compensation must use an FX rate of 1.")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if isinstance(ctc_annual_paise, bool) or not isinstance(ctc_annual_paise, int) or ctc_annual_paise < 0:
+            raise HTTPException(status_code=422, detail="Annual CTC must be a non-negative integer number of paise.")
         monthly_ctc = ctc_annual_paise // 12
-        basic = basic_monthly_paise if basic_monthly_paise is not None else int(monthly_ctc * 0.50)
-        hra = hra_monthly_paise if hra_monthly_paise is not None else int(basic * 0.40)
+        basic = basic_monthly_paise if basic_monthly_paise is not None else monthly_ctc // 2
+        hra = hra_monthly_paise if hra_monthly_paise is not None else basic * 40 // 100
         special = special_allowance_monthly_paise if special_allowance_monthly_paise is not None else max(0, monthly_ctc - (basic + hra))
+        if min(basic, hra, special) < 0 or basic + hra + special > monthly_ctc:
+            raise HTTPException(status_code=422, detail="Compensation components exceed the monthly CTC allocation.")
         eff_date = effective_date or date.today()
 
         if not comp:
@@ -258,8 +263,8 @@ class CompensationService:
             curr.status = "SUPERSEDED"
 
         # Apply new active compensation
-        basic_paise = int((revision.new_ctc_annual_paise // 12) * 0.5)
-        hra_paise = int(basic_paise * 0.4)
+        basic_paise = (revision.new_ctc_annual_paise // 12) // 2
+        hra_paise = basic_paise * 40 // 100
         special_paise = max(0, (revision.new_ctc_annual_paise // 12) - (basic_paise + hra_paise))
 
         new_comp = Compensation(
@@ -371,7 +376,10 @@ class CompensationService:
                 errors.append("Missing CTC")
             else:
                 try:
-                    parsed_ctc = int(float(ctc_str.strip()))
+                    amount = as_decimal(ctc_str.strip())
+                    if amount != amount.to_integral_value():
+                        raise ValueError("CTC must be an integer number of paise")
+                    parsed_ctc = int(amount)
                     if parsed_ctc <= 0:
                         errors.append("CTC must be greater than zero")
                 except ValueError:
@@ -444,8 +452,8 @@ class CompensationService:
             if curr:
                 curr.status = "SUPERSEDED"
 
-            basic_paise = int((ctc_paise // 12) * 0.5)
-            hra_paise = int(basic_paise * 0.4)
+            basic_paise = (ctc_paise // 12) // 2
+            hra_paise = basic_paise * 40 // 100
             special_paise = max(0, (ctc_paise // 12) - (basic_paise + hra_paise))
 
             new_comp = Compensation(

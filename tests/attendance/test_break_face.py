@@ -403,7 +403,7 @@ async def test_checkout_auto_ends_open_break_without_break_image():
         # 2. Perform checkout (only provides checkout face, NOT break face)
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             checkout_resp = await client.post(
-                "/api/v1/attendance/checkout",
+                "/api/v1/attendance/face/check-out",
                 headers=data["headers"],
                 json={
                     "image_base64": dummy_b64,

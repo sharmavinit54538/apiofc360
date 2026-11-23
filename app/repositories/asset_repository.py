@@ -10,7 +10,7 @@ from sqlalchemy import and_, func, or_, select, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.asset import Asset, AssetAssignmentHistory, AssetMaintenanceRecord
+from app.models.asset import Asset, AssetAssignmentHistory, AssetMaintenanceRecord, AssetRequest, AssetDamageReport
 from app.models.employee import Employee
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,31 @@ class AssetRepository:
         """Retrieve asset with loaded relationships."""
         stmt = (
             select(Asset)
+            .outerjoin(Employee, Asset.employee_id == Employee.id)
             .where(Asset.id == asset_id)
             .options(
                 selectinload(Asset.employee),
                 selectinload(Asset.assignment_history),
                 selectinload(Asset.maintenance_history),
             )
+        )
+        if company_id is not None:
+            stmt = stmt.where(Asset.company_id == company_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def get_asset_by_id_for_update(self, asset_id: uuid.UUID, company_id: uuid.UUID | None = None) -> Asset | None:
+        """Retrieve asset with row-level lock (SELECT FOR UPDATE) for concurrent assignment safety."""
+        stmt = (
+            select(Asset)
+            .where(Asset.id == asset_id)
+            .options(
+                selectinload(Asset.employee),
+                selectinload(Asset.assignment_history),
+                selectinload(Asset.maintenance_history),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if company_id is not None:
             stmt = stmt.where(Asset.company_id == company_id)
@@ -215,24 +234,50 @@ class AssetRepository:
         repair_res = await self.session.execute(repair_stmt)
         repair_costs = dict(repair_res.all())
 
-        # 5. Warranty expired & expiring soon (within 30 days)
+        # 5. Warranty analytics - separate active, expiring, expired, unknown
         from datetime import date, timedelta
         today = date.today()
         thirty_days_later = today + timedelta(days=30)
         
-        exp_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until <= thirty_days_later]
-        if company_id is not None:
-            exp_conditions.append(Asset.company_id == company_id)
-        exp_stmt = select(func.count(Asset.id)).where(and_(*exp_conditions))
-        exp_res = await self.session.execute(exp_stmt)
-        expiring_count = exp_res.scalar_one()
+        cid_cond = [Asset.company_id == company_id] if company_id is not None else []
+        
+        # Active excludes the separate 30-day expiring-soon bucket.
+        active_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until > thirty_days_later] + cid_cond
+        active_stmt = select(func.count(Asset.id)).where(and_(*active_conditions))
+        active_res = await self.session.execute(active_stmt)
+        active_warranty_count = active_res.scalar_one()
+        
+        # Expiring warranty: warranty_until between today and 30 days from now (inclusive)
+        expiring_conditions = [
+            Asset.warranty_until.isnot(None),
+            Asset.warranty_until >= today,
+            Asset.warranty_until <= thirty_days_later
+        ] + cid_cond
+        expiring_stmt = select(func.count(Asset.id)).where(and_(*expiring_conditions))
+        expiring_res = await self.session.execute(expiring_stmt)
+        expiring_warranty_count = expiring_res.scalar_one()
+        
+        # Expired warranty: warranty_until < today
+        expired_conditions = [Asset.warranty_until.isnot(None), Asset.warranty_until < today] + cid_cond
+        expired_stmt = select(func.count(Asset.id)).where(and_(*expired_conditions))
+        expired_res = await self.session.execute(expired_stmt)
+        expired_warranty_count = expired_res.scalar_one()
+        
+        # Unknown warranty: warranty_until is NULL
+        unknown_conditions = [Asset.warranty_until.is_(None)] + cid_cond
+        unknown_stmt = select(func.count(Asset.id)).where(and_(*unknown_conditions))
+        unknown_res = await self.session.execute(unknown_stmt)
+        unknown_warranty_count = unknown_res.scalar_one()
 
         return {
             "total_valuation": total_valuation,
             "status_counts": status_counts,
             "category_counts": category_counts,
             "repair_costs": repair_costs,
-            "expiring_warranty_count": expiring_count,
+            "active_warranty_count": active_warranty_count,
+            "expiring_warranty_count": expiring_warranty_count,
+            "expired_warranty_count": expired_warranty_count,
+            "unknown_warranty_count": unknown_warranty_count,
         }
 
     async def get_filter_options(self, company_id: uuid.UUID | None = None) -> tuple[list[str], list[str], list[str]]:
@@ -261,3 +306,122 @@ class AssetRepository:
         departments = list(dept_res.scalars().all())
 
         return vendors, locations, departments
+
+    # Asset Request methods
+    async def create_asset_request(self, **kwargs) -> AssetRequest:
+        """Create a new asset request."""
+        request = AssetRequest(**kwargs)
+        self.session.add(request)
+        return request
+
+    async def get_asset_request_by_id(self, request_id: uuid.UUID, company_id: uuid.UUID | None = None, *, for_update: bool = False) -> AssetRequest | None:
+        """Retrieve asset request by ID."""
+        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.id == request_id)
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        if company_id is not None:
+            stmt = stmt.where(AssetRequest.company_id == company_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def list_asset_requests(
+        self,
+        company_id: uuid.UUID,
+        employee_id: uuid.UUID | None = None,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[AssetRequest], int]:
+        """List asset requests with filters."""
+        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.company_id == company_id)
+        count_stmt = select(func.count(AssetRequest.id)).where(AssetRequest.company_id == company_id)
+
+        if employee_id:
+            stmt = stmt.where(AssetRequest.employee_id == employee_id)
+            count_stmt = count_stmt.where(AssetRequest.employee_id == employee_id)
+        if status:
+            stmt = stmt.where(AssetRequest.status == status)
+            count_stmt = count_stmt.where(AssetRequest.status == status)
+
+        count_res = await self.session.execute(count_stmt)
+        total = count_res.scalar_one()
+
+        stmt = stmt.order_by(desc(AssetRequest.created_at)).offset((page - 1) * limit).limit(limit)
+        items_res = await self.session.execute(stmt)
+        items = list(items_res.scalars().all())
+
+        return items, total
+
+    async def update_asset_request(self, request: AssetRequest, **kwargs) -> AssetRequest:
+        """Update asset request fields."""
+        for key, value in kwargs.items():
+            if hasattr(request, key):
+                setattr(request, key, value)
+        return request
+
+    # Asset Damage Report methods
+    async def create_damage_report(self, **kwargs) -> AssetDamageReport:
+        """Create a new damage report."""
+        report = AssetDamageReport(**kwargs)
+        self.session.add(report)
+        return report
+
+    async def get_damage_report_by_id(self, report_id: uuid.UUID, company_id: uuid.UUID | None = None) -> AssetDamageReport | None:
+        """Retrieve damage report by ID with relationships loaded."""
+        stmt = select(AssetDamageReport).options(
+            selectinload(AssetDamageReport.asset),
+            selectinload(AssetDamageReport.reported_by)
+        ).where(AssetDamageReport.id == report_id)
+        if company_id is not None:
+            stmt = stmt.where(AssetDamageReport.company_id == company_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def get_damage_report_by_asset_and_employee(
+        self, asset_id: uuid.UUID, employee_id: uuid.UUID, company_id: uuid.UUID | None = None
+    ) -> AssetDamageReport | None:
+        """Check for existing damage report for asset by employee."""
+        stmt = select(AssetDamageReport).where(
+            AssetDamageReport.asset_id == asset_id,
+            AssetDamageReport.reported_by_id == employee_id,
+            AssetDamageReport.status.in_(["REPORTED", "UNDER_REVIEW", "MAINTENANCE_SCHEDULED"])
+        )
+        if company_id is not None:
+            stmt = stmt.where(AssetDamageReport.company_id == company_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def list_damage_reports(
+        self,
+        company_id: uuid.UUID,
+        asset_id: uuid.UUID | None = None,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[AssetDamageReport], int]:
+        """List damage reports with filters."""
+        stmt = select(AssetDamageReport).where(AssetDamageReport.company_id == company_id)
+        count_stmt = select(func.count(AssetDamageReport.id)).where(AssetDamageReport.company_id == company_id)
+
+        if asset_id:
+            stmt = stmt.where(AssetDamageReport.asset_id == asset_id)
+            count_stmt = count_stmt.where(AssetDamageReport.asset_id == asset_id)
+        if status:
+            stmt = stmt.where(AssetDamageReport.status == status)
+            count_stmt = count_stmt.where(AssetDamageReport.status == status)
+
+        count_res = await self.session.execute(count_stmt)
+        total = count_res.scalar_one()
+
+        stmt = stmt.order_by(desc(AssetDamageReport.created_at)).offset((page - 1) * limit).limit(limit)
+        items_res = await self.session.execute(stmt)
+        items = list(items_res.scalars().all())
+
+        return items, total
+
+    async def update_damage_report(self, report: AssetDamageReport, **kwargs) -> AssetDamageReport:
+        """Update damage report fields."""
+        for key, value in kwargs.items():
+            if hasattr(report, key):
+                setattr(report, key, value)
+        return report

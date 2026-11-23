@@ -227,8 +227,8 @@ async def get_all_requests(
     department: Optional[str] = Query(None, description="Filter by department"),
     employee_id: Optional[uuid.UUID] = Query(None, description="Filter by employee ID"),
     search: Optional[str] = Query(None, description="Search by name or employee code"),
-    from_date: Optional[date] = Query(None, alias="from_date", description="Filter from date (overlap)"),
-    to_date: Optional[date] = Query(None, alias="to_date", description="Filter to date (overlap)"),
+    from_date: date | None = Query(None, alias="from_date", description="Filter from date (overlap)"),
+    to_date: date | None = Query(None, alias="to_date", description="Filter to date (overlap)"),
     claims: dict = Depends(get_current_user_claims),
     db: Any = Depends(get_db_session),
 ) -> APIResponse[list[LeaveRequestDetailResponse]]:

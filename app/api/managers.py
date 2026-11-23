@@ -469,3 +469,187 @@ async def activate_manager_by_admin(
         data=None,
         errors=None,
     )
+
+
+# ── Bulk Operations ────────────────────────────────────────────────────────────
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[uuid.UUID]
+
+
+class BulkStatusRequest(BaseModel):
+    ids: list[uuid.UUID]
+    status: str = Field(pattern="^(active|inactive|on_leave|terminated)$")
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: list[uuid.UUID]
+    failed: list[dict]
+    total_requested: int
+    total_deleted: int
+
+
+class BulkStatusResponse(BaseModel):
+    updated: list[uuid.UUID]
+    failed: list[dict]
+    total_requested: int
+    total_updated: int
+
+
+class ManagerImportRow(BaseModel):
+    employee_id: uuid.UUID | None = None
+    email: str
+    first_name: str
+    last_name: str
+    phone: str | None = None
+    department: str | None = None
+    designation: str | None = None
+    manager_id: uuid.UUID | None = None
+    can_approve_leave: bool = True
+    can_approve_attendance: bool = True
+    can_manage_employees: bool = True
+    can_view_payroll: bool = False
+    can_edit_departments: bool = False
+    can_invite_users: bool = False
+    can_manage_recruitment: bool = False
+    can_manage_performance: bool = False
+
+
+class ManagerImportRequest(BaseModel):
+    managers: list[ManagerImportRow]
+
+
+class ManagerImportResponse(BaseModel):
+    created: list[uuid.UUID]
+    failed: list[dict]
+    total_requested: int
+    total_created: int
+
+
+@router.post(
+    "/bulk-delete",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkDeleteResponse],
+    summary="Bulk delete managers",
+)
+async def bulk_delete_managers(
+    payload: BulkDeleteRequest,
+    claims: Annotated[dict, Depends(require_admin)],
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> APIResponse[BulkDeleteResponse]:
+    """Bulk delete managers with validation. Admin only."""
+    admin_id = uuid.UUID(claims["sub"])
+    deleted = []
+    failed = []
+
+    for manager_id in payload.ids:
+        try:
+            await service.delete_manager(admin_id, manager_id)
+            deleted.append(manager_id)
+        except Exception as e:
+            failed.append({"id": str(manager_id), "error": str(e)})
+
+    return APIResponse[BulkDeleteResponse](
+        success=True,
+        message=f"Bulk delete completed: {len(deleted)} deleted, {len(failed)} failed.",
+        data=BulkDeleteResponse(
+            deleted=deleted,
+            failed=failed,
+            total_requested=len(payload.ids),
+            total_deleted=len(deleted),
+        ),
+        errors=None,
+    )
+
+
+@router.patch(
+    "/bulk-status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkStatusResponse],
+    summary="Bulk update manager status",
+)
+async def bulk_update_manager_status(
+    payload: BulkStatusRequest,
+    claims: Annotated[dict, Depends(require_admin)],
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> APIResponse[BulkStatusResponse]:
+    """Bulk update manager status. Admin only."""
+    admin_id = uuid.UUID(claims["sub"])
+    updated = []
+    failed = []
+
+    for manager_id in payload.ids:
+        try:
+            from app.schemas.manager import ManagerUpdate
+            update_payload = ManagerUpdate(status=payload.status)
+            await service.update_manager(admin_id, manager_id, update_payload)
+            updated.append(manager_id)
+        except Exception as e:
+            failed.append({"id": str(manager_id), "error": str(e)})
+
+    return APIResponse[BulkStatusResponse](
+        success=True,
+        message=f"Bulk status update completed: {len(updated)} updated, {len(failed)} failed.",
+        data=BulkStatusResponse(
+            updated=updated,
+            failed=failed,
+            total_requested=len(payload.ids),
+            total_updated=len(updated),
+        ),
+        errors=None,
+    )
+
+
+@router.post(
+    "/import",
+    status_code=status.HTTP_201_CREATED,
+    response_model=APIResponse[ManagerImportResponse],
+    summary="Import managers from CSV/JSON",
+)
+async def import_managers(
+    payload: ManagerImportRequest,
+    claims: Annotated[dict, Depends(require_admin)],
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> APIResponse[ManagerImportResponse]:
+    """Import managers from structured data. Admin only."""
+    admin_id = uuid.UUID(claims["sub"])
+    created = []
+    failed = []
+
+    for row in payload.managers:
+        try:
+            from app.schemas.manager import ManagerCreate
+            create_payload = ManagerCreate(
+                employee_id=row.employee_id,
+                email=row.email,
+                first_name=row.first_name,
+                last_name=row.last_name,
+                phone=row.phone,
+                department=row.department,
+                designation=row.designation,
+                manager_id=row.manager_id,
+                can_approve_leave=row.can_approve_leave,
+                can_approve_attendance=row.can_approve_attendance,
+                can_manage_employees=row.can_manage_employees,
+                can_view_payroll=row.can_view_payroll,
+                can_edit_departments=row.can_edit_departments,
+                can_invite_users=row.can_invite_users,
+                can_manage_recruitment=row.can_manage_recruitment,
+                can_manage_performance=row.can_manage_performance,
+            )
+            manager = await service.create_manager(admin_id, create_payload)
+            created.append(manager.id)
+        except Exception as e:
+            failed.append({"email": row.email, "error": str(e)})
+
+    return APIResponse[ManagerImportResponse](
+        success=True,
+        message=f"Import completed: {len(created)} created, {len(failed)} failed.",
+        data=ManagerImportResponse(
+            created=created,
+            failed=failed,
+            total_requested=len(payload.managers),
+            total_created=len(created),
+        ),
+        errors=None,
+    )

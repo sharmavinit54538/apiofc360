@@ -115,7 +115,11 @@ async def delete_pay_component(
 
 # 5. POST /api/v2/payroll/pay-components/evaluate-formula
 @router.post("/pay-components/evaluate-formula", summary="Safely validate and evaluate a formula expression")
-async def evaluate_formula(payload: EvaluateFormulaRequest):
+async def evaluate_formula(
+    payload: EvaluateFormulaRequest,
+    claims: Claims = None,
+):
+    _require_admin_or_manager(claims)
     ctx = {
         "basic": 50000.0,
         "ctc": 1200000.0,

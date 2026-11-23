@@ -7,9 +7,11 @@ no external payroll or filing service is required.
 from __future__ import annotations
 
 import io
+import os
 import uuid
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -41,6 +43,11 @@ TEST_TABLES = (
 
 @pytest.fixture
 async def db_session():
+    if os.getenv("PAYROLL_USE_MIGRATED_DB") == "1":
+        from payroll_migrated_db import migrated_session
+        async with migrated_session() as session:
+            yield session
+        return
     if not hasattr(SQLiteTypeCompiler, "visit_JSONB"):
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
     tables = [Base.metadata.tables[name] for name in TEST_TABLES]
@@ -93,6 +100,8 @@ async def _seed_payroll(db_session):
     )
     db_session.add_all([company, employee, period, run, payslip])
     await db_session.commit()
+    from payroll_migrated_db import seed_payroll_actor
+    db_session.info["payroll_actor_id"] = await seed_payroll_actor(db_session, company.id)
     return company, employee, period, run, payslip
 
 
@@ -112,6 +121,140 @@ def test_pf_vpf_higher_wage_and_uan_membership():
         StatutoryService.calculate_pf(basic_paise=1_000_000, uan_number="123", require_uan=True)
 
 
+@pytest.mark.parametrize(
+    ("wages_rupees", "employee_paise", "employer_eps_paise", "employer_epf_paise"),
+    [
+        (15_000, 180_000, 125_000, 55_000),
+        (20_000, 240_000, 166_600, 73_400),
+        (25_000, 300_000, 208_300, 91_700),
+        (30_000, 300_000, 208_300, 91_700),
+    ],
+)
+def test_pf_revised_ceiling_effective_from_17_september_2026(
+    wages_rupees, employee_paise, employer_eps_paise, employer_epf_paise,
+):
+    result = StatutoryService.calculate_pf(
+        basic_paise=wages_rupees * 100,
+        as_of_date=date(2026, 9, 17),
+    )
+    assert result["employee_pf_paise"] == employee_paise
+    assert result["employer_eps_paise"] == employer_eps_paise
+    assert result["employer_epf_paise"] == employer_epf_paise
+    assert result["total_employer_pf_paise"] == employer_eps_paise + employer_epf_paise
+
+
+def test_pf_ceiling_is_historical_and_september_period_is_prorated():
+    before = StatutoryService.calculate_pf(basic_paise=3_000_000, as_of_date=date(2026, 9, 16))
+    september = StatutoryService.calculate_pf(
+        basic_paise=3_000_000,
+        period_start_date=date(2026, 9, 1), period_end_date=date(2026, 9, 30),
+    )
+    assert before["pf_wage_paise"] == 1_500_000
+    assert september["pf_wage_paise"] == 1_966_667
+    assert september["employee_pf_paise"] == september["employer_epf_paise"] + september["employer_eps_paise"]
+
+
+@pytest.mark.parametrize("wages,expected_base,expected_employee", [
+    (1_500_000, 1_500_000, 180_000),
+    (2_000_000, 1_733_333, 208_000),
+    (2_500_000, 1_966_667, 236_000),
+    (3_000_000, 1_966_667, 236_000),
+])
+def test_september_transition_caps_each_wage_segment(wages, expected_base, expected_employee):
+    # EPFO's official Wage Ceiling FAQ Q7 scenario C, extended to boundary wages.
+    result = StatutoryService.calculate_pf(
+        basic_paise=wages, period_start_date=date(2026, 9, 1), period_end_date=date(2026, 9, 30),
+    )
+    assert result["pf_wage_paise"] == result["eps_wage_paise"] == result["edli_wage_paise"] == expected_base
+    assert result["employee_pf_paise"] == expected_employee
+    assert result["employer_epf_paise"] + result["employer_eps_paise"] == expected_employee
+
+
+@pytest.mark.parametrize("options", [{"eps_membership_active": False}, {"age": 58}])
+def test_ineligible_eps_member_has_zero_pensionable_wages(options):
+    result = StatutoryService.calculate_pf(basic_paise=2_000_000, **options)
+    assert result["eps_wage_paise"] == result["employer_eps_paise"] == 0
+    assert result["employer_epf_paise"] == result["employee_epf_paise"]
+
+
+@pytest.mark.asyncio
+async def test_ecr_respects_independent_eps_membership(db_session):
+    company, employee, period, _, _ = await _seed_payroll(db_session)
+    employee.is_eps_eligible = False
+    await db_session.commit()
+    result = await StatutoryService.generate_pf_ecr(db_session, period.id, company.id)
+    columns = result["ecr_text"].strip().split("#~#")
+    assert columns[4] == "0"  # EPS wages
+    assert columns[6:9] == ["1800", "0", "1800"]
+
+
+def test_pf_membership_eps_eligibility_and_custom_tenant_ceiling_are_separate():
+    ineligible = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17),
+        is_pf_eligible=True, pf_membership_active=True, eps_membership_active=False,
+    )
+    custom = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17),
+        config=SimpleNamespace(pf_enabled=True, pf_wage_ceiling=Decimal("18000")),
+    )
+    inactive = StatutoryService.calculate_pf(
+        basic_paise=2_000_000, as_of_date=date(2026, 9, 17), pf_membership_active=False,
+    )
+    assert ineligible["employer_eps_paise"] == 0
+    assert ineligible["employer_epf_paise"] == 240_000
+    assert custom["pf_wage_paise"] == custom["eps_wage_paise"] == 1_800_000
+    assert inactive["total_pf_liability_paise"] == 0
+
+    epf_only_higher_wage = StatutoryService.calculate_pf(
+        basic_paise=3_000_000, as_of_date=date(2026, 9, 17),
+        pf_higher_wage_opted=True, eps_higher_wage_opted=False,
+    )
+    eps_higher_wage = StatutoryService.calculate_pf(
+        basic_paise=3_000_000, as_of_date=date(2026, 9, 17),
+        pf_higher_wage_opted=True, eps_higher_wage_opted=True,
+    )
+    assert epf_only_higher_wage["pf_wage_paise"] == 3_000_000
+    assert epf_only_higher_wage["eps_wage_paise"] == 2_500_000
+    assert eps_higher_wage["eps_wage_paise"] == 3_000_000
+
+
+@pytest.mark.parametrize(
+    ("payment_date", "financial_year"),
+    [
+        (date(2026, 3, 31), "2025-2026"),
+        (date(2026, 4, 1), "2026-2027"),
+        (date(2026, 4, 30), "2026-2027"),
+        (date(2026, 5, 31), "2026-2027"),
+    ],
+)
+def test_salary_tds_financial_year_uses_payment_date(payment_date, financial_year):
+    assert StatutoryService.financial_year_for_salary_payment(payment_date) == financial_year
+
+
+def test_salary_tds_uses_actual_or_scheduled_payment_date_not_period_month():
+    march_paid_in_march = SimpleNamespace(payment_date=date(2026, 3, 31), pay_date=date(2026, 4, 1))
+    march_paid_in_april = SimpleNamespace(payment_date=None, pay_date=date(2026, 4, 1))
+    april_paid_in_april = SimpleNamespace(payment_date=date(2026, 4, 30), pay_date=date(2026, 4, 30))
+    later_payment = SimpleNamespace(payment_date=date(2026, 5, 15), pay_date=date(2026, 4, 30))
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(march_paid_in_march)
+    ) == "2025-2026"
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(march_paid_in_april)
+    ) == "2026-2027"
+    assert StatutoryService.financial_year_for_salary_payment(
+        StatutoryService.resolve_salary_payment_date(april_paid_in_april)
+    ) == "2026-2027"
+    assert StatutoryService.resolve_salary_payment_date(later_payment) == date(2026, 5, 15)
+
+
+def test_salary_tds_requires_payment_date_or_scheduled_pay_date():
+    with pytest.raises(ValueError, match="scheduled pay_date"):
+        StatutoryService.resolve_salary_payment_date(SimpleNamespace(payment_date=None, pay_date=None))
+    with pytest.raises(ValueError, match="payroll period"):
+        StatutoryService.resolve_salary_payment_date(None)
+
+
 @pytest.mark.asyncio
 async def test_pf_ecr_v2_download_has_eleven_hash_tilde_columns(db_session):
     company, employee, period, run, payslip = await _seed_payroll(db_session)
@@ -128,7 +271,7 @@ async def test_pf_ecr_v2_download_has_eleven_hash_tilde_columns(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/api/v2/payroll/statutory/pf-ecr/download?period_id={period.id}")
@@ -154,6 +297,68 @@ def test_esi_pwd_ceiling_and_six_month_contribution_lock():
         contribution_period_start=date(2026, 4, 1),
     )
     assert not next_period["is_applicable"]
+
+
+def test_esi_overtime_is_excluded_from_ceiling_but_included_in_contribution():
+    overtime_case = StatutoryService.calculate_esi(
+        gross_monthly_paise=2_150_000,
+        coverage_wage_paise=2_000_000,
+        contribution_wage_paise=2_150_000,
+        as_of_date=date(2026, 8, 15),
+    )
+    assert overtime_case["is_applicable"]
+    assert overtime_case["coverage_wage_paise"] == 2_000_000
+    assert overtime_case["contribution_wage_paise"] == 2_150_000
+    assert overtime_case["employee_esi_paise"] == 16_200
+    assert overtime_case["employer_esi_paise"] == 69_900
+
+    above_ceiling = StatutoryService.calculate_esi(
+        gross_monthly_paise=2_250_000,
+        coverage_wage_paise=2_110_000,
+        contribution_wage_paise=2_250_000,
+        as_of_date=date(2026, 8, 15),
+    )
+    assert not above_ceiling["is_applicable"]
+
+
+def test_esi_next_rupee_rounding_on_both_sides_of_rupee_boundary():
+    # The pre-Code Rule 51 and Rule 19 of the 2026 Central Rules both direct
+    # rounding to the next higher rupee. Verify legacy and current periods.
+    for as_of in (date(2025, 4, 1), date(2026, 6, 1)):
+        below = StatutoryService.calculate_esi(
+            1_999_999, coverage_wage_paise=1_999_999, as_of_date=as_of,
+        )
+        exact = StatutoryService.calculate_esi(
+            2_000_000, coverage_wage_paise=2_000_000, as_of_date=as_of,
+        )
+        above = StatutoryService.calculate_esi(
+            2_000_001, coverage_wage_paise=2_000_001, as_of_date=as_of,
+        )
+        assert (below["employee_esi_paise"], below["employer_esi_paise"]) == (15_000, 65_000)
+        assert (exact["employee_esi_paise"], exact["employer_esi_paise"]) == (15_000, 65_000)
+        assert (above["employee_esi_paise"], above["employer_esi_paise"]) == (15_100, 65_100)
+
+
+def test_esi_21500_contribution_wages_round_employee_share_up():
+    # Rule 51 of the ESI (Central) Rules, 1950 applies through 2026-05-07;
+    # Rule 19 of the Social Security (Central) Rules, 2026 applies from 2026-05-08.
+    # Both require rounding each contribution up to the next whole rupee.
+    for as_of, expected_rule in (
+        (date(2026, 5, 7), "ESI_CENTRAL_RULES_1950_RULE_51"),
+        (date(2026, 5, 8), "SOCIAL_SECURITY_CENTRAL_RULES_2026_RULE_19"),
+    ):
+        result = StatutoryService.calculate_esi(
+            gross_monthly_paise=2_000_000,
+            coverage_wage_paise=2_000_000,
+            contribution_wage_paise=2_150_000,
+            as_of_date=as_of,
+        )
+        assert result["employee_esi_paise"] == 16_200  # ₹162 from ₹161.25
+        assert result["employer_esi_paise"] == 69_900  # ₹699 from ₹698.75
+        assert result["rounding_rule_version"] == expected_rule
+        assert result["rounding_rule_effective_from"] == (
+            "2004-10-01" if as_of < date(2026, 5, 8) else "2026-05-08"
+        )
 
 
 @pytest.mark.asyncio
@@ -184,6 +389,17 @@ def test_dynamic_pt_lwf_and_maharashtra_february():
     assert StatutoryService.calculate_lwf(2_000_000, "MH", 7)["employee_lwf_paise"] == 0
 
 
+def test_maharashtra_pt_female_exemption_is_effective_from_april_2023():
+    current = date(2026, 8, 1)
+    assert StatutoryService.calculate_pt(1_500_000, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 0
+    assert StatutoryService.calculate_pt(2_500_000, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 0
+    assert StatutoryService.calculate_pt(2_500_001, "MH", 3, "FEMALE", effective_date=current)["pt_paise"] == 20_000
+    assert StatutoryService.calculate_pt(2_500_001, "MH", 2, "FEMALE", effective_date=current)["pt_paise"] == 30_000
+    assert StatutoryService.calculate_pt(1_500_000, "MH", 3, "FEMALE", effective_date=date(2022, 3, 1))["pt_paise"] == 20_000
+    assert StatutoryService.calculate_pt(1_000_000, "MH", 3, "MALE", effective_date=current)["pt_paise"] == 17_500
+    assert StatutoryService.calculate_pt(1_000_001, "MH", 3, "MALE", effective_date=current)["pt_paise"] == 20_000
+
+
 def test_old_new_tds_math_proration_bonus_and_verified_declarations():
     old = StatutoryService.calculate_tds(80_000_000, "OLD", financial_year="2024-2025")
     assert old["taxable_income_paise"] == 75_000_000
@@ -212,7 +428,7 @@ async def test_esi_and_lwf_summary_routes(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             esi = await client.get(f"/api/v2/payroll/statutory/esi-return?period_id={period.id}&format=json")
@@ -243,7 +459,7 @@ async def test_form138_draft_and_form130_pdf_download(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/api/v2/payroll/statutory/form-130/download?employee_id={employee.id}&financial_year=2026-2027")
@@ -299,7 +515,7 @@ async def test_declaration_proof_upload_and_verification_workflow(db_session):
     async def override_db():
         yield db_session
     app.dependency_overrides[get_db_session] = override_db
-    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(uuid.uuid4()), "role": "hr_admin", "company_id": str(company.id)}
+    app.dependency_overrides[get_current_user_claims] = lambda: {"sub": str(db_session.info["payroll_actor_id"]), "role": "hr_admin", "company_id": str(company.id)}
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             created = await client.post(f"/api/v2/tax/declarations/{employee.id}", json={"financial_year": "2026-2027", "tax_regime": "OLD", "section_80c": "150000"})

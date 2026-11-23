@@ -96,7 +96,7 @@ EXPOSE 8000
 
 # Container healthcheck probe - light check, no DB/Redis
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:8000/health/live || exit 1
 
 # Default entrypoint and command - worker count from env (default to CPU count)
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

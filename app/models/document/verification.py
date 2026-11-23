@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,7 @@ class DocumentVerification(Base):
 
     action: Mapped[str] = mapped_column(String(30), nullable=False)  # APPROVED, REJECTED, RE_UPLOAD_REQUESTED
     comments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     # Relations

@@ -510,10 +510,10 @@ async def test_complete_crud_lifecycle_and_soft_delete():
 
 
 # ==============================================================================
-# 9. EmployeeListItem serialization includes CTC & Salary for table views
+# 9. EmployeeListItem keeps compensation out of directory views
 # ==============================================================================
-def test_employee_list_item_serialization_includes_ctc_and_salary():
-    """Verify EmployeeListItem serializes CTC, basic_salary, and salary aliases for table rendering."""
+def test_employee_list_item_serialization_excludes_salary_from_directory():
+    """Directory serialization must not expose compensation details."""
     from app.schemas.employee.update import EmployeeListItem
 
     emp_id = uuid.uuid4()
@@ -540,25 +540,14 @@ def test_employee_list_item_serialization_includes_ctc_and_salary():
     }
 
     item = EmployeeListItem.model_validate(mock_emp)
-    assert item.ctc == Decimal("1200000")
-    assert item.salary == Decimal("1200000")
-    assert item.annual_ctc == Decimal("1200000")
-    assert item.annualCtc == Decimal("1200000")
-    assert item.basic_salary == Decimal("600000")
-    assert item.basicSalary == Decimal("600000")
-    assert item.hra == Decimal("300000")
-    assert item.bonus == Decimal("180000")
-    assert item.pf == Decimal("72000")
-    assert item.esi == Decimal("0")
-    assert item.professional_tax == Decimal("2500")
-    assert item.professionalTax == Decimal("2500")
-
-    # Serialized dump for JSON API response
     data = item.model_dump()
-    assert data["ctc"] == Decimal("1200000")
-    assert data["salary"] == Decimal("1200000")
-    assert data["annual_ctc"] == Decimal("1200000")
-    assert data["annualCtc"] == Decimal("1200000")
+    assert data["id"] == emp_id
+    # Salary is reserved for the detail/profile serializer (tested below).
+    for field in ("ctc", "salary", "annual_ctc", "annualCtc", "basic_salary",
+                  "basicSalary", "hra", "bonus", "pf", "esi", "professional_tax", "professionalTax"):
+        assert field not in data
+        assert not hasattr(item, field)
+
 
 
 # ==============================================================================

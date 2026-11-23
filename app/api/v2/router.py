@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from app.api.v2.document_intelligence import router as doc_intel_router
 from app.api.v2.employee_support import router as emp_support_router
 from app.api.v2.interview_bot import router as interview_bot_router
+from app.api.v2.interview_ws import router as interview_ws_router
 from app.api.v2.hr_analytics_api import router as hr_analytics_router
 from app.api.v2.hr_workflow_api import router as hr_workflow_router
 from app.api.v2.payroll_api import router as payroll_router
@@ -76,6 +77,7 @@ from app.api.v2.scim_api import admin_router as scim_admin_v2_router
 from app.api.v2.enterprise_intelligence_apis import ijp_router
 from app.api.v2.marketplace_api import router as marketplace_v2_router
 from app.api.v2.whitelabel_api import router as whitelabel_v2_router
+from app.api.v2.autopilot import router as autopilot_router
 
 # ── v2 Payroll Submodule ──────────────────────────────────────────────────────
 from app.api.v2.payroll.router import router as payroll_v2_router
@@ -87,11 +89,12 @@ def get_v2_router() -> APIRouter:
     
     router = APIRouter(prefix="/api/v2")
     
-    # Main v2 endpoints
+    # Main v2 endpoints (travel_router has its own /travel prefix)
     for r in (
         doc_intel_router,
         emp_support_router,
         interview_bot_router,
+        interview_ws_router,
         hr_analytics_router,
         hr_workflow_router,
         payroll_router,
@@ -151,6 +154,7 @@ def get_v2_router() -> APIRouter:
         ijp_router,
         marketplace_v2_router,
         whitelabel_v2_router,
+        autopilot_router,
     ):
         router.include_router(r)
     

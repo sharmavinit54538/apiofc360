@@ -17,6 +17,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from app.core.config import settings
@@ -121,8 +122,12 @@ try:
     if CELERY_AVAILABLE and celery_app is not None:
 
         @celery_app.task(name="app.workers.payroll_tasks.process_payroll_run_task")
-        def process_payroll_run_task(run_id_str: str, job_id: str):
-            asyncio.run(_async_process_payroll_run(run_id_str, job_id))
+        def process_payroll_run_task(run_id_str: str, job_id: str, company_id_str: str | None = None):
+            return asyncio.run(_async_process_payroll_run(run_id_str, job_id, company_id_str))
+
+        @celery_app.task(name="app.workers.payroll_tasks.recover_abandoned_payroll_runs_task")
+        def recover_abandoned_payroll_runs_task():
+            return asyncio.run(_async_recover_abandoned_payroll_runs())
 
         @celery_app.task(name="app.workers.payroll_tasks.generate_payslips_batch_task")
         def generate_payslips_batch_task(run_id_str: str, employee_ids: list[str], force: bool, format_type: str, job_id: str):
@@ -150,14 +155,40 @@ except Exception as e:
 
 # ── Async Task Execution Logic ───────────────────────────────────────────────
 
-async def _async_process_payroll_run(run_id_str: str, job_id: str):
+@asynccontextmanager
+async def _payroll_worker_session():
+    # Each Celery invocation owns its event loop. A pooled asyncpg connection
+    # from an earlier asyncio.run cannot be reused on the next task's loop.
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.db.database import get_asyncpg_connection
+
+    engine = create_async_engine(settings.DATABASE_URL, async_creator=get_asyncpg_connection, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
+async def _async_recover_abandoned_payroll_runs():
+    from app.services.payroll.run_service import PayrollRunService
+
+    async with _payroll_worker_session() as session:
+        return await PayrollRunService.recover_abandoned_runs(session)
+
+
+async def _async_process_payroll_run(run_id_str: str, job_id: str, company_id_str: str | None = None):
     """Core calculation engine execution."""
     await PayrollJobTracker.update_job(job_id, "PROCESSING", progress=10)
     try:
-        from app.db.database import AsyncSessionLocal
         from app.services.payroll.run_service import PayrollRunService
-        async with AsyncSessionLocal() as session:
-            run = await PayrollRunService.execute_run_calculation(session, uuid.UUID(run_id_str))
+        async with _payroll_worker_session() as session:
+            run = await PayrollRunService.execute_run_calculation(
+                session, uuid.UUID(run_id_str),
+                company_id=uuid.UUID(company_id_str) if company_id_str else None,
+                allow_completed=True,
+            )
             await PayrollJobTracker.update_job(
                 job_id,
                 "COMPLETED",
@@ -165,9 +196,24 @@ async def _async_process_payroll_run(run_id_str: str, job_id: str):
                 processed=run.total_employees if run else 0,
                 result={"run_id": run_id_str, "status": run.status if run else "PROCESSED"},
             )
+            return {"run_id": run_id_str, "status": run.status}
     except Exception as e:
+        from fastapi import HTTPException
+        if isinstance(e, HTTPException) and e.status_code == 409:
+            async with _payroll_worker_session() as session:
+                run = await PayrollRunService.get_run(
+                    session, uuid.UUID(run_id_str),
+                    company_id=uuid.UUID(company_id_str) if company_id_str else None,
+                )
+                # Handle both active processing and already-completed runs.
+                # A duplicate worker may arrive after the original has already finished.
+                completed_states = {"PROCESSED", "PENDING_APPROVAL", "APPROVED", "FINALIZED", "LOCKED", "PAID"}
+                if run.status == "PROCESSING" or run.status in completed_states:
+                    # Another owner is active or already finished. Do not fail its claim or its job.
+                    return {"run_id": run_id_str, "status": run.status}
         logger.exception("Error processing payroll run %s: %s", run_id_str, e)
         await PayrollJobTracker.update_job(job_id, "FAILED", error=str(e))
+        raise
 
 
 async def _async_generate_payslips_batch(
@@ -286,19 +332,20 @@ async def _async_generate_statutory_report(
 
 # ── Unified Dispatchers (Celery or Async fallback) ───────────────────────────
 
-async def dispatch_payroll_run_process(run_id: uuid.UUID) -> str:
-    job_id = await PayrollJobTracker.create_job("payroll_process", {"run_id": str(run_id)})
+async def dispatch_payroll_run_process(run_id: uuid.UUID, company_id: uuid.UUID | None = None) -> str:
+    job_id = await PayrollJobTracker.create_job("payroll_process", {"run_id": str(run_id), "company_id": str(company_id) if company_id else None})
     if settings.USE_CELERY:
         try:
             from app.workers.celery_app import celery_app
             celery_app.send_task(
                 "app.workers.payroll_tasks.process_payroll_run_task",
-                args=[str(run_id), job_id],
+                args=[str(run_id), job_id, str(company_id) if company_id else None],
+                task_id=job_id,
             )
             return job_id
         except Exception as e:
             logger.warning("Celery dispatch failed, running asyncio background task: %s", e)
-    asyncio.create_task(_async_process_payroll_run(str(run_id), job_id))
+    asyncio.create_task(_async_process_payroll_run(str(run_id), job_id, str(company_id) if company_id else None))
     return job_id
 
 

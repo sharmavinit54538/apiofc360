@@ -80,6 +80,65 @@ async def delete_camera(camera_id: str, request: Request, current: CurrentUser =
     return None
 
 
+async def _probe_stream_url(url: str, timeout: float = 5.0) -> tuple[bool, str]:
+    """Probe a stream URL (RTSP/HTTP) with bounded timeout and SSRF protection.
+
+    Returns (is_reachable, error_message).
+    """
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        if not parsed.hostname:
+            return False, "Invalid URL: no hostname"
+
+        # SSRF protection: block link-local, loopback, private, and metadata IPs
+        try:
+            # Resolve hostname to IP
+            addr_info = socket.getaddrinfo(parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            ips = [ai[4][0] for ai in addr_info]
+        except socket.gaierror:
+            return False, "DNS resolution failed"
+
+        for ip_str in ips:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if (
+                    ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_private
+                    or ip.is_multicast
+                    or ip.is_reserved
+                    or (ip.version == 4 and ip_str.startswith("169.254."))  # AWS/GCP metadata
+                ):
+                    return False, f"Blocked IP range: {ip_str}"
+            except ValueError:
+                return False, f"Invalid IP: {ip_str}"
+
+        # Determine probe method based on scheme
+        scheme = parsed.scheme.lower()
+        port = parsed.port or (554 if scheme == "rtsp" else (80 if scheme == "http" else 443))
+
+        # TCP connection probe (fast, works for RTSP/HTTP/HTTPS)
+        for ip_str in ips:
+            try:
+                sock = socket.socket(socket.AF_INET6 if ":" in ip_str else socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                result = sock.connect_ex((ip_str, port))
+                sock.close()
+                if result == 0:
+                    return True, "TCP connection successful"
+            except Exception:
+                continue
+
+        return False, "TCP connection failed to all resolved IPs"
+
+    except Exception as exc:
+        return False, f"Probe error: {exc}"
+
+
 @router.post("/cameras/{camera_id}/test")
 async def test_camera(camera_id: str, current: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if current.role not in WRITE_ROLES:
@@ -87,8 +146,9 @@ async def test_camera(camera_id: str, current: CurrentUser = Depends(get_current
     c = await db.get(CCTVCamera, camera_id)
     if not c or c.tenant_id != current.tenant_id:
         raise not_found("Camera")
-    # Placeholder connectivity check — swap in a real RTSP/HTTP probe.
-    # Never echo the raw stream_url (may contain credentials) back to the client.
-    c.status = "online"
+
+    # Real bounded-timeout connectivity probe with SSRF protection
+    reachable, message = await _probe_stream_url(c.stream_url, timeout=5.0)
+    c.status = "online" if reachable else "offline"
     await db.commit()
-    return {"success": True, "status": c.status, "stream": _redact(c.stream_url)}
+    return {"success": True, "status": c.status, "stream": _redact(c.stream_url), "probe_message": message}

@@ -102,7 +102,6 @@ class HRAdminService:
             account_status=UserAccountStatus.INVITED.value,
             email_verification_token=token,
             email_verification_expires_at=expires_at,
-            created_by=admin_id,
             is_active=False,
             is_verified=False,
             must_change_password=True,
@@ -260,13 +259,23 @@ class HRAdminService:
         result = await self.session.execute(stmt)
         users = result.scalars().all()
 
+        # Batch fetch employees for all users to avoid N+1 queries
+        user_ids = [u.id for u in users]
+        emp_map = {}
+        if user_ids:
+            from sqlalchemy import select
+            emp_stmt = select(Employee).where(
+                Employee.user_id.in_(user_ids),
+                Employee.company_id == company_id
+            )
+            emp_result = await self.session.execute(emp_stmt)
+            for emp in emp_result.scalars().all():
+                emp_map[emp.user_id] = emp
+
         # Eager load employee info for department and designation
         items: list[HRAdminUserResponse] = []
         for u in users:
-            emp_res = await self.session.execute(
-                select(Employee).where(Employee.user_id == u.id, Employee.company_id == company_id)
-            )
-            emp = emp_res.scalars().first()
+            emp = emp_map.get(u.id)
 
             role_val = u.role.value if hasattr(u.role, "value") else str(u.role)
             first_name = emp.first_name if emp else u.name.partition(" ")[0]

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="1.512" timestamp="2026-11-16T11:17:41.326114+05:30" hostname="DESKTOP-38AQMEN"><testcase classname="" name="tests.test_asset_management_comprehensive" time="0.000"><error message="collection failure">..\..\..\..\AppData\Roaming\Python\Python314\site-packages\_pytest\python.py:507: in importtestmodule
+    mod = import_path(
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\_pytest\pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+C:\Python314\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen importlib._bootstrap&gt;:1398: in _gcd_import
+    ???
+&lt;frozen importlib._bootstrap&gt;:1371: in _find_and_load
+    ???
+&lt;frozen importlib._bootstrap&gt;:1342: in _find_and_load_unlocked
+    ???
+&lt;frozen importlib._bootstrap&gt;:938: in _load_unlocked
+    ???
+..\..\..\..\AppData\Roaming\Python\Python314\site-packages\_pytest\assertion\rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests\test_asset_management_comprehensive.py:37: in &lt;module&gt;
+    from app.services.asset_service import AssetService
+E     File "C:\Users\Dell\OneDrive\Desktop\ofcb\apiofc360\app\services\asset_service.py", line 209
+E       current_timeline.append(timeline_event)
+E   IndentationError: unexpected indent</error></testcase></testsuite></testsuites>

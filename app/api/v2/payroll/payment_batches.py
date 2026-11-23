@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
@@ -21,11 +21,26 @@ from app.schemas.payroll_v2.payment_batches import (
     PaymentBatchRejectRequest,
     PaymentBatchSubmitRequest,
 )
-from app.services.payroll.idempotency_service import IdempotencyService, get_optional_idempotency_key, require_idempotency_key
+from app.services.payroll.idempotency_service import require_idempotency_key
 from app.services.payroll.payment_batch_service import PaymentBatchService
 from app.workers.payroll_tasks import dispatch_bank_file_generation
 
-router = APIRouter(tags=["Payroll v2 - Payment Batches"])
+async def _payment_batch_scope(
+    request: Request, claims: Claims = None, db: AsyncSession = Depends(get_db_session),
+):
+    """Authorize ownership before any payment read, mutation, or cached reply."""
+    _require_admin_or_manager(claims)
+    tenant = claims.get("company_id") if claims else None
+    if not tenant and _role(claims) != "super_admin":
+        raise HTTPException(status_code=403, detail="Company scope is required for payment operations.")
+    batch_id = request.path_params.get("batchId")
+    if batch_id:
+        await PaymentBatchService.get_batch(
+            db, uuid.UUID(str(batch_id)), company_id=uuid.UUID(str(tenant)) if tenant else None,
+        )
+
+
+router = APIRouter(tags=["Payroll v2 - Payment Batches"], dependencies=[Depends(_payment_batch_scope)])
 
 
 def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
@@ -110,8 +125,6 @@ async def get_payment_batch(
     )
     batch = res["batch"]
     items_data = res["items"]
-    items = [_batch_dict(b) for b in items_data["items"]]  # Reuse _batch_dict for batch, but need different for items
-    # Actually, let's create a proper response
     return _ok({
         "batch": _batch_dict(batch),
         "items": {
@@ -384,12 +397,8 @@ async def submit_payment_batch(
     user_id = _uid(claims)
     user_role = _role(claims)
 
-    cached = await IdempotencyService.get_cached_result(idempotency_key)
-    if cached:
-        return cached["data"]
-
-    await IdempotencyService.lock_key(idempotency_key)
-
+    # The batch's durable submission state is the idempotency authority.
+    # A global Redis key could otherwise return another tenant's cached data.
     batch = await PaymentBatchService.submit_batch(
         session=db,
         batch_id=batchId,
@@ -400,7 +409,6 @@ async def submit_payment_batch(
         user_role=user_role,
     )
     result = _ok(_batch_dict(batch), "Payment batch submitted successfully")
-    await IdempotencyService.store_result(idempotency_key, 200, result)
     return result
 
 

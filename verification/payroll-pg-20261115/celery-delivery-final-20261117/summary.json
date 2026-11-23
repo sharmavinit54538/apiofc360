@@ -1,0 +1,11 @@
+{
+  "command": [
+    "py",
+    "-3.14",
+    "scripts/payroll_celery_local_smoke.py"
+  ],
+  "database": "payroll_verify_suite",
+  "port": 55441,
+  "exit_code": 1,
+  "seconds": 89.458
+}

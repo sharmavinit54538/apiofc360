@@ -35,10 +35,10 @@ class RoleEnum(str, enum.Enum):
 
 
     @classmethod
-    def from_str(cls, value: str | None) -> "RoleEnum":
+    def from_str(cls, value: str | None, *, strict: bool = False) -> "RoleEnum | None":
         """Safely parse and normalize any string representation to canonical RoleEnum."""
         if not value:
-            return cls.EMPLOYEE
+            return None if strict else cls.EMPLOYEE
         normalized = str(value).strip().lower()
 
         # Alias mappings for legacy, C-Suite, IT Admin, and administrative roles (checked first)
@@ -96,7 +96,7 @@ class RoleEnum(str, enum.Enum):
             if role.value == normalized or role.name.lower() == normalized:
                 return role
 
-        return cls.EMPLOYEE
+        return None if strict else cls.EMPLOYEE
 
     def is_admin(self) -> bool:
         """Check if role has administrative privileges."""

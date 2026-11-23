@@ -1,0 +1,12 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "scripts.asset_verify_schema",
+    "verification/asset-pg-20261116/disposable-schema-final.json"
+  ],
+  "database": "asset_verify_suite",
+  "port": 55442,
+  "exit_code": 0,
+  "seconds": 2.684
+}

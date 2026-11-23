@@ -12,6 +12,7 @@ from app.core.cache import (
     get_resource_version,
     increment_resource_version,
     make_cache_key,
+    cached_get_or_set,
 )
 from app.core.redis_client import get_redis_client
 
@@ -214,6 +215,7 @@ async def get_cache_stats() -> dict:
             
             # Total keys
             stats["total_keys"] = await redis._redis.dbsize()
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to collect cache stats: %s", exc)
     return stats

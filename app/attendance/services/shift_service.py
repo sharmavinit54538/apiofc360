@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.attendance.utils.time_parse import InvalidTimeFormatError, parse_time_str
@@ -36,7 +36,7 @@ from app.attendance.utils.timezone import (
 from app.models.calendar.holiday import HolidayCalendar
 from app.models.employee import Employee
 from app.models.shift import EmployeeShiftAssignment, Shift
-from app.models.shift_plan import EntryApprovalStatus, ShiftPlanEntry, ShiftType
+from app.models.shift_plan import EntryApprovalStatus, ShiftPlan, ShiftPlanEntry, ShiftPlanStatus, ShiftType
 
 logger = logging.getLogger(__name__)
 
@@ -301,11 +301,11 @@ class ShiftService:
             and_(
                 ShiftPlanEntry.employee_id == employee_id,
                 ShiftPlanEntry.shift_date == business_date,
-                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                text("shift_plan_entries.approval_status = 'APPROVED'"),
                 ShiftPlanEntry.company_id == company_id,
             )
         ).join(ShiftPlanEntry.plan).where(
-            ShiftPlanEntry.plan.has(status="PUBLISHED")
+            text("shift_plans.status = 'PUBLISHED'")
         )
         result = await self.db.execute(stmt)
         return result.scalars().first()
@@ -318,11 +318,11 @@ class ShiftService:
                 ShiftPlanEntry.employee_id == employee_id,
                 ShiftPlanEntry.shift_date >= start,
                 ShiftPlanEntry.shift_date <= end,
-                ShiftPlanEntry.approval_status == EntryApprovalStatus.APPROVED,
+                text("shift_plan_entries.approval_status = 'APPROVED'"),
                 ShiftPlanEntry.company_id == company_id,
             )
         ).join(ShiftPlanEntry.plan).where(
-            ShiftPlanEntry.plan.has(status="PUBLISHED")
+            text("shift_plans.status = 'PUBLISHED'")
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
@@ -426,11 +426,11 @@ class ShiftService:
     ) -> List[date]:
         # Try to find leave request model - skip if not available
         try:
-            from app.models.leave import LeaveRequest, LeaveStatus
+            from app.models.leave import LeaveRequest
             stmt = select(LeaveRequest).where(
                 and_(
                     LeaveRequest.employee_id == employee_id,
-                    LeaveRequest.status == LeaveStatus.APPROVED,
+                    LeaveRequest.status == "APPROVED",
                     LeaveRequest.start_date <= end,
                     LeaveRequest.end_date >= start,
                 )

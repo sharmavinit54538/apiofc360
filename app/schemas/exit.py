@@ -9,8 +9,10 @@ import uuid
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants - Use centralized state machine values
 # ---------------------------------------------------------------------------
+
+from app.core.exit_state_machine import ExitStatus, ACTIVE_STATUSES, TERMINAL_STATUSES
 
 EXIT_REASON_VALUES = {
     "Better Opportunity",
@@ -24,33 +26,71 @@ EXIT_REASON_VALUES = {
     "Other",
 }
 
-EXIT_STATUS_VALUES = {
-    "DRAFT",
-    "SUBMITTED",
-    "PENDING_MANAGER_APPROVAL",
-    "MANAGER_APPROVED",
-    "MANAGER_REJECTED",
-    "PENDING_HR_APPROVAL",
-    "HR_APPROVED",
-    "NOTICE_PERIOD",
-    "KNOWLEDGE_TRANSFER_PENDING",
-    "ASSET_RETURN_PENDING",
-    "NO_DUES_PENDING",
-    "EXIT_INTERVIEW_PENDING",
-    "FNF_PENDING",
-    "COMPLETED",
-    "CANCELLED",
-}
+# Canonical status values from state machine
+EXIT_STATUS_VALUES = {s.value for s in ExitStatus}
+ACTIVE_EXIT_STATUS_VALUES = {s.value for s in ACTIVE_STATUSES}
+TERMINAL_EXIT_STATUS_VALUES = {s.value for s in TERMINAL_STATUSES}
 
 
 # ---------------------------------------------------------------------------
 # Employee Exit Schemas
 # ---------------------------------------------------------------------------
 
-class ResignationRequest(BaseModel):
+# Exit type values for HR-initiated exits
+EXIT_TYPE_VALUES = {
+    "resignation",
+    "termination",
+    "retirement",
+    "contract_end",
+    "layoff",
+    "mutual_separation",
+    "probation_failure",
+    "medical_separation",
+    "death",
+}
+
+
+class ExitInitiationRequest(BaseModel):
+    """Base request for any exit initiation (employee resignation or HR-initiated)."""
+    employee_id: uuid.UUID | None = None  # Required for HR-initiated, ignored for employee resignation
     last_working_date: date
+    exit_type: str = Field("resignation", description="Type of exit")
     reason: str = Field(..., description="Reason for leaving")
     comments: str | None = Field(None, max_length=1000)
+    personal_email: EmailStr | None = None  # Required for resignation, optional for HR-initiated
+    personal_phone: str | None = Field(None, min_length=10, max_length=20)  # Required for resignation, optional for HR-initiated
+    notice_period_days_required: int | None = None  # Override default notice period
+    notice_waived: bool = False
+    notice_buyout: bool = False
+    effective_date: date | None = None  # For termination/retirement - legal effective date
+
+    @field_validator("exit_type")
+    @classmethod
+    def validate_exit_type(cls, v: str) -> str:
+        if v not in EXIT_TYPE_VALUES:
+            raise ValueError(f"exit_type must be one of: {', '.join(EXIT_TYPE_VALUES)}")
+        return v
+
+    @field_validator("last_working_date")
+    @classmethod
+    def validate_date(cls, v: date) -> date:
+        if v < date.today():
+            raise ValueError("Last working date cannot be in the past.")
+        return v
+
+    @field_validator("effective_date")
+    @classmethod
+    def validate_effective_date(cls, v: date | None, info) -> date | None:
+        if v is not None:
+            lwd = info.data.get("last_working_date")
+            if lwd and v > lwd:
+                raise ValueError("Effective date cannot be after last working date.")
+        return v
+
+
+class ResignationRequest(ExitInitiationRequest):
+    """Employee resignation request - employee_id is derived from authenticated user."""
+    exit_type: str = Field("resignation", description="Type of exit", frozen=True)
     personal_email: EmailStr
     personal_phone: str = Field(..., min_length=10, max_length=20)
 
@@ -59,13 +99,6 @@ class ResignationRequest(BaseModel):
     def validate_reason(cls, v: str) -> str:
         if v not in EXIT_REASON_VALUES:
             raise ValueError(f"Reason must be one of: {', '.join(EXIT_REASON_VALUES)}")
-        return v
-
-    @field_validator("last_working_date")
-    @classmethod
-    def validate_date(cls, v: date) -> date:
-        if v < date.today():
-            raise ValueError("Last working date cannot be in the past.")
         return v
 
 
@@ -84,6 +117,10 @@ class ExitResponse(BaseModel):
     hr_remarks: str | None
     created_at: datetime
     updated_at: datetime
+    exit_type: str = "resignation"
+    effective_date: date | None = None
+    initiated_by: uuid.UUID | None = None
+    initiated_by_role: str | None = None
 
 
 class ExitListItem(BaseModel):
@@ -237,6 +274,8 @@ class ExitInterviewResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class FnfCreate(BaseModel):
+    """FNF settlement creation - payment_status is NOT settable here.
+    Payment status can only be set via authorized payment confirmation flow."""
     last_salary: Decimal = Field(Decimal("0.00"), ge=0)
     pending_salary: Decimal = Field(Decimal("0.00"), ge=0)
     leave_encashment: Decimal = Field(Decimal("0.00"), ge=0)
@@ -248,16 +287,8 @@ class FnfCreate(BaseModel):
     asset_recovery: Decimal = Field(Decimal("0.00"), ge=0)
     loan_recovery: Decimal = Field(Decimal("0.00"), ge=0)
     other_deductions: Decimal = Field(Decimal("0.00"), ge=0)
-    payment_status: str = "PENDING"
-    payment_date: date | None = None
-
-    @field_validator("payment_status")
-    @classmethod
-    def validate_payment_status(cls, v: str) -> str:
-        v = v.upper()
-        if v not in {"PENDING", "PAID"}:
-            raise ValueError("payment_status must be PENDING or PAID")
-        return v
+    # payment_status and payment_date are intentionally omitted - set only via payment confirmation
+    settlement_breakup: dict | None = None
 
 
 class FnfResponse(BaseModel):

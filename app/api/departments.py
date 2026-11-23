@@ -619,6 +619,70 @@ async def remove_employee(
     )
 
 
+# ── Compatibility Aliases ────────────────────────────────────────────────────
+
+@router.patch(
+    "/bulk-status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk update department status (PATCH alias)",
+)
+async def bulk_update_status_patch(
+    payload: BulkStatusRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk update status for departments (ACTIVE, INACTIVE, HIRING, GROWING). PATCH alias."""
+    return await bulk_update_status(payload, claims, service)
+
+
+@router.patch(
+    "/bulk-assign-manager",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk assign manager to departments (PATCH alias)",
+)
+async def bulk_assign_manager_patch(
+    payload: BulkAssignManagerRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk assign department head/manager to multiple departments. PATCH alias."""
+    return await bulk_assign_manager(payload, claims, service)
+
+
+@router.post(
+    "/{id}/employees",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[None],
+    summary="Assign multiple employees to a department (POST alias)",
+)
+async def assign_employees_post(
+    id: uuid.UUID,
+    payload: AssignEmployeesRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[None]:
+    """Assign employees to department. Admin and HR only. POST alias for /assign-employees."""
+    return await assign_employees(id, payload, claims, service)
+
+
+@router.delete(
+    "/{id}/employees/{employee_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[None],
+    summary="Remove an employee from a department (DELETE alias)",
+)
+async def remove_employee_delete(
+    id: uuid.UUID,
+    employee_id: uuid.UUID,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[None]:
+    """Remove employee from department. Admin and HR only. DELETE alias for /remove-employee."""
+    return await remove_employee(id, employee_id, claims, service)
+
+
 @router.get(
     "/{id}/employees",
     status_code=status.HTTP_200_OK,
