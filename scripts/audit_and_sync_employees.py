@@ -26,6 +26,9 @@ from app.core.field_encryption import (  # noqa: E402
     validate_encryption_configuration,
 )
 from app.db.database import AsyncSessionLocal, engine  # noqa: E402
+from app.repositories.auth_repository import AuthRepository  # noqa: E402
+from app.repositories.employee_repository import EmployeeRepository  # noqa: E402
+from app.services.email_service import EmailService  # noqa: E402
 from app.services.employee_service import EmployeeService  # noqa: E402
 
 
@@ -88,11 +91,11 @@ async def run_audit() -> dict[str, Any]:
                 text(
                     """
                     SELECT
-                        COUNT(*) FILTER (WHERE pan_number IS NOT NULL AND (pan_number_bidx IS NULL OR pan_number_bidx = '')) AS missing_pan_bidx,
-                        COUNT(*) FILTER (WHERE aadhaar_number IS NOT NULL AND (aadhaar_number_bidx IS NULL OR aadhaar_number_bidx = '')) AS missing_aadhaar_bidx,
-                        COUNT(*) FILTER (WHERE bank_account_number IS NOT NULL AND (bank_account_number_bidx IS NULL OR bank_account_number_bidx = '')) AS missing_bank_bidx,
-                        COUNT(*) FILTER (WHERE ifsc_code IS NOT NULL AND (ifsc_code_bidx IS NULL OR ifsc_code_bidx = '')) AS missing_ifsc_bidx,
-                        COUNT(*) FILTER (WHERE uan_number IS NOT NULL AND (uan_number_bidx IS NULL OR uan_number_bidx = '')) AS missing_uan_bidx
+                        COUNT(*) FILTER (WHERE aadhaar_number IS NOT NULL AND (aadhaar_number_blind_idx IS NULL OR aadhaar_number_blind_idx = '')) AS missing_aadhaar_bidx,
+                        COUNT(*) FILTER (WHERE pan_number IS NOT NULL AND (pan_number_blind_idx IS NULL OR pan_number_blind_idx = '')) AS missing_pan_bidx,
+                        COUNT(*) FILTER (WHERE uan_number IS NOT NULL AND (uan_number_blind_idx IS NULL OR uan_number_blind_idx = '')) AS missing_uan_bidx,
+                        COUNT(*) FILTER (WHERE passport_number IS NOT NULL AND (passport_number_blind_idx IS NULL OR passport_number_blind_idx = '')) AS missing_passport_bidx,
+                        COUNT(*) FILTER (WHERE voter_id IS NOT NULL AND (voter_id_blind_idx IS NULL OR voter_id_blind_idx = '')) AS missing_voter_bidx
                     FROM employees
                     """
                 ).execution_options(tenant_safe=True)
@@ -102,7 +105,7 @@ async def run_audit() -> dict[str, Any]:
         key_usage: dict[str, dict[str, int]] = {}
         missing_key_ids: set[str] = set()
         for tbl, cols in (
-            ("employees", ("pan_number", "aadhaar_number", "bank_account_number", "ifsc_code", "uan_number")),
+            ("employees", ("aadhaar_number", "pan_number", "uan_number", "passport_number", "voter_id")),
             ("employee_bank_accounts", ("account_number", "ifsc_code")),
         ):
             for col in cols:
@@ -201,9 +204,15 @@ async def run_sync(*, company_id: uuid.UUID | None) -> dict[str, Any]:
     total_updated = 0
     total_skipped = 0
     per_company: dict[str, dict[str, int]] = {}
+    email_service = EmailService()
     for cid in company_ids:
         async with AsyncSessionLocal() as session:
-            service = EmployeeService(session=session)
+            service = EmployeeService(
+                session=session,
+                employee_repository=EmployeeRepository(session),
+                auth_repository=AuthRepository(session),
+                email_service=email_service,
+            )
             stats = await service.sync_managers_to_employees(cid)
             total_created += int(stats.get("created", 0))
             total_updated += int(stats.get("updated", 0))

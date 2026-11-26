@@ -41,7 +41,9 @@ from app.models.company import Company
 from app.models.employee import Employee
 from app.models.manager import Manager
 from app.models.user import User
+from app.repositories.auth_repository import AuthRepository
 from app.repositories.employee_repository import EmployeeRepository
+from app.repositories.manager_repository import ManagerRepository
 from app.schemas.manager import ManagerCreate
 from app.services.employee_service import EmployeeService
 from app.services.manager_service import ManagerService, _employee_sync_filter
@@ -80,7 +82,7 @@ async def iso_session():
         for column in table.columns:
             if column.server_default is not None:
                 arg = str(column.server_default.arg).lower()
-                if any(tok in arg for tok in ("jsonb", "gen_random_uuid", "uuid_generate", "::", "now()")):
+                if "jsonb" in arg or "::" in arg or "gen_random_uuid" in arg or "uuid_generate" in arg:
                     restored_defaults.append((column, column.server_default))
                     column.server_default = None
 
@@ -173,8 +175,11 @@ def test_encryption_rotation_reencrypt_nullable_and_missing_key(monkeypatch):
     # Idempotent when already encrypted with active key
     assert reencrypt_value(reencrypted) == reencrypted
 
-    # Blind index normalizes consistently across rotation of encryption key
-    assert hmac_sha256_blind_index("  abcde1234f ") == hmac_sha256_blind_index("ABCDE1234F")
+    # Blind index normalizes consistently across rotation of encryption key and isolates tenants
+    comp_1 = uuid.uuid4()
+    comp_2 = uuid.uuid4()
+    assert hmac_sha256_blind_index("  abcde1234f ", comp_1) == hmac_sha256_blind_index("ABCDE1234F", comp_1)
+    assert hmac_sha256_blind_index("ABCDE1234F", comp_1) != hmac_sha256_blind_index("ABCDE1234F", comp_2)
 
     # Dropping OLD_KEY fails closed with safe key_id fingerprint (never leaks secret or ciphertext)
     monkeypatch.setattr(settings, "FIELD_ENCRYPTION_KEY", SecretStr(NEW_KEY))
@@ -188,6 +193,8 @@ def test_encryption_rotation_reencrypt_nullable_and_missing_key(monkeypatch):
 
 
 def test_encryption_rejects_placeholder_and_empty_production_config(monkeypatch):
+    from pydantic import ValidationError
+
     monkeypatch.setattr(settings, "FIELD_ENCRYPTION_KEY", SecretStr("CHANGE_ME_32_BYTE_ENCRYPTION_KEY"))
     with pytest.raises(FieldEncryptionError, match="placeholder"):
         validate_encryption_configuration()
@@ -197,14 +204,34 @@ def test_encryption_rejects_placeholder_and_empty_production_config(monkeypatch)
     with pytest.raises(FieldEncryptionError, match="required"):
         validate_encryption_configuration()
 
-    prod = Settings(
+    with pytest.raises(ValidationError, match="FIELD_ENCRYPTION_KEY"):
+        Settings(
+            ENVIRONMENT="production",
+            DATABASE_URL="postgresql+asyncpg://user:pass@db.example.com:5432/app",
+            JWT_SECRET_KEY="x" * 64,
+            FIELD_ENCRYPTION_KEY="CHANGE_ME_32_BYTE_ENCRYPTION_KEY",
+        )
+
+    with pytest.raises(ValidationError, match="FIELD_ENCRYPTION_KEY"):
+        Settings(
+            ENVIRONMENT="production",
+            DATABASE_URL="postgresql+asyncpg://user:pass@db.example.com:5432/app",
+            SECRET_KEY=SecretStr("s" * 64),
+            FIELD_ENCRYPTION_KEY="",
+        )
+
+    prod_empty = Settings.model_construct(
         ENVIRONMENT="production",
         DATABASE_URL="postgresql+asyncpg://user:pass@db.example.com:5432/app",
-        JWT_SECRET_KEY="x" * 64,
-        FIELD_ENCRYPTION_KEY="CHANGE_ME_32_BYTE_ENCRYPTION_KEY",
+        SECRET_KEY=SecretStr("s" * 64),
+        JWT_ALGORITHM="RS256",
+        REDIS_URL="redis://localhost:6379/0",
+        JWT_PRIVATE_KEY=SecretStr("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"),
+        JWT_PUBLIC_KEY=SecretStr("-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----"),
+        FIELD_ENCRYPTION_KEY=SecretStr(""),
     )
-    with pytest.raises(RuntimeError, match="FIELD_ENCRYPTION_KEY"):
-        prod.validate_production_safety()
+    with pytest.raises(ValueError, match="FIELD_ENCRYPTION_KEY"):
+        prod_empty.validate_production_safety()
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +271,12 @@ async def test_sync_managers_idempotent_cross_company_conflict_and_soft_delete(i
     iso_session.add_all([mgr_ok, mgr_conflict, mgr_deleted, emp_deleted])
     await iso_session.commit()
 
-    service = EmployeeService(session=iso_session)
+    service = EmployeeService(
+        session=iso_session,
+        employee_repository=EmployeeRepository(iso_session),
+        auth_repository=AuthRepository(iso_session),
+        email_service=AsyncMock(),
+    )
     first_stats = await service.sync_managers_to_employees(comp_b)
     assert first_stats == {"created": 1, "updated": 0, "skipped_conflicts": 1}
 
@@ -294,7 +326,12 @@ async def test_create_manager_rejects_global_employee_email_before_insert(iso_se
     ])
     await iso_session.commit()
 
-    mgr_svc = ManagerService(session=iso_session, email_service=AsyncMock())
+    mgr_svc = ManagerService(
+        session=iso_session,
+        manager_repository=ManagerRepository(iso_session),
+        auth_repository=AuthRepository(iso_session),
+        email_service=AsyncMock(),
+    )
     payload = ManagerCreate(
         first_name="New",
         last_name="Mgr",
@@ -327,7 +364,19 @@ def test_manager_employee_sync_filter_is_company_scoped():
 async def test_get_employees_returns_200_with_missing_key_on_unrequested_pii_and_503_on_detail(iso_session, monkeypatch):
     company_id = uuid.uuid4()
     admin_id = uuid.uuid4()
+    admin_user = User(
+        id=admin_id,
+        company_id=company_id,
+        name="Acme Admin",
+        email="admin@acme.com",
+        phone="9000000088",
+        password_hash="x",
+        role="hr_admin",
+        is_active=True,
+        is_verified=True,
+    )
     iso_session.add(Company(id=company_id, name="Acme Corp"))
+    iso_session.add(admin_user)
 
     # Encrypt historical PAN under OLD_KEY, then switch runtime key to NEW_KEY only
     monkeypatch.setattr(settings, "FIELD_ENCRYPTION_KEY", SecretStr(OLD_KEY))

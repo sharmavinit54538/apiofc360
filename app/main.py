@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
                 async with AsyncSessionLocal() as enc_session:
                     missing_keys: dict[str, int] = {}
                     for tbl, cols in (
-                        ("employees", ("pan_number", "aadhaar_number", "bank_account_number", "ifsc_code", "uan_number")),
+                        ("employees", ("aadhaar_number", "pan_number", "uan_number", "passport_number", "voter_id")),
                         ("employee_bank_accounts", ("account_number", "ifsc_code")),
                     ):
                         for col in cols:
