@@ -822,8 +822,14 @@ class ManagerService:
             await self.session.commit()
             if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
                 try:
+                    from app.repositories.employee_repository import EmployeeRepository
                     from app.services.employee_service import EmployeeService
-                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                    await EmployeeService(
+                        session=self.session,
+                        employee_repository=EmployeeRepository(self.session),
+                        auth_repository=self.auth_repo,
+                        email_service=self.email_service,
+                    ).sync_managers_to_employees(manager.company_id)
                 except Exception as sync_exc:
                     logger.warning("activate_manager: post-commit employee sync skipped | manager_id=%s | err=%s", manager_uuid, sync_exc)
 
@@ -1170,8 +1176,14 @@ class ManagerService:
             logger.info("activate_onboarding_manager: committed | user_id=%s", user.id)
             if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
                 try:
+                    from app.repositories.employee_repository import EmployeeRepository
                     from app.services.employee_service import EmployeeService
-                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                    await EmployeeService(
+                        session=self.session,
+                        employee_repository=EmployeeRepository(self.session),
+                        auth_repository=self.auth_repo,
+                        email_service=self.email_service,
+                    ).sync_managers_to_employees(manager.company_id)
                 except Exception as sync_exc:
                     logger.warning("activate_onboarding_manager: post-commit employee sync skipped | manager_id=%s | err=%s", manager.id, sync_exc)
 
@@ -1305,8 +1317,14 @@ class ManagerService:
             await self.session.commit()
             if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
                 try:
+                    from app.repositories.employee_repository import EmployeeRepository
                     from app.services.employee_service import EmployeeService
-                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                    await EmployeeService(
+                        session=self.session,
+                        employee_repository=EmployeeRepository(self.session),
+                        auth_repository=self.auth_repo,
+                        email_service=self.email_service,
+                    ).sync_managers_to_employees(manager.company_id)
                 except Exception as sync_exc:
                     logger.warning("activate_manager_by_admin: post-commit employee sync skipped | manager_id=%s | err=%s", manager_uuid, sync_exc)
             logger.info("activate_manager_by_admin: success | manager_id=%s", manager_uuid)

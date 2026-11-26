@@ -372,8 +372,10 @@ async def test_get_employees_returns_200_with_missing_key_on_unrequested_pii_and
         phone="9000000088",
         password_hash="x",
         role="hr_admin",
+        account_status="ACTIVE",
         is_active=True,
         is_verified=True,
+        is_deleted=False,
     )
     iso_session.add(Company(id=company_id, name="Acme Corp"))
     iso_session.add(admin_user)
@@ -404,10 +406,9 @@ async def test_get_employees_returns_200_with_missing_key_on_unrequested_pii_and
         claims={"role": "hr_admin", "company_id": str(company_id), "email": "admin@acme.com", "is_active": True},
     )
 
-    with patch("app.middleware.auth._check_user_active_cached", new=AsyncMock(return_value=(True, None))):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            list_resp = await client.get("/api/v1/employees", headers={"Authorization": f"Bearer {token}"})
-            detail_resp = await client.get(f"/api/v1/employees/{emp.id}", headers={"Authorization": f"Bearer {token}"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        list_resp = await client.get("/api/v1/employees", headers={"Authorization": f"Bearer {token}"})
+        detail_resp = await client.get(f"/api/v1/employees/{emp.id}", headers={"Authorization": f"Bearer {token}"})
 
     # List endpoint uses projection (no PII decryption) and performs ZERO writes on GET (does not insert mgr_only)
     assert list_resp.status_code == 200
@@ -415,8 +416,8 @@ async def test_get_employees_returns_200_with_missing_key_on_unrequested_pii_and
     assert body["success"] is True
     assert body["data"]["total"] == 1
     assert body["data"]["items"][0]["employee_id"] == "EMP-HIST-01"
-    # Verify GET did not create mgr_only in employees table
-    count_after_get = (await iso_session.execute(select(Employee).where(Employee.company_id == company_id))).scalars().all()
+    # Verify GET did not create mgr_only in employees table (query ID column only so missing key on PII doesn't trigger)
+    count_after_get = (await iso_session.execute(select(Employee.id).where(Employee.company_id == company_id))).scalars().all()
     assert len(count_after_get) == 1
 
     # Detail endpoint requires sensitive PII -> must NOT return ciphertext or fake plaintext; returns sanitized 503

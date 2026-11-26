@@ -64,7 +64,7 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
     from sqlalchemy.orm import load_only
     emp_res = await session.execute(
         select(Employee).options(
-            load_only(Employee.id, Employee.is_active, Employee.status, Employee.employment_status)
+            load_only(Employee.id, Employee.is_active, Employee.status, Employee.employment_status, Employee.is_deleted)
         ).where(
             Employee.user_id == user_id,
             Employee.is_deleted == False,
@@ -82,7 +82,7 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
     # Check manager profile
     mgr_res = await session.execute(
         select(Manager).options(
-            load_only(Manager.id, Manager.is_active, Manager.status, Manager.employment_status)
+            load_only(Manager.id, Manager.status, Manager.employment_status, Manager.is_deleted)
         ).where(
             Manager.user_id == user_id,
             Manager.is_deleted == False,

@@ -42,8 +42,8 @@ def _tenant_registry_index() -> tuple[
             if selectable is not None and is_tenant:
                 table_to_classes.setdefault(selectable, []).append(cls)
 
-    mapper_map = {mapper.class_: mapper for mapper in Base.registry.mappers}
     reachable_cache: dict[type, tuple[type, ...]] = {}
+    _EAGER_LOADERS = {"joined", "selectin", "subquery", "immediate"}
 
     for mapper in Base.registry.mappers:
         root_cls = mapper.class_
@@ -60,7 +60,12 @@ def _tenant_registry_index() -> tuple[
             if (cur_cls is Company or hasattr(cur_cls, "company_id")) and cur_cls not in collected_set:
                 collected_set.add(cur_cls)
                 collected.append(cur_cls)
+            # Never fan out through Company/hub reverse relationships (200+ models) unless eager-loaded on root
+            if cur is not mapper and cur_cls is Company:
+                continue
             for rel in cur.relationships:
+                if getattr(rel, "lazy", None) not in _EAGER_LOADERS:
+                    continue
                 target_mapper = rel.mapper
                 if target_mapper not in visited_mappers:
                     queue.append(target_mapper)
