@@ -10,10 +10,11 @@ from typing import Any
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.db.database import AsyncSessionLocal
 from app.models.document.expiry import DocumentExpiryTracking
+from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,9 @@ async def process_document_expiry_alerts(session: AsyncSession) -> int:
         stmt = (
             select(EmployeeDocument)
             .options(
-                selectinload(EmployeeDocument.employee),
+                selectinload(EmployeeDocument.employee).load_only(
+                    Employee.id, Employee.user_id, Employee.company_id
+                ),
                 selectinload(EmployeeDocument.expiry_tracks),
             )
             .where(

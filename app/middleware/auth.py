@@ -60,9 +60,12 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
     if not user.is_active or account_status_val in ("SUSPENDED", "DEACTIVATED", "INACTIVE", "TERMINATED", "EXITED"):
         return False, "User account is inactive or disabled."
     
-    # Check employee profile
+    # Check employee profile (load only status columns to avoid decrypting PII on every request)
+    from sqlalchemy.orm import load_only
     emp_res = await session.execute(
-        select(Employee).where(
+        select(Employee).options(
+            load_only(Employee.id, Employee.is_active, Employee.status, Employee.employment_status)
+        ).where(
             Employee.user_id == user_id,
             Employee.is_deleted == False,
         ).execution_options(bypass_tenant=True)
@@ -78,7 +81,9 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
     
     # Check manager profile
     mgr_res = await session.execute(
-        select(Manager).where(
+        select(Manager).options(
+            load_only(Manager.id, Manager.is_active, Manager.status, Manager.employment_status)
+        ).where(
             Manager.user_id == user_id,
             Manager.is_deleted == False,
         ).execution_options(bypass_tenant=True)

@@ -129,6 +129,31 @@ class PayrollRunService:
 
         target_company_id = company_id or period.company_id
         target_entity_id = legal_entity_id or period.legal_entity_id
+        if period.status in ("VOID", "CLOSED") or period.is_locked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot start a payroll run because the period '{period.name}' is {period.status or 'LOCKED'}.",
+            )
+        existing_stmt = select(PayrollRun).where(
+            PayrollRun.company_id == target_company_id,
+            PayrollRun.period_month == period.period_month,
+            PayrollRun.period_year == period.period_year,
+        )
+        if target_entity_id is not None:
+            existing_stmt = existing_stmt.where(PayrollRun.legal_entity_id == target_entity_id)
+        else:
+            existing_stmt = existing_stmt.where(PayrollRun.legal_entity_id.is_(None))
+        existing_run = (await session.execute(existing_stmt)).scalar_one_or_none()
+        if existing_run is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PAYROLL_RUN_EXISTS",
+                    "run_id": str(existing_run.id),
+                    "status": existing_run.status,
+                    "message": f"A payroll run ({existing_run.status}) already exists for {period.period_month:02d}/{period.period_year}.",
+                },
+            )
         if legal_entity_id is not None and period.legal_entity_id != legal_entity_id:
             raise HTTPException(status_code=409, detail="Payroll period belongs to a different legal entity.")
         if target_entity_id is not None:
@@ -226,7 +251,9 @@ class PayrollRunService:
         validation_status: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = "asc",
+        company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
+        await cls.get_run(session, run_id, company_id=company_id)
         stmt = (
             select(PayrollRunEmployee)
             .join(Employee, PayrollRunEmployee.employee_id == Employee.id)
@@ -276,8 +303,13 @@ class PayrollRunService:
 
     @classmethod
     async def get_run_employee(
-        cls, session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollRunEmployee:
+        await cls.get_run(session, run_id, company_id=company_id)
         stmt = select(PayrollRunEmployee).where(
             PayrollRunEmployee.run_id == run_id,
             PayrollRunEmployee.employee_id == employee_id,
@@ -495,8 +527,9 @@ class PayrollRunService:
         comments: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollRun:
-        run = await cls.get_run(session, run_id)
+        run = await cls.get_run(session, run_id, company_id=company_id)
         if run.status in ("FINALIZED", "LOCKED", "PAID"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -533,8 +566,9 @@ class PayrollRunService:
         run_id: uuid.UUID,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollRun:
-        run = await cls.get_run(session, run_id)
+        run = await cls.get_run(session, run_id, company_id=company_id)
         if run.status in ("FINALIZED", "LOCKED", "PAID"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -568,8 +602,9 @@ class PayrollRunService:
         comments: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollRun:
-        run = await cls.get_run(session, run_id)
+        run = await cls.get_run(session, run_id, company_id=company_id)
         if run.status in ("FINALIZED", "LOCKED", "PAID"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -606,8 +641,12 @@ class PayrollRunService:
         run_id: uuid.UUID,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollRun:
-        run = (await session.execute(select(PayrollRun).where(PayrollRun.id == run_id)
+        stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+        if company_id is not None:
+            stmt = stmt.where(PayrollRun.company_id == company_id)
+        run = (await session.execute(stmt
             .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
         if run is None:
             raise HTTPException(status_code=404, detail="Payroll run not found.")
@@ -637,7 +676,9 @@ class PayrollRunService:
         await session.commit()
 
         # Re-execute calculation engine
-        return await cls.execute_run_calculation(session, run_id, user_id=user_id, user_role=user_role)
+        return await cls.execute_run_calculation(
+            session, run_id, user_id=user_id, user_role=user_role, company_id=company_id
+        )
 
     @classmethod
     async def mark_processing_failed(
@@ -683,8 +724,13 @@ class PayrollRunService:
         return result.rowcount == 1
 
     @classmethod
-    async def delete_run(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, str]:
-        run = await cls.get_run(session, run_id)
+    async def delete_run(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, str]:
+        run = await cls.get_run(session, run_id, company_id=company_id)
         if run.status in ("FINALIZED", "LOCKED", "PAID"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -695,9 +741,14 @@ class PayrollRunService:
         return {"message": f"Payroll run {run_id} deleted successfully."}
 
     @classmethod
-    async def validate_run(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, Any]:
+    async def validate_run(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, Any]:
         """Perform pre-check validations on all eligible employees for this run."""
-        run = await cls.get_run(session, run_id)
+        run = await cls.get_run(session, run_id, company_id=company_id)
 
         # Fetch active employees.
         # `bank_accounts` is eagerly loaded (selectinload) because it is accessed
@@ -761,8 +812,13 @@ class PayrollRunService:
         }
 
     @classmethod
-    async def revalidate_run(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, Any]:
-        return await cls.validate_run(session, run_id)
+    async def revalidate_run(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, Any]:
+        return await cls.validate_run(session, run_id, company_id=company_id)
 
     @classmethod
     async def _advance_deduction_for_employee(
@@ -1882,8 +1938,13 @@ class PayrollRunService:
         return run
 
     @classmethod
-    async def get_preview(cls, session: AsyncSession, run_id: uuid.UUID) -> dict[str, Any]:
-        run = await cls.get_run(session, run_id)
+    async def get_preview(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, Any]:
+        run = await cls.get_run(session, run_id, company_id=company_id)
         return {
             "run_id": str(run.id),
             "status": run.status,

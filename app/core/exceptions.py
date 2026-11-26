@@ -7,8 +7,16 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import (
+    IntegrityError,
+    InterfaceError,
+    OperationalError,
+    SQLAlchemyError,
+    TimeoutError as SATimeoutError,
+)
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.core.field_encryption import FieldEncryptionError
 
 logger = logging.getLogger(__name__)
 
@@ -406,22 +414,116 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     return add_cors_headers(request, response)
 
 
+def _classify_integrity_error(exc: IntegrityError) -> tuple[int, str, str]:
+    """Map SQLAlchemy IntegrityError to a sanitized conflict response."""
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    orig_name = type(orig).__name__.lower() if orig is not None else ""
+    msg = str(orig or exc).lower()
+
+    if sqlstate == "23505" or "unique" in orig_name or "duplicate" in msg or "unique constraint" in msg:
+        return (
+            status.HTTP_409_CONFLICT,
+            "CONFLICT",
+            "A record with these unique details already exists.",
+        )
+    if sqlstate == "23503" or "foreignkey" in orig_name or "foreign key" in msg:
+        return (
+            status.HTTP_409_CONFLICT,
+            "REFERENCE_CONFLICT",
+            "Referenced record does not exist or is currently in use.",
+        )
+    return (
+        status.HTTP_409_CONFLICT,
+        "INTEGRITY_CONFLICT",
+        "Data integrity constraint violated.",
+    )
+
+
+def _is_db_unavailable_error(exc: SQLAlchemyError) -> bool:
+    """Return True when a SQLAlchemy error indicates DB connectivity or timeout outage."""
+    if isinstance(exc, (OperationalError, InterfaceError, SATimeoutError)):
+        return True
+    orig = getattr(exc, "orig", None)
+    sqlstate = str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
+    if sqlstate.startswith(("08", "57")) or sqlstate == "53300":
+        return True
+    orig_name = type(orig).__name__.lower() if orig is not None else ""
+    msg = str(orig or exc).lower()
+    markers = ("connection", "timeout", "timed out", "refused", "closed", "too many clients", "cannot connect")
+    return any(marker in orig_name or marker in msg for marker in markers)
+
+
+async def field_encryption_exception_handler(request: Request, exc: FieldEncryptionError) -> JSONResponse:
+    """Render field-encryption configuration/decryption errors without leaking keys or ciphertext."""
+    user_id, role = _extract_user_and_role(request)
+    logger.error(
+        "Field encryption error on %s %s | User: %s | Role: %s | error=%s",
+        request.method,
+        request.url.path,
+        user_id,
+        role,
+        str(exc),
+        exc_info=exc,
+    )
+    msg = str(exc).lower()
+    is_unavailable = any(
+        term in msg
+        for term in (
+            "not configured",
+            "required to read or write",
+            "unavailable",
+            "retain previous keys",
+            "placeholder",
+            "must be",
+            "at least 32",
+        )
+    )
+    status_code = (
+        status.HTTP_503_SERVICE_UNAVAILABLE
+        if is_unavailable
+        else status.HTTP_500_INTERNAL_SERVER_ERROR
+    )
+    code = "FIELD_ENCRYPTION_UNAVAILABLE" if is_unavailable else "FIELD_ENCRYPTION_ERROR"
+    public_msg = (
+        "Encrypted data cannot be accessed because the required encryption key is unavailable."
+        if is_unavailable
+        else "Encrypted field could not be processed."
+    )
+    response = JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(error_response_content(message=public_msg, code=code)),
+    )
+    return add_cors_headers(request, response)
+
+
 async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    """Render uncaught database exceptions without leaking internals."""
+    """Render uncaught database exceptions with accurate status codes and without leaking internals."""
 
     user_id, role = _extract_user_and_role(request)
 
     logger.exception(
-        "Database error on %s %s | User: %s | Role: %s", 
-        request.method, 
-        request.url.path, 
-        user_id, 
-        role, 
-        exc_info=exc
+        "Database error on %s %s | User: %s | Role: %s",
+        request.method,
+        request.url.path,
+        user_id,
+        role,
+        exc_info=exc,
     )
+    if isinstance(exc, IntegrityError):
+        status_code, code, message = _classify_integrity_error(exc)
+    elif _is_db_unavailable_error(exc):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        code = "DATABASE_UNAVAILABLE"
+        message = "Database service is temporarily unavailable. Please try again shortly."
+    else:
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        code = "DATABASE_ERROR"
+        message = "Internal server error."
+
     response = JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=jsonable_encoder(error_response_content(message="Internal server error.")),
+        status_code=status_code,
+        content=jsonable_encoder(error_response_content(message=message, code=code)),
     )
     return add_cors_headers(request, response)
 
@@ -432,16 +534,18 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     user_id, role = _extract_user_and_role(request)
 
     logger.exception(
-        "Unhandled error on %s %s | User: %s | Role: %s", 
-        request.method, 
-        request.url.path, 
-        user_id, 
-        role, 
-        exc_info=exc
+        "Unhandled error on %s %s | User: %s | Role: %s",
+        request.method,
+        request.url.path,
+        user_id,
+        role,
+        exc_info=exc,
     )
     response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=jsonable_encoder(error_response_content(message="Internal server error.")),
+        content=jsonable_encoder(
+            error_response_content(message="Internal server error.", code="INTERNAL_SERVER_ERROR")
+        ),
     )
     return add_cors_headers(request, response)
 
@@ -489,5 +593,6 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(ValidationError, pydantic_validation_exception_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(FieldEncryptionError, field_encryption_exception_handler)
     app.add_exception_handler(SQLAlchemyError, database_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

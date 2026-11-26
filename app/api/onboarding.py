@@ -898,7 +898,7 @@ async def activate_onboarding_employee(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Activate employee account, create user, clear token, and perform auto-login."""
-    from app.core.security import hash_password
+    from app.core.security import hash_password_async
     from app.services.token_service import TokenService
     from app.repositories.auth_repository import AuthRepository
     from app.models.employee_emergency_contact import EmployeeEmergencyContact
@@ -914,7 +914,7 @@ async def activate_onboarding_employee(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     now = datetime.now(timezone.utc)
-    password_hash = hash_password(payload.password)
+    password_hash = await hash_password_async(payload.password)
     user_email = (employee.company_email or employee.personal_email).lower().strip()
 
     phone_to_use = payload.phone or employee.phone

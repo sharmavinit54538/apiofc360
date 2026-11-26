@@ -9,7 +9,7 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import DB, Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _require_admin
+from app.api.payroll.permissions import _require_admin_or_manager, _require_admin, _require_tenant_id
 from app.api.payroll.responses import success_response
 from app.models.payroll import PayrollAuditLog
 from app.schemas.auth import APIResponse
@@ -92,7 +92,8 @@ async def get_payroll_cycle_details(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    period = await PayrollCycleService.get_cycle(db, cycle_id, company_id=c_uuid)
     return success_response(_period_to_dict(period), "Payroll period details retrieved.")
 
 
@@ -104,8 +105,7 @@ async def create_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
     user_role = claims.get("role")
 
@@ -136,7 +136,8 @@ async def update_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    period = await PayrollCycleService.get_cycle(db, cycle_id, company_id=c_uuid)
     # Simple update - just update allowed fields
     for field in ["name", "remarks", "start_date", "end_date", "processing_date", "payment_date"]:
         if field in payload and payload[field] is not None:
@@ -157,7 +158,8 @@ async def delete_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
-    period = await PayrollCycleService.get_cycle(db, cycle_id)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    period = await PayrollCycleService.get_cycle(db, cycle_id, company_id=c_uuid)
     if period.status not in ("OPEN", "DRAFT"):
         raise HTTPException(status_code=400, detail="Only OPEN/DRAFT periods can be deleted.")
     await db.delete(period)
@@ -172,9 +174,10 @@ async def lock_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
     user_role = claims.get("role")
-    locked = await PayrollCycleService.lock_cycle(db, cycle_id, user_id=user_id, user_role=user_role)
+    locked = await PayrollCycleService.lock_cycle(db, cycle_id, user_id=user_id, user_role=user_role, company_id=c_uuid)
     if not locked:
         raise HTTPException(status_code=404, detail="Payroll period not found.")
     return success_response(_period_to_dict(locked), "Payroll period locked successfully.")
@@ -187,11 +190,10 @@ async def unlock_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
     user_role = claims.get("role")
-    # Reopen is the equivalent of unlock for PayrollPeriod
-    payload = type('obj', (object,), {'reason': 'Unlocked by admin'})()
-    unlocked = await PayrollCycleService.reopen_cycle(db, cycle_id, reason="Unlocked by admin", user_id=user_id, user_role=user_role)
+    unlocked = await PayrollCycleService.reopen_cycle(db, cycle_id, reason="Unlocked by admin", user_id=user_id, user_role=user_role, company_id=c_uuid)
     if not unlocked:
         raise HTTPException(status_code=404, detail="Payroll period not found.")
     return success_response(_period_to_dict(unlocked), "Payroll period unlocked successfully.")
@@ -204,9 +206,10 @@ async def void_payroll_cycle(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = uuid.UUID(claims.get("sub")) if claims.get("sub") else None
     user_role = claims.get("role")
-    voided = await PayrollCycleService.void_cycle(db, cycle_id, reason="Voided by admin", user_id=user_id, user_role=user_role)
+    voided = await PayrollCycleService.void_cycle(db, cycle_id, reason="Voided by admin", user_id=user_id, user_role=user_role, company_id=c_uuid)
     if not voided:
         raise HTTPException(status_code=404, detail="Payroll period not found.")
     return success_response(_period_to_dict(voided), "Payroll period voided successfully.")

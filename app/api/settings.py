@@ -2047,7 +2047,7 @@ async def disable_mfa(
     if not user:
         raise HTTPException(status_code=404, detail="User account not found.")
 
-    from app.core.security import verify_password
+    from app.core.security import verify_password_async
 
     mfa_stmt = select(UserMFA).where(UserMFA.user_id == user_id)
     mfa_res = await session.execute(mfa_stmt)
@@ -2055,7 +2055,7 @@ async def disable_mfa(
 
     if payload:
         if payload.password and user.password_hash:
-            if not verify_password(payload.password, user.password_hash):
+            if not await verify_password_async(payload.password, user.password_hash):
                 raise HTTPException(status_code=400, detail="Incorrect password provided.")
         if payload.code and user_mfa and user_mfa.mfa_secret:
             if not verify_totp_code(user_mfa.mfa_secret, payload.code):

@@ -29,10 +29,8 @@ class PayrollPeriodService:
         search: Optional[str] = None,
     ) -> dict[str, Any]:
         stmt = select(PayrollPeriod)
-        if company_id:
-            stmt = stmt.where(
-                or_(PayrollPeriod.company_id == company_id, PayrollPeriod.company_id.is_(None))
-            )
+        if company_id is not None:
+            stmt = stmt.where(PayrollPeriod.company_id == company_id)
         if status_filter:
             stmt = stmt.where(func.upper(PayrollPeriod.status) == status_filter.upper())
         if year:
@@ -60,8 +58,15 @@ class PayrollPeriodService:
         }
 
     @classmethod
-    async def get_period(cls, session: AsyncSession, period_id: uuid.UUID) -> PayrollPeriod:
+    async def get_period(
+        cls,
+        session: AsyncSession,
+        period_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> PayrollPeriod:
         stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
+        if company_id is not None:
+            stmt = stmt.where(PayrollPeriod.company_id == company_id)
         result = await session.execute(stmt)
         period = result.scalar_one_or_none()
         if not period:
@@ -78,13 +83,23 @@ class PayrollPeriodService:
         payload: PayrollPeriodCreateRequest,
         company_id: Optional[uuid.UUID] = None,
     ) -> PayrollPeriod:
-        # Use company_id from claims (multi-tenant), override payload if provided
+        # Never allow a tenant-scoped caller to spoof another company_id in the request body
         target_company_id = company_id
         if payload.company_id:
             try:
-                target_company_id = uuid.UUID(str(payload.company_id))
-            except ValueError:
-                pass
+                req_cid = uuid.UUID(str(payload.company_id))
+                if target_company_id is not None and req_cid != target_company_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Cannot create a payroll period for another company.",
+                    )
+                if target_company_id is None:
+                    target_company_id = req_cid
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid company_id.",
+                ) from exc
 
         # Derive period_month/period_year from start_date if not provided
         p_month = payload.period_month or (payload.start_date.month if payload.start_date else None)

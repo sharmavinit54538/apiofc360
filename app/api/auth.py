@@ -182,8 +182,11 @@ async def _resolve_user_login_profile(session: AsyncSession, user: Any) -> UserL
         onboarding_completed = bool(getattr(user, "onboarding_completed", False))
         try:
             from sqlalchemy import select
+            from sqlalchemy.orm import load_only
             from app.models.employee import Employee
-            stmt = select(Employee).where(
+            stmt = select(Employee).options(
+                load_only(Employee.id, Employee.employee_onboarding_completed)
+            ).where(
                 (Employee.user_id == user.id)
                 | (Employee.personal_email == user.email.lower().strip())
                 | (Employee.company_email == user.email.lower().strip())

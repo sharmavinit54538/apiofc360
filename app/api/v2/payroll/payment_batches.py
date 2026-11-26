@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
+from app.api.payroll.permissions import _require_admin_or_manager, _require_tenant_id, _role, _uid
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.payment_batches import (
     PaymentBatchApproveRequest,
@@ -83,8 +83,7 @@ async def list_payment_batches(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     res = await PaymentBatchService.list_batches(
         session=db,
         company_id=c_uuid,

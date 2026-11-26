@@ -17,7 +17,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import settings
 from app.core.rbac import require_super_admin
 from app.core.redis_client import redis_client
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.employee import Employee
@@ -755,7 +755,7 @@ async def create_super_admin_organization(
                     company_id=new_org_id,
                     is_active=True,
                     is_verified=True,
-                    password_hash=hash_password(initial_password),
+                    password_hash=await hash_password_async(initial_password),
                     must_change_password=True,
                     created_at=now,
                     updated_at=now,
@@ -1037,7 +1037,7 @@ async def update_super_admin_organization(
                     company_id=company.id,
                     is_active=True,
                     is_verified=True,
-                    password_hash=hash_password(initial_password),
+                    password_hash=await hash_password_async(initial_password),
                     must_change_password=True,
                     created_at=datetime.now(timezone.utc),
                     updated_at=datetime.now(timezone.utc),
@@ -1507,7 +1507,7 @@ async def create_super_admin_user(
         company_id=company_id,
         is_active=True,
         is_verified=True,
-        password_hash=hash_password(initial_password),
+        password_hash=await hash_password_async(initial_password),
         must_change_password=True,
         created_at=now,
         updated_at=now,

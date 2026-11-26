@@ -45,6 +45,63 @@ def _mask_email(email: str) -> str:
     masked = local[:1] + "***" if len(local) > 1 else "***"
     return masked + "@" + domain
 
+
+def _norm_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
+def _employee_sync_filter(employee_model, manager, manager_uuid: uuid.UUID):
+    """Build tenant-scoped identity predicate for manager -> employee synchronization."""
+    from sqlalchemy import func
+
+    conditions = [employee_model.id == manager_uuid]
+    if getattr(manager, "user_id", None):
+        conditions.append(employee_model.user_id == manager.user_id)
+    norm_email = _norm_email(getattr(manager, "personal_email", None))
+    if norm_email:
+        conditions.append(func.lower(employee_model.personal_email) == norm_email)
+
+    identity_clause = conditions[0]
+    for cond in conditions[1:]:
+        identity_clause = identity_clause | cond
+
+    company_id = getattr(manager, "company_id", None)
+    if company_id is not None:
+        return (employee_model.company_id == company_id) & identity_clause
+    return identity_clause
+
+
+def _map_manager_integrity_error(exc: IntegrityError) -> ConflictException:
+    raw = str(getattr(exc, "orig", exc)).lower()
+    if "personal_email" in raw:
+        return ConflictException(
+            message="Email already exists",
+            field="personal_email",
+            errors=[{"field": "personal_email", "message": "Email already in use."}],
+        )
+    if "company_email" in raw:
+        return ConflictException(
+            message="Company email already exists",
+            field="company_email",
+            errors=[{"field": "company_email", "message": "Company email already in use."}],
+        )
+    if "phone" in raw:
+        return ConflictException(
+            message="Phone number already exists",
+            field="phone",
+            errors=[{"field": "phone", "message": "Phone number already in use."}],
+        )
+    if "manager_id" in raw or "employee_id" in raw:
+        return ConflictException(
+            message="Employee ID already exists",
+            field="manager_id",
+            errors=[{"field": "manager_id", "message": "Employee ID already in use."}],
+        )
+    return ConflictException(
+        message="Manager with this email, phone, or employee ID already exists.",
+        errors=[{"field": "personal_email", "message": "Duplicate value."}],
+    )
+
 # ---------------------------------------------------------------------------
 # Sequential Manager ID Generator
 # ---------------------------------------------------------------------------
@@ -142,14 +199,31 @@ class ManagerService:
                     field="personal_email",
                     errors=[{"field": "personal_email", "message": "Email already in use."}]
                 )
+            if isinstance(self.session, AsyncSession):
+                from sqlalchemy import func, select
+                from app.models.employee import Employee
+                existing_emp = (
+                    await self.session.execute(
+                        select(Employee.id)
+                        .where(func.lower(Employee.personal_email) == personal_email)
+                        .execution_options(bypass_tenant=True)
+                    )
+                ).first()
+                if existing_emp is not None:
+                    raise ConflictException(
+                        message="Email already exists",
+                        field="personal_email",
+                        errors=[{"field": "personal_email", "message": "Email already in use."}],
+                    )
             if payload.company_email:
-                if await self.repo.get_by_company_email(str(payload.company_email)):
+                norm_company_email = _norm_email(str(payload.company_email))
+                if await self.repo.get_by_company_email(norm_company_email):
                     raise ConflictException(
                         message="Company email already exists",
                         field="company_email",
                         errors=[{"field": "company_email", "message": "Company email already in use."}]
                     )
-                company_email = str(payload.company_email)
+                company_email = norm_company_email
             else:
                 company_email = await generate_manager_company_email(
                     payload.first_name, payload.last_name, settings.COMPANY_EMAIL_DOMAIN, self.session
@@ -339,11 +413,8 @@ class ManagerService:
             raise
         except IntegrityError as exc:
             await self.session.rollback()
-            logger.exception("create_manager: integrity error", exc_info=exc)
-            raise ConflictException(
-                message="Manager with this email or phone already exists.",
-                errors=[{"field": "personal_email", "message": "Duplicate value."}]
-            ) from exc
+            logger.warning("create_manager: integrity conflict | %s", exc)
+            raise _map_manager_integrity_error(exc) from exc
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.exception("create_manager: db error", exc_info=exc)
@@ -501,9 +572,9 @@ class ManagerService:
 
             if emp_update_fields:
                 await self.session.execute(
-                    sa_update(Employee).where(
-                        (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
-                    ).values(**emp_update_fields)
+                    sa_update(Employee)
+                    .where(_employee_sync_filter(Employee, manager, manager_uuid))
+                    .values(**emp_update_fields)
                 )
 
             # Process nested relations if provided
@@ -548,6 +619,10 @@ class ManagerService:
         except (AppException, ConflictException):
             await self.session.rollback()
             raise
+        except IntegrityError as exc:
+            await self.session.rollback()
+            logger.warning("update_manager: integrity conflict | manager_id=%s", manager_uuid)
+            raise _map_manager_integrity_error(exc) from exc
         except SQLAlchemyError as exc:
             await self.session.rollback()
             logger.exception("update_manager: db error", exc_info=exc)
@@ -565,7 +640,7 @@ class ManagerService:
             from app.models.employee import Employee
             await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager_uuid)
                 ).values(
                     is_active=False,
                     is_deleted=True,
@@ -641,7 +716,7 @@ class ManagerService:
             )
             await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager_uuid)
                 ).values(
                     activation_token=token,
                     activation_token_expires_at=token_expires,
@@ -733,10 +808,11 @@ class ManagerService:
             )
             from sqlalchemy import update as sa_update
             from app.models.employee import Employee
-            await self.session.execute(
+            emp_upd = await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager_uuid)
                 ).values(
+                    user_id=manager.user_id,
                     activation_token=None,
                     activation_token_expires_at=None,
                     status="ACTIVE",
@@ -744,6 +820,12 @@ class ManagerService:
                 )
             )
             await self.session.commit()
+            if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
+                try:
+                    from app.services.employee_service import EmployeeService
+                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                except Exception as sync_exc:
+                    logger.warning("activate_manager: post-commit employee sync skipped | manager_id=%s | err=%s", manager_uuid, sync_exc)
 
             try:
                 await self.email_service.send_manager_welcome_email(
@@ -1058,10 +1140,10 @@ class ManagerService:
             if payload.profile_photo_url:
                 manager.profile_photo_url = payload.profile_photo_url
 
-            # Also update synchronized Employee record
-            await self.session.execute(
+            # Also update synchronized Employee record (tenant-scoped)
+            emp_upd = await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager.id) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager.id)
                 ).values(
                     user_id=user.id,
                     status="ACTIVE",
@@ -1086,6 +1168,12 @@ class ManagerService:
 
             await self.session.commit()
             logger.info("activate_onboarding_manager: committed | user_id=%s", user.id)
+            if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
+                try:
+                    from app.services.employee_service import EmployeeService
+                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                except Exception as sync_exc:
+                    logger.warning("activate_onboarding_manager: post-commit employee sync skipped | manager_id=%s | err=%s", manager.id, sync_exc)
 
             # Welcome Email
             try:
@@ -1125,9 +1213,13 @@ class ManagerService:
                     "onboarding_completed": False,
                 }
             }
-        except AppException:
+        except (AppException, ConflictException):
             await self.session.rollback()
             raise
+        except IntegrityError as exc:
+            await self.session.rollback()
+            logger.warning("activate_onboarding_manager: integrity conflict | %s", exc)
+            raise _map_manager_integrity_error(exc) from exc
         except Exception as exc:
             await self.session.rollback()
             logger.exception("activate_onboarding_manager: db error", exc_info=exc)
@@ -1148,7 +1240,7 @@ class ManagerService:
             from app.models.employee import Employee
             await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager_uuid)
                 ).values(
                     is_active=False,
                     status="DISABLED",
@@ -1193,9 +1285,9 @@ class ManagerService:
             await self.repo.update_status(manager_uuid, "ACTIVE")
             from sqlalchemy import update as sa_update
             from app.models.employee import Employee
-            await self.session.execute(
+            emp_upd = await self.session.execute(
                 sa_update(Employee).where(
-                    (Employee.id == manager_uuid) | (Employee.personal_email == manager.personal_email)
+                    _employee_sync_filter(Employee, manager, manager_uuid)
                 ).values(
                     is_active=True,
                     status="ACTIVE",
@@ -1211,6 +1303,12 @@ class ManagerService:
                     )
                 )
             await self.session.commit()
+            if isinstance(self.session, AsyncSession) and getattr(emp_upd, "rowcount", None) == 0 and getattr(manager, "company_id", None):
+                try:
+                    from app.services.employee_service import EmployeeService
+                    await EmployeeService(self.session).sync_managers_to_employees(manager.company_id)
+                except Exception as sync_exc:
+                    logger.warning("activate_manager_by_admin: post-commit employee sync skipped | manager_id=%s | err=%s", manager_uuid, sync_exc)
             logger.info("activate_manager_by_admin: success | manager_id=%s", manager_uuid)
         except AppException:
             await self.session.rollback()

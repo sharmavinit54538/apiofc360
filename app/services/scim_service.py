@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.redis_client import redis_client
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.middleware.auth import invalidate_auth_active_cache
 from app.models.enterprise_auth import ExternalIdentity, SCIMGroup, SCIMGroupMember, SCIMToken
 from app.models.user import User
@@ -139,7 +139,7 @@ class SCIMService:
         active = bool(payload.get("active", True))
         user = User(
             id=uuid.uuid4(), company_id=company_id, email=email, name=display_name,
-            phone=str(uuid.uuid4().int)[:10], password_hash=hash_password(secrets.token_urlsafe(32)),
+            phone=str(uuid.uuid4().int)[:10], password_hash=await hash_password_async(secrets.token_urlsafe(32)),
             role="employee", is_active=active, is_verified=True,
             account_status="ACTIVE" if active else "DEACTIVATED", onboarding_completed=False,
         )

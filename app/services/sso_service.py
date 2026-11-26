@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.models.enterprise_auth import ExternalIdentity, IdentityProvider, SSOAssertion
 from app.models.user import User
 
@@ -158,7 +158,7 @@ class SSOService:
             user = User(
                 id=uuid.uuid4(), company_id=company_id, email=email,
                 name=" ".join(filter(None, [first_name, last_name])) or email.split("@")[0],
-                phone=str(uuid.uuid4().int)[:10], password_hash=hash_password(secrets.token_urlsafe(32)),
+                phone=str(uuid.uuid4().int)[:10], password_hash=await hash_password_async(secrets.token_urlsafe(32)),
                 role="employee", is_active=True, is_verified=True, account_status="ACTIVE",
                 onboarding_completed=False,
             )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import (
     PAYROLL_LOCK_ATTENDANCE, PAYROLL_UNLOCK_ATTENDANCE,
-    _require_admin_or_manager, _require_payroll_permission, _role, _uid,
+    _require_admin_or_manager, _require_payroll_permission, _require_tenant_id, _role, _uid,
 )
 from app.db.database import get_db_session
 from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest, PayrollCycleCreateRequest
@@ -26,6 +27,7 @@ def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
 
 def _period_dict(p) -> dict[str, Any]:
     """Convert PayrollPeriod to dict matching frontend expectations."""
+    now = datetime.now(timezone.utc)
     return {
         "id": str(p.id),
         "company_id": str(p.company_id) if p.company_id else None,
@@ -39,6 +41,7 @@ def _period_dict(p) -> dict[str, Any]:
         "processing_date": str(p.processing_date) if p.processing_date else None,
         "payment_date": str(p.payment_date) if p.payment_date else None,
         "pay_date": str(p.pay_date) if p.pay_date else None,
+        "is_current": bool(p.period_month == now.month and p.period_year == now.year and p.status != "VOID"),
         "is_locked": p.is_locked,
         "regularisation_deadline": p.regularisation_deadline.isoformat() if getattr(p, "regularisation_deadline", None) else None,
         "attendance_locked_at": p.attendance_locked_at.isoformat() if getattr(p, "attendance_locked_at", None) else None,
@@ -57,15 +60,23 @@ async def list_payroll_cycles(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
+    month: Optional[int] = Query(None, ge=1, le=12),
     search: Optional[str] = Query(None),
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
-    res = await PayrollCycleService.list_cycles(db, company_id=c_uuid, status_filter=status, page=page, page_size=page_size)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    res = await PayrollCycleService.list_cycles(
+        db,
+        company_id=c_uuid,
+        status_filter=status,
+        year=year,
+        month=month,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
     items = [_period_dict(c) for c in res["items"]]
     return _ok({"items": items, "total": res["total"], "page": res["page"], "page_size": res["page_size"]}, "Payroll periods retrieved successfully")
 
@@ -78,8 +89,7 @@ async def create_payroll_cycle(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = _uid(claims)
     user_role = _role(claims)
     cycle = await PayrollCycleService.create_cycle(
@@ -108,7 +118,8 @@ async def get_payroll_cycle(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    cycle = await PayrollCycleService.get_cycle(db, cycleId)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    cycle = await PayrollCycleService.get_cycle(db, cycleId, company_id=c_uuid)
     return _ok(_period_dict(cycle), "Payroll period retrieved successfully")
 
 
@@ -151,6 +162,7 @@ async def lock_payroll_cycle(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = _uid(claims)
     user_role = _role(claims)
     cycle = await PayrollCycleService.lock_cycle(
@@ -158,6 +170,7 @@ async def lock_payroll_cycle(
         cycle_id=cycleId,
         user_id=user_id,
         user_role=user_role,
+        company_id=c_uuid,
     )
     return _ok(_period_dict(cycle), f"Payroll period '{cycle.name}' locked successfully")
 
@@ -171,6 +184,7 @@ async def reopen_payroll_cycle(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = _uid(claims)
     user_role = _role(claims)
     cycle = await PayrollCycleService.reopen_cycle(
@@ -179,6 +193,7 @@ async def reopen_payroll_cycle(
         reason=payload.reason,
         user_id=user_id,
         user_role=user_role,
+        company_id=c_uuid,
     )
     return _ok(_period_dict(cycle), f"Payroll period '{cycle.name}' reopened successfully")
 
@@ -192,6 +207,7 @@ async def void_payroll_cycle(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     user_id = _uid(claims)
     user_role = _role(claims)
     cycle = await PayrollCycleService.void_cycle(
@@ -200,5 +216,6 @@ async def void_payroll_cycle(
         reason=payload.reason,
         user_id=user_id,
         user_role=user_role,
+        company_id=c_uuid,
     )
     return _ok(_period_dict(cycle), f"Payroll period '{cycle.name}' marked as VOID")

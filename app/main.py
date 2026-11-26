@@ -110,9 +110,56 @@ async def lifespan(app: FastAPI):
             logger.warning("DB instrumentation install failed: %s", e)
 
         try:
+            from app.core.field_encryption import FieldEncryptionError, configured_key_ids, validate_encryption_configuration
+            enc_info = validate_encryption_configuration()
+            logger.info(
+                "Field encryption validated: active_key_id=%s | retained_key_ids=%s | keys=%d",
+                enc_info["active_key_id"],
+                enc_info["retained_key_ids"],
+                enc_info["key_count"],
+            )
+            # Audit encrypted envelope key_ids present in database without decrypting or logging PII
+            try:
+                from sqlalchemy import text
+                from app.db.database import AsyncSessionLocal
+                active_ids = set(configured_key_ids())
+                async with AsyncSessionLocal() as enc_session:
+                    missing_keys: dict[str, int] = {}
+                    for tbl, cols in (
+                        ("employees", ("pan_number", "aadhaar_number", "bank_account_number", "ifsc_code", "uan_number")),
+                        ("employee_bank_accounts", ("account_number", "ifsc_code")),
+                    ):
+                        for col in cols:
+                            res = await enc_session.execute(
+                                text(
+                                    f"SELECT split_part({col}, ':', 3) AS key_id, COUNT(*) "
+                                    f"FROM {tbl} WHERE {col} LIKE 'ofc360:v1:%' "
+                                    f"GROUP BY split_part({col}, ':', 3)"
+                                ).execution_options(tenant_safe=True)
+                            )
+                            for key_id, cnt in res.fetchall():
+                                if key_id and key_id not in active_ids:
+                                    missing_keys[key_id] = missing_keys.get(key_id, 0) + int(cnt)
+                    if missing_keys:
+                        logger.warning(
+                            "Encryption key audit: %s historical encrypted field(s) use unconfigured key_id(s) %s. "
+                            "Retain previous keys in FIELD_ENCRYPTION_KEY='new_key,old_key' during rotation; unrequested list projections remain accessible while full PII decryption for those records will fail cleanly.",
+                            sum(missing_keys.values()),
+                            sorted(missing_keys.keys()),
+                        )
+            except Exception as audit_err:
+                logger.debug("Encryption key audit skipped: %s", audit_err)
+        except FieldEncryptionError as enc_err:
+            logger.critical("Field encryption configuration error: %s", enc_err)
+            if settings.is_production:
+                raise RuntimeError(f"Invalid field encryption configuration: {enc_err}") from enc_err
+
+        try:
             from app.db.database import _get_tenant_classes
+            from app.db.tenant_enforcement import warm_tenant_enforcement_cache
             _get_tenant_classes()
-            logger.info("Tenant class cache pre-warmed: %d classes", len(_get_tenant_classes()))
+            warm_count = await asyncio.to_thread(warm_tenant_enforcement_cache)
+            logger.info("Tenant class cache pre-warmed: %d classes (%d enforcement targets)", len(_get_tenant_classes()), warm_count)
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
@@ -511,90 +558,7 @@ def create_app() -> FastAPI:
                 raise
         app.mount(f"/uploads/{subdir}", StaticFiles(directory=dir_path), name=f"uploads_{subdir}")
 
-    # ---------------------------------------------------------------------------
-    # Global Exception Handlers with Explicit CORS Headers
-    # ---------------------------------------------------------------------------
-    
-    def _get_cors_headers(request: Request) -> dict:
-        """Generate CORS headers for exception responses."""
-        origin = request.headers.get("origin")
-        if not origin:
-            return {}
-        
-        cleaned_origin = origin
-        is_allowed = origin in allowed_origins_list
-
-        if is_allowed:
-            return {
-                "Access-Control-Allow-Origin": cleaned_origin,
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Expose-Headers": "Authorization, Content-Type, Content-Disposition, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining",
-                "Vary": "Origin",
-            }
-        return {}
-
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        """Global exception handler that logs traceback and returns JSON with CORS headers."""
-        import traceback
-        logger.error(
-            "Unhandled exception on %s %s: %s\n%s",
-            request.method,
-            request.url.path,
-            str(exc),
-            traceback.format_exc()
-        )
-        cors_headers = _get_cors_headers(request)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "message": "Internal server error.",
-                "data": None,
-                "errors": [{"field": None, "message": "Internal server error."}],
-                "code": "INTERNAL_SERVER_ERROR",
-            },
-            headers=cors_headers,
-        )
-
-    @app.exception_handler(StarletteHTTPException)
-    async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        """Starlette HTTP exception handler with CORS headers."""
-        logger.warning(
-            "HTTP exception on %s %s: %d - %s",
-            request.method,
-            request.url.path,
-            exc.status_code,
-            exc.detail,
-        )
-        cors_headers = _get_cors_headers(request)
-        
-        message = str(exc.detail) if exc.detail else "Request failed."
-        code = None
-        if isinstance(exc.detail, dict):
-            message = exc.detail.get("message", message)
-            code = exc.detail.get("code")
-        
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "success": False,
-                "message": message,
-                "data": None,
-                "errors": [{"field": None, "message": message}],
-                "code": code or f"HTTP_{exc.status_code}",
-                # Backwards compatibility: Starlette/FastAPI's default
-                # HTTPException body is ``{"detail": ...}`` and existing clients
-                # read that key directly, so keep it in the envelope.
-                "detail": exc.detail if isinstance(exc.detail, dict) else message,
-            },
-            headers={**cors_headers, **(exc.headers or {})},
-        )
-
     return app
 
 
 app = create_app()
-# Trigger reload

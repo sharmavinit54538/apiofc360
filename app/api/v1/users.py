@@ -3,7 +3,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException as conflict, NotFoundException as not_found, ForbiddenException as permission_denied, ValidationException as validation_error
-from app.core.security import hash_password
+from app.core.security import hash_password_async
 from app.db.dependencies import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.models.user import User
@@ -55,7 +55,7 @@ async def create_user(payload: UserCreate, request: Request, current: CurrentUse
         raise conflict("A user with this email already exists", "DUPLICATE_EMAIL")
     u = User(
         tenant_id=current.tenant_id, school_id=current.school_id, name=payload.name, email=payload.email,
-        password_hash=hash_password(payload.password), role=payload.role, phone=payload.phone, avatar=payload.avatar,
+        password_hash=await hash_password_async(payload.password), role=payload.role, phone=payload.phone, avatar=payload.avatar,
     )
     db.add(u)
     await db.flush()
@@ -77,7 +77,7 @@ async def update_user(user_id: str, payload: UserUpdate, request: Request, curre
     if "password" in data:
         pw = data.pop("password")
         if pw:
-            u.password_hash = hash_password(pw)
+            u.password_hash = await hash_password_async(pw)
     for field, value in data.items():
         setattr(u, field, value)
     await log_action(db, request, current.tenant_id, current.id, "update", "user", u.id)

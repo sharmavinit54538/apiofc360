@@ -46,14 +46,23 @@ class PayrollCycleService:
         session: AsyncSession,
         company_id: Optional[uuid.UUID] = None,
         status_filter: Optional[str] = None,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        search: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
         stmt = select(PayrollPeriod)
-        if company_id:
+        if company_id is not None:
             stmt = stmt.where(PayrollPeriod.company_id == company_id)
         if status_filter:
             stmt = stmt.where(func.upper(PayrollPeriod.status) == status_filter.upper())
+        if year is not None:
+            stmt = stmt.where(PayrollPeriod.period_year == year)
+        if month is not None:
+            stmt = stmt.where(PayrollPeriod.period_month == month)
+        if search:
+            stmt = stmt.where(PayrollPeriod.name.ilike(f"%{search}%"))
         stmt = stmt.order_by(desc(PayrollPeriod.period_year), desc(PayrollPeriod.period_month))
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -148,8 +157,9 @@ class PayrollCycleService:
         reason: str,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollPeriod:
-        cycle = await cls.get_cycle(session, cycle_id)
+        cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
         
         # Status guard: can only reopen from LOCKED, CLOSED, PROCESSING
         if cycle.status not in ("LOCKED", "CLOSED", "PROCESSING"):
@@ -191,8 +201,9 @@ class PayrollCycleService:
         cycle_id: uuid.UUID,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollPeriod:
-        cycle = await cls.get_cycle(session, cycle_id)
+        cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
         
         # Status guard: can only lock from OPEN
         if cycle.status != "OPEN":
@@ -291,8 +302,9 @@ class PayrollCycleService:
         reason: str,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollPeriod:
-        cycle = await cls.get_cycle(session, cycle_id)
+        cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
         
         # Check if non-cancelled runs exist
         from app.models.payroll import PayrollRun

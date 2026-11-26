@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.constants import ADMIN_OR_MANAGER_ROLES, ADMIN_ROLES
-from app.api.payroll.exceptions import ForbiddenException
+from app.api.payroll.exceptions import ForbiddenException, UnauthorizedException
 from app.models.payroll import StatutoryComplianceConfig
 from app.models.user.role import RoleEnum
 
@@ -25,20 +25,41 @@ PAYROLL_LOCK_ATTENDANCE = "payroll:lock_attendance"
 PAYROLL_UNLOCK_ATTENDANCE = "payroll:unlock_attendance"
 
 
-def _require_payroll_permission(claims: dict | None, permission: str) -> None:
-    """Require a granular permission, with a legacy admin/manager fallback.
-
-    If a token contains an explicit permission collection it is authoritative;
-    otherwise the established payroll admin/manager roles retain access.  An
-    employee token with only one of the new permissions can therefore be given
-    a narrowly scoped lock or unlock capability without becoming a payroll
-    administrator.
-    """
+def _require_authenticated(claims: dict | None) -> dict:
+    """Fail-closed authentication check requiring verified claims dictionary."""
     if not claims or not isinstance(claims, dict):
-        return
-    raw_permissions = claims.get("permissions")
+        raise UnauthorizedException("Authentication required.")
+    return claims
+
+
+def _require_tenant_id(
+    claims: dict | None,
+    *,
+    allow_super_admin_global: bool = False,
+) -> Optional[uuid.UUID]:
+    """Extract and validate verified company_id tenant scope from JWT claims.
+
+    Fails closed unless the verified caller holds a valid UUID company_id claim
+    (or is Platform Super Admin when global listing is explicitly allowed).
+    """
+    verified = _require_authenticated(claims)
+    raw = verified.get("company_id")
+    if not raw:
+        if allow_super_admin_global and _role(verified) == RoleEnum.SUPER_ADMIN.value:
+            return None
+        raise ForbiddenException("Company tenant scope is required.")
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ForbiddenException("Invalid company tenant scope.") from exc
+
+
+def _require_payroll_permission(claims: dict | None, permission: str) -> None:
+    """Require a granular permission, with an admin/manager role fallback (fail-closed)."""
+    verified = _require_authenticated(claims)
+    raw_permissions = verified.get("permissions")
     if raw_permissions is None:
-        raw_permissions = claims.get("permission_codes")
+        raw_permissions = verified.get("permission_codes")
     if raw_permissions is not None:
         if isinstance(raw_permissions, str):
             permissions = {raw_permissions}
@@ -50,53 +71,52 @@ def _require_payroll_permission(claims: dict | None, permission: str) -> None:
         if permission not in permissions and "*" not in permissions and "payroll:*" not in permissions:
             raise ForbiddenException(f"Permission '{permission}' required.")
         return
-    _require_admin_or_manager(claims)
+    _require_admin_or_manager(verified)
 
 
-def _uid(claims: dict) -> Optional[uuid.UUID]:
+def _uid(claims: dict | None) -> Optional[uuid.UUID]:
     """Extract user UUID from JWT claims sub."""
     sub = claims.get("sub") if isinstance(claims, dict) else None
     if not sub:
         return None
     try:
-        return uuid.UUID(sub)
-    except (ValueError, AttributeError):
+        return uuid.UUID(str(sub))
+    except (ValueError, AttributeError, TypeError):
         return None
 
 
-def _role(claims: dict) -> Optional[str]:
-    """Extract and normalize role string from JWT claims using RoleEnum."""
+def _role(claims: dict | None) -> Optional[str]:
+    """Extract and strictly normalize role string from JWT claims using RoleEnum."""
     if not isinstance(claims, dict):
         return None
     role = claims.get("role")
     if not role:
         return None
-    return RoleEnum.from_str(str(role)).value
+    parsed = RoleEnum.from_str(str(role), strict=True)
+    return parsed.value if parsed is not None else None
 
 
 def _is_admin_or_manager(claims: dict | None) -> bool:
-    """Check if claims contain admin or manager role without raising an exception."""
+    """Check if claims contain admin or manager role without failing open."""
     if not claims or not isinstance(claims, dict):
-        return True
+        return False
     role = _role(claims)
-    return role in ADMIN_OR_MANAGER_ROLES if role else True
+    return bool(role and role in ADMIN_OR_MANAGER_ROLES)
 
 
 def _require_admin_or_manager(claims: dict | None) -> None:
-    """Enforce admin or manager access level safely."""
-    if not claims or not isinstance(claims, dict):
-        return
-    role = _role(claims)
-    if role and role not in ADMIN_OR_MANAGER_ROLES:
+    """Enforce admin or manager access level (fail-closed)."""
+    verified = _require_authenticated(claims)
+    role = _role(verified)
+    if not role or role not in ADMIN_OR_MANAGER_ROLES:
         raise ForbiddenException("Admin or Manager role required.")
 
 
 def _require_admin(claims: dict | None) -> None:
-    """Enforce admin access level safely."""
-    if not claims or not isinstance(claims, dict):
-        return
-    role = _role(claims)
-    if role and role not in ADMIN_ROLES:
+    """Enforce admin access level (fail-closed)."""
+    verified = _require_authenticated(claims)
+    role = _role(verified)
+    if not role or role not in ADMIN_ROLES:
         raise ForbiddenException("Admin role required.")
 
 

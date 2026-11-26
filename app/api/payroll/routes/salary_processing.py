@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Query, Response
 
 from app.api.payroll.dependencies import DB, Claims, OptionalClaims
-from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _is_admin_or_manager, _uid
+from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _is_admin_or_manager, _require_tenant_id, _uid
 from app.api.payroll.responses import success_response
 from app.api.payroll.services.dashboard_service import DashboardService
 from app.api.payroll.services.payroll_processing_service import PayrollProcessingService
@@ -70,14 +70,15 @@ async def get_salary_processing_list(
 
 @router.get("/salary-processing/hero", response_model=APIResponse[dict], summary="Get salary processing hero card metrics")
 async def get_salary_processing_hero(
-    month: Optional[int] = Query(None),
-    year: Optional[int] = Query(None),
-    claims: OptionalClaims = None,
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
     service = DashboardService(db)
-    metrics = await service.get_hero_card_metrics(month, year)
+    metrics = await service.get_hero_card_metrics(month, year, company_id=company_id)
     return success_response(metrics, "Hero card metrics retrieved.")
 
 
