@@ -212,10 +212,6 @@ class VerifyEmailRequest(BaseModel):
         return self
 
 
-class VerifyEmailResponse(APIResponse[None]):
-    """Verify Email API response envelope."""
-
-
 class ResendOTPRequest(BaseModel):
     """Resend verification email / OTP API request payload."""
 
@@ -285,11 +281,19 @@ class UserLoginPublic(BaseModel):
     role: RoleEnum = RoleEnum.EMPLOYEE
     is_verified: bool
     email_verified: bool = True
+    is_email_verified: bool | None = None
+    email_verified_at: datetime | None = None
     account_status: str = "ACTIVE"
     must_change_password: bool = False
     onboarding_completed: bool = True
     company_id: UUID | None = None
     company_name: str | None = None
+
+    @model_validator(mode="after")
+    def sync_verification_flags(self) -> "UserLoginPublic":
+        if self.is_email_verified is None:
+            self.is_email_verified = bool(self.is_verified)
+        return self
 
     @field_validator("role", mode="before")
     @classmethod
@@ -332,6 +336,10 @@ class LoginResponse(APIResponse[LoginResponseData]):
 
     requires_email_verification: bool | None = None
     verification_id: str | None = None
+
+
+class VerifyEmailResponse(APIResponse[LoginResponseData | None]):
+    """Verify Email API response envelope."""
 
 
 class VerifyEmailOtpRequest(BaseModel):
@@ -531,11 +539,19 @@ class UserProfileData(BaseModel):
     is_active: bool = True
     is_verified: bool = True
     email_verified: bool = True
+    is_email_verified: bool | None = None
+    email_verified_at: datetime | None = None
     account_status: str = "ACTIVE"
     onboarding_completed: bool = True
     company_id: UUID | None = None
     company_name: str | None = None
     created_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def sync_profile_verification_flags(self) -> "UserProfileData":
+        if self.is_email_verified is None:
+            self.is_email_verified = bool(self.is_verified)
+        return self
 
     @field_validator("role", mode="before")
     @classmethod

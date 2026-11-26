@@ -109,7 +109,6 @@ class AttendanceCheckInService:
         lat_val: Optional[float] = None
         lng_val: Optional[float] = None
         accuracy_val: Optional[float] = None
-        work_mode: Optional[str] = None
         if location and isinstance(location, dict):
             try:
                 lat_raw = location.get("latitude") or location.get("lat")
@@ -124,8 +123,8 @@ class AttendanceCheckInService:
             except (ValueError, TypeError):
                 pass
         
-        # Extract work_mode from payload (passed via request body, not location dict)
-        # This will be set by the router from the request body
+        # Use work_mode parameter passed from router (preserves office/remote/field mode)
+        # Do not overwrite with None - the parameter carries the client's declared work mode
 
         geofence_res = await self.geofence_service.verify_geofence(
             employee=employee,

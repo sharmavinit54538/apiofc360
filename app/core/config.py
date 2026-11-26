@@ -485,6 +485,8 @@ class Settings(BaseSettings):
                 raise ValueError("FIELD_ENCRYPTION_KEY must be set via environment variable in production")
             if len(field_key) < 32:
                 raise ValueError("FIELD_ENCRYPTION_KEY must be at least 32 characters in production")
+            if "change_me" in field_key.lower():
+                raise ValueError("FIELD_ENCRYPTION_KEY must not contain a placeholder value in production")
             if not self.DATABASE_URL or not self.DATABASE_URL.startswith("postgresql+asyncpg://"):
                 raise ValueError("DATABASE_URL must be set via environment variable in production")
             if not self.REDIS_URL or not self.REDIS_URL.strip():

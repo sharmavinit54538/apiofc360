@@ -50,6 +50,14 @@ def _secret_text(value: Any) -> Any:
     return value
 
 
+_PLACEHOLDER_PREFIXES = ("change_me", "<32-byte", "replace-this")
+
+
+def _is_placeholder_key(material: str) -> bool:
+    lowered = material.strip().lower()
+    return any(lowered.startswith(prefix) for prefix in _PLACEHOLDER_PREFIXES)
+
+
 def _configured_keys() -> list[str]:
     raw = _secret_text(getattr(settings, "FIELD_ENCRYPTION_KEY", ""))
     # Reading the environment as a fallback also supports secret-manager
@@ -78,7 +86,13 @@ def _configured_keys() -> list[str]:
             candidates = [item.strip() for item in text.split(",")]
 
     # Preserve order: index zero is always the write key.
-    return list(dict.fromkeys(item for item in candidates if item))
+    keys = list(dict.fromkeys(item for item in candidates if item))
+    for item in keys:
+        if _is_placeholder_key(item):
+            raise FieldEncryptionError(
+                "FIELD_ENCRYPTION_KEY contains an unconfigured placeholder value; configure a real 32+ byte secret."
+            )
+    return keys
 
 
 def _decode_key_material(material: str) -> bytes:
@@ -124,6 +138,46 @@ def _key_ring() -> list[tuple[str, bytes]]:
     return ring
 
 
+def extract_key_id(value: Any) -> str | None:
+    """Return the safe 12-char key fingerprint from an encrypted envelope, or None."""
+
+    if not is_encrypted_value(value):
+        return None
+    remainder = value[len(ENCRYPTED_VALUE_PREFIX):]
+    if ":" not in remainder:
+        return None
+    key_id, _ = remainder.split(":", 1)
+    return key_id or None
+
+
+def configured_key_ids() -> list[str]:
+    """Return safe 12-char SHA-256 key fingerprints for all configured keys (active first)."""
+
+    return [key_id for key_id, _ in _key_ring()]
+
+
+def active_key_id() -> str:
+    """Return the safe 12-char key fingerprint for the active write key."""
+
+    return _key_ring()[0][0]
+
+
+def validate_encryption_configuration() -> dict[str, Any]:
+    """Validate active and rotated encryption keys without exposing key material."""
+
+    ring = _key_ring()
+    seen: list[str] = []
+    for key_id, _ in ring:
+        if key_id not in seen:
+            seen.append(key_id)
+    return {
+        "configured": True,
+        "active_key_id": seen[0],
+        "retained_key_ids": seen[1:],
+        "key_count": len(seen),
+    }
+
+
 def encrypt_value(value: str | None) -> str | None:
     """Encrypt a string with the current key using AES-256-GCM.
 
@@ -146,6 +200,20 @@ def encrypt_value(value: str | None) -> str | None:
     return f"{ENCRYPTED_VALUE_PREFIX}{key_id}:{payload}"
 
 
+def reencrypt_value(value: str | None) -> str | None:
+    """Re-encrypt an existing envelope using the active write key if rotated."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    active_id = active_key_id()
+    if is_encrypted_value(value) and extract_key_id(value) == active_id:
+        return value
+    plaintext = decrypt_value(value)
+    return encrypt_value(plaintext)
+
+
 def decrypt_value(value: str | None) -> str | None:
     """Decrypt a versioned envelope with any configured key.
 
@@ -158,11 +226,17 @@ def decrypt_value(value: str | None) -> str | None:
         return value
 
     try:
-        key_id, encoded_payload = value[len(ENCRYPTED_VALUE_PREFIX):].split(":", 1)
+        remainder = value[len(ENCRYPTED_VALUE_PREFIX):]
+        if ":" not in remainder:
+            raise ValueError("missing key identifier")
+        key_id, encoded_payload = remainder.split(":", 1)
+        if not key_id or not encoded_payload:
+            raise ValueError("malformed encrypted envelope")
         matching_keys = [key for candidate_id, key in _key_ring() if candidate_id == key_id]
         if not matching_keys:
             raise FieldEncryptionError(
-                "The key required by this encrypted field is not configured. Retain previous keys during rotation."
+                f"The key required by this encrypted field is not configured (key_id={key_id}). "
+                "Retain previous keys during rotation."
             )
         payload = base64.b64decode(encoded_payload.encode("ascii"), altchars=b"-_", validate=True)
         if len(payload) < 28:  # 12-byte nonce + 16-byte GCM authentication tag
@@ -242,8 +316,13 @@ __all__ = [
     "ENCRYPTED_VALUE_PREFIX",
     "EncryptedString",
     "FieldEncryptionError",
+    "active_key_id",
+    "configured_key_ids",
     "decrypt_value",
     "encrypt_value",
+    "extract_key_id",
     "hmac_sha256_blind_index",
     "is_encrypted_value",
+    "reencrypt_value",
+    "validate_encryption_configuration",
 ]

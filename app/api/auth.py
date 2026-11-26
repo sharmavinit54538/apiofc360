@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request, Re
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,91 @@ def _verify_trusted_origin(request: Request) -> None:
 
 
 
+def _extract_otp_meta(auth_service: AuthService) -> dict[str, Any] | None:
+    """Safely read OTP timer metadata when set on AuthService (ignoring mock attributes)."""
+    raw = getattr(auth_service, "_last_otp_meta", None)
+    return raw if isinstance(raw, dict) else None
+
+
+async def _resolve_user_login_profile(session: AsyncSession, user: Any) -> UserLoginPublic:
+    """Resolve authoritative onboarding status, company metadata, and public user fields."""
+    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    user_role_str = str(effective_role).lower()
+
+    if user_role_str == "super_admin":
+        onboarding_completed = True
+    elif user_role_str == "hr_admin":
+        if getattr(user, "company", None) and getattr(user.company, "onboarding_completed", False) and not user.onboarding_completed:
+            try:
+                user.onboarding_completed = True
+                user.onboarding_step = 7
+                session.add(user)
+                await session.commit()
+            except Exception as err:
+                logger.warning("Failed to sync admin onboarding status: %s", err)
+        onboarding_completed = bool(getattr(user, "onboarding_completed", False))
+    elif user_role_str == "employee":
+        onboarding_completed = bool(getattr(user, "onboarding_completed", False))
+        try:
+            from sqlalchemy import select
+            from app.models.employee import Employee
+            stmt = select(Employee).where(
+                (Employee.user_id == user.id)
+                | (Employee.personal_email == user.email.lower().strip())
+                | (Employee.company_email == user.email.lower().strip())
+            ).execution_options(bypass_tenant=True)
+            emp_res = await session.execute(stmt)
+            emp = emp_res.scalars().first()
+            if emp and hasattr(emp, "employee_onboarding_completed"):
+                onboarding_completed = bool(emp.employee_onboarding_completed)
+        except Exception as err:
+            logger.warning("Failed to check employee onboarding status: %s", err)
+    else:
+        onboarding_completed = bool(getattr(user, "onboarding_completed", False))
+
+    company_name = None
+    if getattr(user, "company", None):
+        try:
+            c_name = getattr(user.company, "name", None)
+            company_name = str(c_name) if isinstance(c_name, str) else None
+        except Exception:
+            company_name = None
+
+    if not company_name and getattr(user, "company_id", None):
+        try:
+            from sqlalchemy import select
+            from app.models.company import Company
+            comp_res = await session.execute(
+                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
+            )
+            val = comp_res.scalar_one_or_none() if hasattr(comp_res, "scalar_one_or_none") else None
+            company_name = str(val) if isinstance(val, str) else None
+        except Exception:
+            company_name = None
+
+    is_verified_bool = bool(getattr(user, "is_verified", False))
+    verified_at = getattr(user, "email_verified_at", None)
+    if verified_at is not None and not hasattr(verified_at, "isoformat"):
+        verified_at = None
+
+    return UserLoginPublic(
+        id=user.id,
+        name=user.name or "User",
+        email=user.email,
+        phone=user.phone or None,
+        role=effective_role,
+        is_verified=is_verified_bool,
+        email_verified=is_verified_bool,
+        is_email_verified=is_verified_bool,
+        email_verified_at=verified_at,
+        account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
+        must_change_password=bool(getattr(user, "must_change_password", False)),
+        onboarding_completed=onboarding_completed,
+        company_id=getattr(user, "company_id", None),
+        company_name=company_name,
+    )
+
+
 @router.post(
     "/register",
     status_code=status.HTTP_201_CREATED,
@@ -177,6 +263,7 @@ async def register_user(
         message="Registration successful. Welcome to HRMS!",
         data=None,
         errors=None,
+        meta=_extract_otp_meta(auth_service),
     )
 
 
@@ -194,11 +281,40 @@ async def register_user(
 )
 async def verify_email(
     payload: VerifyEmailRequest,
+    request: Request,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    token_service: Annotated[TokenService, Depends(get_token_service)],
 ) -> VerifyEmailResponse:
-    """Verify email address using OTP code."""
+    """Verify email address using OTP code or token and return authenticated session data."""
 
-    await auth_service.verify_email(payload)
+    verified_user = await auth_service.verify_email(payload)
+    if isinstance(verified_user, User):
+        effective_role = verified_user.role.value if hasattr(verified_user.role, "value") else str(verified_user.role)
+        access_token, refresh_token, expires_in = await token_service.generate_auth_tokens(
+            user_id=verified_user.id,
+            role=effective_role,
+            company_id=verified_user.company_id,
+            email=verified_user.email,
+            ip_address=request.client.host if request.client else None,
+            device=request.headers.get("User-Agent"),
+        )
+        await auth_service.session.commit()
+        user_data = await _resolve_user_login_profile(auth_service.session, verified_user)
+        set_auth_cookies(response, refresh_token)
+        return VerifyEmailResponse(
+            success=True,
+            message="Email verified successfully.",
+            data=LoginResponseData(
+                user=user_data,
+                access_token=access_token,
+                refresh_token=None if _browser_session(request) else refresh_token,
+                token_type="Bearer",
+                expires_in=expires_in,
+            ),
+            errors=None,
+        )
+
     return VerifyEmailResponse(
         success=True,
         message="Email verified successfully.",
@@ -245,6 +361,7 @@ async def resend_otp(
         message="OTP sent successfully.",
         data=None,
         errors=None,
+        meta=_extract_otp_meta(auth_service),
     )
 
 
@@ -306,81 +423,12 @@ async def login(
                 email=email_str,
             ),
             errors=None,
+            meta=_extract_otp_meta(auth_service),
         )
 
     # --- Normal login (email verified) ---
     access_token = token_or_vid
-
-    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
-    user_role_str = str(effective_role).lower()
-
-    # Sync onboarding_completed flag safely
-    if user_role_str == "super_admin":
-        onboarding_completed = True
-    elif user_role_str == "hr_admin":
-        if getattr(user, "company", None) and getattr(user.company, "onboarding_completed", False) and not user.onboarding_completed:
-            try:
-                user.onboarding_completed = True
-                user.onboarding_step = 7
-                auth_service.session.add(user)
-                await auth_service.session.commit()
-            except Exception as err:
-                logger.warning("Failed to sync admin onboarding status: %s", err)
-        onboarding_completed = bool(user.onboarding_completed)
-    elif user_role_str == "employee":
-        onboarding_completed = bool(user.onboarding_completed)
-        try:
-            from sqlalchemy import select
-            from app.models.employee import Employee
-            stmt = select(Employee).where(
-                (Employee.user_id == user.id) |
-                (Employee.personal_email == user.email.lower().strip()) |
-                (Employee.company_email == user.email.lower().strip())
-            ).execution_options(bypass_tenant=True)
-            emp_res = await auth_service.session.execute(stmt)
-            emp = emp_res.scalars().first()
-            if emp and hasattr(emp, "employee_onboarding_completed"):
-                onboarding_completed = bool(emp.employee_onboarding_completed)
-        except Exception as err:
-            logger.warning("Failed to check employee onboarding status: %s", err)
-    else:
-        onboarding_completed = bool(user.onboarding_completed)
-
-    # Safely resolve company name without triggering lazy-load errors
-    company_name = None
-    if getattr(user, "company", None):
-        try:
-            c_name = getattr(user.company, "name", None)
-            company_name = str(c_name) if isinstance(c_name, str) else None
-        except Exception:
-            company_name = None
-
-    if not company_name and user.company_id:
-        try:
-            from sqlalchemy import select
-            from app.models.company import Company
-            comp_res = await auth_service.session.execute(
-                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
-            )
-            val = comp_res.scalar_one_or_none() if hasattr(comp_res, "scalar_one_or_none") else None
-            company_name = str(val) if isinstance(val, str) else None
-        except Exception:
-            company_name = None
-
-    user_data = UserLoginPublic(
-        id=user.id,
-        name=user.name or "User",
-        email=user.email,
-        phone=user.phone or None,
-        role=effective_role,
-        is_verified=bool(user.is_verified),
-        email_verified=bool(user.is_verified),
-        account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
-        must_change_password=bool(getattr(user, "must_change_password", False)),
-        onboarding_completed=onboarding_completed,
-        company_id=user.company_id,
-        company_name=company_name,
-    )
+    user_data = await _resolve_user_login_profile(auth_service.session, user)
 
     set_auth_cookies(response, refresh_token)
 
@@ -430,41 +478,7 @@ async def verify_email_otp(
         device=device,
     )
 
-    effective_role = user.role.value if hasattr(user.role, "value") else str(user.role)
-
-    # Safely resolve company name
-    company_name = None
-    if getattr(user, "company", None):
-        try:
-            company_name = user.company.name
-        except Exception:
-            company_name = None
-
-    if not company_name and user.company_id:
-        try:
-            from sqlalchemy import select
-            from app.models.company import Company
-            comp_res = await auth_service.session.execute(
-                select(Company.name).where(Company.id == user.company_id).execution_options(bypass_tenant=True)
-            )
-            company_name = comp_res.scalar_one_or_none()
-        except Exception:
-            company_name = None
-
-    user_data = UserLoginPublic(
-        id=user.id,
-        name=user.name or "User",
-        email=user.email,
-        phone=user.phone or None,
-        role=effective_role,
-        is_verified=True,
-        email_verified=True,
-        account_status="ACTIVE",
-        must_change_password=bool(getattr(user, "must_change_password", False)),
-        onboarding_completed=bool(getattr(user, "onboarding_completed", False)),
-        company_id=user.company_id,
-        company_name=company_name,
-    )
+    user_data = await _resolve_user_login_profile(auth_service.session, user)
 
     set_auth_cookies(response, refresh_token)
 
@@ -513,6 +527,7 @@ async def resend_email_otp(
             verification_id=new_verification_id,
         ),
         errors=None,
+        meta=_extract_otp_meta(auth_service),
     )
 
 

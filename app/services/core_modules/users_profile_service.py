@@ -76,7 +76,13 @@ class UsersProfileService:
         if payload.name is not None:
             user.name = payload.name
         if payload.email is not None:
-            user.email = payload.email
+            normalized_new = payload.email.strip().lower()
+            normalized_cur = (user.email or "").strip().lower()
+            if normalized_new != normalized_cur:
+                user.email = normalized_new
+                user.is_verified = False
+                user.email_verified_at = None
+                user.account_status = "PENDING_EMAIL_VERIFICATION"
         if payload.phone is not None:
             user.phone = payload.phone
         if payload.role is not None:

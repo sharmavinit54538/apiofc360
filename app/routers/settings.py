@@ -138,7 +138,6 @@ async def update_settings(
 
 
 @router.get("/company")
-@router.get("/profile")
 @router.get("/attendance")
 @router.get("/leave")
 @router.get("/payroll")
@@ -155,7 +154,6 @@ async def get_settings_section(
 
 
 @router.put("/company")
-@router.put("/profile")
 @router.put("/attendance")
 @router.put("/leave")
 @router.put("/payroll")

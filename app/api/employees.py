@@ -230,6 +230,67 @@ async def list_employees(
     )
 
 
+# Static routes MUST come before /{id} to avoid UUID parsing conflicts
+@router.get(
+    "/validate-invitation",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token",
+)
+async def validate_employee_invitation(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate that the invitation token is valid, not expired, and belongs to an invited employee."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/validate-token",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token alias",
+)
+async def validate_employee_invitation_token_alias(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate employee invitation token alias."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/validate",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Validate employee invitation token alias",
+)
+async def validate_employee_invitation_alias(
+    token: str = Query(..., description="Employee activation / invitation token"),
+    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
+) -> APIResponse[dict]:
+    """Validate employee invitation token alias."""
+    data = await service.validate_invitation_token(token)
+    return APIResponse[dict](
+        success=True,
+        message="Token is valid.",
+        data=data,
+        errors=None,
+    )
+
+
 @router.get(
     "/{id}",
     status_code=status.HTTP_200_OK,
@@ -431,66 +492,6 @@ async def activate_employee_by_admin(
         success=True,
         message="Employee account activated successfully.",
         data=None,
-        errors=None,
-    )
-
-
-@router.get(
-    "/validate-invitation",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
-    summary="Validate employee invitation token",
-)
-async def validate_employee_invitation(
-    token: str = Query(..., description="Employee activation / invitation token"),
-    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
-) -> APIResponse[dict]:
-    """Validate that the invitation token is valid, not expired, and belongs to an invited employee."""
-    data = await service.validate_invitation_token(token)
-    return APIResponse[dict](
-        success=True,
-        message="Token is valid.",
-        data=data,
-        errors=None,
-    )
-
-
-@router.get(
-    "/validate-token",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
-    summary="Validate employee invitation token alias",
-)
-async def validate_employee_invitation_token_alias(
-    token: str = Query(..., description="Employee activation / invitation token"),
-    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
-) -> APIResponse[dict]:
-    """Validate employee invitation token alias."""
-    data = await service.validate_invitation_token(token)
-    return APIResponse[dict](
-        success=True,
-        message="Token is valid.",
-        data=data,
-        errors=None,
-    )
-
-
-@router.get(
-    "/validate",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
-    summary="Validate employee invitation token alias",
-)
-async def validate_employee_invitation_alias(
-    token: str = Query(..., description="Employee activation / invitation token"),
-    service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
-) -> APIResponse[dict]:
-    """Validate employee invitation token alias."""
-    data = await service.validate_invitation_token(token)
-    return APIResponse[dict](
-        success=True,
-        message="Token is valid.",
-        data=data,
         errors=None,
     )
 

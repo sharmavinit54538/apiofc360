@@ -8,8 +8,9 @@ import uuid
 
 from fastapi import Depends, status
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException
@@ -66,7 +67,7 @@ class HRAdminService:
                 errors=[{"field": "role", "message": "Unauthorized role selection."}],
             )
 
-        # 2. Email uniqueness check
+        # 2. Email uniqueness check across users, employees, and managers
         email_clean = str(payload.email).strip().lower()
         existing_user = await self.session.execute(
             select(User).where(
@@ -80,6 +81,23 @@ class HRAdminService:
                 field="email",
                 errors=[{"field": "email", "message": "Email already in use."}],
             )
+        if isinstance(self.session, AsyncSession):
+            existing_emp = await self.session.execute(
+                select(Employee.id)
+                .where(func.lower(Employee.personal_email) == email_clean)
+                .execution_options(bypass_tenant=True)
+            )
+            existing_mgr = await self.session.execute(
+                select(Manager.id)
+                .where(func.lower(Manager.personal_email) == email_clean)
+                .execution_options(bypass_tenant=True)
+            )
+            if existing_emp.scalar_one_or_none() or existing_mgr.scalar_one_or_none():
+                raise ConflictException(
+                    message="An employee or manager with this email address already exists.",
+                    field="email",
+                    errors=[{"field": "email", "message": "Email already in use."}],
+                )
 
         # 3. Generate activation token & temporary credentials
         token = secrets.token_urlsafe(32)
@@ -170,7 +188,15 @@ class HRAdminService:
         )
         self.session.add(audit)
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(
+                message="A user, employee, or manager with these details already exists.",
+                field="email",
+                errors=[{"field": "email", "message": "Duplicate account details."}],
+            ) from exc
         await self.session.refresh(user)
 
         # 8. Send Invitation / Activation Email
@@ -489,7 +515,15 @@ class HRAdminService:
         )
         self.session.add(audit)
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ConflictException(
+                message="A user, employee, or manager with these details already exists.",
+                field="email",
+                errors=[{"field": "email", "message": "Duplicate account details."}],
+            ) from exc
         await self.session.refresh(user)
 
         role_val = user.role.value if hasattr(user.role, "value") else str(user.role)

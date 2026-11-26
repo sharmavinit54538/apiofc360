@@ -32,8 +32,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.field_encryption import (
     FieldEncryptionError,
+    active_key_id,
     decrypt_value,
     encrypt_value,
+    extract_key_id,
     hmac_sha256_blind_index,
     is_encrypted_value,
 )
@@ -85,9 +87,11 @@ async def backfill_employees(
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
     issues: list[dict[str, str]] | None = None,
+    reencrypt_rotated: bool = False,
 ) -> dict[str, int]:
     stats = _empty_stats()
     last_id = None
+    target_key_id = active_key_id() if reencrypt_rotated else None
     while True:
         stmt = select(_employees).order_by(_employees.c.id).limit(batch_size)
         if last_id is not None:
@@ -112,12 +116,15 @@ async def backfill_employees(
                     stored = row[field_name]
                     if is_encrypted_value(stored):
                         plaintext = decrypt_value(stored)
+                        if reencrypt_rotated and extract_key_id(stored) != target_key_id:
+                            changes[field_name] = encrypt_value(plaintext)
+                            encrypted_fields += 1
                     else:
                         plaintext = stored
                         if stored is not None:
                             changes[field_name] = encrypt_value(stored)
                             encrypted_fields += 1
-    
+
                     blind_name = f"{field_name}_blind_idx"
                     expected_index = hmac_sha256_blind_index(plaintext, row["company_id"])
                     if row[blind_name] != expected_index:
@@ -155,9 +162,11 @@ async def backfill_bank_accounts(
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
     issues: list[dict[str, str]] | None = None,
+    reencrypt_rotated: bool = False,
 ) -> dict[str, int]:
     stats = _empty_stats()
     last_id = None
+    target_key_id = active_key_id() if reencrypt_rotated else None
     while True:
         stmt = select(_bank_accounts).order_by(_bank_accounts.c.id).limit(batch_size)
         if last_id is not None:
@@ -179,7 +188,9 @@ async def backfill_bank_accounts(
                 for field_name in BANK_PII_FIELDS:
                     stored = row[field_name]
                     if is_encrypted_value(stored):
-                        decrypt_value(stored)  # Validate existing ciphertext, never log it.
+                        plaintext = decrypt_value(stored)  # Validate existing ciphertext, never log it.
+                        if reencrypt_rotated and extract_key_id(stored) != target_key_id:
+                            changes[field_name] = encrypt_value(plaintext)
                     elif stored is not None:
                         changes[field_name] = encrypt_value(stored)
             except FieldEncryptionError:
@@ -218,6 +229,7 @@ async def backfill_encrypted_pii(
     dry_run: bool = False,
     company_id: uuid.UUID | None = None,
     issues: list[dict[str, str]] | None = None,
+    reencrypt_rotated: bool = False,
 ) -> dict[str, int]:
     """Backfill both employee and bank tables using an existing session."""
 
@@ -227,27 +239,46 @@ async def backfill_encrypted_pii(
     _merge_stats(
         stats,
         await backfill_employees(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
+            session,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            company_id=company_id,
+            issues=issues,
+            reencrypt_rotated=reencrypt_rotated,
         ),
     )
     _merge_stats(
         stats,
         await backfill_bank_accounts(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
+            session,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            company_id=company_id,
+            issues=issues,
+            reencrypt_rotated=reencrypt_rotated,
         ),
     )
     return stats
 
 
 async def run_backfill(
-    *, batch_size: int = 250, dry_run: bool = False, company_id: uuid.UUID | None = None,
+    *,
+    batch_size: int = 250,
+    dry_run: bool = False,
+    company_id: uuid.UUID | None = None,
     issues: list[dict[str, str]] | None = None,
+    reencrypt_rotated: bool = False,
 ) -> dict[str, int]:
     from app.db.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as session:
         return await backfill_encrypted_pii(
-            session, batch_size=batch_size, dry_run=dry_run, company_id=company_id, issues=issues
+            session,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            company_id=company_id,
+            issues=issues,
+            reencrypt_rotated=reencrypt_rotated,
         )
 
 
@@ -257,10 +288,21 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Count changes without writing them")
     parser.add_argument("--company-id", type=uuid.UUID, default=None)
     parser.add_argument("--quarantine-report", type=Path, help="Write unresolved row IDs and reason codes only")
+    parser.add_argument(
+        "--reencrypt-rotated",
+        action="store_true",
+        help="Re-encrypt rows encrypted under previous keys to the active key and refresh blind indexes.",
+    )
     args = parser.parse_args()
     issues = []
     stats = asyncio.run(
-        run_backfill(batch_size=args.batch_size, dry_run=args.dry_run, company_id=args.company_id, issues=issues)
+        run_backfill(
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+            company_id=args.company_id,
+            issues=issues,
+            reencrypt_rotated=args.reencrypt_rotated,
+        )
     )
     if args.quarantine_report:
         args.quarantine_report.write_text(json.dumps(issues, indent=2), encoding="utf-8")

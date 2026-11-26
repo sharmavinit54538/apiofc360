@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.models.employee import Employee
 from app.models.employee_address import EmployeeAddress
@@ -106,19 +106,32 @@ class EmployeeRepository:
 
     async def get_by_personal_email(self, email: str) -> Employee | None:
         """Check for duplicate personal email (excludes deleted) — cross-company."""
+        norm_email = email.strip().lower()
         result = await self.session.execute(
             select(Employee)
-            .where(and_(Employee.personal_email == email.lower(), self._active_filter()))
+            .where(and_(func.lower(Employee.personal_email) == norm_email, self._active_filter()))
+            .execution_options(bypass_tenant=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_any_by_personal_email(self, email: str) -> Employee | None:
+        """Check for any employee row holding personal_email (including soft-deleted) — cross-company."""
+        norm_email = email.strip().lower()
+        result = await self.session.execute(
+            select(Employee)
+            .options(load_only(Employee.id, Employee.company_id, Employee.user_id, Employee.personal_email, Employee.is_deleted))
+            .where(func.lower(Employee.personal_email) == norm_email)
             .execution_options(bypass_tenant=True)
         )
         return result.scalar_one_or_none()
 
     async def get_by_personal_email_in_company(self, email: str, company_id) -> Employee | None:
         """Check for duplicate personal email within a specific company (excludes deleted)."""
+        norm_email = email.strip().lower()
         result = await self.session.execute(
             select(Employee).where(
                 and_(
-                    Employee.personal_email == email.lower(),
+                    func.lower(Employee.personal_email) == norm_email,
                     Employee.company_id == company_id,
                     self._active_filter(),
                 )
@@ -150,19 +163,21 @@ class EmployeeRepository:
 
     async def get_by_company_email(self, email: str) -> Employee | None:
         """Check for duplicate company email (excludes deleted) — cross-company."""
+        norm_email = email.strip().lower()
         result = await self.session.execute(
             select(Employee)
-            .where(and_(Employee.company_email == email.lower(), self._active_filter()))
+            .where(and_(func.lower(Employee.company_email) == norm_email, self._active_filter()))
             .execution_options(bypass_tenant=True)
         )
         return result.scalar_one_or_none()
 
     async def get_by_company_email_in_company(self, email: str, company_id) -> Employee | None:
         """Check for duplicate company email within a specific company (excludes deleted)."""
+        norm_email = email.strip().lower()
         result = await self.session.execute(
             select(Employee).where(
                 and_(
-                    Employee.company_email == email.lower(),
+                    func.lower(Employee.company_email) == norm_email,
                     Employee.company_id == company_id,
                     self._active_filter(),
                 )
@@ -198,28 +213,54 @@ class EmployeeRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_employees(
+    _LIST_LOAD_COLUMNS = (
+        Employee.id,
+        Employee.company_id,
+        Employee.user_id,
+        Employee.employee_id,
+        Employee.first_name,
+        Employee.last_name,
+        Employee.profile_photo_url,
+        Employee.company_email,
+        Employee.personal_email,
+        Employee.phone,
+        Employee.department,
+        Employee.designation,
+        Employee.employment_type,
+        Employee.employment_status,
+        Employee.shift,
+        Employee.employee_capacity,
+        Employee.cost_center_id,
+        Employee.reporting_manager_id,
+        Employee.manager_id,
+        Employee.status,
+        Employee.joining_date,
+        Employee.created_at,
+        Employee.activation_token,
+        Employee.activation_token_expires_at,
+        Employee.role,
+        Employee.is_active,
+        Employee.deactivated_at,
+        Employee.deactivated_by,
+        Employee.deactivation_reason,
+        Employee.role_metadata,
+        Employee.verification_status,
+        Employee.is_deleted,
+    )
+
+    def _apply_list_filters(
         self,
-        company_id: uuid.UUID | None = None,
+        stmt,
+        *,
         department: str | None = None,
         status: str | None = None,
         employment_type: str | None = None,
         search: str | None = None,
-        limit: int = 20,
-        offset: int = 0,
         designation: str | None = None,
         shift: str | None = None,
         role: str | None = None,
-        sort: str | None = None,
-        order: str | None = "asc",
-    ) -> list[Employee]:
-        """Return paginated, filtered, sorted list of employees strictly scoped to company_id (no relations loaded)."""
-        filters = [self._active_filter()]
-        if company_id is not None:
-            filters.append(Employee.company_id == company_id)
-
-        stmt = select(Employee).where(and_(*filters))
-
+    ):
+        """Apply common directory filters consistently across list and count queries."""
         if department and department.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.department == department)
         if status and status.lower() not in {"", "all"}:
@@ -239,8 +280,9 @@ class EmployeeRepository:
             stmt = stmt.where(Employee.shift == shift)
         if role and role.lower() not in {"", "all"}:
             stmt = stmt.where(Employee.role == role.lower())
-        if search:
-            pattern = f"%{search}%"
+        cleaned_search = search.strip() if isinstance(search, str) else ""
+        if cleaned_search:
+            pattern = f"%{cleaned_search}%"
             stmt = stmt.where(
                 or_(
                     Employee.first_name.ilike(pattern),
@@ -255,6 +297,43 @@ class EmployeeRepository:
                     Employee.cost_center_id.ilike(pattern),
                 )
             )
+        return stmt
+
+    async def list_employees(
+        self,
+        company_id: uuid.UUID | None = None,
+        department: str | None = None,
+        status: str | None = None,
+        employment_type: str | None = None,
+        search: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+        designation: str | None = None,
+        shift: str | None = None,
+        role: str | None = None,
+        sort: str | None = None,
+        order: str | None = "asc",
+        include_sensitive_pii: bool = False,
+    ) -> list[Employee]:
+        """Return paginated, filtered, sorted list of employees strictly scoped to company_id (no relations or unrequested encrypted PII loaded)."""
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        stmt = select(Employee).where(and_(*filters))
+        if not include_sensitive_pii:
+            stmt = stmt.options(load_only(*self._LIST_LOAD_COLUMNS))
+
+        stmt = self._apply_list_filters(
+            stmt,
+            department=department,
+            status=status,
+            employment_type=employment_type,
+            search=search,
+            designation=designation,
+            shift=shift,
+            role=role,
+        )
 
         # Sorting logic
         sort_mapping = {
@@ -270,20 +349,21 @@ class EmployeeRepository:
             "cost_center_id": Employee.cost_center_id,
             "created_at": Employee.created_at,
         }
+        order_desc = (order or "asc").strip().lower() == "desc"
 
         if sort == "name":
-            if order == "desc":
-                sort_exprs = [Employee.first_name.desc(), Employee.last_name.desc()]
+            if order_desc:
+                sort_exprs = [Employee.first_name.desc(), Employee.last_name.desc(), Employee.id.asc()]
             else:
-                sort_exprs = [Employee.first_name.asc(), Employee.last_name.asc()]
+                sort_exprs = [Employee.first_name.asc(), Employee.last_name.asc(), Employee.id.asc()]
         elif sort in sort_mapping:
             col = sort_mapping[sort]
-            if order == "desc":
-                sort_exprs = [col.desc()]
+            if order_desc:
+                sort_exprs = [col.desc(), Employee.id.asc()]
             else:
-                sort_exprs = [col.asc()]
+                sort_exprs = [col.asc(), Employee.id.asc()]
         else:
-            sort_exprs = [Employee.created_at.desc()]
+            sort_exprs = [Employee.created_at.desc(), Employee.id.asc()]
 
         stmt = stmt.order_by(*sort_exprs).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
@@ -306,42 +386,16 @@ class EmployeeRepository:
             filters.append(Employee.company_id == company_id)
 
         stmt = select(func.count()).select_from(Employee).where(and_(*filters))
-
-        if department and department.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.department == department)
-        if status and status.lower() not in {"", "all"}:
-            norm_status = status.strip().upper().replace(" ", "_")
-            stmt = stmt.where(
-                or_(
-                    Employee.status.ilike(f"%{status.strip()}%"),
-                    Employee.status == norm_status,
-                    Employee.employment_status == norm_status,
-                )
-            )
-        if employment_type and employment_type.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.employment_type == employment_type.upper())
-        if designation and designation.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.designation == designation)
-        if shift and shift.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.shift == shift)
-        if role and role.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.role == role.lower())
-        if search:
-            pattern = f"%{search}%"
-            stmt = stmt.where(
-                or_(
-                    Employee.first_name.ilike(pattern),
-                    Employee.last_name.ilike(pattern),
-                    (Employee.first_name + " " + Employee.last_name).ilike(pattern),
-                    Employee.employee_id.ilike(pattern),
-                    Employee.personal_email.ilike(pattern),
-                    Employee.company_email.ilike(pattern),
-                    Employee.department.ilike(pattern),
-                    Employee.designation.ilike(pattern),
-                    Employee.role.ilike(pattern),
-                    Employee.cost_center_id.ilike(pattern),
-                )
-            )
+        stmt = self._apply_list_filters(
+            stmt,
+            department=department,
+            status=status,
+            employment_type=employment_type,
+            search=search,
+            designation=designation,
+            shift=shift,
+            role=role,
+        )
 
         result = await self.session.execute(stmt)
         return result.scalar_one()

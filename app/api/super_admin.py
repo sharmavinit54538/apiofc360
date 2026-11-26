@@ -1276,7 +1276,12 @@ async def super_admin_org_access_reactivate(
     body: dict = Body(None),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
-    """Reactivate suspended/cancelled organization in PostgreSQL."""
+    """Reactivate suspended/cancelled organization in PostgreSQL.
+    
+    Preserves individual account deactivation: only reactivates users that were
+    deactivated due to company suspension, not users that were individually
+    deactivated by an admin.
+    """
     try:
         target_uuid = uuid.UUID(org_id)
     except Exception:
@@ -1293,8 +1298,31 @@ async def super_admin_org_access_reactivate(
     company.company_profile = cp
     flag_modified(company, "company_profile")
 
+    # Find users that were individually deactivated (have SUPER_ADMIN_DEACTIVATE_USER audit log)
+    # after the company was last suspended/deactivated. Preserve their deactivation.
+    from sqlalchemy import select, and_, exists
+    from app.models.audit_log import AuditLog
+    
+    # Subquery: users with individual deactivation audit after company suspension
+    individually_deactivated_subq = select(AuditLog.user_id).where(
+        and_(
+            AuditLog.action == "SUPER_ADMIN_DEACTIVATE_USER",
+            AuditLog.company_id == company.id,
+            AuditLog.user_id.is_not(None),
+        )
+    )
+    
+    # Reactivate only users NOT individually deactivated
     await db.execute(
-        update(User).where(User.company_id == company.id).values(is_active=True)
+        update(User)
+        .where(
+            and_(
+                User.company_id == company.id,
+                User.is_active == False,
+                ~User.id.in_(individually_deactivated_subq),
+            )
+        )
+        .values(is_active=True, updated_at=datetime.now(timezone.utc))
     )
 
     sub = (await db.execute(select(Subscription).where(Subscription.company_id == company.id))).scalars().first()
@@ -1306,11 +1334,11 @@ async def super_admin_org_access_reactivate(
     await record_super_admin_audit(
         db,
         action="SUPER_ADMIN_REACTIVATE_ACCESS",
-        details=f"Reactivated organization '{company.name}'.",
+        details=f"Reactivated organization '{company.name}'. Individual user deactivations preserved.",
         company_id=company.id,
     )
 
-    return {"success": True, "message": f"Organization '{company.name}' reactivated successfully."}
+    return {"success": True, "message": f"Organization '{company.name}' reactivated successfully. Individual user deactivations preserved."}
 
 
 # ─── 4. User Management ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ Never return data from another company — this is a hard security requirement.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 import math
 import uuid
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import AppException, ConflictException, DatabaseException
+from app.core.field_encryption import FieldEncryptionError
 from app.core.redis_client import redis_client
 from app.core.security import hash_password, hash_password_async
 from app.db.database import get_db_session
@@ -233,6 +235,20 @@ async def validate_employee_invitation_token(
     return employee, data
 
 
+@asynccontextmanager
+async def _maybe_savepoint(session: Any):
+    """Open a SAVEPOINT on real AsyncSession objects; no-op cleanly on test mocks."""
+    if isinstance(session, AsyncSession):
+        async with session.begin_nested():
+            yield
+    else:
+        yield
+
+
+def _norm_email(value: Any) -> str:
+    return str(value).strip().lower() if value is not None else ""
+
+
 class EmployeeService:
     def __init__(
         self,
@@ -293,57 +309,80 @@ class EmployeeService:
         resolves or creates a corresponding Employee profile to satisfy database constraints.
         Returns True if resolved successfully, False otherwise.
         """
-        from sqlalchemy import select
+        from datetime import date
+        from sqlalchemy import func, select
+        from sqlalchemy.orm import load_only
         from app.models.employee import Employee
         from app.models.manager import Manager
         from app.models.user import User
-        from datetime import date
 
         # 1. Check if manager_id is an Employee ID
-        manager = await self.repo.get_by_id_raw(manager_id)
+        manager = await self.repo.get_by_id_raw(manager_id, company_id=company_id)
         if manager and manager.company_id == company_id:
             return True
 
         # 2. Check if manager_id is an Employee user_id
         res_emp_user = await self.session.execute(
-            select(Employee).where(Employee.user_id == manager_id, Employee.company_id == company_id)
+            select(Employee.id).where(Employee.user_id == manager_id, Employee.company_id == company_id)
         )
-        emp_by_user = res_emp_user.scalar_one_or_none()
-        if emp_by_user:
+        if res_emp_user.scalar_one_or_none():
             return True
 
         # 3. Check if manager_id is a Manager ID or Manager user_id
         res_mgr = await self.session.execute(
-            select(Manager).where((Manager.id == manager_id) | (Manager.user_id == manager_id))
+            select(Manager).where(
+                Manager.company_id == company_id,
+                Manager.is_deleted.is_(False),
+                (Manager.id == manager_id) | (Manager.user_id == manager_id),
+            )
         )
         mgr = res_mgr.scalar_one_or_none()
         if mgr and mgr.company_id == company_id:
-            existing_emp = await self.repo.get_by_id_raw(mgr.id)
+            existing_emp = await self.repo.get_by_id_raw(mgr.id, company_id=company_id)
             if existing_emp:
                 return True
 
-            employee_id = mgr.manager_id
-            new_emp = Employee(
-                id=mgr.id,
-                user_id=mgr.user_id,
-                company_id=company_id,
-                employee_id=employee_id,
-                first_name=mgr.first_name,
-                last_name=mgr.last_name,
-                personal_email=mgr.personal_email,
-                company_email=mgr.company_email,
-                phone=mgr.phone,
-                department=mgr.department,
-                designation=mgr.designation,
-                joining_date=date.today(),
-                employment_type="FULL_TIME",
-                employment_status="CONFIRMED",
-                role="manager",
-                status="ACTIVE"
-            )
-            self.session.add(new_emp)
-            await self.session.flush()
-            return True
+            norm_email = _norm_email(mgr.personal_email)
+            existing_global = (
+                await self.session.execute(
+                    select(Employee)
+                    .options(load_only(Employee.id, Employee.company_id, Employee.user_id, Employee.personal_email, Employee.employee_id))
+                    .where(
+                        (Employee.user_id == mgr.user_id if mgr.user_id else False)
+                        | (func.lower(Employee.personal_email) == norm_email if norm_email else False)
+                        | (Employee.employee_id == mgr.manager_id)
+                    )
+                    .execution_options(bypass_tenant=True)
+                )
+            ).scalars().first()
+            if existing_global is not None:
+                return existing_global.company_id == company_id
+
+            try:
+                async with _maybe_savepoint(self.session):
+                    new_emp = Employee(
+                        id=mgr.id,
+                        user_id=mgr.user_id,
+                        company_id=company_id,
+                        employee_id=mgr.manager_id,
+                        first_name=mgr.first_name,
+                        last_name=mgr.last_name,
+                        personal_email=norm_email,
+                        company_email=_norm_email(mgr.company_email) or norm_email,
+                        phone=mgr.phone,
+                        department=mgr.department,
+                        designation=mgr.designation,
+                        joining_date=mgr.joining_date or date.today(),
+                        employment_type=mgr.employment_type or "FULL_TIME",
+                        employment_status=mgr.employment_status or "CONFIRMED",
+                        role="manager",
+                        status=mgr.status or "ACTIVE",
+                    )
+                    self.session.add(new_emp)
+                    await self.session.flush()
+                return True
+            except IntegrityError:
+                return False
 
         # 4. Check if manager_id is a User ID matching company_id
         res_usr = await self.session.execute(
@@ -351,34 +390,50 @@ class EmployeeService:
         )
         usr = res_usr.scalar_one_or_none()
         if usr:
-            existing_user_emp = await self.repo.get_by_id_raw(usr.id)
+            existing_user_emp = await self.repo.get_by_id_raw(usr.id, company_id=company_id)
             if existing_user_emp:
                 return True
 
-            names = usr.name.split(" ", 1)
+            norm_email = _norm_email(usr.email)
+            existing_global = (
+                await self.session.execute(
+                    select(Employee)
+                    .options(load_only(Employee.id, Employee.company_id, Employee.user_id, Employee.personal_email))
+                    .where((Employee.user_id == usr.id) | (func.lower(Employee.personal_email) == norm_email))
+                    .execution_options(bypass_tenant=True)
+                )
+            ).scalars().first()
+            if existing_global is not None:
+                return existing_global.company_id == company_id
+
+            names = (usr.name or "Manager").split(" ", 1)
             first_name = names[0]
             last_name = names[1] if len(names) > 1 else ""
-            new_emp = Employee(
-                id=usr.id,
-                user_id=usr.id,
-                company_id=company_id,
-                employee_id=f"EMP-MGR-{uuid.uuid4().hex[:6].upper()}",
-                first_name=first_name,
-                last_name=last_name or "Manager",
-                personal_email=usr.email,
-                company_email=usr.email,
-                phone=usr.phone or "0000000000",
-                department="Management",
-                designation="Reporting Manager",
-                joining_date=date.today(),
-                employment_type="FULL_TIME",
-                employment_status="CONFIRMED",
-                role=usr.role.value if hasattr(usr.role, "value") else str(usr.role),
-                status="ACTIVE"
-            )
-            self.session.add(new_emp)
-            await self.session.flush()
-            return True
+            try:
+                async with _maybe_savepoint(self.session):
+                    new_emp = Employee(
+                        id=usr.id,
+                        user_id=usr.id,
+                        company_id=company_id,
+                        employee_id=f"EMP-MGR-{uuid.uuid4().hex[:6].upper()}",
+                        first_name=first_name,
+                        last_name=last_name or "Manager",
+                        personal_email=norm_email,
+                        company_email=norm_email,
+                        phone=usr.phone or "0000000000",
+                        department="Management",
+                        designation="Reporting Manager",
+                        joining_date=date.today(),
+                        employment_type="FULL_TIME",
+                        employment_status="CONFIRMED",
+                        role=usr.role.value if hasattr(usr.role, "value") else str(usr.role),
+                        status="ACTIVE",
+                    )
+                    self.session.add(new_emp)
+                    await self.session.flush()
+                return True
+            except IntegrityError:
+                return False
 
         return False
 
@@ -387,7 +442,7 @@ class EmployeeService:
     # ------------------------------------------------------------------
 
     async def create_employee(
-        self, admin_id: uuid.UUID, company_id: uuid.UUID, payload: EmployeeCreate
+        self, admin_id: uuid.UUID, company_id: uuid.UUID, payload: EmployeeCreate, *, _retry: int = 0
     ) -> EmployeeResponse:
         logger.info(
             "create_employee | admin_id=%s | company_id=%s | email=%s",
@@ -396,6 +451,7 @@ class EmployeeService:
         try:
             from sqlalchemy import select
             from app.models.company import Company
+            from app.models.employee import Employee
 
             result = await self.session.execute(
                 select(Company).where(Company.id == company_id)
@@ -425,6 +481,14 @@ class EmployeeService:
                     field="personal_email",
                     errors=[{"field": "personal_email", "message": "Email already in use."}],
                 )
+            if hasattr(self.repo, "get_any_by_personal_email"):
+                existing_any = await self.repo.get_any_by_personal_email(personal_email)
+                if isinstance(existing_any, Employee):
+                    raise ConflictException(
+                        message="Email already exists.",
+                        field="personal_email",
+                        errors=[{"field": "personal_email", "message": "Email already in use."}],
+                    )
 
             # Check: company_email unique within this company (if provided)
             company_email = payload.company_email.strip().lower() if payload.company_email else personal_email
@@ -590,14 +654,35 @@ class EmployeeService:
         except (AppException, ConflictException):
             await self.session.rollback()
             raise
+        except FieldEncryptionError:
+            await self.session.rollback()
+            raise
         except IntegrityError as exc:
             await self.session.rollback()
-            err_detail = str(exc).lower()
-            if "ix_employees_employee_id" in err_detail or "key (employee_id)" in err_detail or "employees.employee_id" in err_detail:
-                # employee_id collision — retry with a fresh ID
-                logger.warning("create_employee: employee_id collision, retrying with new ID")
-                return await self.create_employee(admin_id, company_id, payload)
+            err_detail = str(getattr(exc, "orig", exc)).lower()
+            if ("ix_employees_employee_id" in err_detail or "key (employee_id)" in err_detail or "employees.employee_id" in err_detail) and not payload.employee_id and _retry < 3:
+                # Auto-generated employee_id collision — bounded retry with a fresh ID
+                logger.warning("create_employee: employee_id collision, retrying with new ID (attempt %d)", _retry + 1)
+                return await self.create_employee(admin_id, company_id, payload, _retry=_retry + 1)
             logger.exception("create_employee: integrity error", exc_info=exc)
+            if "ix_employees_employee_id" in err_detail or "employee_id" in err_detail:
+                raise ConflictException(
+                    message="Employee ID already exists.",
+                    field="employee_id",
+                    errors=[{"field": "employee_id", "message": "Employee ID already in use."}],
+                ) from exc
+            if "ix_employees_company_email" in err_detail or "company_email" in err_detail:
+                raise ConflictException(
+                    message="Company email already exists.",
+                    field="company_email",
+                    errors=[{"field": "company_email", "message": "Company email already in use."}],
+                ) from exc
+            if "phone" in err_detail:
+                raise ConflictException(
+                    message="Phone number already exists.",
+                    field="phone",
+                    errors=[{"field": "phone", "message": "Phone number already in use."}],
+                ) from exc
             raise ConflictException(
                 message="Email already exists.",
                 field="personal_email",
@@ -612,79 +697,189 @@ class EmployeeService:
     # Synchronization helper
     # ------------------------------------------------------------------
 
-    async def _sync_managers_to_employees(self, company_id: uuid.UUID) -> None:
-        """Ensure all managers in managers table have a synchronized workforce Employee record."""
+    async def sync_managers_to_employees(self, company_id: uuid.UUID) -> dict[str, int]:
+        """Idempotently synchronize active managers in a company to Employee workforce records.
+
+        - Tenant-scoped: never merges, modifies, or exposes another company's employee.
+        - PII-safe: batch-loads only identity/workforce metadata (skips encrypted PII columns).
+        - Concurrency & transaction-safe: isolates each insert/update inside a SAVEPOINT so a
+          constraint conflict on one manager never corrupts the batch or active session.
+        """
+        stats = {"created": 0, "updated": 0, "skipped_conflicts": 0}
         try:
-            from sqlalchemy import select
-            from app.models.manager import Manager
+            from sqlalchemy import func, or_, select
+            from sqlalchemy.orm import load_only
             from app.models.employee import Employee
+            from app.models.manager import Manager
 
             mgr_stmt = select(Manager).where(
                 Manager.company_id == company_id,
                 Manager.is_deleted.is_(False),
             )
             mgr_res = await self.session.execute(mgr_stmt)
-            managers = mgr_res.scalars().all()
+            managers = list(mgr_res.scalars().all())
+            if not managers:
+                return stats
+
+            mgr_ids = {m.id for m in managers if m.id is not None}
+            mgr_user_ids = {m.user_id for m in managers if m.user_id is not None}
+            mgr_emails = {_norm_email(m.personal_email) for m in managers if _norm_email(m.personal_email)}
+            mgr_codes = {m.manager_id.strip() for m in managers if m.manager_id}
+
+            conds = []
+            if mgr_ids:
+                conds.append(Employee.id.in_(mgr_ids))
+            if mgr_user_ids:
+                conds.append(Employee.user_id.in_(mgr_user_ids))
+            if mgr_emails:
+                conds.append(func.lower(Employee.personal_email).in_(mgr_emails))
+            if mgr_codes:
+                conds.append(Employee.employee_id.in_(mgr_codes))
+
+            candidate_emps: list[Employee] = []
+            if conds:
+                emp_res = await self.session.execute(
+                    select(Employee)
+                    .options(
+                        load_only(
+                            Employee.id,
+                            Employee.company_id,
+                            Employee.user_id,
+                            Employee.employee_id,
+                            Employee.personal_email,
+                            Employee.status,
+                            Employee.role,
+                            Employee.is_deleted,
+                        )
+                    )
+                    .where(or_(*conds))
+                    .execution_options(bypass_tenant=True)
+                )
+                raw_all = emp_res.scalars().all() if hasattr(emp_res, "scalars") else []
+                if isinstance(raw_all, list):
+                    candidate_emps = raw_all
+                else:
+                    single = emp_res.scalar_one_or_none() if hasattr(emp_res, "scalar_one_or_none") else None
+                    candidate_emps = [single] if single is not None else []
+
+            same_co_by_id: dict[uuid.UUID, Employee] = {}
+            same_co_by_uid: dict[uuid.UUID, Employee] = {}
+            same_co_by_email: dict[str, Employee] = {}
+            global_email_owner: dict[str, Employee] = {}
+            global_code_owner: dict[str, Employee] = {}
+
+            for e in candidate_emps:
+                e_email = _norm_email(e.personal_email)
+                if e_email:
+                    global_email_owner[e_email] = e
+                if e.employee_id:
+                    global_code_owner[e.employee_id] = e
+                if e.company_id == company_id:
+                    same_co_by_id[e.id] = e
+                    if e.user_id is not None:
+                        same_co_by_uid[e.user_id] = e
+                    if e_email:
+                        same_co_by_email[e_email] = e
 
             for mgr in managers:
-                emp_res = await self.session.execute(
-                    select(Employee).where(
-                        (Employee.id == mgr.id) | (Employee.personal_email == mgr.personal_email)
-                    )
+                norm_email = _norm_email(mgr.personal_email)
+                emp = (
+                    same_co_by_id.get(mgr.id)
+                    or (same_co_by_uid.get(mgr.user_id) if mgr.user_id is not None else None)
+                    or (same_co_by_email.get(norm_email) if norm_email else None)
                 )
-                emp = emp_res.scalar_one_or_none()
-                if not emp:
-                    new_emp = Employee(
-                        id=mgr.id,
-                        user_id=mgr.user_id,
-                        company_id=company_id,
-                        employee_id=mgr.manager_id,
-                        first_name=mgr.first_name,
-                        last_name=mgr.last_name,
-                        profile_photo_url=mgr.profile_photo_url,
-                        gender=mgr.gender,
-                        date_of_birth=mgr.date_of_birth,
-                        personal_email=mgr.personal_email,
-                        company_email=mgr.company_email,
-                        phone=mgr.phone,
-                        alternate_phone=mgr.alternate_phone,
-                        blood_group=mgr.blood_group,
-                        marital_status=mgr.marital_status,
-                        department=mgr.department,
-                        designation=mgr.designation,
-                        branch=mgr.branch,
-                        work_location=mgr.work_location,
-                        joining_date=mgr.joining_date,
-                        employment_type=mgr.employment_type or "FULL_TIME",
-                        employment_status=mgr.employment_status or "CONFIRMED",
-                        shift=mgr.shift,
-                        probation_period_months=mgr.probation_period_months,
-                        ctc=mgr.ctc,
-                        basic_salary=mgr.basic_salary,
-                        hra=mgr.hra,
-                        bonus=mgr.bonus,
-                        pf=mgr.pf,
-                        esi=mgr.esi,
-                        professional_tax=mgr.professional_tax,
-                        role="manager",
-                        leave_group=mgr.leave_group,
-                        status=mgr.status or "ACTIVE",
-                        activation_token=mgr.activation_token,
-                        activation_token_expires_at=mgr.activation_token_expires_at,
-                        invited_at=mgr.invited_at,
-                        invited_by=mgr.invited_by,
-                        created_by=mgr.created_by,
-                        is_deleted=mgr.is_deleted,
-                        reporting_manager_id=mgr.reporting_to,
-                        manager_id=mgr.reporting_to,
-                    )
-                    self.session.add(new_emp)
-                    await self.session.flush()
+
+                if emp is None:
+                    # Detect global unique constraint conflicts without merging cross-company rows.
+                    email_owner = global_email_owner.get(norm_email) if norm_email else None
+                    if email_owner is not None and email_owner.company_id != company_id:
+                        logger.warning(
+                            "sync_managers_to_employees: skipping manager %s in company %s due to cross-company email constraint",
+                            mgr.id, company_id,
+                        )
+                        stats["skipped_conflicts"] += 1
+                        continue
+                    code_owner = global_code_owner.get(mgr.manager_id) if mgr.manager_id else None
+                    if code_owner is not None and code_owner.company_id != company_id:
+                        logger.warning(
+                            "sync_managers_to_employees: skipping manager %s in company %s due to cross-company employee_id constraint",
+                            mgr.id, company_id,
+                        )
+                        stats["skipped_conflicts"] += 1
+                        continue
+
+                    try:
+                        async with _maybe_savepoint(self.session):
+                            new_emp = Employee(
+                                id=mgr.id,
+                                user_id=mgr.user_id,
+                                company_id=company_id,
+                                employee_id=mgr.manager_id,
+                                first_name=mgr.first_name,
+                                last_name=mgr.last_name,
+                                profile_photo_url=mgr.profile_photo_url,
+                                gender=mgr.gender,
+                                date_of_birth=mgr.date_of_birth,
+                                personal_email=norm_email,
+                                company_email=_norm_email(mgr.company_email) or norm_email,
+                                phone=mgr.phone,
+                                alternate_phone=mgr.alternate_phone,
+                                blood_group=mgr.blood_group,
+                                marital_status=mgr.marital_status,
+                                department=mgr.department,
+                                designation=mgr.designation,
+                                branch=mgr.branch,
+                                work_location=mgr.work_location,
+                                joining_date=mgr.joining_date,
+                                employment_type=mgr.employment_type or "FULL_TIME",
+                                employment_status=mgr.employment_status or "CONFIRMED",
+                                shift=mgr.shift,
+                                probation_period_months=mgr.probation_period_months,
+                                ctc=mgr.ctc,
+                                basic_salary=mgr.basic_salary,
+                                hra=mgr.hra,
+                                bonus=mgr.bonus,
+                                pf=mgr.pf,
+                                esi=mgr.esi,
+                                professional_tax=mgr.professional_tax,
+                                role="manager",
+                                leave_group=mgr.leave_group,
+                                status=mgr.status or "ACTIVE",
+                                activation_token=mgr.activation_token,
+                                activation_token_expires_at=mgr.activation_token_expires_at,
+                                invited_at=mgr.invited_at,
+                                invited_by=mgr.invited_by,
+                                created_by=mgr.created_by,
+                                is_deleted=mgr.is_deleted,
+                                reporting_manager_id=mgr.reporting_to,
+                                manager_id=mgr.reporting_to,
+                            )
+                            self.session.add(new_emp)
+                            await self.session.flush()
+                        same_co_by_id[new_emp.id] = new_emp
+                        if new_emp.user_id is not None:
+                            same_co_by_uid[new_emp.user_id] = new_emp
+                        if norm_email:
+                            same_co_by_email[norm_email] = new_emp
+                            global_email_owner[norm_email] = new_emp
+                        if new_emp.employee_id:
+                            global_code_owner[new_emp.employee_id] = new_emp
+                        stats["created"] += 1
+                    except IntegrityError:
+                        logger.warning(
+                            "sync_managers_to_employees: concurrent/constraint conflict inserting manager %s in company %s; savepoint rolled back",
+                            mgr.id, company_id,
+                        )
+                        stats["skipped_conflicts"] += 1
                 else:
+                    if emp.is_deleted:
+                        continue
                     updated = False
                     if emp.user_id != mgr.user_id and mgr.user_id is not None:
-                        emp.user_id = mgr.user_id
-                        updated = True
+                        other_uid_owner = same_co_by_uid.get(mgr.user_id)
+                        if other_uid_owner is None or other_uid_owner.id == emp.id:
+                            emp.user_id = mgr.user_id
+                            updated = True
                     if emp.status != mgr.status and mgr.status is not None:
                         emp.status = mgr.status
                         updated = True
@@ -692,11 +887,27 @@ class EmployeeService:
                         emp.role = "manager"
                         updated = True
                     if updated:
-                        await self.session.flush()
-            await self.session.commit()
+                        try:
+                            async with _maybe_savepoint(self.session):
+                                await self.session.flush()
+                            stats["updated"] += 1
+                        except IntegrityError:
+                            logger.warning(
+                                "sync_managers_to_employees: constraint conflict updating employee %s for manager %s",
+                                emp.id, mgr.id,
+                            )
+                            stats["skipped_conflicts"] += 1
+
+            if stats["created"] > 0 or stats["updated"] > 0:
+                await self.session.commit()
         except Exception as sync_exc:
-            logger.warning("_sync_managers_to_employees warning: %s", str(sync_exc))
+            logger.warning("sync_managers_to_employees warning: %s", type(sync_exc).__name__)
             await self.session.rollback()
+        return stats
+
+    async def _sync_managers_to_employees(self, company_id: uuid.UUID) -> dict[str, int]:
+        """Backward-compatible alias for explicit manager-to-employee synchronization."""
+        return await self.sync_managers_to_employees(company_id)
 
     # ------------------------------------------------------------------
     # List
@@ -718,7 +929,6 @@ class EmployeeService:
         order: str | None = "asc",
     ) -> EmployeeListResponse:
         try:
-            await self._sync_managers_to_employees(company_id)
             offset = (page - 1) * limit
             employees = await self.repo.list_employees(
                 company_id=company_id,
@@ -765,6 +975,8 @@ class EmployeeService:
                 has_next=has_next,
                 has_previous=has_previous,
             )
+        except FieldEncryptionError:
+            raise
         except SQLAlchemyError as exc:
             logger.exception("list_employees: db error", exc_info=exc)
             raise DatabaseException() from exc
@@ -780,10 +992,7 @@ class EmployeeService:
     ) -> EmployeeResponse:
         """Get a single employee, optionally scoped to a company."""
         try:
-            employee = await self.repo.get_by_id(employee_uuid)
-            if not employee and company_id:
-                await self._sync_managers_to_employees(company_id)
-                employee = await self.repo.get_by_id(employee_uuid)
+            employee = await self.repo.get_by_id(employee_uuid, company_id=company_id)
             if not employee:
                 raise AppException(message="Employee not found.", status_code=status.HTTP_404_NOT_FOUND)
             # Enforce company scope when company_id is provided
@@ -792,12 +1001,16 @@ class EmployeeService:
             return EmployeeResponse.model_validate(employee)
         except AppException:
             raise
+        except FieldEncryptionError:
+            raise
         except SQLAlchemyError as exc:
             logger.exception("get_employee: db error", exc_info=exc)
             try:
                 raw_employee = await self.repo.get_by_id_raw(employee_uuid, company_id=company_id)
                 if raw_employee:
                     return EmployeeResponse.model_validate(raw_employee)
+            except FieldEncryptionError:
+                raise
             except Exception:
                 pass
             raise DatabaseException() from exc
@@ -1971,6 +2184,7 @@ class EmployeeService:
     ) -> dict[str, Any]:
         """Import employees from uploaded Excel (.xlsx) or CSV file."""
         import io, csv
+        from app.models.employee import Employee
         rows_data = []
 
         if filename.lower().endswith(".csv"):
@@ -2011,7 +2225,9 @@ class EmployeeService:
                 continue
 
             personal_email = str(personal_email).strip().lower()
-            if await self.repo.get_by_personal_email(personal_email):
+            existing_emp = await self.repo.get_by_personal_email(personal_email)
+            existing_any = await self.repo.get_any_by_personal_email(personal_email) if hasattr(self.repo, "get_any_by_personal_email") else None
+            if existing_emp or isinstance(existing_any, Employee):
                 skipped_count += 1
                 errors.append({"row": idx, "message": f"Email '{personal_email}' already exists."})
                 continue
@@ -2036,32 +2252,37 @@ class EmployeeService:
 
             cost_center = row.get("cost_center_id") or row.get("cost_center") or None
 
-            from app.models.employee import Employee
             emp_id = row.get("employee_id") or await generate_employee_id(self.session)
 
-            new_emp = Employee(
-                user_id=None,
-                company_id=company_id,
-                employee_id=str(emp_id),
-                first_name=str(first_name),
-                last_name=str(last_name),
-                personal_email=personal_email,
-                company_email=str(row.get("company_email") or personal_email),
-                phone=str(phone),
-                department=str(dept),
-                designation=str(desig),
-                joining_date=joining_date,
-                employment_type=str(row.get("employment_type", "FULL_TIME")).upper(),
-                employment_status="CONFIRMED",
-                employee_capacity=emp_capacity,
-                cost_center_id=cost_center,
-                role="employee",
-                status=str(row.get("status") or "ACTIVE").upper(),
-                created_by=admin_id,
-            )
-            self.session.add(new_emp)
-            await self.session.flush()
-            imported_count += 1
+            try:
+                async with _maybe_savepoint(self.session):
+                    new_emp = Employee(
+                        user_id=None,
+                        company_id=company_id,
+                        employee_id=str(emp_id),
+                        first_name=str(first_name),
+                        last_name=str(last_name),
+                        personal_email=personal_email,
+                        company_email=str(row.get("company_email") or personal_email).strip().lower(),
+                        phone=str(phone),
+                        department=str(dept),
+                        designation=str(desig),
+                        joining_date=joining_date,
+                        employment_type=str(row.get("employment_type", "FULL_TIME")).upper(),
+                        employment_status="CONFIRMED",
+                        employee_capacity=emp_capacity,
+                        cost_center_id=cost_center,
+                        role="employee",
+                        status=str(row.get("status") or "ACTIVE").upper(),
+                        created_by=admin_id,
+                    )
+                    self.session.add(new_emp)
+                    await self.session.flush()
+                imported_count += 1
+            except IntegrityError:
+                skipped_count += 1
+                errors.append({"row": idx, "message": f"Row {idx} conflicts with an existing employee record."})
+                continue
 
         await self.session.commit()
         return {

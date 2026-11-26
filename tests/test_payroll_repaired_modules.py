@@ -219,8 +219,8 @@ async def test_bank_service_batch_csv_and_status_transitions(db):
 
     service = BankService(db, company_id=company.id, actor_id=admin_user.id)
 
-    # Create batch
-    batch_res = await service.create_transfer_batch({"format": "HDFC"})
+    # Create batch with pay_cycle_id
+    batch_res = await service.create_transfer_batch({"format": "HDFC", "pay_cycle_id": str(cycle.id)})
     batch_id = batch_res["batch_id"]
     assert batch_res["total_records"] == 1
     assert batch_res["status"] == "CREATED"

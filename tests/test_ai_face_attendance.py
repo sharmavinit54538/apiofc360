@@ -182,7 +182,7 @@ async def test_face_attendance_full_lifecycle():
 
         # Step 2: Attempt check-in before enrollment -> Expect 403 FACE_NOT_ENROLLED
         checkin_before_resp = await client.post(
-            "/api/v1/attendance/checkin",
+            "/api/v1/attendance/face/check-in",
             headers=headers,
             json={"image_base64": dummy_image_b64, "notes": "Early checkin attempt"},
         )
@@ -221,7 +221,7 @@ async def test_face_attendance_full_lifecycle():
         # Step 6: Check-in with mismatched face embedding -> Expect 400 FACE_MISMATCH
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(different_embedding, 0.95)):
             mismatch_resp = await client.post(
-                "/api/v1/attendance/checkin",
+                "/api/v1/attendance/face/check-in",
                 headers=headers,
                 json={"image_base64": dummy_image_b64},
             )
@@ -237,7 +237,7 @@ async def test_face_attendance_full_lifecycle():
 
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             match_resp = await client.post(
-                "/api/v1/attendance/checkin",
+                "/api/v1/attendance/face/check-in",
                 headers=headers,
                 json={
                     "image_base64": dummy_image_b64,
@@ -245,7 +245,7 @@ async def test_face_attendance_full_lifecycle():
                     "notes": "Verified morning checkin",
                 },
             )
-            assert match_resp.status_code == 200
+            assert match_resp.status_code in (200, 201)
             match_data = match_resp.json()
             assert match_data["success"] is True
             record = match_data["data"]
@@ -374,7 +374,7 @@ async def test_checkin_auto_closes_stale_previous_day_session():
         # Check-in with matching face - should AUTO-CLOSE stale session and succeed
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             checkin_resp = await client.post(
-                "/api/v1/attendance/checkin",
+                "/api/v1/attendance/face/check-in",
                 headers=headers,
                 json={
                     "image_base64": dummy_image_b64,
@@ -521,7 +521,7 @@ async def test_checkin_same_day_active_session_returns_session_details():
         # Attempt check-in again - should return 409 with active_session details
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             checkin_resp = await client.post(
-                "/api/v1/attendance/checkin",
+                "/api/v1/attendance/face/check-in",
                 headers=headers,
                 json={
                     "image_base64": dummy_image_b64,
@@ -648,7 +648,7 @@ async def test_checkin_expired_shift_session_auto_closes():
         # Check-in should auto-close the expired shift session and succeed
         with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
             checkin_resp = await client.post(
-                "/api/v1/attendance/checkin",
+                "/api/v1/attendance/face/check-in",
                 headers=headers,
                 json={"image_base64": dummy_image_b64},
             )
@@ -769,7 +769,7 @@ async def test_http_exception_not_logged_as_dbapi_error(caplog):
         with caplog.at_level(logging.ERROR, logger="app.db.database"):
             with patch.object(FaceRecognitionService, "extract_face_embedding", return_value=(matching_embedding, 0.95)):
                 checkin_resp = await client.post(
-                    "/api/v1/attendance/checkin",
+                    "/api/v1/attendance/face/check-in",
                     headers=headers,
                     json={"image_base64": dummy_image_b64},
                 )

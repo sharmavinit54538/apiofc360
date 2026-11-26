@@ -109,6 +109,8 @@ class AccountService:
                 is_active=bool(user.is_active),
                 is_verified=bool(user.is_verified),
                 email_verified=bool(user.is_verified),
+                is_email_verified=bool(user.is_verified),
+                email_verified_at=getattr(user, "email_verified_at", None),
                 account_status=str(getattr(user, "account_status", "ACTIVE") or "ACTIVE"),
                 onboarding_completed=bool(onboarding_completed),
                 company_id=user.company_id,

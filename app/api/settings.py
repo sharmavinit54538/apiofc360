@@ -1273,7 +1273,17 @@ async def update_profile(
     user = user_res.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User account not found.")
-        
+
+    if payload.email:
+        normalized_new_email = payload.email.strip().lower()
+        current_email = (user.email or "").strip().lower()
+        if normalized_new_email != current_email:
+            raise AppException(
+                message="Changing your account email requires verification. Please use the verified email change workflow (/api/v1/auth/change-email).",
+                status_code=400,
+                code="EMAIL_CHANGE_REQUIRES_VERIFICATION",
+            )
+
     emp_stmt = select(Employee).where(Employee.user_id == user_id)
     emp_res = await session.execute(emp_stmt)
     emp = emp_res.scalar_one_or_none()
@@ -1289,8 +1299,6 @@ async def update_profile(
             
     if payload.phone:
         user.phone = payload.phone
-    if payload.email:
-        user.email = payload.email
         
     if emp:
         if payload.fullName:
@@ -1298,8 +1306,6 @@ async def update_profile(
             emp.last_name = last_name
         if payload.phone:
             emp.phone = payload.phone
-        if payload.email:
-            emp.company_email = payload.email
         if payload.designation:
             emp.designation = payload.designation
         if payload.department:

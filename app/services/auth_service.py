@@ -5,6 +5,7 @@ import logging
 import hashlib
 import httpx
 import secrets
+from typing import Any
 import uuid
 
 from fastapi import Depends, status
@@ -45,6 +46,35 @@ def _registration_log_context(email: str, phone: str) -> dict[str, str]:
     }
 
 
+def _normalize_utc(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware in UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _build_otp_meta(
+    issued_at: datetime,
+    expires_at: datetime,
+    cooldown_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Build backend-authoritative UTC timing metadata for OTP expiry and resend cooldown."""
+    issued_utc = _normalize_utc(issued_at)
+    expires_utc = _normalize_utc(expires_at)
+    cooldown = (
+        int(cooldown_seconds)
+        if cooldown_seconds is not None
+        else int(getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 30))
+    )
+    resend_available_at = issued_utc + timedelta(seconds=cooldown)
+    return {
+        "otp_expires_at": expires_utc.isoformat(),
+        "expires_in": max(0, int((expires_utc - issued_utc).total_seconds())),
+        "resend_available_at": resend_available_at.isoformat(),
+        "resend_cooldown_seconds": cooldown,
+    }
+
+
 class AuthService:
     """Service that owns authentication, verification, recovery business logic, and transactions."""
 
@@ -60,6 +90,7 @@ class AuthService:
         self.auth_repository = auth_repository
         self.email_service = email_service
         self.token_service = token_service or TokenService(session=session, auth_repository=auth_repository)
+        self._last_otp_meta: dict[str, Any] | None = None
 
     async def register_user(self, payload: RegisterRequest) -> None:
         """Register a new company and its HR Admin owner (pending email verification)."""
@@ -200,6 +231,7 @@ class AuthService:
 
 
             # Store verification OTP
+            otp_issued_at = datetime.now(timezone.utc)
             hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose="email_verification")
             await self.auth_repository.create_otp(
                 user_id=user.id,
@@ -207,7 +239,7 @@ class AuthService:
                 purpose="email_verification",
                 expires_at=expires_at,
             )
-            
+
             # Send verification email immediately
             await self.email_service.send_verification_email(
                 email=user.email,
@@ -219,6 +251,7 @@ class AuthService:
 
             await self.session.commit()
             await self.session.refresh(user)
+            self._last_otp_meta = _build_otp_meta(otp_issued_at, expires_at)
             logger.info("Registration succeeded as HR_ADMIN, verification email sent", extra=log_context)
 
         except AppException:
@@ -259,8 +292,9 @@ class AuthService:
             logger.exception("Registration failed: unexpected error", extra=log_context, exc_info=exc)
             raise
 
-    async def verify_email(self, payload: VerifyEmailRequest) -> None:
-        """Verify the user's email using token or OTP and activate HR Admin account."""
+    async def verify_email(self, payload: VerifyEmailRequest) -> User | None:
+        """Verify the user's email once using token or OTP and permanently mark the account verified."""
+        from app.utils.otp import OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION
 
         now = datetime.now(timezone.utc)
         user: User | None = None
@@ -268,44 +302,89 @@ class AuthService:
         # Case 1: Token verification from email link
         if payload.token:
             user = await self.auth_repository.get_user_by_verification_token(payload.token)
-            if not user:
+            if not user or getattr(user, "is_deleted", False):
                 raise AppException(
                     message="Invalid or expired verification token.",
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    errors=[{"field": "token", "message": "Invalid or expired verification token."}]
+                    errors=[{"field": "token", "message": "Invalid or expired verification token."}],
                 )
             if user.is_verified:
-                raise AppException(message="Email already verified.", status_code=status.HTTP_400_BAD_REQUEST)
+                raise AppException(
+                    message="Email is already verified.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="EMAIL_ALREADY_VERIFIED",
+                )
             if user.email_verification_expires_at:
-                exp = user.email_verification_expires_at
-                if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
+                exp = _normalize_utc(user.email_verification_expires_at)
                 if now > exp:
                     raise AppException(
                         message="Verification token has expired. Please request a new verification email.",
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        errors=[{"field": "token", "message": "Verification token has expired."}]
+                        code="TOKEN_EXPIRED",
+                        errors=[{"field": "token", "message": "Verification token has expired."}],
                     )
-            # Invalidate any pending OTPs
+            # Invalidate any pending registration OTPs
             await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
 
         # Case 2: Email + 6-digit OTP verification
         elif payload.email and payload.otp:
             user = await self.auth_repository.get_user_by_email(str(payload.email))
-            if not user:
+            if not user or getattr(user, "is_deleted", False):
                 raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
 
             if user.is_verified:
-                raise AppException(message="Email already verified.", status_code=status.HTTP_400_BAD_REQUEST)
+                await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
+                await self.auth_repository.invalidate_all_user_otps(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+                await self.session.commit()
+                raise AppException(
+                    message="Email is already verified.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="EMAIL_ALREADY_VERIFIED",
+                )
+
+            account_status_val = str(getattr(user, "account_status", "") or "").upper()
+            if account_status_val in ("SUSPENDED", "DEACTIVATED"):
+                raise AppException(
+                    message="Account is inactive. Please contact your administrator.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="ACCOUNT_INACTIVE",
+                )
 
             # Get latest unused OTP record
             otp_record = await self.auth_repository.get_latest_otp(user.id, "email_verification")
             if not otp_record:
-                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+                raise AppException(
+                    message="Invalid or expired OTP.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="INVALID_OTP",
+                )
 
-            # Check expiry
-            if now > otp_record.expires_at:
-                raise AppException(message="OTP has expired.", status_code=status.HTTP_400_BAD_REQUEST)
+            if otp_record.is_used:
+                raise AppException(
+                    message="This verification code has already been used. Please request a new code.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="OTP_ALREADY_USED",
+                )
+
+            # Check expiry (tz-normalized)
+            otp_exp = _normalize_utc(otp_record.expires_at)
+            if now > otp_exp:
+                raise AppException(
+                    message="OTP has expired. Please request a new code.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="OTP_EXPIRED",
+                )
+
+            # Enforce max attempts before hash verification
+            max_attempts = getattr(settings, "OTP_MAX_ATTEMPTS", 5)
+            if otp_record.attempts >= max_attempts:
+                await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
+                await self.session.commit()
+                raise AppException(
+                    message="Too many wrong attempts. Please request a new OTP.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="OTP_MAX_ATTEMPTS",
+                )
 
             # Verify hash
             is_valid = verify_otp_hash(
@@ -316,59 +395,62 @@ class AuthService:
             )
 
             if not is_valid:
-                # Increment attempts
                 attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
-                if attempts >= settings.OTP_MAX_ATTEMPTS:
-                    # Invalidate current OTP
+                if attempts >= max_attempts:
                     await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
-                    
-                    # Generate a new OTP and token and send it
-                    new_otp_code = generate_otp()
-                    new_token = secrets.token_urlsafe(32)
-                    new_hashed_otp = hash_otp(otp=new_otp_code, user_id=user.id, purpose="email_verification")
-                    new_expires_at = now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
-                    await self.auth_repository.create_otp(
-                        user_id=user.id,
-                        otp_hash=new_hashed_otp,
-                        purpose="email_verification",
-                        expires_at=new_expires_at,
-                    )
-                    await self.auth_repository.set_user_verification_token(user.id, new_token, new_expires_at)
                     await self.session.commit()
-
-                    # Send email
-                    await self.email_service.send_verification_email(
-                        email=user.email,
-                        name=user.name,
-                        otp=new_otp_code,
-                        expiry_minutes=settings.OTP_EXPIRE_MINUTES,
-                    )
                     raise AppException(
-                        message="Too many wrong attempts. A new OTP has been sent to your email.",
+                        message="Too many wrong attempts. Please request a new OTP.",
                         status_code=status.HTTP_400_BAD_REQUEST,
+                        code="OTP_MAX_ATTEMPTS",
                     )
-                
+
                 await self.session.commit()
-                raise AppException(message="Invalid OTP.", status_code=status.HTTP_400_BAD_REQUEST)
+                raise AppException(
+                    message="Invalid OTP.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="INVALID_OTP",
+                )
 
             # Atomically mark OTP as used to prevent concurrent reuse
             consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
             if hasattr(self.auth_repository, "mark_otp_used"):
                 await self.auth_repository.mark_otp_used(otp_record.id)
             if not consumed and consumed is not None:
-                raise AppException(message="OTP has already been used or is invalid.", status_code=status.HTTP_400_BAD_REQUEST)
+                raise AppException(
+                    message="OTP has already been used or is invalid.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="OTP_ALREADY_USED",
+                )
+
+            # Invalidate any remaining email verification OTPs so consumed/sibling OTPs cannot be reused
+            await self.auth_repository.invalidate_all_user_otps(user.id, "email_verification")
+            await self.auth_repository.invalidate_all_user_otps(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
         else:
             raise AppException(message="Verification token or OTP is required.", status_code=status.HTTP_400_BAD_REQUEST)
 
-        # Mark user as verified and active (account_status = ACTIVE)
+        # Permanently persist verified email status and set account_status = ACTIVE
+        existing_verified_at = getattr(user, "email_verified_at", None) if isinstance(user, User) else None
+        user_email = user.email
+        user_name = user.name
         await self.auth_repository.update_user_verification(user.id)
+        if isinstance(user, User):
+            user.is_verified = True
+            user.is_active = True
+            user.account_status = "ACTIVE"
+            if not existing_verified_at:
+                user.email_verified_at = now
+            user.email_verification_token = None
+            user.email_verification_expires_at = None
         await self.session.commit()
 
         # Send Welcome email
         try:
-            await self.email_service.send_welcome_email(user.email, user.name)
+            await self.email_service.send_welcome_email(user_email, user_name)
         except Exception as mail_err:
-            logger.warning("Failed to send welcome email to %s: %s", user.email, mail_err)
+            logger.warning("Failed to send welcome email to %s: %s", user_email, mail_err)
+
+        return user
 
     async def resend_otp(self, payload: ResendOTPRequest) -> None:
         """Invalidate previous OTPs and issue a new one, subject to rate-limiting."""
@@ -398,30 +480,29 @@ class AuthService:
         logger.info("Resend OTP: User Found | email=%s", email)
 
         # Email verified status check
-        if user.is_verified:
+        if getattr(user, "is_verified", False) is True:
             logger.warning("Resend OTP failed: Email Already Verified | email=%s", email)
             raise AppException(
                 message="Email already verified",
                 status_code=status.HTTP_400_BAD_REQUEST,
-                errors=[{"field": "email", "message": "Email already verified"}]
+                code="EMAIL_ALREADY_VERIFIED",
+                errors=[{"field": "email", "message": "Email already verified"}],
             )
 
-        # Check rate limiting cooldown (30 seconds)
+        # Check rate limiting cooldown
         latest_otp = await self.auth_repository.get_latest_otp(user.id, "email_verification")
         now = datetime.now(timezone.utc)
         if latest_otp:
-            created_at = latest_otp.created_at
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-            
+            created_at = _normalize_utc(latest_otp.created_at)
             elapsed = (now - created_at).total_seconds()
             if elapsed < settings.OTP_RESEND_COOLDOWN_SECONDS:
-                remaining_cooldown = int(settings.OTP_RESEND_COOLDOWN_SECONDS - elapsed)
+                remaining_cooldown = max(1, int(settings.OTP_RESEND_COOLDOWN_SECONDS - elapsed))
                 logger.warning("Resend OTP failed: rate limited | email=%s | elapsed=%ds", email, elapsed)
                 raise AppException(
                     message=f"Please wait {remaining_cooldown} seconds before requesting another OTP.",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    errors=[{"field": "email", "message": f"Please wait {remaining_cooldown} seconds before requesting another OTP."}]
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    code="RESEND_COOLDOWN",
+                    errors=[{"field": "email", "message": f"Please wait {remaining_cooldown} seconds before requesting another OTP."}],
                 )
 
         try:
@@ -448,6 +529,7 @@ class AuthService:
 
             # Commit database transaction BEFORE sending email
             await self.session.commit()
+            self._last_otp_meta = _build_otp_meta(now, expires_at)
             logger.info("Resend OTP: Database Commit | email=%s", email)
 
         except Exception as exc:
@@ -659,8 +741,9 @@ class AuthService:
             await self.auth_repository.invalidate_all_user_otps(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
 
             # Generate secure 6-digit OTP
+            otp_now = datetime.now(timezone.utc)
             otp_code = generate_otp()
-            otp_expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+            otp_expiry = otp_now + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
             # Hash and store
             hashed_otp = hash_otp(otp=otp_code, user_id=user.id, purpose=OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
@@ -692,6 +775,7 @@ class AuthService:
                 logger.warning("Failed to send login verification OTP email to user_id=%s: %s", user.id, mail_err)
 
             await self.session.commit()
+            self._last_otp_meta = _build_otp_meta(otp_now, otp_expiry)
 
             # Return user + verification_id but NO tokens
             return user, str(otp_record.id), None, None, True
@@ -908,6 +992,8 @@ class AuthService:
         # 5. Check attempt limit
         max_attempts = getattr(settings, "OTP_MAX_ATTEMPTS", 5)
         if otp_record.attempts >= max_attempts:
+            await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+            await self.session.commit()
             raise AppException(
                 message="Too many attempts. Please request a new code.",
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -924,20 +1010,43 @@ class AuthService:
 
         if not is_valid:
             attempts = await self.auth_repository.increment_otp_attempts(otp_record.id)
-            await self.session.commit()
             if attempts >= max_attempts:
+                await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+                await self.session.commit()
                 raise AppException(
                     message="Too many attempts. Please request a new code.",
                     status_code=status.HTTP_400_BAD_REQUEST,
                     code="OTP_MAX_ATTEMPTS",
                 )
+            await self.session.commit()
             raise AppException(
                 message="Invalid verification code.",
                 status_code=status.HTTP_400_BAD_REQUEST,
                 code="INVALID_OTP",
             )
 
-        # 7. Atomically consume the OTP
+        # 7. Check account status before consuming OTP
+        existing_user = await self.auth_repository.get_user_by_id(otp_record.user_id)
+        if isinstance(existing_user, User):
+            if existing_user.is_deleted:
+                raise AppException(message="User not found.", status_code=status.HTTP_404_NOT_FOUND)
+            if str(getattr(existing_user, "account_status", "") or "").upper() in ("SUSPENDED", "DEACTIVATED"):
+                raise AppException(
+                    message="Account is inactive. Please contact your administrator.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="ACCOUNT_INACTIVE",
+                )
+            if existing_user.is_verified:
+                await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, "email_verification")
+                await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
+                await self.session.commit()
+                raise AppException(
+                    message="Email is already verified. Please sign in.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="EMAIL_ALREADY_VERIFIED",
+                )
+
+        # 8. Atomically consume the OTP
         consumed = await self.auth_repository.consume_otp_atomic(otp_record.id)
         if not consumed:
             raise AppException(
@@ -945,10 +1054,11 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 8. Mark user as verified and active
+        # 9. Mark user as verified and active
         await self.auth_repository.update_user_verification(otp_record.user_id)
 
-        # 9. Invalidate any remaining login verification OTPs
+        # 10. Invalidate any remaining email/login verification OTPs
+        await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, "email_verification")
         await self.auth_repository.invalidate_all_user_otps(otp_record.user_id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
 
         # 10. Fetch the user for token generation
@@ -1015,23 +1125,29 @@ class AuthService:
         if not user and email:
             user = await self.auth_repository.get_user_by_email(email.strip().lower())
 
-        if not user:
+        if not user or getattr(user, "is_deleted", False) is True:
             raise AppException(
                 message="Invalid verification session.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 2. Check cooldown (60 seconds)
+        # Never generate another verification OTP if the account's email is already verified
+        if getattr(user, "is_verified", False) is True:
+            raise AppException(
+                message="Email is already verified.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="EMAIL_ALREADY_VERIFIED",
+            )
+
+        # 2. Check cooldown (configured seconds)
         latest_otp = await self.auth_repository.get_latest_otp(user.id, OTP_PURPOSE_EMAIL_LOGIN_VERIFICATION)
         now = datetime.now(timezone.utc)
         cooldown_seconds = getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 60)
         if latest_otp:
-            created_at = latest_otp.created_at
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
+            created_at = _normalize_utc(latest_otp.created_at)
             elapsed = (now - created_at).total_seconds()
             if elapsed < cooldown_seconds:
-                remaining = int(cooldown_seconds - elapsed)
+                remaining = max(1, int(cooldown_seconds - elapsed))
                 raise AppException(
                     message=f"Please wait {remaining} seconds before requesting another code.",
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -1074,6 +1190,7 @@ class AuthService:
             logger.warning("Failed to send resend login verification OTP email to user_id=%s: %s", user.id, mail_err)
 
         await self.session.commit()
+        self._last_otp_meta = _build_otp_meta(now, otp_expiry, cooldown_seconds)
         return str(new_otp_record.id)
 
 

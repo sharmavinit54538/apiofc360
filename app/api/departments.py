@@ -308,6 +308,37 @@ async def bulk_assign_manager(
     )
 
 
+# PATCH aliases for bulk operations - MUST be before /{id} to avoid UUID parsing conflicts
+@router.patch(
+    "/bulk-status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk update department status (PATCH alias)",
+)
+async def bulk_update_status_patch(
+    payload: BulkStatusRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk update status for departments (ACTIVE, INACTIVE, HIRING, GROWING). PATCH alias."""
+    return await bulk_update_status(payload, claims, service)
+
+
+@router.patch(
+    "/bulk-assign-manager",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[BulkActionResponse],
+    summary="Bulk assign manager to departments (PATCH alias)",
+)
+async def bulk_assign_manager_patch(
+    payload: BulkAssignManagerRequest,
+    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    service: Annotated[DepartmentService, Depends(get_department_service)],
+) -> APIResponse[BulkActionResponse]:
+    """Bulk assign department head/manager to multiple departments. PATCH alias."""
+    return await bulk_assign_manager(payload, claims, service)
+
+
 @router.post(
     "/transfer-employees",
     status_code=status.HTTP_200_OK,
@@ -617,38 +648,6 @@ async def remove_employee(
         data=None,
         errors=None,
     )
-
-
-# ── Compatibility Aliases ────────────────────────────────────────────────────
-
-@router.patch(
-    "/bulk-status",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[BulkActionResponse],
-    summary="Bulk update department status (PATCH alias)",
-)
-async def bulk_update_status_patch(
-    payload: BulkStatusRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
-    service: Annotated[DepartmentService, Depends(get_department_service)],
-) -> APIResponse[BulkActionResponse]:
-    """Bulk update status for departments (ACTIVE, INACTIVE, HIRING, GROWING). PATCH alias."""
-    return await bulk_update_status(payload, claims, service)
-
-
-@router.patch(
-    "/bulk-assign-manager",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[BulkActionResponse],
-    summary="Bulk assign manager to departments (PATCH alias)",
-)
-async def bulk_assign_manager_patch(
-    payload: BulkAssignManagerRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
-    service: Annotated[DepartmentService, Depends(get_department_service)],
-) -> APIResponse[BulkActionResponse]:
-    """Bulk assign department head/manager to multiple departments. PATCH alias."""
-    return await bulk_assign_manager(payload, claims, service)
 
 
 @router.post(

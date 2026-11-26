@@ -13,7 +13,7 @@ from sqlalchemy import select, update, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.payroll import BankDisbursementRecord, BankAdviceFile, Payslip, PayrollAuditLog
+from app.models.payroll import BankDisbursementRecord, BankAdviceFile, Payslip, PayrollAuditLog, PayCycle, PayrollRun
 from app.models.employee import Employee
 from app.models.employee_bank_account import EmployeeBankAccount
 from app.services.payroll.audit_service import PayrollAuditService
@@ -310,19 +310,50 @@ class BankService:
         }
 
     async def create_transfer_batch(self, payload: dict, company_id: Optional[uuid.UUID] = None, actor_id: Optional[uuid.UUID] = None) -> dict:
-        """Create and persist a new bank transfer batch from pending payslips."""
+        """Create and persist a new bank transfer batch from pending payslips for a specific pay cycle."""
         cid = self._resolve_cid(company_id)
         aid = actor_id or self.actor_id
 
-        # Query pending payslips for this company
+        # Honor requested pay_cycle_id from payload
+        pay_cycle_id = payload.get("pay_cycle_id")
+        if not pay_cycle_id:
+            raise ValueError("pay_cycle_id is required to create a transfer batch.")
+        try:
+            pay_cycle_uuid = uuid.UUID(str(pay_cycle_id))
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid pay_cycle_id: {pay_cycle_id}")
+
+        # Verify PayCycle exists and get its period
+        pay_cycle_stmt = select(PayCycle).where(PayCycle.id == pay_cycle_uuid)
+        if cid:
+            pay_cycle_stmt = pay_cycle_stmt.where(PayCycle.company_id == cid)
+        pay_cycle_res = await self.db.execute(pay_cycle_stmt)
+        pay_cycle = pay_cycle_res.scalars().first()
+        if not pay_cycle:
+            raise ValueError(f"PayCycle {pay_cycle_id} not found for this company.")
+
+        # Query pending payslips for this company and pay cycle period
         payslips_stmt = select(Payslip).where(
             Payslip.payment_status == "PENDING",
+            Payslip.period_month == pay_cycle.period_month,
+            Payslip.period_year == pay_cycle.period_year,
         )
         if cid:
             payslips_stmt = payslips_stmt.where(Payslip.company_id == cid)
 
         res = await self.db.execute(payslips_stmt)
         pending_payslips = res.scalars().all()
+
+        if not pending_payslips:
+            # Empty batch - return early with clear response
+            return {
+                "batch_id": None,
+                "batch_code": None,
+                "status": "EMPTY",
+                "total_records": 0,
+                "total_amount": 0.0,
+                "message": f"No pending payslips found for pay cycle {pay_cycle_id} (period {pay_cycle.period_month:02d}-{pay_cycle.period_year}).",
+            }
 
         now = datetime.now(timezone.utc)
         batch_code = f"BATCH-{now.strftime('%Y%m%d%H%M%S')}"
@@ -332,11 +363,11 @@ class BankService:
         total_amount = Decimal(0)
         total_records = len(pending_payslips)
 
-        # Create BankAdviceFile
+        # Create BankAdviceFile with correct pay_cycle_id
         advice_file = BankAdviceFile(
             id=file_id,
             company_id=cid,
-            pay_cycle_id=pending_payslips[0].payroll_run_id if pending_payslips else uuid.uuid4(),
+            pay_cycle_id=pay_cycle_uuid,
             file_name=f"SALARY_{file_format}_ADVICE_{batch_code}.csv",
             file_format=file_format,
             total_amount=Decimal(0),
@@ -350,6 +381,7 @@ class BankService:
         await self.db.flush()
 
         # For each payslip, query bank details and create BankDisbursementRecord
+        missing_bank_details = []
         for ps in pending_payslips:
             amt = Decimal(str(ps.net_pay or 0))
             total_amount += amt
@@ -362,16 +394,27 @@ class BankService:
             ba_res = await self.db.execute(ba_stmt)
             bank_acc = ba_res.scalars().first()
 
+            if not bank_acc or not bank_acc.account_number or not bank_acc.ifsc_code:
+                missing_bank_details.append(str(ps.employee_id))
+                # Still create record but with empty bank details - will be flagged
+                bank_name = bank_acc.bank_name if bank_acc else None
+                account_number = bank_acc.account_number if bank_acc else None
+                ifsc_code = bank_acc.ifsc_code if bank_acc else None
+            else:
+                bank_name = bank_acc.bank_name
+                account_number = bank_acc.account_number
+                ifsc_code = bank_acc.ifsc_code
+
             disb_rec = BankDisbursementRecord(
                 id=uuid.uuid4(),
                 advice_file_id=advice_file.id,
-                pay_cycle_id=advice_file.pay_cycle_id,
+                pay_cycle_id=pay_cycle_uuid,
                 employee_id=ps.employee_id,
-                bank_name=bank_acc.bank_name if bank_acc else "HDFC Bank",
-                bank_account_number=bank_acc.account_number if bank_acc else "",
-                bank_ifsc=bank_acc.ifsc_code if bank_acc else "",
+                bank_name=bank_name,
+                bank_account_number=account_number,
+                bank_ifsc=ifsc_code,
                 amount=amt,
-                status="PENDING",
+                status="PENDING" if bank_name and account_number and ifsc_code else "MISSING_BANK_DETAILS",
             )
             self.db.add(disb_rec)
 
@@ -387,17 +430,30 @@ class BankService:
             company_id=cid,
             actor_id=aid,
             after_status="CREATED",
-            reason=f"Created transfer batch {batch_code} with {total_records} records totaling ₹{total_amount:.2f}",
+            reason=f"Created transfer batch {batch_code} for pay cycle {pay_cycle_id} with {total_records} records totaling ₹{total_amount:.2f}",
+            extra_data={
+                "pay_cycle_id": str(pay_cycle_uuid),
+                "period": f"{pay_cycle.period_month:02d}-{pay_cycle.period_year}",
+                "missing_bank_details_count": len(missing_bank_details),
+            },
         )
         await self.db.commit()
 
-        return {
+        response = {
             "batch_id": str(advice_file.id),
             "batch_code": batch_code,
             "status": "CREATED",
             "total_records": total_records,
             "total_amount": float(total_amount),
+            "pay_cycle_id": str(pay_cycle_uuid),
+            "period": f"{pay_cycle.period_month:02d}-{pay_cycle.period_year}",
         }
+        if missing_bank_details:
+            response["warnings"] = {
+                "missing_bank_details": missing_bank_details,
+                "message": f"{len(missing_bank_details)} employee(s) have incomplete bank details. Transfers created with status MISSING_BANK_DETAILS.",
+            }
+        return response
 
     async def generate_bank_file(self, advice_file_id_or_format: str = "NEFT", company_id: Optional[uuid.UUID] = None) -> dict:
         """Generate actual CSV/NEFT advice file content and store on BankAdviceFile."""
@@ -413,8 +469,8 @@ class BankService:
             res = await self.db.execute(stmt)
             target_file = res.scalars().first()
         except (ValueError, TypeError):
-            # Format string passed, find latest advice file
-            stmt = select(BankAdviceFile).order_by(BankAdviceFile.created_at.desc())
+            # Format string passed, find latest advice file by generated_at
+            stmt = select(BankAdviceFile).order_by(BankAdviceFile.generated_at.desc().nullslast(), BankAdviceFile.created_at.desc())
             if cid:
                 stmt = stmt.where(BankAdviceFile.company_id == cid)
             res = await self.db.execute(stmt)
@@ -467,13 +523,17 @@ class BankService:
         target_file.status = "GENERATED"
         target_file.total_records = len(disbursements)
         target_file.total_amount = sum((Decimal(str(d.amount or 0)) for d in disbursements), Decimal(0))
+        target_file.generated_at = datetime.now(timezone.utc)
         await self.db.commit()
+
+        # Generate download URL from registered route (mounted at /api/v1/payroll)
+        download_url = f"/api/v1/payroll/bank-transfers/download/{str(target_file.id)}"
 
         return {
             "file_id": str(target_file.id),
             "file_name": target_file.file_name,
             "file_format": target_file.file_format,
-            "download_url": f"/api/payroll/bank-transfers/download/{str(target_file.id)}",
+            "download_url": download_url,
             "status": "GENERATED",
             "total_records": target_file.total_records,
             "total_amount": float(target_file.total_amount),
@@ -484,7 +544,7 @@ class BankService:
         cid = self._resolve_cid(company_id)
         aid = actor_id or self.actor_id
 
-        stmt = select(BankAdviceFile).order_by(BankAdviceFile.created_at.desc())
+        stmt = select(BankAdviceFile).order_by(BankAdviceFile.generated_at.desc().nullslast(), BankAdviceFile.created_at.desc())
         if advice_file_id:
             try:
                 stmt = stmt.where(BankAdviceFile.id == uuid.UUID(advice_file_id))
@@ -629,7 +689,12 @@ class BankService:
         company_id: Optional[uuid.UUID] = None,
         actor_id: Optional[uuid.UUID] = None,
     ) -> dict:
-        """Mark a transfer as manually paid with reference number and supporting evidence."""
+        """Mark a transfer as manually paid with reference number and supporting evidence.
+        
+        Links the transfer to its exact payslip via pay_cycle_id -> PayCycle(period_month, period_year)
+        and employee_id. Updates only that specific payslip. Returns reconciliation error
+        if the link is ambiguous or missing.
+        """
         cid = self._resolve_cid(company_id)
         aid = actor_id or self.actor_id
 
@@ -658,25 +723,104 @@ class BankService:
         if not record:
             raise ValueError(f"Transfer record '{transfer_id}' not found.")
 
+        if (record.status or "").upper() == "SUCCESS":
+            return {
+                "id": str(record.id),
+                "status": "COMPLETED",
+                "reference_number": record.transaction_ref,
+                "disbursed_at": record.disbursed_at.isoformat() if record.disbursed_at else None,
+                "message": "Transfer already marked as paid.",
+            }
+
         old_status = record.status
         ref = transaction_ref or f"MANUAL-{uuid.uuid4().hex[:8].upper()}"
         now = datetime.now(timezone.utc)
 
+        # Find the exact payslip linked to this transfer
+        target_payslip = None
+        if record.pay_cycle_id:
+            # Try to resolve via PayCycle first
+            pay_cycle_stmt = select(PayCycle).where(PayCycle.id == record.pay_cycle_id)
+            pay_cycle_res = await self.db.execute(pay_cycle_stmt)
+            pay_cycle = pay_cycle_res.scalars().first()
+            
+            if pay_cycle:
+                # Find payslip by employee_id, period_month, period_year
+                ps_stmt = select(Payslip).where(
+                    Payslip.employee_id == record.employee_id,
+                    Payslip.period_month == pay_cycle.period_month,
+                    Payslip.period_year == pay_cycle.period_year,
+                )
+                if cid:
+                    ps_stmt = ps_stmt.where(Payslip.company_id == cid)
+                ps_res = await self.db.execute(ps_stmt)
+                target_payslip = ps_res.scalars().first()
+            else:
+                # pay_cycle_id might be a PayrollRun ID (legacy bug) - try that
+                pr_stmt = select(PayrollRun).where(PayrollRun.id == record.pay_cycle_id)
+                pr_res = await self.db.execute(pr_stmt)
+                payroll_run = pr_res.scalars().first()
+                if payroll_run:
+                    ps_stmt = select(Payslip).where(
+                        Payslip.employee_id == record.employee_id,
+                        Payslip.period_month == payroll_run.period_month,
+                        Payslip.period_year == payroll_run.period_year,
+                    )
+                    if cid:
+                        ps_stmt = ps_stmt.where(Payslip.company_id == cid)
+                    ps_res = await self.db.execute(ps_stmt)
+                    target_payslip = ps_res.scalars().first()
+
+        if not target_payslip:
+            # No linked payslip found - ambiguous link
+            await PayrollAuditService.log_event(
+                session=self.db,
+                entity_type="BankDisbursementRecord",
+                entity_id=record.id,
+                action="MARK_AS_PAID_FAILED",
+                company_id=cid,
+                actor_id=aid,
+                before_status=old_status,
+                after_status=old_status,
+                reason=f"Cannot mark as paid: no matching payslip found for employee {record.employee_id} and pay_cycle_id {record.pay_cycle_id}. Manual reconciliation required.",
+                extra_data={"reference_number": ref, "error": "AMBIGUOUS_LINK"},
+            )
+            await self.db.commit()
+            raise ValueError(
+                f"Reconciliation error: Transfer {transfer_id} has no linked payslip. "
+                f"pay_cycle_id={record.pay_cycle_id}, employee_id={record.employee_id}. "
+                f"Manual reconciliation required."
+            )
+
+        # Verify payslip is not already paid
+        if (target_payslip.payment_status or "").upper() == "PAID":
+            await PayrollAuditService.log_event(
+                session=self.db,
+                entity_type="BankDisbursementRecord",
+                entity_id=record.id,
+                action="MARK_AS_PAID_FAILED",
+                company_id=cid,
+                actor_id=aid,
+                before_status=old_status,
+                after_status=old_status,
+                reason=f"Cannot mark as paid: linked payslip {target_payslip.id} already has status PAID.",
+                extra_data={"reference_number": ref, "error": "PAYSLIP_ALREADY_PAID", "payslip_id": str(target_payslip.id)},
+            )
+            await self.db.commit()
+            raise ValueError(
+                f"Linked payslip {target_payslip.id} is already paid. Cannot mark transfer as paid again."
+            )
+
+        # Atomic update: transfer, payslip, and audit in one transaction
         record.status = "SUCCESS"
         record.transaction_ref = ref
         record.disbursed_at = now
         record.updated_at = now
 
-        # Also update corresponding Payslip to PAID
-        if record.employee_id:
-            await self.db.execute(
-                update(Payslip)
-                .where(
-                    Payslip.employee_id == record.employee_id,
-                    Payslip.payment_status != "PAID",
-                )
-                .values(payment_status="PAID", payment_date=now.date(), payment_reference=ref)
-            )
+        target_payslip.payment_status = "PAID"
+        target_payslip.payment_date = now.date()
+        target_payslip.payment_reference = ref
+        target_payslip.updated_at = now
 
         await self.db.commit()
 
@@ -690,7 +834,11 @@ class BankService:
             before_status=old_status,
             after_status="SUCCESS",
             reason=f"Marked as paid manually with ref: {ref}. {remarks or ''}".strip(),
-            extra_data={"reference_number": ref},
+            extra_data={
+                "reference_number": ref,
+                "payslip_id": str(target_payslip.id),
+                "payslip_period": f"{target_payslip.period_month:02d}-{target_payslip.period_year}",
+            },
         )
         await self.db.commit()
 
@@ -699,6 +847,7 @@ class BankService:
             "status": "COMPLETED",
             "reference_number": ref,
             "disbursed_at": now.isoformat(),
+            "payslip_id": str(target_payslip.id),
             "message": "Transfer marked as paid successfully.",
         }
 

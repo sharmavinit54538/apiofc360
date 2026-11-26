@@ -17,9 +17,11 @@ from app.models.exit import EmployeeExit, FnfSettlement
 from app.models.payroll import (
     AdvanceLoan,
     Payslip,
+    PayrollRun,
     SalaryStructure,
     StatutoryComplianceConfig,
 )
+from app.models.payroll_models import PayrollRunEmployee, PayrollPeriod
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,49 @@ class FnfCalculationService:
         )
 
     @staticmethod
+    def _calculate_completed_years(joining_date: date, last_working_date: date) -> tuple[int, bool]:
+        """Calculate completed years of service using calendar anniversaries.
+        
+        Returns:
+            (completed_years, rounded_up) where rounded_up indicates if the final
+            partial year exceeded 6 months and was rounded up (for calculation purposes only).
+        """
+        if last_working_date <= joining_date:
+            return 0, False
+        
+        # Helper to get anniversary date for a given year, handling Feb 29
+        def get_anniversary(year: int) -> date:
+            try:
+                return date(year, joining_date.month, joining_date.day)
+            except ValueError:
+                # Feb 29 in non-leap year -> Feb 28
+                return date(year, 2, 28)
+        
+        # Count completed anniversaries (anniversaries that have passed)
+        completed_years = 0
+        current_year = joining_date.year + 1
+        while True:
+            anniversary = get_anniversary(current_year)
+            if anniversary <= last_working_date:
+                completed_years += 1
+                current_year += 1
+            else:
+                break
+        
+        # Find the last completed anniversary
+        if completed_years > 0:
+            last_anniversary = get_anniversary(joining_date.year + completed_years)
+        else:
+            # No completed anniversaries yet
+            last_anniversary = joining_date
+        
+        # Check if partial year exceeds 6 months (182.5 days)
+        days_past_anniversary = (last_working_date - last_anniversary).days
+        rounded_up = days_past_anniversary > 182
+        
+        return completed_years, rounded_up
+
+    @staticmethod
     def compute_gratuity(
         basic_monthly: Decimal,
         joining_date: Optional[date],
@@ -102,40 +147,44 @@ class FnfCalculationService:
         
         Eligible if employee has completed 5+ years (60+ months) of continuous service.
         If service in final year exceeds 6 months, it is rounded up to next full year.
+        
+        Uses calendar-based anniversary calculation for accurate service duration.
         """
         if not joining_date or not last_working_date or last_working_date <= joining_date:
             return Decimal("0.00")
         basic_da_monthly = Decimal(str(basic_monthly)) + Decimal(str(da_monthly or 0))
         ceiling = Decimal(str(gratuity_ceiling)) if gratuity_ceiling is not None else None
 
-        days_of_service = (last_working_date - joining_date).days
-        years_raw = days_of_service / 365.25
-
         # Fixed-term employees: under the Payment of Gratuity (Amendment) Act,
         # 2018 (carried forward by the Code on Wages, 2019) a fixed-term employee
         # earns gratuity on a pro-rata basis for the period actually served, with
         # NO five-year minimum tenure requirement.
         if FnfCalculationService.is_fixed_term(employment_type) and fixed_term_pro_rata:
-            if years_raw <= 0 or basic_da_monthly <= 0:
+            # For fixed-term, use precise calendar-based pro-rata calculation
+            total_days = (last_working_date - joining_date).days
+            if total_days <= 0 or basic_da_monthly <= 0:
                 return Decimal("0.00")
+            # Calculate exact years including fractional part using calendar
+            years_exact = Decimal(str(total_days)) / Decimal("365.25")  # Approximation for pro-rata
             pro_rata = (
                 (Decimal("15.0") / Decimal("26.0"))
                 * basic_da_monthly
-                * Decimal(str(years_raw))
+                * years_exact
             )
             if ceiling is not None:
                 pro_rata = min(pro_rata, ceiling)
             return pro_rata.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        if years_raw < min_years_required:
+        # Regular employees: calendar-based completed years
+        completed_years, rounded_up = FnfCalculationService._calculate_completed_years(joining_date, last_working_date)
+        
+        if completed_years < min_years_required:
             return Decimal("0.00")
 
-        completed_years = int(years_raw)
-        fractional_months = (years_raw - completed_years) * 12
-        if fractional_months >= 6:
-            completed_years += 1
-
-        gratuity = (Decimal("15.0") / Decimal("26.0")) * basic_da_monthly * Decimal(str(completed_years))
+        # Apply rounding up for calculation purposes only (after eligibility is confirmed)
+        calculation_years = completed_years + (1 if rounded_up else 0)
+        
+        gratuity = (Decimal("15.0") / Decimal("26.0")) * basic_da_monthly * Decimal(str(calculation_years))
         if ceiling is not None:
             gratuity = min(gratuity, ceiling)
         return gratuity.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -332,12 +381,15 @@ class FnfCalculationService:
         loan_recovery = sum((Decimal(str(loan.outstanding_balance or 0)) for loan in loans), Decimal("0.00"))
         
         # Calculate pending salary from actual unpaid payroll periods, not day-based fallback
-        from app.models.payroll import PayrollRunEmployee, PayrollPeriod
         from sqlalchemy import and_
         
-        # Find payroll periods that overlap with notice period and are unpaid
+        # Find payroll runs that overlap with notice period and are unpaid
+        # Join: PayrollRunEmployee -> PayrollRun -> PayrollPeriod
         unpaid_periods = await self.db.execute(
-            select(PayrollRunEmployee).join(PayrollPeriod).where(
+            select(PayrollRunEmployee)
+            .join(PayrollRun, PayrollRunEmployee.run_id == PayrollRun.id)
+            .join(PayrollPeriod, PayrollRun.period_id == PayrollPeriod.id)
+            .where(
                 and_(
                     PayrollRunEmployee.employee_id == emp.id,
                     PayrollPeriod.end_date >= exit_obj.created_at.date(),

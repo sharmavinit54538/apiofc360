@@ -20,10 +20,11 @@ class SecurityRole(Base):
     __tablename__ = "security_roles"
     __table_args__ = (
         Index("ix_security_roles_company_id", "company_id"),
+        UniqueConstraint("company_id", "role_code", name="uq_security_roles_company_id_role_code"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
 
     role_name: Mapped[str] = mapped_column(String(100), nullable=False)
     role_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -64,7 +65,9 @@ class SecurityPolicy(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    reconciliation_needed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    reconciliation_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default=text("30"))
     idle_timeout_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default=text("15"))
@@ -105,7 +108,9 @@ class IPWhitelist(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    reconciliation_needed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    reconciliation_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ip_address_or_range: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)

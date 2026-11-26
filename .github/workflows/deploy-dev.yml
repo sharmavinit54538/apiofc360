@@ -126,7 +126,11 @@ jobs:
               git clean -fd
             else
               echo '[Deploy] Syncing repository files from checked out workspace...'
-              rsync -a --delete --exclude='.env' --exclude='.git' \"$GITHUB_WORKSPACE\"/ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
+              rsync -a --delete \
+                --exclude='.env' \
+                --exclude='.git' \
+                --exclude='uploads/' \
+                \"$GITHUB_WORKSPACE\"/ ${{ env.APP_DIR }}/ 2>/dev/null || cp -r ./* ${{ env.APP_DIR }}/ 2>/dev/null || true
             fi
 
             # IMPORTANT: Do NOT overwrite .env on the server.

@@ -18,6 +18,9 @@ from app.models.payroll import AdvanceLoan, SalaryStructure
 from app.services.fnf_calculation_service import FnfCalculationService
 from app.services.exit_service import ExitService
 from app.schemas.exit import FnfCreate
+from app.repositories.exit_repository import ExitRepository
+from app.repositories.auth_repository import AuthRepository
+from app.repositories.employee_repository import EmployeeRepository
 
 
 def test_gratuity_under_five_years_is_zero():
@@ -164,7 +167,15 @@ async def test_end_to_end_fnf_preview_and_submission():
         await db.commit()
 
         # Run FNF preview
-        exit_service = ExitService(db)
+        exit_repo = ExitRepository(db)
+        auth_repo = AuthRepository(db)
+        emp_repo = EmployeeRepository(db)
+        exit_service = ExitService(
+            session=db,
+            repo=exit_repo,
+            auth_repo=auth_repo,
+            employee_repo=emp_repo,
+        )
         preview = await exit_service.get_fnf_preview(exit_obj.id)
 
         # Assert Gratuity: ~7 years * (15/26) * 52,000 = 210,000

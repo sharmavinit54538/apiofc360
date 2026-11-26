@@ -3,12 +3,12 @@
 from datetime import datetime, timedelta, timezone
 import uuid
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.otp import OTP
 from app.models.refresh_token import RefreshToken
-from app.models.user import User, UserRole
+from app.models.user import User, UserAccountStatus, UserRole
 from app.models.password_reset import PasswordResetToken
 
 
@@ -170,16 +170,20 @@ class AuthRepository:
         return result.scalars().first()
 
     async def update_user_verification(self, user_id: uuid.UUID) -> None:
-        """Update user verification status to active and verified."""
-
+        """Update user verification status to active and verified, persisting verification timestamp."""
+        now = datetime.now(timezone.utc)
         await self.session.execute(
             update(User)
             .where(User.id == user_id)
             .values(
                 is_verified=True,
                 is_active=True,
-                email_verified_at=datetime.now(timezone.utc),
+                account_status=UserAccountStatus.ACTIVE.value,
+                email_verified_at=func.coalesce(User.email_verified_at, now),
+                email_verification_token=None,
+                email_verification_expires_at=None,
             )
+            .execution_options(synchronize_session=False)
         )
         await self.session.flush()
 
@@ -511,13 +515,16 @@ class AuthRepository:
 
     async def update_user_email(self, user_id: uuid.UUID, new_email: str) -> None:
         """Commit the verified new email, clear pending_email, and refresh email_verified_at."""
-
+        clean_email = new_email.strip().lower()
         await self.session.execute(
             update(User)
             .where(User.id == user_id)
             .values(
-                email=new_email,
+                email=clean_email,
                 pending_email=None,
+                is_verified=True,
+                is_active=True,
+                account_status=UserAccountStatus.ACTIVE.value,
                 email_verified_at=datetime.now(timezone.utc),
             )
         )
