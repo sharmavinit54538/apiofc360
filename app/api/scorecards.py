@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     ScorecardTemplateCreate,
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/scorecards", tags=["Interview Scorecards"])
 )
 async def create_scorecard_template(
     payload: ScorecardTemplateCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ScorecardTemplateResponse]:
     """Create scorecard template. Admin and HR only."""
@@ -46,7 +46,7 @@ async def create_scorecard_template(
     summary="List scorecard templates",
 )
 async def list_scorecard_templates(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     department: str | None = Query(None),
 ) -> APIResponse[list[ScorecardTemplateResponse]]:
@@ -68,7 +68,7 @@ async def list_scorecard_templates(
 )
 async def submit_scorecard(
     payload: ScorecardSubmissionCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ScorecardSubmissionResponse]:
     """Submit interview scorecard. Admin and HR only."""
@@ -90,7 +90,7 @@ async def submit_scorecard(
 )
 async def get_scorecards(
     round_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[list[ScorecardSubmissionResponse]]:
     """Get scorecard submissions for round. Admin and HR only."""

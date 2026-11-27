@@ -24,20 +24,24 @@ router = APIRouter(prefix="/exports", tags=["Exports"])
 def require_export_permission(
     claims: Annotated[dict, Depends(get_current_user_claims)]
 ) -> dict:
-    """Ensure that only authorized roles can export data (admin, super_admin, hr_manager)."""
-    role = claims.get("role", "").lower()
-    # Check if user has permission to export
-    if role not in {"super_admin", "hr_admin"}:
+    """Ensure only authorized tenant HR Admins can export reports (excludes Super Admin)."""
+    role = (claims.get("role") or "").strip().lower()
+    if role == "super_admin" or role not in {"hr_admin", "hr", "admin"}:
         logger.warning("Unauthorized export attempt | role=%s | user_id=%s", role, claims.get("sub"))
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only SUPER_ADMIN or HR_ADMIN can export reports.",
+            detail="Only tenant HR_ADMIN can export reports.",
         )
     return claims
 
 
 def _get_company_id(claims: dict) -> uuid.UUID:
-    """Extract and validate company_id from JWT claims."""
+    """Extract and validate company_id from JWT claims (excludes Super Admin)."""
+    if (claims.get("role") or "").strip().lower() == "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin cannot access tenant operational exports.",
+        )
     company_id_str = claims.get("company_id")
     if not company_id_str:
         raise HTTPException(

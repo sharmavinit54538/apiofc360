@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.attendance.services.roster_service import RosterService
 from app.core.exceptions import AppException
-from app.core.rbac import require_admin, require_admin_or_manager
+from app.core.rbac import require_tenant_admin as require_admin, require_tenant_admin_or_manager as require_admin_or_manager
 from app.db.database import get_db_session
 from app.models.employee import Employee
 from app.models.shift import Shift

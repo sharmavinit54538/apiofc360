@@ -11,7 +11,14 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import load_only, noload
 
 from app.core.exceptions import AppException, BadRequestException, ForbiddenException, NotFoundException
-from app.core.rbac import require_admin_or_manager
+from app.core.rbac import (
+    normalize_operational_role,
+    reject_super_admin_operational_access,
+    require_admin_or_manager,
+    require_tenant_admin_or_manager,
+    require_tenant_employee_or_above,
+    require_tenant_hr_admin,
+)
 from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.models.employee import Employee
 from app.models.user import User
@@ -74,38 +81,8 @@ async def _get_is_super_admin(
     claims: dict | None,
     service: HierarchyService,
 ) -> bool:
-    """Resolve immutable super_admin status without triggering User.company selectin."""
-    if not user_uuid_raw:
-        return False
-    role = str(claims.get("role", "")).lower() if claims else ""
-    if role != "super_admin":
-        return False
-    try:
-        user_uuid = uuid.UUID(str(user_uuid_raw))
-    except (ValueError, TypeError):
-        return False
-    res = await service.session.execute(
-        select(User)
-        .options(
-            load_only(
-                User.id,
-                User.email,
-                User.role,
-                User.is_active,
-                User.is_deleted,
-                User.account_status,
-            ),
-            noload(User.company),
-        )
-        .where(User.id == user_uuid)
-        .execution_options(bypass_tenant=True)
-    )
-    user = res.scalar_one_or_none()
-    if not user or user.is_deleted or not user.is_active:
-        return False
-    if str(getattr(user, "account_status", "") or "").upper() != "ACTIVE":
-        return False
-    return bool(user.is_super_admin)
+    """Super Admin never receives operational hierarchy access."""
+    return False
 
 
 async def get_current_employee(claims: dict | None, service: HierarchyService) -> Employee | None:
@@ -115,12 +92,17 @@ async def get_current_employee(claims: dict | None, service: HierarchyService) -
     try:
         user_uuid = uuid.UUID(str(claims["sub"]))
         company_uuid = _get_company_id_safe(claims)
-        conditions = [Employee.user_id == user_uuid, Employee.is_deleted == False]
-        if company_uuid is not None:
-            conditions.append(Employee.company_id == company_uuid)
+        if not company_uuid:
+            return None
         stmt = (
             select(Employee)
-            .where(and_(*conditions))
+            .where(
+                and_(
+                    Employee.user_id == user_uuid,
+                    Employee.company_id == company_uuid,
+                    Employee.is_deleted == False,  # noqa: E712
+                )
+            )
             .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         res = await service.session.execute(stmt)
@@ -136,24 +118,16 @@ async def check_access_to_employee(
     service: HierarchyService,
 ) -> Employee:
     """Enforce tenant isolation and RBAC boundaries for viewing employee hierarchy details."""
-    role = str(claims.get("role", "")).lower() if claims else ""
+    role = reject_super_admin_operational_access(claims)
+    company_uuid = _get_company_id(claims)
 
-    # 1. Lightweight Super Admin flag lookup (avoids User.company selectin query)
-    is_super = await _get_is_super_admin(current_user_id, claims, service)
-    company_uuid = None if is_super else _get_company_id_safe(claims)
-
-    # Load target employee with safe hierarchy columns only
-    target_emp = await service.repo.get_employee_by_id(target_employee_id)
-    if not target_emp:
+    # Load target employee strictly within caller's company using safe hierarchy columns only
+    target_emp = await service.repo.get_employee_by_id(target_employee_id, company_id=company_uuid)
+    if not target_emp or target_emp.company_id != company_uuid:
         raise NotFoundException("Employee not found.")
 
-    if not is_super:
-        if not company_uuid or target_emp.company_id != company_uuid:
-            raise ForbiddenException("Access denied: cross-company hierarchy access is prohibited.")
-
-    # 2. Admin / HR / Executive roles within tenant
-    allowed_roles = {"super_admin", "hr_admin", "admin", "it_admin", "executive", "ceo", "cfo"}
-    if is_super or role in allowed_roles:
+    # Admin / HR / Executive roles within tenant
+    if role in {"hr_admin", "executive"}:
         return target_emp
 
     # Load caller's employee record within tenant
@@ -161,18 +135,32 @@ async def check_access_to_employee(
     if not caller_emp:
         raise ForbiddenException("Access denied: employee profile is required.")
 
-    # 3. Self access or manager access to reporting subtree
     if caller_emp.id == target_employee_id:
         return target_emp
 
     if role == "manager":
-        is_subordinate = await service.repo.detect_cycle(caller_emp.id, target_employee_id)
+        is_subordinate = await service.repo.is_subordinate(
+            caller_emp.id,
+            target_employee_id,
+            company_id=company_uuid,
+        )
         if is_subordinate:
             return target_emp
 
     raise ForbiddenException(
         "Access denied: you may only view reporting hierarchy details for yourself or your reporting team."
     )
+
+
+def _strip_salary_from_node(node: Any, allow_salary: bool) -> Any:
+    if allow_salary or node is None:
+        return node
+    if hasattr(node, "ctc"):
+        node.ctc = None
+    if hasattr(node, "children") and node.children:
+        for child in node.children:
+            _strip_salary_from_node(child, False)
+    return node
 
 
 @router.get(
@@ -187,22 +175,25 @@ async def get_hierarchy(
     employment_type: str | None = Query(None),
     reporting_manager_id: str | None = Query(None),
     search: str | None = Query(None),
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)] = None,
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
 ) -> APIResponse[list[HierarchyTreeResponse]]:
-    """Return nested organization hierarchy tree scoped to roles with optional filtering."""
-    role = str(claims.get("role", "")).lower() if claims else ""
-    user_uuid_raw = claims.get("sub") if claims else None
-    is_super = await _get_is_super_admin(user_uuid_raw, claims, service)
-    company_uuid = None if is_super else _get_company_id_safe(claims)
+    """Return nested organization hierarchy tree scoped to tenant and caller role."""
+    role = reject_super_admin_operational_access(claims)
+    company_uuid = _get_company_id(claims)
+    allow_salary = role in {"hr_admin", "executive"}
 
     root_id = None
-    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
-    if not is_super and role not in allowed_admin_roles:
-        if role == "manager":
-            caller_emp = await get_current_employee(claims, service)
-            if caller_emp:
-                root_id = caller_emp.id
+    if role not in {"hr_admin", "executive"}:
+        caller_emp = await get_current_employee(claims, service)
+        if not caller_emp:
+            return APIResponse(
+                success=True,
+                message="Organization tree fetched successfully.",
+                data=[],
+                errors=None,
+            )
+        root_id = caller_emp.id
 
     tree = await service.build_tree(
         company_id=company_uuid,
@@ -213,6 +204,7 @@ async def get_hierarchy(
         employment_type=employment_type,
         reporting_manager_id=reporting_manager_id,
         search=search,
+        include_salary=allow_salary,
     )
     return APIResponse(
         success=True,
@@ -234,7 +226,7 @@ async def get_hierarchy_tree(
     employment_type: str | None = Query(None),
     reporting_manager_id: str | None = Query(None),
     search: str | None = Query(None),
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)] = None,
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
 ) -> APIResponse[list[HierarchyTreeResponse]]:
     """Alias endpoint for nested hierarchy tree JSON."""
@@ -262,22 +254,25 @@ async def get_hierarchy_chart(
     employment_type: str | None = Query(None),
     reporting_manager_id: str | None = Query(None),
     search: str | None = Query(None),
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)] = None,
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
 ) -> APIResponse[list[OrganizationChartNode]]:
     """Get flat representation of employee relationships optimized for rendering React Flow charts."""
-    role = str(claims.get("role", "")).lower() if claims else ""
-    user_uuid_raw = claims.get("sub") if claims else None
-    is_super = await _get_is_super_admin(user_uuid_raw, claims, service)
-    company_uuid = None if is_super else _get_company_id_safe(claims)
+    role = reject_super_admin_operational_access(claims)
+    company_uuid = _get_company_id(claims)
+    allow_salary = role in {"hr_admin", "executive"}
 
     root_id = None
-    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
-    if not is_super and role not in allowed_admin_roles:
-        if role == "manager":
-            caller_emp = await get_current_employee(claims, service)
-            if caller_emp:
-                root_id = caller_emp.id
+    if role not in {"hr_admin", "executive"}:
+        caller_emp = await get_current_employee(claims, service)
+        if not caller_emp:
+            return APIResponse(
+                success=True,
+                message="React Flow chart data fetched successfully.",
+                data=[],
+                errors=None,
+            )
+        root_id = caller_emp.id
 
     chart = await service.get_flat_chart(
         company_id=company_uuid,
@@ -288,6 +283,7 @@ async def get_hierarchy_chart(
         employment_type=employment_type,
         reporting_manager_id=reporting_manager_id,
         search=search,
+        include_salary=allow_salary,
     )
     return APIResponse(
         success=True,
@@ -303,11 +299,12 @@ async def get_hierarchy_chart(
     summary="Get hierarchy analytics metrics",
 )
 async def get_analytics(
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[HierarchyAnalyticsResponse]:
     """Retrieve aggregate team size, levels depth, vacant positions, etc."""
-    company_uuid = _get_company_id_safe(claims)
+    reject_super_admin_operational_access(claims)
+    company_uuid = _get_company_id(claims)
     analytics = await service.get_analytics(company_uuid)
     return APIResponse(
         success=True,
@@ -324,10 +321,11 @@ async def get_analytics(
 )
 async def get_employee_hierarchy_details(
     employee_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[ReportingChainResponse]:
     """Fetch manager, peers, direct reports, reporting chain, and organizational level for an employee."""
+    role = reject_super_admin_operational_access(claims)
     user_uuid = uuid.UUID(claims["sub"])
     company_uuid = _get_company_id(claims)
 
@@ -339,6 +337,7 @@ async def get_employee_hierarchy_details(
         employee_id,
         effective_company_id,
         preloaded_employee=target_emp,
+        include_salary=(role in {"hr_admin", "executive"}),
     )
     return APIResponse(
         success=True,
@@ -355,20 +354,26 @@ async def get_employee_hierarchy_details(
 )
 async def get_reporting_path(
     employee_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[ReportingPathResponse]:
     """Return visual list showing hierarchy levels path, e.g. CEO -> Vice President -> Employee."""
+    role = reject_super_admin_operational_access(claims)
     user_uuid = uuid.UUID(claims["sub"])
+    company_uuid = _get_company_id(claims)
 
     # Enforce RBAC security and reuse preloaded target employee
     emp = await check_access_to_employee(user_uuid, employee_id, claims, service)
 
-    # Fetch ancestors (top-down)
-    ancestors = await service.repo.get_recursive_ancestors(employee_id)
+    # Fetch ancestors (top-down) within same company
+    ancestors = await service.repo.get_recursive_ancestors(employee_id, company_id=company_uuid)
 
     full_path = ancestors + [emp]
-    path_nodes = [HierarchyNodeResponse.model_validate(x) for x in full_path]
+    allow_salary = role in {"hr_admin", "executive"}
+    path_nodes = [
+        _strip_salary_from_node(HierarchyNodeResponse.model_validate(x), allow_salary)
+        for x in full_path
+    ]
 
     # Format the path string using ↓ separator
     names = [f"{x.first_name} {x.last_name} ({x.designation})" for x in full_path]
@@ -390,17 +395,19 @@ async def get_reporting_path(
 )
 async def assign_manager(
     payload: AssignManagerRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[HierarchyNodeResponse]:
     """Set employee manager, executing circular references and active manager validations. Admin/HR only."""
-    role = claims.get("role")
-    if role not in {"super_admin", "hr_admin"}:
-        raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
-
     user_uuid = uuid.UUID(claims["sub"])
-    emp = await service.assign_manager(payload.employee_id, payload.manager_id, user_uuid)
-    
+    company_uuid = _get_company_id(claims)
+    emp = await service.assign_manager(
+        payload.employee_id,
+        payload.manager_id,
+        user_uuid,
+        company_id=company_uuid,
+    )
+
     return APIResponse(
         success=True,
         message="Manager assigned successfully.",
@@ -416,17 +423,19 @@ async def assign_manager(
 )
 async def change_manager(
     payload: ChangeManagerRequest,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[HierarchyNodeResponse]:
     """Change employee reporting manager. Admin/HR only."""
-    role = claims.get("role")
-    if role not in {"super_admin", "hr_admin"}:
-        raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
-
     user_uuid = uuid.UUID(claims["sub"])
-    emp = await service.change_manager(payload.employee_id, payload.new_manager_id, user_uuid)
-    
+    company_uuid = _get_company_id(claims)
+    emp = await service.change_manager(
+        payload.employee_id,
+        payload.new_manager_id,
+        user_uuid,
+        company_id=company_uuid,
+    )
+
     return APIResponse(
         success=True,
         message="Manager transferred successfully.",
@@ -442,17 +451,18 @@ async def change_manager(
 )
 async def remove_manager(
     employee_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[HierarchyNodeResponse]:
     """Remove employee's manager (orphaning or upgrading employee to top level). Admin/HR only."""
-    role = claims.get("role")
-    if role not in {"super_admin", "hr_admin"}:
-        raise AppException(message="Access denied: Hierarchy edits are restricted to Admin/HR.", status_code=status.HTTP_403_FORBIDDEN)
-
     user_uuid = uuid.UUID(claims["sub"])
-    emp = await service.remove_manager(employee_id, user_uuid)
-    
+    company_uuid = _get_company_id(claims)
+    emp = await service.remove_manager(
+        employee_id,
+        user_uuid,
+        company_id=company_uuid,
+    )
+
     return APIResponse(
         success=True,
         message="Manager removed successfully.",
@@ -468,17 +478,23 @@ async def remove_manager(
 )
 async def get_direct_reports(
     manager_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[list[HierarchyNodeResponse]]:
     """List direct reports of a manager. Subject to caller view boundaries."""
+    role = reject_super_admin_operational_access(claims)
     user_uuid = uuid.UUID(claims["sub"])
-    
+    company_uuid = _get_company_id(claims)
+
     # Enforce RBAC security
     await check_access_to_employee(user_uuid, manager_id, claims, service)
 
-    reports = await service.repo.get_direct_reports(manager_id)
-    data = [HierarchyNodeResponse.model_validate(r) for r in reports]
+    reports = await service.repo.get_direct_reports(manager_id, company_id=company_uuid)
+    allow_salary = role in {"hr_admin", "executive"}
+    data = [
+        _strip_salary_from_node(HierarchyNodeResponse.model_validate(r), allow_salary)
+        for r in reports
+    ]
     return APIResponse(
         success=True,
         message="Direct reports fetched successfully.",
@@ -494,17 +510,23 @@ async def get_direct_reports(
 )
 async def get_team(
     manager_id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
 ) -> APIResponse[list[HierarchyNodeResponse]]:
     """List all descendants (entire direct + indirect team) of a manager. Subject to caller view boundaries."""
+    role = reject_super_admin_operational_access(claims)
     user_uuid = uuid.UUID(claims["sub"])
-    
+    company_uuid = _get_company_id(claims)
+
     # Enforce RBAC security
     await check_access_to_employee(user_uuid, manager_id, claims, service)
 
-    team = await service.repo.get_recursive_descendants(manager_id)
-    data = [HierarchyNodeResponse.model_validate(t) for t in team]
+    team = await service.repo.get_recursive_descendants(manager_id, company_id=company_uuid)
+    allow_salary = role in {"hr_admin", "executive"}
+    data = [
+        _strip_salary_from_node(HierarchyNodeResponse.model_validate(t), allow_salary)
+        for t in team
+    ]
     return APIResponse(
         success=True,
         message="Recursive team descendants fetched successfully.",

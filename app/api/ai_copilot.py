@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.ai_copilot import (
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/ai", tags=["AI Hiring Copilot"])
 async def upload_resume(
     file: UploadFile,
     application_id: str = Form(..., description="Application UUID"),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[dict]:
     """Upload candidate resume file (PDF/DOCX/PNG/JPG/JPEG, ≤10MB).
@@ -56,7 +56,7 @@ async def upload_resume(
 )
 async def extract_resume(
     resume_document_id: uuid.UUID = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[ExtractionDataResponse]:
     """Extract raw text from uploaded resume and parse structured JSON via local Llama3.
@@ -83,7 +83,7 @@ async def generate_embeddings(
     resume_document_id: uuid.UUID = Form(...),
     job_id: uuid.UUID = Form(...),
     job_description: str = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[dict]:
     """Generate semantic vector embeddings using local nomic-embed-text model.
@@ -111,7 +111,7 @@ async def match_candidate(
     resume_document_id: uuid.UUID = Form(...),
     job_id: uuid.UUID = Form(...),
     job_description: str = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[SemanticMatchResponse]:
     """Compute cosine similarity score between candidate resume and job description.
@@ -137,7 +137,7 @@ async def analyze_candidate(
     resume_document_id: uuid.UUID = Form(...),
     job_id: uuid.UUID = Form(...),
     job_description: str = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[AiAnalysisResponse]:
     """Evaluate candidate using local Llama3 model.
@@ -164,7 +164,7 @@ async def analyze_candidate(
 async def rank_candidate(
     resume_document_id: uuid.UUID = Form(...),
     job_id: uuid.UUID = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[CandidateRankingResponse]:
     """Compute 10-dimensional scoring for candidate ranking.
@@ -191,7 +191,7 @@ async def generate_interview_questions(
     resume_document_id: uuid.UUID = Form(...),
     job_id: uuid.UUID = Form(...),
     job_description: str = Form(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[InterviewQuestionsResponse]:
     """Generate 15 targeted interview questions via local Llama3.
@@ -218,7 +218,7 @@ async def generate_interview_questions(
 async def get_candidate_dashboard(
     resume_document_id: uuid.UUID,
     job_id: uuid.UUID = Query(...),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[AiCopilotDashboardView]:
     """Aggregate all pipeline data into a unified hiring dashboard view.
@@ -245,7 +245,7 @@ async def get_candidate_dashboard(
 )
 async def get_job_ranking(
     job_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)] = None,
 ) -> APIResponse[list[dict]]:
     """Get all candidates ranked by AI scores for a specific job position.
@@ -278,7 +278,7 @@ class CopilotRequest(BaseModel):
 )
 async def run_copilot_tool_route(
     payload: CopilotRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AiCopilotService, Depends(get_ai_copilot_service)],
 ) -> APIResponse[str]:
     """Run an AI recruiting tool (e.g. summarize, email, skillgap, rank) with real Ollama. Admin and HR only."""

@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.communication import (
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/events", tags=["Company Events Management"])
 )
 async def create_event(
     payload: CompanyEventCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyEventResponse]:
     """Schedule a new company event. Admin and HR only."""
@@ -88,7 +88,7 @@ async def get_event(
 async def update_event(
     id: uuid.UUID,
     payload: CompanyEventCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyEventResponse]:
     """Update details of scheduled event. Admin and HR only."""
@@ -109,7 +109,7 @@ async def update_event(
 )
 async def delete_event(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[None]:
     """Delete scheduled event. Admin and HR only."""
@@ -130,7 +130,7 @@ async def delete_event(
 )
 async def publish_event(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyEventResponse]:
     """Publish scheduled event. Admin and HR only."""
@@ -162,7 +162,7 @@ async def publish_event(
 )
 async def cancel_event(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyEventResponse]:
     """Cancel scheduled event. Admin and HR only."""

@@ -11,7 +11,7 @@ from sqlalchemy import select, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/hr/interviews", tags=["HR Interview Dashboard"])
     summary="List all company interview sessions with filters",
 )
 async def list_hr_interviews(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
     job_id: Optional[uuid.UUID] = Query(None),
     candidate_id: Optional[uuid.UUID] = Query(None),
@@ -172,7 +172,7 @@ async def list_hr_interviews(
 )
 async def get_hr_interview_detail(
     interview_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[dict]:
     """Get complete interview details including transcript, scores, and evidence."""
@@ -344,7 +344,7 @@ async def get_hr_interview_detail(
 async def add_interview_feedback(
     interview_id: uuid.UUID,
     feedback: str = Form(..., min_length=1),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Add HR feedback/notes to an interview session."""
@@ -407,7 +407,7 @@ async def override_ai_recommendation(
     interview_id: uuid.UUID,
     recommendation: str = Form(..., description="STRONG_HIRE, HIRE, MAYBE, REJECT"),
     reason: str = Form(..., min_length=1),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Override AI hiring recommendation with HR decision."""
@@ -492,7 +492,7 @@ async def advance_candidate(
     interview_id: uuid.UUID,
     action: str = Form(..., description="SHORTLIST, SCHEDULE_ROUND, REJECT, HOLD"),
     round_name: Optional[str] = Form(None),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
 ) -> APIResponse[dict]:
     """Advance candidate to next stage or schedule another interview round."""

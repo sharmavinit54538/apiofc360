@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     RecruitmentVendorCreate,
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/vendors")
 )
 async def create_vendor(
     payload: RecruitmentVendorCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[RecruitmentVendorResponse]:
     """Register a recruitment vendor agency. Admin and HR only."""

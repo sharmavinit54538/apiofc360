@@ -32,6 +32,16 @@ def _require_authenticated(claims: dict | None) -> dict:
     return claims
 
 
+def _reject_super_admin(claims: dict | None) -> dict:
+    """Fail-closed check blocking Platform Super Admin from tenant payroll/salary data."""
+    verified = _require_authenticated(claims)
+    if _role(verified) == RoleEnum.SUPER_ADMIN.value:
+        raise ForbiddenException(
+            "Super Admin is restricted to platform-level management and cannot access tenant payroll or salary data."
+        )
+    return verified
+
+
 def _require_tenant_id(
     claims: dict | None,
     *,
@@ -39,14 +49,12 @@ def _require_tenant_id(
 ) -> Optional[uuid.UUID]:
     """Extract and validate verified company_id tenant scope from JWT claims.
 
-    Fails closed unless the verified caller holds a valid UUID company_id claim
-    (or is Platform Super Admin when global listing is explicitly allowed).
+    Fails closed unless the verified caller is a tenant user with a valid UUID company_id claim.
+    Super Admin is strictly excluded from operational tenant payroll/salary access.
     """
-    verified = _require_authenticated(claims)
+    verified = _reject_super_admin(claims)
     raw = verified.get("company_id")
     if not raw:
-        if allow_super_admin_global and _role(verified) == RoleEnum.SUPER_ADMIN.value:
-            return None
         raise ForbiddenException("Company tenant scope is required.")
     try:
         return uuid.UUID(str(raw))
@@ -56,7 +64,7 @@ def _require_tenant_id(
 
 def _require_payroll_permission(claims: dict | None, permission: str) -> None:
     """Require a granular permission, with an admin/manager role fallback (fail-closed)."""
-    verified = _require_authenticated(claims)
+    verified = _reject_super_admin(claims)
     raw_permissions = verified.get("permissions")
     if raw_permissions is None:
         raw_permissions = verified.get("permission_codes")
@@ -97,24 +105,26 @@ def _role(claims: dict | None) -> Optional[str]:
 
 
 def _is_admin_or_manager(claims: dict | None) -> bool:
-    """Check if claims contain admin or manager role without failing open."""
+    """Check if claims contain tenant admin or manager role without failing open."""
     if not claims or not isinstance(claims, dict):
         return False
     role = _role(claims)
+    if role == RoleEnum.SUPER_ADMIN.value:
+        return False
     return bool(role and role in ADMIN_OR_MANAGER_ROLES)
 
 
 def _require_admin_or_manager(claims: dict | None) -> None:
-    """Enforce admin or manager access level (fail-closed)."""
-    verified = _require_authenticated(claims)
+    """Enforce tenant admin or manager access level (fail-closed, excludes Super Admin)."""
+    verified = _reject_super_admin(claims)
     role = _role(verified)
     if not role or role not in ADMIN_OR_MANAGER_ROLES:
         raise ForbiddenException("Admin or Manager role required.")
 
 
 def _require_admin(claims: dict | None) -> None:
-    """Enforce admin access level (fail-closed)."""
-    verified = _require_authenticated(claims)
+    """Enforce tenant admin access level (fail-closed, excludes Super Admin)."""
+    verified = _reject_super_admin(claims)
     role = _role(verified)
     if not role or role not in ADMIN_ROLES:
         raise ForbiddenException("Admin role required.")

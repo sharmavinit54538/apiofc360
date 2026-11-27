@@ -49,11 +49,16 @@ async def get_attendance_history(
     user_id = _get_user_id(claims)
     company_id = _get_company_id(claims)
     user_role = _get_user_role(claims)
+    if user_role == "SUPER_ADMIN" or not company_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "FORBIDDEN", "message": "Tenant employee context is required."},
+        )
     service = AttendanceHistoryService(db)
 
     # If employee_id is requested, verify the caller has permissions to view other employees
     if employee_id:
-        is_admin_or_mgr = any(r in user_role for r in ("ADMIN", "HR_ADMIN", "MANAGER", "SUPER_ADMIN"))
+        is_admin_or_mgr = any(r in user_role for r in ("ADMIN", "HR_ADMIN", "MANAGER"))
         if not is_admin_or_mgr:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

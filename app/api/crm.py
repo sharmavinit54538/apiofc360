@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     CandidateCrmNoteCreate,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/crm", tags=["Recruitment CRM"])
 )
 async def create_crm_note(
     payload: CandidateCrmNoteCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateCrmNoteResponse]:
     """Create a CRM note for a candidate profile. Admin and HR only."""
@@ -46,7 +46,7 @@ async def create_crm_note(
 )
 async def list_crm_notes(
     candidate_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[list[CandidateCrmNoteResponse]]:
     """List all touchpoint notes for a candidate. Admin and HR only."""

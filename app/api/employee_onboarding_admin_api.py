@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.db.database import get_db_session
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_hr_admin, require_tenant_admin
 from app.services.employee_onboarding_service import EmployeeOnboardingService
 from app.schemas.auth import APIResponse
 
@@ -44,7 +44,7 @@ async def _tenant_employee(
 @router.post("/{employee_id}/bgv", response_model=APIResponse[Dict[str, Any]])
 async def update_bgv_status(
     employee_id: uuid.UUID, payload: BGVStatusPayload,
-    claims: dict = Depends(require_admin_or_hr),
+    claims: dict = Depends(require_tenant_hr_admin),
     db: AsyncSession = Depends(get_db_session),
 ):
     svc = EmployeeOnboardingService(db)
@@ -58,7 +58,7 @@ async def update_bgv_status(
 
 @router.get("/{employee_id}/joining-checklist", response_model=APIResponse[Dict[str, Any]])
 async def get_joining_checklist(
-    employee_id: uuid.UUID, claims: dict = Depends(require_admin_or_hr),
+    employee_id: uuid.UUID, claims: dict = Depends(require_tenant_admin),
     db: AsyncSession = Depends(get_db_session),
 ):
     svc = EmployeeOnboardingService(db)
@@ -71,7 +71,7 @@ async def get_joining_checklist(
 @router.post("/{employee_id}/joining-checklist/{task_id}/complete", response_model=APIResponse[Dict[str, Any]])
 async def complete_joining_task(
     employee_id: uuid.UUID, task_id: uuid.UUID,
-    claims: dict = Depends(require_admin_or_hr),
+    claims: dict = Depends(require_tenant_hr_admin),
     db: AsyncSession = Depends(get_db_session),
 ):
     svc = EmployeeOnboardingService(db)
@@ -84,7 +84,7 @@ async def complete_joining_task(
 
 @router.get("", response_model=APIResponse[List[Dict[str, Any]]])
 async def list_progress(
-    claims: dict = Depends(require_admin_or_hr),
+    claims: dict = Depends(require_tenant_hr_admin),
     db: AsyncSession = Depends(get_db_session),
     department: Optional[str] = Query(None),
     location: Optional[str] = Query(None),
@@ -112,7 +112,7 @@ async def list_progress(
 @router.get("/{employee_id}", response_model=APIResponse[Dict[str, Any]])
 async def get_progress_details(
     employee_id: uuid.UUID,
-    claims: dict = Depends(require_admin_or_hr),
+    claims: dict = Depends(require_tenant_hr_admin),
     db: AsyncSession = Depends(get_db_session)
 ):
     """Retrieve full onboarding data for a specific employee."""
@@ -136,7 +136,7 @@ async def verify_onboarding_document(
     employee_id: uuid.UUID,
     doc_id: uuid.UUID,
     payload: VerifyDocumentPayload,
-    claims: dict = Depends(require_admin_or_hr),
+    claims: dict = Depends(require_tenant_hr_admin),
     db: AsyncSession = Depends(get_db_session)
 ):
     """HR/Admin updates document verification status (VERIFIED/REJECTED) with comments."""

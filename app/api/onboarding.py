@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
-from app.core.rbac import require_hr_admin
+from app.core.rbac import require_tenant_hr_admin as require_hr_admin
 from app.db.database import get_db_session
 from app.models.company import Company
 from app.models.department import Department

@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import RecruitmentVendorResponse
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/vendors")
 )
 async def get_vendor(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[RecruitmentVendorResponse]:
     """Get recruitment vendor agency details. Admin and HR only."""
@@ -43,7 +43,7 @@ async def get_vendor(
     summary="List registered recruitment vendors",
 )
 async def list_vendors(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1),

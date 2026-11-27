@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/vendors")
 )
 async def delete_vendor(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Delete recruitment vendor agency record. Admin and HR only."""

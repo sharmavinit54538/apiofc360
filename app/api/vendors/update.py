@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     RecruitmentVendorUpdate,
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/vendors")
 async def update_vendor(
     id: uuid.UUID,
     payload: RecruitmentVendorUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[RecruitmentVendorResponse]:
     """Update recruitment vendor agency profile. Admin and HR only."""

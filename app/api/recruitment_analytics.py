@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
+from app.core.rbac import require_tenant_admin, require_tenant_admin_or_manager
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     RecruitmentAnalyticsResponse,
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/recruitment", tags=["Recruitment Analytics & Alerts"
     summary="Get recruitment metrics and pipeline analytics",
 )
 async def get_analytics(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     start_date: Annotated[date | None, Query(description="Filter from date (YYYY-MM-DD)")] = None,
     end_date: Annotated[date | None, Query(description="Filter to date (YYYY-MM-DD)")] = None,
@@ -89,7 +89,7 @@ async def get_analytics(
     summary="Get recruitment summary",
 )
 async def get_recruitment_dashboard_stats(
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[dict]:
     """Retrieve recruitment metrics counts. Admin, HR, and Manager."""
@@ -115,7 +115,7 @@ async def get_recruitment_dashboard_stats(
     summary="List recruiting notifications",
 )
 async def list_notifications(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[list[RecruitmentNotificationResponse]]:
     """List recruitment notifications for logged in user. Admin and HR only."""
@@ -137,7 +137,7 @@ async def list_notifications(
 )
 async def mark_read(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Mark a notification as read. Admin and HR only."""

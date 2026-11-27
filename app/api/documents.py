@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.core.exceptions import AppException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
@@ -62,12 +62,20 @@ async def get_upload_service(
     return DocumentUploadService(repo=repo)
 
 
-def _extract_company_id(claims: dict) -> uuid.UUID | None:
-    role = (claims.get("role") or "").lower()
+def _extract_company_id(claims: dict) -> uuid.UUID:
+    role = (claims.get("role") or "").lower().strip()
+    if role == "super_admin":
+        raise AppException(
+            message="Super Admin cannot access tenant internal documents.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     company_id_raw = claims.get("company_id")
-    if role != "super_admin" and not company_id_raw:
+    if not company_id_raw:
         raise AppException(message="Tenant context required.", status_code=status.HTTP_403_FORBIDDEN)
-    return uuid.UUID(str(company_id_raw)) if company_id_raw else None
+    try:
+        return uuid.UUID(str(company_id_raw))
+    except (ValueError, TypeError) as exc:
+        raise AppException(message="Invalid tenant context.", status_code=status.HTTP_403_FORBIDDEN) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +135,7 @@ async def upload_employee_document(
     role = (claims.get("role") or "").lower()
 
     # Employee Self-Service logic (Rule 2.7)
-    if role not in {"super_admin", "hr_admin", "it_admin", "executive"}:
+    if role not in {"hr_admin", "it_admin", "executive"}:
         emp_repo = EmployeeRepository(service.session)
         caller_emp = await emp_repo.get_by_user_id(uploader_id)
         if not caller_emp:
@@ -222,7 +230,7 @@ async def list_employee_documents(
         offset=offset,
         sort_by=sort_by,
         order=order,
-        is_super_admin=(claims.get("role") or "").lower() == "super_admin",
+        is_super_admin=False,
     )
 
     return APIResponse[list[EmployeeDocumentResponse]](
@@ -480,7 +488,7 @@ async def download_document_version(
 )
 async def get_document_history(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[list[AuditLogResponse]]:
     """Retrieve complete audit trail for a document. Admin and HR only (Rule 2.8)."""
@@ -513,7 +521,7 @@ async def upload_company_document(
     department: str | None = Form(None),
     branch: str | None = Form(None),
     visibility: str = Form("PUBLIC"),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> APIResponse[CompanyDocumentResponse]:
     """Upload company wide document or policy manual. Admin and HR only."""
@@ -565,7 +573,7 @@ async def list_company_documents(
     """List company documents with server-side visibility and tenant scoping (Rules 1.4, 1.5, 2.3)."""
     company_id = _extract_company_id(claims)
     role = (claims.get("role") or "").lower()
-    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    is_admin = role in {"hr_admin", "it_admin", "executive"}
 
     viewer_dept = None
     viewer_branch = None
@@ -703,7 +711,7 @@ async def update_company_document(
     department: str | None = Form(None),
     branch: str | None = Form(None),
     visibility: str | None = Form(None),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> APIResponse[CompanyDocumentResponse]:
     """Update company document metadata or upload revised version file. Admin and HR only (Rule 2.8)."""
@@ -744,7 +752,7 @@ async def update_company_document(
 async def delete_company_document(
     id: uuid.UUID,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[None]:
     """Soft delete company document. Admin and HR only."""
@@ -779,7 +787,7 @@ async def delete_company_document(
 async def request_signature(
     id: uuid.UUID,
     payload: SignatureRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[SignatureResponse]:
     """Request digital signature from an employee. Admin and HR only."""
@@ -857,7 +865,7 @@ async def get_signature_status(
 
     # Authorization: assigned signer, HR/Admin, or viewer with doc access
     is_signer = sig.signer_user_id == user_id
-    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    is_admin = role in {"hr_admin", "it_admin", "executive"}
     if not (is_signer or is_admin):
         await assert_can_access_employee_doc(claims, doc, service.session)
 
@@ -883,7 +891,7 @@ async def verify_document(
     id: uuid.UUID,
     payload: VerificationPayload,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
     """Verify and approve uploaded employee document. Admin and HR only."""
@@ -917,7 +925,7 @@ async def reject_document(
     id: uuid.UUID,
     payload: RejectPayload,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
     """Reject uploaded employee document. Comments strictly required (Rule 2.6)."""
@@ -951,7 +959,7 @@ async def request_reupload(
     id: uuid.UUID,
     payload: ReuploadRequestPayload,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[EmployeeDocumentResponse]:
     """Request document re-upload with required comments (Rule 2.6)."""
@@ -986,7 +994,7 @@ async def request_reupload(
     summary="Get documents expiring soon",
 )
 async def list_expiring_documents(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
     days: int | None = Query(None, description="Days threshold, defaults to 30"),
     page: int = Query(1, ge=1),
@@ -1023,7 +1031,7 @@ async def list_expiring_documents(
     summary="Get already expired documents",
 )
 async def list_expired_documents(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -1094,7 +1102,7 @@ async def get_document_summary(
 async def upload_document_ocr(
     file: UploadFile,
     document_type: str = Form("generic"),
-    claims: Annotated[dict, Depends(require_admin_or_hr)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin)] = None,
     service: Annotated[DocumentUploadService, Depends(get_upload_service)] = None,
 ) -> DocumentOCRResponse:
     """Upload document file for Document AI OCR processing. Restricted to Admin and HR (Rule 1.7)."""
@@ -1127,8 +1135,8 @@ async def list_documents_ocr(
 ) -> APIResponse[dict[str, Any]]:
     """Retrieve list of processed OCR documents. User-scoped for non-admins (Rule 1.7)."""
     role = (claims.get("role") or "").lower()
-    is_super_admin = role == "super_admin"
-    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    is_super_admin = False
+    is_admin = role in {"hr_admin", "it_admin", "executive"}
     company_id = _extract_company_id(claims)
 
     user_scope = None if is_admin else uuid.UUID(claims["sub"])
@@ -1178,8 +1186,8 @@ async def get_document_ocr_detail(
 ) -> APIResponse[DocumentOCRDetailResponse]:
     """Retrieve OCR details. Scoped by user_id for non-admin viewers (Rule 1.7)."""
     role = (claims.get("role") or "").lower()
-    is_super_admin = role == "super_admin"
-    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    is_super_admin = False
+    is_admin = role in {"hr_admin", "it_admin", "executive"}
     company_id = _extract_company_id(claims)
     user_scope = None if is_admin else uuid.UUID(claims["sub"])
 
@@ -1209,8 +1217,8 @@ async def download_document_ocr_json(
 ):
     """Download full Google Document AI JSON extraction payload. User-scoped (Rule 1.7)."""
     role = (claims.get("role") or "").lower()
-    is_super_admin = role == "super_admin"
-    is_admin = role in {"super_admin", "hr_admin", "it_admin", "executive"}
+    is_super_admin = False
+    is_admin = role in {"hr_admin", "it_admin", "executive"}
     company_id = _extract_company_id(claims)
     user_scope = None if is_admin else uuid.UUID(claims["sub"])
 

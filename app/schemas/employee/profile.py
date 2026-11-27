@@ -93,6 +93,8 @@ class EmployeeResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def populate_cost_id(cls, data: Any) -> Any:
+        from app.schemas.employee.update import _serialize_employee_orm_to_dict
+        return _serialize_employee_orm_to_dict(data, include_relations=True)
         from app.core.config import settings
 
         cc_val = None

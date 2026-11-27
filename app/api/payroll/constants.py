@@ -6,15 +6,13 @@ from app.models.user.role import RoleEnum
 # Job store for async operations
 _JOB_STORE: dict[str, dict] = {}
 
-# Canonical Role groupings using RoleEnum
+# Canonical Role groupings using RoleEnum (tenant operational roles only; Super Admin is platform-owner only)
 ADMIN_ROLES = (
-    RoleEnum.SUPER_ADMIN.value,
     RoleEnum.HR_ADMIN.value,
     RoleEnum.IT_ADMIN.value,
 )
 
 ADMIN_OR_MANAGER_ROLES = (
-    RoleEnum.SUPER_ADMIN.value,
     RoleEnum.HR_ADMIN.value,
     RoleEnum.IT_ADMIN.value,
     RoleEnum.EXECUTIVE.value,

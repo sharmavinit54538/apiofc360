@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
+from app.core.rbac import require_tenant_admin, require_tenant_admin_or_manager
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     JobRequisitionCreate,
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/requisitions")
 )
 async def create_requisition(
     payload: JobRequisitionCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobRequisitionResponse]:
     """Request a new job requisition. Super Admin, HR Admin, IT Admin, and Manager."""
@@ -50,7 +50,7 @@ async def create_requisition(
 async def approve_requisition(
     id: uuid.UUID,
     payload: RequisitionApproval,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobRequisitionResponse]:
     """Approve or reject a job requisition. Convert to Job posting if approved. Super Admin, HR Admin, and IT Admin only."""

@@ -248,6 +248,7 @@ class EmployeeListItemFull(EmployeeListItem):
     @model_validator(mode="before")
     @classmethod
     def populate_cost_id(cls, data: Any) -> Any:
+        return _serialize_employee_orm_to_dict(data, include_relations=False)
         # ... (same as EmployeeListItem's validator)
         from app.core.config import settings
 

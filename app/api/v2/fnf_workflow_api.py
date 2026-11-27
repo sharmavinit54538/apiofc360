@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.db.database import get_db_session
 from app.models.exit import FnfSettlement
 from app.schemas.auth import APIResponse
@@ -38,7 +38,7 @@ def _fnf_dict(fnf) -> dict[str, Any]:
 
 @router.get("/{exit_id}/clearance", response_model=APIResponse[dict[str, Any]])
 async def get_clearance(
-    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_admin_or_hr)],
+    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     service = FnFWorkflowService(db)
@@ -49,7 +49,7 @@ async def get_clearance(
 
 @router.post("/{exit_id}/fnf/finalize", response_model=APIResponse[dict[str, Any]])
 async def finalize_fnf(
-    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_admin_or_hr)],
+    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     service = FnFWorkflowService(db)
@@ -63,7 +63,7 @@ async def finalize_fnf(
 
 @router.post("/{exit_id}/fnf/settle", response_model=APIResponse[dict[str, Any]])
 async def settle_fnf(
-    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_admin_or_hr)],
+    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     service = FnFWorkflowService(db)
@@ -77,7 +77,7 @@ async def settle_fnf(
 
 @router.get("/{exit_id}/fnf/settlement-sheet")
 async def download_settlement_sheet(
-    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_admin_or_hr)],
+    exit_id: uuid.UUID, claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     service = FnFWorkflowService(db)

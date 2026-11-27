@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.history_service import AttendanceHistoryService
 from app.core.exceptions import AppException
-from app.core.rbac import require_admin
+from app.core.rbac import require_tenant_admin as require_admin
 from app.db.database import get_db_session
 
 logger = logging.getLogger(__name__)

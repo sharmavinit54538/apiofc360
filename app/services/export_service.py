@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import csv
 import io
+from xml.sax.saxutils import escape as _xml_escape
+import asyncio
 import json
 import logging
 import uuid
@@ -17,7 +19,7 @@ from typing import Any, Sequence
 from fastapi import status
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.core.exceptions import AppException, BadRequestException, DatabaseException
 from app.attendance.models.attendance import Attendance
@@ -100,6 +102,20 @@ else:
         pass
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+_MAX_EXPORT_ROWS = 10000
+
+
+def _sanitize_spreadsheet_cell(value: Any) -> Any:
+    """Prevent CSV/XLSX formula injection while preserving plain numeric types."""
+    if value is None or isinstance(value, (int, float, Decimal)):
+        return value
+    s = str(value)
+    if s and s[0] in _FORMULA_PREFIXES:
+        return "'" + s
+    return s
+
+
 class ExportService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -108,36 +124,90 @@ class ExportService:
     # Data Fetchers
     # ------------------------------------------------------------------
 
-    async def _fetch_employees(self, company_id: uuid.UUID, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        stmt = select(Employee).where(and_(Employee.company_id == company_id, Employee.is_deleted == False))
-        
-        if filters.get("department"):
-            stmt = stmt.where(Employee.department == filters["department"])
-        if filters.get("status"):
-            stmt = stmt.where(Employee.status == filters["status"].upper())
-        if filters.get("employee_type"):
-            stmt = stmt.where(Employee.employment_type == filters["employee_type"].upper())
-        if filters.get("designation"):
-            stmt = stmt.where(Employee.designation == filters["designation"])
-        if filters.get("search"):
-            pattern = f"%{filters['search']}%"
-            stmt = stmt.where(or_(
-                Employee.first_name.ilike(pattern),
-                Employee.last_name.ilike(pattern),
-                Employee.employee_id.ilike(pattern),
-                Employee.personal_email.ilike(pattern)
-            ))
-            
-        stmt = stmt.order_by(Employee.created_at.desc())
+    async def _fetch_employees(
+        self,
+        company_id: uuid.UUID,
+        filters: dict[str, Any],
+        allowed_employee_ids: list[uuid.UUID] | None = None,
+    ) -> list[dict[str, Any]]:
+        stmt = (
+            select(Employee)
+            .options(
+                load_only(
+                    Employee.id,
+                    Employee.employee_id,
+                    Employee.first_name,
+                    Employee.last_name,
+                    Employee.personal_email,
+                    Employee.company_email,
+                    Employee.phone,
+                    Employee.department,
+                    Employee.designation,
+                    Employee.employment_type,
+                    Employee.employee_capacity,
+                    Employee.cost_center_id,
+                    Employee.status,
+                    Employee.joining_date,
+                    Employee.shift,
+                    Employee.created_at,
+                )
+            )
+            .where(and_(Employee.company_id == company_id, Employee.is_deleted == False))  # noqa: E712
+        )
+
+        if allowed_employee_ids is not None:
+            if not allowed_employee_ids:
+                return []
+            stmt = stmt.where(Employee.id.in_(allowed_employee_ids))
+
+        dept = (filters.get("department") or "").strip()
+        if dept and dept.lower() != "all":
+            stmt = stmt.where(func.lower(func.trim(Employee.department)) == dept.lower())
+
+        st = (filters.get("status") or "").strip()
+        if st and st.lower() != "all":
+            st_upper = st.upper().replace(" ", "_")
+            if st_upper == "INACTIVE":
+                stmt = stmt.where(func.upper(Employee.status).in_(["INACTIVE", "DISABLED", "DEACTIVATED"]))
+            else:
+                stmt = stmt.where(func.upper(Employee.status) == st_upper)
+
+        emp_type = (filters.get("employee_type") or "").strip()
+        if emp_type and emp_type.lower() != "all":
+            stmt = stmt.where(func.upper(Employee.employment_type) == emp_type.upper())
+
+        desig = (filters.get("designation") or "").strip()
+        if desig and desig.lower() != "all":
+            stmt = stmt.where(func.lower(func.trim(Employee.designation)) == desig.lower())
+
+        search_q = (filters.get("search") or "").strip()
+        if search_q:
+            pattern = f"%{search_q}%"
+            stmt = stmt.where(
+                or_(
+                    Employee.first_name.ilike(pattern),
+                    Employee.last_name.ilike(pattern),
+                    (
+                        func.coalesce(Employee.first_name, "")
+                        + " "
+                        + func.coalesce(Employee.last_name, "")
+                    ).ilike(pattern),
+                    Employee.employee_id.ilike(pattern),
+                    Employee.personal_email.ilike(pattern),
+                    Employee.company_email.ilike(pattern),
+                )
+            )
+
+        stmt = stmt.order_by(Employee.created_at.desc()).limit(_MAX_EXPORT_ROWS)
         res = await self.session.execute(stmt)
         rows = res.scalars().all()
-        
+
         return [
             {
                 "ID": r.employee_id,
                 "First Name": r.first_name,
                 "Last Name": r.last_name,
-                "Email": r.personal_email,
+                "Email": r.company_email or r.personal_email,
                 "Phone": r.phone,
                 "Department": r.department,
                 "Designation": r.designation,
@@ -146,7 +216,7 @@ class ExportService:
                 "Cost Center": getattr(r, "cost_center_id", "") or "",
                 "Status": r.status,
                 "Joining Date": r.joining_date.isoformat() if r.joining_date else "",
-                "Shift": r.shift or "General"
+                "Shift": r.shift or "General",
             }
             for r in rows
         ]
@@ -443,53 +513,47 @@ class ExportService:
         writer = csv.DictWriter(output, fieldnames=headers)
         writer.writeheader()
         for row in data:
-            writer.writerow(row)
+            safe_row = {h: _sanitize_spreadsheet_cell(row.get(h)) for h in headers}
+            writer.writerow(safe_row)
         return output.getvalue().encode("utf-8")
 
     def _render_xlsx(self, data: list[dict[str, Any]], headers: list[str], title: str) -> bytes:
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = title[:30]  # Excel tab name max 31 chars
-        
-        # Styling definitions
+        safe_title = "".join(c for c in title[:30] if c not in r"[]:*?/\\") or "Report"
+        ws.title = safe_title
+
         font_header = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
-        fill_header = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid") # Dark Slate Gray
+        fill_header = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         font_cell = Font(name="Segoe UI", size=10)
         align_left = Alignment(horizontal="left", vertical="center")
         align_right = Alignment(horizontal="right", vertical="center")
-        
-        # Write headers
+
         for col_idx, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_idx, value=header)
             cell.font = font_header
             cell.fill = fill_header
             cell.alignment = align_left
-            
-        # Write data rows
+
+        col_widths = [len(h) for h in headers]
         for row_idx, row_data in enumerate(data, 2):
             for col_idx, header in enumerate(headers, 1):
-                val = row_data.get(header)
+                val = _sanitize_spreadsheet_cell(row_data.get(header))
                 cell = ws.cell(row=row_idx, column=col_idx, value=val)
                 cell.font = font_cell
-                
-                # Check data type for alignment & formats
+                s_len = len(str(val or ""))
+                if s_len > col_widths[col_idx - 1]:
+                    col_widths[col_idx - 1] = min(s_len, 45)
                 if isinstance(val, (int, float)):
                     cell.alignment = align_right
                     if isinstance(val, float):
                         cell.number_format = "#,##0.00"
                 else:
                     cell.alignment = align_left
-                    
-        # Auto-fit column widths with padding
-        for col in ws.columns:
-            max_len = 0
-            col_letter = get_column_letter(col[0].column)
-            for cell in col:
-                val_str = str(cell.value or "")
-                if len(val_str) > max_len:
-                    max_len = len(val_str)
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
-            
+
+        for idx, width in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(idx)].width = max(width + 4, 12)
+
         buffer = io.BytesIO()
         wb.save(buffer)
         return buffer.getvalue()
@@ -557,27 +621,25 @@ class ExportService:
         )
 
         elements = []
-        
-        # 1. Report Header info
-        elements.append(Paragraph(f"{company_name} — {title}", style_title))
+
+        # 1. Report Header info (XML-escaped)
+        elements.append(Paragraph(f"{_xml_escape(str(company_name))} — {_xml_escape(str(title))}", style_title))
         meta_text = (
-            f"<b>Generated By:</b> {generated_by} | "
+            f"<b>Generated By:</b> {_xml_escape(str(generated_by))} | "
             f"<b>Generated Date:</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | "
             f"<b>Total Records:</b> {len(data)}"
         )
         elements.append(Paragraph(meta_text, style_meta))
-        
-        # 2. Build table grid
+
+        # 2. Build table grid cleanly (escape XML chars to prevent ReportLab parser crashes)
         table_data = []
-        # Header row
-        table_data.append([Paragraph(h, style_table_header) for h in headers])
-        # Data rows
-        for row in data:
+        table_data.append([Paragraph(_xml_escape(str(h)), style_table_header) for h in headers])
+        for row in data[:2500]:
             row_cells = []
             for h in headers:
                 val = row.get(h)
                 val_str = str(val) if val is not None else ""
-                row_cells.append(Paragraph(val_str, style_table_cell))
+                row_cells.append(Paragraph(_xml_escape(val_str), style_table_cell))
             table_data.append(row_cells)
             
         # Standard landscape width is 792 points. Margin left+right = 72, usable = 720.
@@ -623,24 +685,22 @@ class ExportService:
         fmt: str = "xlsx",
         ip_address: str | None = None,
         user_agent: str | None = None,
+        allowed_employee_ids: list[uuid.UUID] | None = None,
     ) -> tuple[bytes, str, str]:
         """Main export gateway logic. Fetches, formats, logs, and returns file content."""
-        
-        # Validate format
-        fmt = fmt.lower()
+
+        fmt = (fmt or "xlsx").strip().lower()
         if fmt not in {"xlsx", "csv", "pdf"}:
             raise BadRequestException("Invalid export format. Supported formats are: xlsx, csv, pdf.")
 
-        # Load company profile for headers/meta
         company = await self.session.get(Company, company_id)
-        company_name = company.name if company else "Ecochange"
+        company_name = company.name if company else "Organization"
 
         user = await self.session.get(User, user_id)
         generated_by = user.name if user else "System Admin"
 
-        # Module router to fetch data
         if module == "employees":
-            data = await self._fetch_employees(company_id, filters)
+            data = await self._fetch_employees(company_id, filters, allowed_employee_ids=allowed_employee_ids)
             headers = [
                 "ID", "First Name", "Last Name", "Email", "Phone",
                 "Department", "Designation", "Type", "Capacity", "Cost Center", "Status", "Joining Date", "Shift"
@@ -700,18 +760,22 @@ class ExportService:
         )
         await self.session.commit()
 
-        # Render file bytes
+        # Render file bytes (offload CPU-heavy XLSX/PDF generation from async event loop)
         today = date.today().isoformat()
         if fmt == "csv":
             content = self._render_csv(data, headers)
             filename = f"{filename_prefix}_{today}.csv"
-            media_type = "text/csv"
+            media_type = "text/csv; charset=utf-8"
         elif fmt == "pdf":
-            content = self._render_pdf(data, headers, title, company_name, generated_by)
+            content = await asyncio.to_thread(
+                self._render_pdf, data, headers, title, company_name, generated_by
+            )
             filename = f"{filename_prefix}_{today}.pdf"
             media_type = "application/pdf"
         else:  # default: xlsx
-            content = self._render_xlsx(data, headers, title)
+            content = await asyncio.to_thread(
+                self._render_xlsx, data, headers, title
+            )
             filename = f"{filename_prefix}_{today}.xlsx"
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

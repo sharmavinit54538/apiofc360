@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Query, status
 from app.core.exceptions import AppException
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims_optional
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
@@ -28,7 +28,7 @@ router = APIRouter(tags=["Interview Management"])
 )
 async def send_interview(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     round_names: list[str] = Query(..., description="Order list of round names, e.g. Technical Round 1, System Design, HR"),
 ) -> APIResponse[InterviewResponse]:
@@ -70,7 +70,7 @@ async def schedule_interview_slot(
     summary="List all interviews",
 )
 async def list_interviews(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     status_filter: str | None = Query(None, alias="status"),
     page: int = Query(1, ge=1),
@@ -93,7 +93,7 @@ async def list_interviews(
 )
 async def get_interview(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[InterviewResponse]:
     """Retrieve full interview rounds and schedules tracking. Admin and HR only."""
@@ -114,7 +114,7 @@ async def get_interview(
 async def pass_round(
     round_id: uuid.UUID,
     payload: CompleteRoundRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[InterviewResponse]:
     """Mark interview round as passed. Transitions to next round index or completes interview. Admin and HR only."""
@@ -135,7 +135,7 @@ async def pass_round(
 async def reject_round(
     round_id: uuid.UUID,
     payload: CompleteRoundRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[InterviewResponse]:
     """Mark interview round as rejected. Rejects candidate application. Admin and HR only."""
@@ -156,7 +156,7 @@ async def reject_round(
 async def hold_round(
     round_id: uuid.UUID,
     payload: CompleteRoundRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[InterviewResponse]:
     """Mark interview round status as Hold. Admin and HR only."""

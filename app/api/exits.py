@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.core.exceptions import AppException
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -79,7 +79,7 @@ async def submit_resignation(
 )
 async def hr_initiate_exit(
     payload: ExitInitiationRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ExitResponse]:
     """HR/Admin initiates exit on behalf of employee.
@@ -153,7 +153,7 @@ async def cancel_my_request(
     summary="Get exit dashboard statistics",
 )
 async def get_exit_stats(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ExitDashboardStats]:
     """Retrieve offboarding metrics counts. Admin and HR only with tenant scoping."""
@@ -173,7 +173,7 @@ async def get_exit_stats(
     summary="List all exit requests",
 )
 async def list_exits(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
     status_filter: str | None = Query(None, alias="status", description="Filter by exit status"),
     search: str | None = Query(None, description="Search by employee name or reason"),
@@ -248,7 +248,7 @@ async def get_exit(
 )
 async def hr_approve(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
     remarks: str | None = Query(None),
 ) -> APIResponse[ExitResponse]:
@@ -280,7 +280,7 @@ async def hr_approve(
 )
 async def hr_reject(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
     remarks: str | None = Query(None),
 ) -> APIResponse[ExitResponse]:
@@ -312,7 +312,7 @@ async def hr_reject(
 )
 async def start_notice_period(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ExitResponse]:
     """HR triggers notice period status transition. Admin and HR only with tenant validation."""
@@ -343,7 +343,7 @@ async def start_notice_period(
 )
 async def complete_exit(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ExitResponse]:
     """Trigger final exit completion. Validates KT, asset returns, clearances, and FNF payment. Deactivates employee login account. Admin and HR only with tenant validation."""
@@ -516,7 +516,7 @@ async def get_assets_checklist(
 async def return_asset(
     id: uuid.UUID,
     payload: AssetReturnCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[AssetReturnResponse]:
     """Verify and update company asset return status. Admin and HR only with tenant validation.
@@ -555,7 +555,7 @@ async def return_asset(
 async def update_clearance(
     id: uuid.UUID,
     payload: ClearanceUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ClearanceResponse]:
     """Verify and check IT, HR, Finance, Admin clearance statuses. Admin and HR only with tenant validation.
@@ -594,7 +594,7 @@ async def update_clearance(
 async def submit_exit_interview(
     id: uuid.UUID,
     payload: ExitInterviewCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[ExitInterviewResponse]:
     """Submit details of conducting exit interview. Admin and HR only with tenant validation."""
@@ -630,7 +630,7 @@ async def submit_exit_interview(
 )
 async def get_fnf_preview(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[FnfPreviewResponse]:
     """Auto-calculate Gratuity, Leave Encashment, Pending Salary, Notice Recovery, and Loan Recovery for FNF. With tenant validation."""
@@ -663,7 +663,7 @@ async def get_fnf_preview(
 async def submit_fnf(
     id: uuid.UUID,
     payload: FnfCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[FnfResponse]:
     """HR creates FNF settlement numbers and payouts. Admin and HR only with tenant validation."""
@@ -713,7 +713,7 @@ class FnfPaymentConfirmRequest(BaseModel):
 async def confirm_fnf_payment(
     id: uuid.UUID,
     payload: FnfPaymentConfirmRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[FnfResponse]:
     """Confirm FNF payment with full audit trail.
@@ -811,7 +811,7 @@ async def get_exit_documents(
 )
 async def generate_exit_documents(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[ExitService, Depends(get_exit_service)],
 ) -> APIResponse[list[ExitDocumentResponse]]:
     """Trigger generation of Relieving and Experience letters. Admin and HR only with tenant validation."""

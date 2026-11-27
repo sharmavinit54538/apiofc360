@@ -10,8 +10,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, status, Request, Response, HTTPException
 from pydantic import BaseModel
 
-from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
-from app.core.rbac import require_admin
+from app.core.rbac import require_admin, require_tenant_admin, require_tenant_admin_or_manager
 from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.db.database import get_db_session
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,7 +49,7 @@ router = APIRouter(prefix="/jobs", tags=["Job Management"])
 )
 async def create_job(
     payload: JobCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobResponse]:
     """Create a new job posting in DRAFT state. Admin and HR only."""
@@ -128,7 +127,7 @@ async def get_job(
 async def update_job(
     id: uuid.UUID,
     payload: JobUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobResponse]:
     """Update details of a job posting. Admin and HR only."""
@@ -248,7 +247,7 @@ async def publish_job(
 async def close_job(
     id: uuid.UUID,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[JobResponse]:
@@ -287,7 +286,7 @@ async def close_job(
 )
 async def draft_job(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobResponse]:
     """Transition job status to DRAFT. Admin and HR only."""
@@ -313,7 +312,7 @@ class JobStatusUpdateRequest(BaseModel):
 async def patch_job_status(
     id: uuid.UUID,
     payload: JobStatusUpdateRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[JobResponse]:
     """Update job status (DRAFT, PUBLISHED, CLOSED). Admin and HR only."""
@@ -363,7 +362,7 @@ async def duplicate_job(
     id: uuid.UUID,
     payload: JobDuplicateRequest,
     request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[JobResponse]:
@@ -402,7 +401,7 @@ async def duplicate_job(
 )
 async def generate_description(
     payload: JobDescriptionStructuredRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> APIResponse[JobDescriptionStructuredResponse]:
     """Generate a structured, ATS-optimized job description using AI. Admin and HR only."""
@@ -458,7 +457,7 @@ class JobAiAutofillResponse(BaseModel):
 )
 async def ai_autofill(
     payload: JobAiAutofillRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
 ) -> APIResponse[JobAiAutofillResponse]:
     """Auto-fill job posting fields using local Ollama LLM. Admin and HR only."""
     from app.services.recruitment_ai_service import RecruitmentAIService
@@ -504,7 +503,7 @@ class JobDescriptionModifyRequest(BaseModel):
 )
 async def modify_description(
     payload: JobDescriptionModifyRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
 ) -> APIResponse[Any]:
     """Modify the job description using multi-provider AI (improve, expand, shorten, professional, startup, technical, custom). Admin and HR only."""
     from app.services.jd_generator_service import get_jd_generator_service

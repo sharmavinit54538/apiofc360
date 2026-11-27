@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.attendance.schemas.response import AttendanceResponse
 from app.attendance.services.history_service import AttendanceHistoryService
 from app.core.exceptions import AppException
-from app.core.rbac import require_admin_or_manager
+from app.core.rbac import require_tenant_admin_or_manager as require_admin_or_manager
 from app.db.database import get_db_session
 
 router = APIRouter()

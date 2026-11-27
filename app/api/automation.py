@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     RecruitmentAutomationRuleCreate,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/automations", tags=["Recruitment Automation"])
 )
 async def create_automation_rule(
     payload: RecruitmentAutomationRuleCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[RecruitmentAutomationRuleResponse]:
     """Create automation rule. Admin and HR only."""
@@ -44,7 +44,7 @@ async def create_automation_rule(
     summary="List automation rules",
 )
 async def list_automation_rules(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     active_only: bool = Query(False),
 ) -> APIResponse[list[RecruitmentAutomationRuleResponse]]:

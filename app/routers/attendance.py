@@ -32,12 +32,11 @@ def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message}
 
 
-def _get_cid(claims: dict) -> uuid.UUID | None:
+def _get_cid(claims: dict) -> uuid.UUID:
+    from app.core.rbac import reject_super_admin_operational_access
+    reject_super_admin_operational_access(claims)
     cid = claims.get("company_id")
-    try:
-        return uuid.UUID(str(cid)) if cid else None
-    except (ValueError, TypeError):
-        return None
+    return uuid.UUID(str(cid))
 
 
 @router.get("/me")
@@ -45,6 +44,7 @@ async def get_my_attendance(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
+    _get_cid(claims)
     uid = _uid(claims)
     srv = AttendanceCoreService(session)
     emp = await srv.get_employee_by_user_id(uid)

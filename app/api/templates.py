@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.core.exceptions import AppException
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/document-templates", tags=["Document Template Manage
 )
 async def create_template(
     payload: TemplateCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[TemplateResponse]:
     """Create a new document template with placeholders. Admin and HR only."""
@@ -82,7 +82,7 @@ async def list_templates(
 async def generate_document(
     id: uuid.UUID,
     payload: TemplateGenerateRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ) -> APIResponse[dict[str, Any]]:
     """Generate content from a template replacing all placeholders. Admin and HR only (Rule 3.7)."""

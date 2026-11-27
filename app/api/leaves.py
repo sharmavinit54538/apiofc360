@@ -26,7 +26,13 @@ router = APIRouter(prefix="/leaves", tags=["Leave Management"])
 
 
 def _resolve_company_id(claims: dict) -> uuid.UUID:
-    """Resolve caller's company UUID or reject with 403."""
+    """Resolve caller's company UUID or reject with 403 (excludes Super Admin)."""
+    role = str(claims.get("role") or "").strip().lower()
+    if role == "super_admin":
+        raise AppException(
+            message="Super Admin cannot access tenant leave or attendance operations.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     cid_raw = claims.get("company_id")
     if not cid_raw:
         raise AppException(
@@ -44,6 +50,11 @@ def _resolve_company_id(claims: dict) -> uuid.UUID:
 
 async def _get_current_employee_id(claims: dict, db: Any) -> uuid.UUID:
     """Resolve current employee ID from logged-in user claims."""
+    if str(claims.get("role") or "").strip().lower() == "super_admin":
+        raise AppException(
+            message="Super Admin cannot access tenant leave or attendance operations.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     user_id_raw = claims.get("sub")
     if not user_id_raw:
         raise AppException(message="Invalid user association.", status_code=status.HTTP_401_UNAUTHORIZED)
@@ -135,7 +146,7 @@ async def get_pending(
     db: Any = Depends(get_db_session),
 ) -> APIResponse[list[LeaveRequestDetailResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("super_admin", "hr_admin", "manager"):
+    if role not in ("hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
 
     company_id = _resolve_company_id(claims)
@@ -168,7 +179,7 @@ async def get_company_employees(
     db: Any = Depends(get_db_session),
 ) -> APIResponse[list[LeaveEmployeeItem]]:
     role = claims.get("role", "").lower()
-    if role not in ("super_admin", "hr_admin"):
+    if role != "hr_admin":
         raise AppException(message="Access denied. HR Admins only.", status_code=status.HTTP_403_FORBIDDEN)
 
     company_id = _resolve_company_id(claims)
@@ -193,7 +204,7 @@ async def get_employee_balances(
     db: Any = Depends(get_db_session),
 ) -> APIResponse[list[LeaveBalanceResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("super_admin", "hr_admin", "manager"):
+    if role not in ("hr_admin", "manager"):
         raise AppException(message="Access denied. Admin or Manager only.", status_code=status.HTTP_403_FORBIDDEN)
 
     company_id = _resolve_company_id(claims)
@@ -232,7 +243,7 @@ async def get_all_requests(
     db: Any = Depends(get_db_session),
 ) -> APIResponse[list[LeaveRequestDetailResponse]]:
     role = claims.get("role", "").lower()
-    if role not in ("super_admin", "hr_admin", "manager"):
+    if role not in ("hr_admin", "manager"):
         raise AppException(message="Access denied. HR Admin or Manager only.", status_code=status.HTTP_403_FORBIDDEN)
 
     company_id = _resolve_company_id(claims)
@@ -299,7 +310,7 @@ async def review_leave(
     db: Any = Depends(get_db_session),
 ) -> APIResponse[LeaveRequestDetailResponse]:
     role = claims.get("role", "").lower()
-    if role not in ("super_admin", "hr_admin", "manager"):
+    if role not in ("hr_admin", "manager"):
         raise AppException(message="Access denied. Managers or Admins only.", status_code=status.HTTP_403_FORBIDDEN)
 
     company_id = _resolve_company_id(claims)

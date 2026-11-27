@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.calendar import (
@@ -51,7 +51,7 @@ async def require_manager_or_hr_or_admin(claims: Annotated[dict, Depends(get_cur
 )
 async def create_event(
     payload: CalendarEventCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[CalendarEventResponse]:
     """Create a new calendar event. Admin and HR only."""
@@ -129,7 +129,7 @@ async def get_event(
 async def update_event(
     id: uuid.UUID,
     payload: CalendarEventUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[CalendarEventResponse]:
     """Update calendar event details. Admin and HR only."""
@@ -149,7 +149,7 @@ async def update_event(
 )
 async def delete_event(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[None]:
     """Soft delete a calendar event. Admin and HR only."""
@@ -174,7 +174,7 @@ async def delete_event(
 )
 async def create_holiday(
     payload: HolidayCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[HolidayResponse]:
     """Create a new holiday entry. Admin and HR only."""
@@ -216,7 +216,7 @@ async def list_holidays(
 async def update_holiday(
     id: uuid.UUID,
     payload: HolidayCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[HolidayResponse]:
     """Update holiday parameters. Admin and HR only."""
@@ -236,7 +236,7 @@ async def update_holiday(
 )
 async def delete_holiday(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[None]:
     """Delete holiday record. Admin and HR only."""
@@ -280,7 +280,7 @@ class HolidayImportResult(BaseModel):
 )
 async def import_holidays(
     payload: HolidayImportRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> APIResponse[HolidayImportResult]:
     """Import holiday records from structured data. Admin and HR only."""

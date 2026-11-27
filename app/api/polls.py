@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.communication import (
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/polls", tags=["Polls Management"])
 )
 async def create_poll(
     payload: PollCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[PollResponse]:
     """Create a new poll. Admin and HR only."""
@@ -108,7 +108,7 @@ async def cast_vote(
 )
 async def close_poll(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[PollResponse]:
     """Close poll manually. Admin and HR only."""
@@ -129,7 +129,7 @@ async def close_poll(
 )
 async def delete_poll(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[None]:
     """Delete poll. Admin and HR only."""

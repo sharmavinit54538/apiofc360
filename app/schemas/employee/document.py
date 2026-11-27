@@ -50,7 +50,7 @@ class EmployeeDocumentResponse(BaseModel):
 
     id: uuid.UUID
     employee_id: uuid.UUID
-    document_type: str
+    document_type: str | None = None
     document_number: str | None
     document_url: str | None
     expiry_date: date | None

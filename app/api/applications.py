@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr, require_admin_or_hr_or_manager
+from app.core.rbac import require_tenant_admin, require_tenant_admin_or_manager
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     ApplicationListResponse,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/applications", tags=["Application Management"])
     summary="Get recruitment metrics dashboard",
 )
 async def get_recruitment_stats(
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[RecruitmentDashboardStats]:
     """Retrieve recruitment metrics counts. Admin, HR, and Managers."""
@@ -43,7 +43,7 @@ async def get_recruitment_stats(
     summary="List all applications",
 )
 async def list_applications(
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     job_id: uuid.UUID | None = Query(None, description="Filter by job ID"),
     status_filter: str | None = Query(None, alias="status", description="Filter by application status"),
@@ -78,7 +78,7 @@ async def list_applications(
 )
 async def get_application(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ApplicationResponse]:
     """Retrieve details of a candidate application. Admin and HR only."""
@@ -98,7 +98,7 @@ async def get_application(
 )
 async def shortlist_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ApplicationResponse]:
     """Shortlist candidate application. Admin and HR only."""
@@ -118,7 +118,7 @@ async def shortlist_candidate(
 )
 async def reject_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ApplicationResponse]:
     """Reject candidate application. Sends automated rejection email. Admin and HR only."""
@@ -138,7 +138,7 @@ async def reject_candidate(
 )
 async def hold_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ApplicationResponse]:
     """Put candidate application on hold status. Admin and HR only."""
@@ -174,7 +174,7 @@ class StageUpdateRequest(BaseModel):
 async def move_application_stage(
     id: uuid.UUID,
     payload: StageUpdateRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[ApplicationResponse]:
     """Change the current workflow stage (status) of an application. Admin and HR only."""
@@ -195,7 +195,7 @@ async def move_application_stage(
 )
 async def bulk_move_candidates(
     payload: BulkMoveRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Bulk update candidate workflow stages. Admin and HR only."""
@@ -216,7 +216,7 @@ async def bulk_move_candidates(
 )
 async def bulk_tag_candidates(
     payload: BulkTagRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Bulk tag candidates. Admin and HR only."""

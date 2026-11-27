@@ -50,9 +50,9 @@ class EmployeeRepository:
         """Return is_deleted=False filter."""
         return Employee.is_deleted == False  # noqa: E712
 
-    def _with_relations(self):
-        """Eager-load all relations using selectinload."""
-        return [
+    def _with_relations(self, include_sensitive_pii: bool = True):
+        """Eager-load employee relations using selectinload while protecting manager PII."""
+        rels = [
             selectinload(Employee.addresses),
             selectinload(Employee.documents),
             selectinload(Employee.education),
@@ -60,10 +60,18 @@ class EmployeeRepository:
             selectinload(Employee.skills),
             selectinload(Employee.assets),
             selectinload(Employee.emergency_contacts),
-            selectinload(Employee.bank_accounts),
             selectinload(Employee.leave_policies),
             selectinload(Employee.onboarding_steps),
+            selectinload(Employee.reporting_manager).load_only(
+                Employee.id, Employee.first_name, Employee.last_name, Employee.employee_id
+            ),
+            selectinload(Employee.manager).load_only(
+                Employee.id, Employee.first_name, Employee.last_name, Employee.employee_id
+            ),
         ]
+        if include_sensitive_pii:
+            rels.append(selectinload(Employee.bank_accounts))
+        return rels
 
     # ------------------------------------------------------------------
     # Employee CRUD
@@ -76,14 +84,98 @@ class EmployeeRepository:
         await self.session.flush()  # get id without committing
         return employee
 
-    async def get_by_id(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Employee | None:
-        """Return employee with all relations, or None if not found. Strictly enforces company_id when provided."""
+    _SAFE_DETAIL_LOAD_COLUMNS = (
+        Employee.id,
+        Employee.user_id,
+        Employee.company_id,
+        Employee.employee_id,
+        Employee.first_name,
+        Employee.last_name,
+        Employee.profile_photo_url,
+        Employee.gender,
+        Employee.date_of_birth,
+        Employee.personal_email,
+        Employee.company_email,
+        Employee.phone,
+        Employee.alternate_phone,
+        Employee.blood_group,
+        Employee.marital_status,
+        Employee.middle_name,
+        Employee.father_name,
+        Employee.mother_name,
+        Employee.spouse_name,
+        Employee.nationality,
+        Employee.preferred_language,
+        Employee.tax_regime,
+        Employee.work_mode,
+        Employee.business_unit,
+        Employee.employee_category,
+        Employee.probation_period_months,
+        Employee.onboarding_data,
+        Employee.employee_onboarding_completed,
+        Employee.employee_onboarding_step,
+        Employee.is_face_enrolled,
+        Employee.face_enrolled_at,
+        Employee.department,
+        Employee.designation,
+        Employee.team,
+        Employee.reporting_manager_id,
+        Employee.manager_id,
+        Employee.branch,
+        Employee.branch_id,
+        Employee.legal_entity_id,
+        Employee.work_location,
+        Employee.employment_type,
+        Employee.employment_status,
+        Employee.joining_date,
+        Employee.last_promotion_date,
+        Employee.probation_end_date,
+        Employee.shift,
+        Employee.shift_id,
+        Employee.employee_capacity,
+        Employee.cost_center_id,
+        Employee.ctc,
+        Employee.basic_salary,
+        Employee.hra,
+        Employee.bonus,
+        Employee.pf,
+        Employee.esi,
+        Employee.professional_tax,
+        Employee.role,
+        Employee.leave_group,
+        Employee.status,
+        Employee.role_metadata,
+        Employee.verification_status,
+        Employee.is_active,
+        Employee.deactivated_at,
+        Employee.deactivated_by,
+        Employee.deactivation_reason,
+        Employee.activation_token_expires_at,
+        Employee.invited_at,
+        Employee.invited_by,
+        Employee.is_deleted,
+        Employee.deleted_at,
+        Employee.created_by,
+        Employee.created_at,
+        Employee.updated_at,
+        Employee.department_id,
+    )
+
+    async def get_by_id(
+        self,
+        employee_uuid: uuid.UUID,
+        company_id: uuid.UUID | None = None,
+        *,
+        include_sensitive_pii: bool = True,
+    ) -> Employee | None:
+        """Return employee with relations, strictly enforcing company_id when provided."""
         stmt = select(Employee).where(and_(Employee.id == employee_uuid, self._active_filter()))
         if company_id is not None:
             stmt = stmt.where(Employee.company_id == company_id)
-        result = await self.session.execute(
-            stmt.options(*self._with_relations())
-        )
+        options = list(self._with_relations(include_sensitive_pii=include_sensitive_pii))
+        if not include_sensitive_pii:
+            options.append(load_only(*self._SAFE_DETAIL_LOAD_COLUMNS))
+        result = await self.session.execute(stmt.options(*options))
         return result.scalar_one_or_none()
 
     async def get_by_id_raw(self, employee_uuid: uuid.UUID, company_id: uuid.UUID | None = None) -> Employee | None:
@@ -259,27 +351,40 @@ class EmployeeRepository:
         designation: str | None = None,
         shift: str | None = None,
         role: str | None = None,
+        allowed_employee_ids: list[uuid.UUID] | None = None,
     ):
         """Apply common directory filters consistently across list and count queries."""
-        if department and department.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.department == department)
-        if status and status.lower() not in {"", "all"}:
+        if allowed_employee_ids is not None:
+            if not allowed_employee_ids:
+                stmt = stmt.where(Employee.id.in_([]))
+            else:
+                stmt = stmt.where(Employee.id.in_(allowed_employee_ids))
+        if department and department.strip().lower() not in {"", "all"}:
+            stmt = stmt.where(func.lower(func.trim(Employee.department)) == department.strip().lower())
+        if status and status.strip().lower() not in {"", "all"}:
             norm_status = status.strip().upper().replace(" ", "_")
-            stmt = stmt.where(
-                or_(
-                    Employee.status.ilike(f"%{status.strip()}%"),
-                    Employee.status == norm_status,
-                    Employee.employment_status == norm_status,
+            if norm_status == "INACTIVE":
+                stmt = stmt.where(
+                    or_(
+                        func.upper(Employee.status).in_(["INACTIVE", "DISABLED", "DEACTIVATED"]),
+                        func.upper(Employee.employment_status) == "INACTIVE",
+                    )
                 )
-            )
-        if employment_type and employment_type.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.employment_type == employment_type.upper())
-        if designation and designation.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.designation == designation)
-        if shift and shift.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.shift == shift)
-        if role and role.lower() not in {"", "all"}:
-            stmt = stmt.where(Employee.role == role.lower())
+            else:
+                stmt = stmt.where(
+                    or_(
+                        func.upper(Employee.status) == norm_status,
+                        func.upper(Employee.employment_status) == norm_status,
+                    )
+                )
+        if employment_type and employment_type.strip().lower() not in {"", "all"}:
+            stmt = stmt.where(func.upper(Employee.employment_type) == employment_type.strip().upper())
+        if designation and designation.strip().lower() not in {"", "all"}:
+            stmt = stmt.where(func.lower(func.trim(Employee.designation)) == designation.strip().lower())
+        if shift and shift.strip().lower() not in {"", "all"}:
+            stmt = stmt.where(func.lower(func.trim(Employee.shift)) == shift.strip().lower())
+        if role and role.strip().lower() not in {"", "all"}:
+            stmt = stmt.where(func.lower(Employee.role) == role.strip().lower())
         cleaned_search = search.strip() if isinstance(search, str) else ""
         if cleaned_search:
             pattern = f"%{cleaned_search}%"
@@ -287,7 +392,11 @@ class EmployeeRepository:
                 or_(
                     Employee.first_name.ilike(pattern),
                     Employee.last_name.ilike(pattern),
-                    (Employee.first_name + " " + Employee.last_name).ilike(pattern),
+                    (
+                        func.coalesce(Employee.first_name, "")
+                        + " "
+                        + func.coalesce(Employee.last_name, "")
+                    ).ilike(pattern),
                     Employee.employee_id.ilike(pattern),
                     Employee.personal_email.ilike(pattern),
                     Employee.company_email.ilike(pattern),
@@ -298,6 +407,34 @@ class EmployeeRepository:
                 )
             )
         return stmt
+
+    @staticmethod
+    def _build_sort_exprs(sort: str | None, order: str | None):
+        sort_mapping = {
+            "joined_date": Employee.joining_date,
+            "joining_date": Employee.joining_date,
+            "employee_id": Employee.employee_id,
+            "department": Employee.department,
+            "designation": Employee.designation,
+            "role": Employee.role,
+            "shift": Employee.shift,
+            "status": Employee.status,
+            "employee_capacity": Employee.employee_capacity,
+            "cost_center_id": Employee.cost_center_id,
+            "created_at": Employee.created_at,
+        }
+        order_desc = (order or "asc").strip().lower() == "desc"
+        sort_key = (sort or "").strip().lower()
+        if sort_key == "name":
+            if order_desc:
+                return [Employee.first_name.desc(), Employee.last_name.desc(), Employee.id.asc()]
+            return [Employee.first_name.asc(), Employee.last_name.asc(), Employee.id.asc()]
+        if sort_key in sort_mapping:
+            col = sort_mapping[sort_key]
+            if order_desc:
+                return [col.desc(), Employee.id.asc()]
+            return [col.asc(), Employee.id.asc()]
+        return [Employee.created_at.desc(), Employee.id.asc()]
 
     async def list_employees(
         self,
@@ -314,8 +451,9 @@ class EmployeeRepository:
         sort: str | None = None,
         order: str | None = "asc",
         include_sensitive_pii: bool = False,
+        allowed_employee_ids: list[uuid.UUID] | None = None,
     ) -> list[Employee]:
-        """Return paginated, filtered, sorted list of employees strictly scoped to company_id (no relations or unrequested encrypted PII loaded)."""
+        """Return paginated, filtered, sorted list of employees strictly scoped to company_id."""
         filters = [self._active_filter()]
         if company_id is not None:
             filters.append(Employee.company_id == company_id)
@@ -333,41 +471,76 @@ class EmployeeRepository:
             designation=designation,
             shift=shift,
             role=role,
+            allowed_employee_ids=allowed_employee_ids,
         )
-
-        # Sorting logic
-        sort_mapping = {
-            "joined_date": Employee.joining_date,
-            "joining_date": Employee.joining_date,
-            "employee_id": Employee.employee_id,
-            "department": Employee.department,
-            "designation": Employee.designation,
-            "role": Employee.role,
-            "shift": Employee.shift,
-            "status": Employee.status,
-            "employee_capacity": Employee.employee_capacity,
-            "cost_center_id": Employee.cost_center_id,
-            "created_at": Employee.created_at,
-        }
-        order_desc = (order or "asc").strip().lower() == "desc"
-
-        if sort == "name":
-            if order_desc:
-                sort_exprs = [Employee.first_name.desc(), Employee.last_name.desc(), Employee.id.asc()]
-            else:
-                sort_exprs = [Employee.first_name.asc(), Employee.last_name.asc(), Employee.id.asc()]
-        elif sort in sort_mapping:
-            col = sort_mapping[sort]
-            if order_desc:
-                sort_exprs = [col.desc(), Employee.id.asc()]
-            else:
-                sort_exprs = [col.asc(), Employee.id.asc()]
-        else:
-            sort_exprs = [Employee.created_at.desc(), Employee.id.asc()]
-
-        stmt = stmt.order_by(*sort_exprs).limit(limit).offset(offset)
+        stmt = stmt.order_by(*self._build_sort_exprs(sort, order)).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_and_count_employees(
+        self,
+        company_id: uuid.UUID | None = None,
+        department: str | None = None,
+        status: str | None = None,
+        employment_type: str | None = None,
+        search: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+        designation: str | None = None,
+        shift: str | None = None,
+        role: str | None = None,
+        sort: str | None = None,
+        order: str | None = "asc",
+        include_sensitive_pii: bool = False,
+        allowed_employee_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[list[Employee], int]:
+        """Fetch paginated employee rows and total count in a single SQL window query."""
+        filters = [self._active_filter()]
+        if company_id is not None:
+            filters.append(Employee.company_id == company_id)
+
+        total_col = func.count(Employee.id).over().label("_total_count")
+        stmt = select(Employee, total_col).where(and_(*filters))
+        if not include_sensitive_pii:
+            stmt = stmt.options(
+                load_only(*self._LIST_LOAD_COLUMNS),
+                selectinload(Employee.reporting_manager).load_only(
+                    Employee.id, Employee.first_name, Employee.last_name, Employee.employee_id
+                ),
+            )
+
+        stmt = self._apply_list_filters(
+            stmt,
+            department=department,
+            status=status,
+            employment_type=employment_type,
+            search=search,
+            designation=designation,
+            shift=shift,
+            role=role,
+            allowed_employee_ids=allowed_employee_ids,
+        )
+        stmt = stmt.order_by(*self._build_sort_exprs(sort, order)).limit(limit).offset(offset)
+        result = await self.session.execute(stmt)
+        rows = result.all()
+        if not rows:
+            if offset > 0:
+                total = await self.count_employees(
+                    company_id=company_id,
+                    department=department,
+                    status=status,
+                    employment_type=employment_type,
+                    search=search,
+                    designation=designation,
+                    shift=shift,
+                    role=role,
+                    allowed_employee_ids=allowed_employee_ids,
+                )
+                return [], total
+            return [], 0
+        employees = [r[0] for r in rows]
+        total = int(rows[0][1] or 0)
+        return employees, total
 
     async def count_employees(
         self,
@@ -379,6 +552,7 @@ class EmployeeRepository:
         designation: str | None = None,
         shift: str | None = None,
         role: str | None = None,
+        allowed_employee_ids: list[uuid.UUID] | None = None,
     ) -> int:
         """Count total employees matching filters within a company (for pagination)."""
         filters = [self._active_filter()]
@@ -395,6 +569,7 @@ class EmployeeRepository:
             designation=designation,
             shift=shift,
             role=role,
+            allowed_employee_ids=allowed_employee_ids,
         )
 
         result = await self.session.execute(stmt)
@@ -444,7 +619,20 @@ class EmployeeRepository:
                 
             new_phone = py_uuid.uuid4().hex[:15]
             
+            # Detach reporting references from active subordinates so hierarchy isn't left dangling
+            await self.session.execute(
+                update(Employee)
+                .where(
+                    Employee.company_id == employee.company_id,
+                    or_(
+                        Employee.reporting_manager_id == employee_uuid,
+                        Employee.manager_id == employee_uuid,
+                    ),
+                )
+                .values(reporting_manager_id=None, manager_id=None)
+            )
             employee.is_deleted = True
+            employee.is_active = False
             employee.deleted_at = datetime.now(timezone.utc)
             employee.personal_email = new_email
             employee.employee_id = new_emp_id

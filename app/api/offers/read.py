@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/offers")
     summary="List all offers with pagination",
 )
 async def list_offers(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1),

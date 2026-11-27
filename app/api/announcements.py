@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.communication import (
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/announcements", tags=["Announcements Management"])
 )
 async def create_announcement(
     payload: AnnouncementCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[AnnouncementResponse]:
     """Create a new announcement draft. Admin and HR only."""
@@ -102,7 +102,7 @@ async def get_announcement(
 async def update_announcement(
     id: uuid.UUID,
     payload: AnnouncementCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[AnnouncementResponse]:
     """Update details of announcement draft. Admin and HR only."""
@@ -123,7 +123,7 @@ async def update_announcement(
 )
 async def delete_announcement(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[None]:
     """Soft delete announcement. Admin and HR only."""
@@ -144,7 +144,7 @@ async def delete_announcement(
 )
 async def publish_announcement(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[AnnouncementResponse]:
     """Publish announcement draft. Admin and HR only."""
@@ -165,7 +165,7 @@ async def publish_announcement(
 )
 async def archive_announcement(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[AnnouncementResponse]:
     """Archive announcement draft. Admin and HR only."""

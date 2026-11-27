@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rbac import require_hr_admin
+from app.core.rbac import require_tenant_hr_admin
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.models.audit_log import PII_UNMASK_ACCESS, create_audit_entry
@@ -61,6 +61,12 @@ class ErasureRequestCreate(BaseModel):
 
 
 def _company_id(claims: dict) -> uuid.UUID:
+    role = RoleEnum.from_str(str(claims.get("role") or ""))
+    if role == RoleEnum.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin cannot access tenant employee DPDP or sensitive PII operations.",
+        )
     raw = claims.get("company_id")
     if not raw:
         raise HTTPException(
@@ -82,7 +88,7 @@ def _actor_id(claims: dict) -> uuid.UUID:
 
 def _is_privileged(claims: dict) -> bool:
     role = RoleEnum.from_str(str(claims.get("role") or ""))
-    return role in {RoleEnum.HR_ADMIN, RoleEnum.SUPER_ADMIN}
+    return role == RoleEnum.HR_ADMIN
 
 
 async def _target_employee(
@@ -245,7 +251,7 @@ async def create_erasure_request(
 @router.post("/erasure-requests/{request_id}/execute", response_model=APIResponse[dict])
 async def execute_erasure_request(
     request_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_hr_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     service = DPDPService(db)
@@ -282,7 +288,7 @@ async def get_sensitive_employee_pii(
     employee_id: uuid.UUID,
     request: Request,
     response: Response,
-    claims: Annotated[dict, Depends(require_hr_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     """Unmask statutory identifiers only after durable privileged auditing."""

@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rbac import require_admin, require_admin_or_manager
+from app.core.rbac import require_tenant_hr_admin as require_admin, require_tenant_admin_or_manager as require_admin_or_manager
 from app.db.database import get_db_session
 from app.services.employee_bulk_service import EmployeeBulkService
 

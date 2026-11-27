@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status, UploadFile, File
 from fastapi.responses import Response
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     CandidateCreate,
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/candidates", tags=["Candidate Management"])
 )
 async def create_candidate(
     payload: CandidateCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateResponse]:
     """Create candidate profile. Admin and HR only."""
@@ -47,7 +47,7 @@ async def create_candidate(
 )
 async def get_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateResponse]:
     """Get candidate profile detail. Admin and HR only."""
@@ -67,7 +67,7 @@ async def get_candidate(
     summary="List candidates with pagination and filters",
 )
 async def list_candidates(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     is_talent_pool: bool | None = Query(None),
     search: str | None = Query(None),
@@ -104,7 +104,7 @@ async def list_candidates(
 async def update_candidate(
     id: uuid.UUID,
     payload: CandidateUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateResponse]:
     """Update candidate details. Admin and HR only."""
@@ -125,7 +125,7 @@ async def update_candidate(
 )
 async def delete_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Delete candidate profile. Admin and HR only."""
@@ -145,7 +145,7 @@ async def delete_candidate(
     summary="Import candidates from CSV",
 )
 async def import_candidates(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     file: UploadFile = File(...),
 ) -> APIResponse[int]:
@@ -165,7 +165,7 @@ async def import_candidates(
     summary="Export candidates to CSV",
 )
 async def export_candidates(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> Response:
     """Export all candidates to CSV. Admin and HR only."""

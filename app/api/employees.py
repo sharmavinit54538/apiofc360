@@ -10,11 +10,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, File, UploadFile, Response, status, Request
 
 from app.core.exceptions import AppException
-from app.core.rbac import require_admin, require_admin_or_manager, ADMIN_MANAGER_ROLES
-from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
+from app.core.rbac import (
+    ADMIN_MANAGER_ROLES,
+    normalize_operational_role,
+    require_admin,
+    require_admin_or_manager,
+    require_tenant_admin_or_manager,
+    require_tenant_directory_reader,
+    require_tenant_employee_or_above,
+    require_tenant_hr_admin,
+)
+from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
-from app.schemas.hierarchy import HierarchyTreeResponse
-from app.services.hierarchy_service import HierarchyService, get_hierarchy_service
 from app.schemas.employee import (
     ActivateEmployeeRequest,
     ApproveRejectRequest,
@@ -27,16 +34,20 @@ from app.schemas.employee import (
     EmployeeUpdate,
     DeactivateEmployeeRequest,
 )
+from app.schemas.hierarchy import HierarchyTreeResponse, ReportingChainResponse
 from app.services.employee_service import EmployeeService, get_employee_service
 from app.services.hierarchy_service import HierarchyService, get_hierarchy_service
-from app.schemas.hierarchy import HierarchyTreeResponse
-from app.middleware.auth import get_current_user_claims_optional
 
 router = APIRouter(prefix="/employees", tags=["Employee Management"])
 
 
 def _get_company_id(claims: dict) -> uuid.UUID:
-    """Extract and validate the company_id from JWT claims. Raises 403 if missing."""
+    """Extract and validate the company_id from JWT claims. Rejects Super Admin."""
+    if normalize_operational_role(claims) == "super_admin":
+        raise AppException(
+            message="Super Admin is restricted to platform-level management and cannot access tenant employee data.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     raw = claims.get("company_id")
     if not raw:
         raise AppException(
@@ -68,7 +79,7 @@ def _get_company_id(claims: dict) -> uuid.UUID:
 )
 async def create_employee(
     payload: EmployeeCreate,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[EmployeeResponse]:
     """Create a new employee record and send an activation email. Admin only."""
@@ -102,7 +113,7 @@ async def create_employee(
     summary="Get employee stats overview",
 )
 async def get_employee_dashboard_stats(
-    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_directory_reader)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[dict]:
     """Retrieve aggregation metrics and breakdown stats for employee dashboard."""
@@ -124,7 +135,7 @@ async def get_employee_dashboard_stats(
 )
 async def import_employees(
     file: UploadFile = File(...),
-    claims: Annotated[dict, Depends(require_admin)] = None,
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)] = None,
     service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
 ) -> APIResponse[dict]:
     """Bulk import employee records from uploaded Excel (.xlsx) or CSV file."""
@@ -157,7 +168,7 @@ async def export_employees(
     status_filter: str | None = Query(None, alias="status"),
     department: str | None = Query(None),
     designation: str | None = Query(None),
-    claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
+    claims: Annotated[dict, Depends(require_tenant_admin_or_manager)] = None,
     service: Annotated[EmployeeService, Depends(get_employee_service)] = None,
 ) -> Response:
     """Export employee records with filtering as formatted Excel (.xlsx), CSV, or PDF file."""
@@ -197,7 +208,7 @@ async def export_employees(
     summary="List all employees",
 )
 async def list_employees(
-    claims: Annotated[dict, Depends(require_admin_or_manager)],
+    claims: Annotated[dict, Depends(require_tenant_directory_reader)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
     department: str | None = Query(None, description="Filter by department (use 'all' to skip)"),
     status_filter: str | None = Query(None, alias="status", description="Filter by employee status"),
@@ -249,7 +260,7 @@ async def get_employees_hierarchy(
     employment_type: str | None = Query(None),
     reporting_manager_id: str | None = Query(None),
     search: str | None = Query(None),
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)] = None,
     service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
 ) -> APIResponse[list[HierarchyTreeResponse]]:
     """Return nested organization hierarchy tree (compatibility alias for /api/v1/hierarchy)."""
@@ -328,107 +339,6 @@ async def validate_employee_invitation_alias(
 
 
 @router.get(
-    "/hierarchy",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[list[HierarchyTreeResponse]],
-    summary="Get complete organization hierarchy tree",
-)
-async def get_employee_hierarchy(
-    department: str | None = Query(None),
-    designation: str | None = Query(None),
-    location: str | None = Query(None),
-    employment_type: str | None = Query(None),
-    reporting_manager_id: str | None = Query(None),
-    search: str | None = Query(None),
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
-    hierarchy_service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
-) -> APIResponse[list[HierarchyTreeResponse]]:
-    """Return nested organization hierarchy tree scoped to roles with optional filtering.
-    
-    This endpoint provides the same hierarchy data as /api/v1/hierarchy/ but under the
-    /api/v1/employees/ prefix for frontend compatibility.
-    """
-    role = str(claims.get("role", "")).lower() if claims else ""
-    user_uuid_raw = claims.get("sub") if claims else None
-    
-    # Reuse the super admin check logic from hierarchy router
-    is_super = False
-    if user_uuid_raw and role == "super_admin":
-        try:
-            user_uuid = uuid.UUID(str(user_uuid_raw))
-            from app.models.user import User
-            from sqlalchemy import select
-            from sqlalchemy.orm import load_only, noload
-            res = await hierarchy_service.session.execute(
-                select(User)
-                .options(
-                    load_only(
-                        User.id,
-                        User.email,
-                        User.role,
-                        User.is_active,
-                        User.is_deleted,
-                        User.account_status,
-                    ),
-                    noload(User.company),
-                )
-                .where(User.id == user_uuid)
-                .execution_options(bypass_tenant=True)
-            )
-            user = res.scalar_one_or_none()
-            if user and not user.is_deleted and user.is_active:
-                if str(getattr(user, "account_status", "") or "").upper() == "ACTIVE":
-                    is_super = bool(user.is_super_admin)
-        except Exception:
-            pass
-    
-    from app.api.hierarchy import _get_company_id_safe
-    company_uuid = None if is_super else _get_company_id_safe(claims)
-
-    root_id = None
-    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
-    if not is_super and role not in allowed_admin_roles:
-        if role == "manager":
-            from app.models.employee import Employee
-            from sqlalchemy import and_, select
-            from sqlalchemy.orm import load_only
-            from app.repositories.hierarchy_repository import _HIERARCHY_EMPLOYEE_COLUMNS
-            try:
-                user_uuid = uuid.UUID(str(user_uuid_raw))
-                conditions = [Employee.user_id == user_uuid, Employee.is_deleted == False]
-                if company_uuid is not None:
-                    conditions.append(Employee.company_id == company_uuid)
-                stmt = (
-                    select(Employee)
-                    .where(and_(*conditions))
-                    .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
-                )
-                res = await hierarchy_service.session.execute(stmt)
-                caller_emp = res.scalar_one_or_none()
-                if caller_emp:
-                    root_id = caller_emp.id
-            except Exception:
-                pass
-
-    tree = await hierarchy_service.build_tree(
-        company_id=company_uuid,
-        root_manager_id=root_id,
-        department=department,
-        designation=designation,
-        location=location,
-        employment_type=employment_type,
-        reporting_manager_id=reporting_manager_id,
-        search=search,
-    )
-    return APIResponse(
-        success=True,
-        message="Organization tree fetched successfully.",
-        data=tree,
-        errors=None,
-    )
-
-
-@router.get(
     "/{id}",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[EmployeeResponse],
@@ -436,30 +346,20 @@ async def get_employee_hierarchy(
 )
 async def get_employee(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(get_current_user_claims)],
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[EmployeeResponse]:
-    """Retrieve full employee profile. Admin/Manager scoped to their company. Employees can only view their own."""
-    user_role = claims.get("role")
+    """Retrieve employee profile enforcing tenant, role, and reporting-subtree isolation."""
+    user_role = normalize_operational_role(claims)
     user_id = uuid.UUID(claims["sub"])
     company_id = _get_company_id(claims)
 
-    if user_role not in ADMIN_MANAGER_ROLES:
-        # Employees may only view their own profile (within same company)
-        employee = await service.get_employee(id, company_id)
-        if employee.user_id != user_id:
-            raise AppException(
-                message="You do not have permission to view this profile.",
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        return APIResponse[EmployeeResponse](
-            success=True,
-            message="Employee profile retrieved successfully.",
-            data=employee,
-            errors=None,
-        )
-
-    employee = await service.get_employee(id, company_id)
+    employee = await service.get_employee(
+        id,
+        company_id,
+        caller_user_id=user_id,
+        caller_role=user_role,
+    )
     return APIResponse[EmployeeResponse](
         success=True,
         message="Employee profile retrieved successfully.",
@@ -483,7 +383,7 @@ async def get_employee(
 async def update_employee(
     id: uuid.UUID,
     payload: EmployeeUpdate,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
     request: Request,
 ) -> APIResponse[EmployeeResponse]:
@@ -525,7 +425,7 @@ async def update_employee(
 )
 async def delete_employee(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Soft delete employee and revoke all their active JWT refresh tokens. Admin only."""
@@ -548,7 +448,7 @@ async def delete_employee(
 )
 async def send_invitation(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[dict]:
     """Generate a new activation token and resend the email invitation. Admin only."""
@@ -571,7 +471,7 @@ async def send_invitation(
 )
 async def send_invite_alias(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[dict]:
     """Alias for send-invitation — same behaviour, different URL."""
@@ -595,7 +495,7 @@ async def send_invite_alias(
 async def deactivate_employee(
     id: uuid.UUID,
     payload: DeactivateEmployeeRequest,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Set employee status to DISABLED and revoke portal access. Admin only."""
@@ -618,7 +518,7 @@ async def deactivate_employee(
 )
 async def activate_employee_by_admin(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Activate employee: creates a linked users row if needed and grants portal access. Admin only."""
@@ -668,7 +568,7 @@ async def activate_employee(
 )
 async def approve_employee(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """HR approval of employee onboarding documents. Sets status to ACTIVE. Admin only."""
@@ -692,7 +592,7 @@ async def approve_employee(
 async def reject_employee(
     id: uuid.UUID,
     payload: ApproveRejectRequest,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Reject employee onboarding. Sets status to INACTIVE. Admin only."""
@@ -715,7 +615,7 @@ async def reject_employee(
 )
 async def reset_password(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin)],
+    claims: Annotated[dict, Depends(require_tenant_hr_admin)],
     service: Annotated[EmployeeService, Depends(get_employee_service)],
 ) -> APIResponse[None]:
     """Admin-triggered password reset. Generates a temporary password and emails it to the employee."""
@@ -766,14 +666,14 @@ async def get_onboarding_status(
 @router.get(
     "/{id}/reporting",
     status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
+    response_model=APIResponse[ReportingChainResponse],
     summary="Get employee reporting hierarchy details",
 )
 async def get_employee_reporting_details_compat(
     id: uuid.UUID,
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
-    service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
-) -> APIResponse[dict]:
+    claims: Annotated[dict, Depends(require_tenant_employee_or_above)],
+    service: Annotated[HierarchyService, Depends(get_hierarchy_service)],
+) -> APIResponse[ReportingChainResponse]:
     """Compatibility alias delegating to /api/v1/hierarchy/{employee_id}."""
     from app.api.hierarchy import get_employee_hierarchy_details
 
@@ -781,33 +681,5 @@ async def get_employee_reporting_details_compat(
         employee_id=id,
         claims=claims,
         service=service,
-    )
-
-
-@router.get(
-    "/{id}/reporting",
-    status_code=status.HTTP_200_OK,
-    response_model=APIResponse[dict],
-    summary="Get employee reporting hierarchy details",
-)
-async def get_employee_reporting(
-    id: uuid.UUID,
-    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
-    service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
-) -> APIResponse[dict]:
-    """Return manager, peers, direct reports, and reporting chain (compatibility alias for /api/v1/hierarchy/{id})."""
-    from app.api.hierarchy import get_employee_hierarchy_details
-
-    res = await get_employee_hierarchy_details(
-        employee_id=id,
-        claims=claims,
-        service=service,
-    )
-    payload = res.data.model_dump() if hasattr(res.data, "model_dump") else dict(res.data)
-    return APIResponse[dict](
-        success=True,
-        message=res.message,
-        data=payload,
-        errors=None,
     )
 

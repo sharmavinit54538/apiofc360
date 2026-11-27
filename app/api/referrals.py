@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import (
     CandidateReferralCreate,
@@ -30,7 +30,7 @@ class ReferralStatusUpdate(BaseModel):
 )
 async def create_referral(
     payload: CandidateReferralCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateReferralResponse]:
     """Submit an employee referral. Admin and HR only."""
@@ -50,7 +50,7 @@ async def create_referral(
     summary="List all employee referrals",
 )
 async def list_referrals(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1),
@@ -74,7 +74,7 @@ async def list_referrals(
 async def update_referral_status(
     id: uuid.UUID,
     payload: ReferralStatusUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[CandidateReferralResponse]:
     """Update referral and reward status. Admin and HR only."""

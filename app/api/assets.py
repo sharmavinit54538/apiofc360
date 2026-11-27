@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, status, Request
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.asset import (
@@ -53,7 +53,7 @@ def _get_cid(claims: dict) -> uuid.UUID:
     summary="List all company hardware assets",
 )
 async def list_assets(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
     category: str | None = Query(None, description="Filter by asset category"),
     status_filter: str | None = Query(None, alias="status", description="Filter by asset status"),
@@ -96,7 +96,7 @@ async def list_assets(
     summary="Get aggregated asset analytics data",
 )
 async def get_analytics(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetAnalyticsResponse]:
     """Get statistics for categories, status divisions, valuations, and repair expenses."""
@@ -117,7 +117,7 @@ async def get_analytics(
     summary="Get distinct filter option values for assets",
 )
 async def get_filter_options(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetFilterOptionsResponse]:
     """Get distinct vendors, locations, and departments for filtering."""
@@ -138,7 +138,7 @@ async def get_filter_options(
     summary="Get asset upload image requirements",
 )
 async def get_upload_image_info(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
 ) -> APIResponse[dict]:
     """Get requirements for the asset image upload endpoint. Use POST to upload files."""
     return APIResponse[dict](
@@ -159,7 +159,7 @@ async def get_upload_image_info(
     summary="Upload asset image to Cloudinary",
 )
 async def upload_asset_image(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     file: Annotated[UploadFile, File(description="Image file to upload (jpg, jpeg, png, webp, gif)")],
 ) -> APIResponse[dict]:
     """Upload an image file to Cloudinary and return the secure URL.
@@ -275,7 +275,7 @@ async def upload_asset_image(
 )
 async def create_asset(
     payload: AssetCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Register a new hardware asset in the inventory."""
@@ -326,7 +326,7 @@ async def get_public_asset(
 )
 async def get_asset(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Get full details of a specific asset by UUID including timeline logs."""
@@ -349,7 +349,7 @@ async def get_asset(
 async def update_asset(
     id: uuid.UUID,
     payload: AssetUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Update hardware parameters or metadata on a target asset."""
@@ -372,7 +372,7 @@ async def update_asset(
 )
 async def delete_asset(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[None]:
     """Archive asset from inventory system (soft delete). Preserves all history."""
@@ -396,7 +396,7 @@ async def delete_asset(
 async def assign_asset(
     id: uuid.UUID,
     payload: AssetAssignRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Assign available asset to active employee by employee_id."""
@@ -419,7 +419,7 @@ async def assign_asset(
 )
 async def return_asset(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Check back in assigned asset as available in stock room."""
@@ -443,7 +443,7 @@ async def return_asset(
 async def transfer_asset(
     id: uuid.UUID,
     payload: AssetTransferRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Reassign asset assignment seamlessly from current employee to new employee by employee_id."""
@@ -467,7 +467,7 @@ async def transfer_asset(
 async def mark_lost(
     id: uuid.UUID,
     payload: AssetLostRequest,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Flag status as lost with reason and date."""
@@ -490,7 +490,7 @@ async def mark_lost(
 )
 async def recover_lost_asset(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Recover a lost asset - transitions back to available status."""
@@ -513,7 +513,7 @@ async def recover_lost_asset(
 )
 async def mark_retired(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Decommission asset permanently."""
@@ -537,7 +537,7 @@ async def mark_retired(
 async def add_maintenance(
     id: uuid.UUID,
     payload: AssetMaintenanceCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Send asset for maintenance (marks as under-repair), record vendor/estimated cost."""
@@ -562,7 +562,7 @@ async def complete_maintenance(
     id: uuid.UUID,
     maintenance_id: uuid.UUID,
     payload: AssetMaintenanceComplete,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetResponse]:
     """Complete maintenance - marks asset as available and updates maintenance record with actual cost."""
@@ -637,7 +637,7 @@ async def list_asset_requests(
 )
 async def approve_asset_request(
     request_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetRequestResponse]:
     """Approve a pending asset request (Admin/HR/IT only)."""
@@ -661,7 +661,7 @@ async def approve_asset_request(
 async def reject_asset_request(
     request_id: uuid.UUID,
     payload: AssetRequestUpdate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
 ) -> APIResponse[AssetRequestResponse]:
     """Reject a pending asset request with reason (Admin/HR/IT only)."""
@@ -685,7 +685,7 @@ async def reject_asset_request(
 )
 async def fulfill_asset_request(
     request_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
     asset_id: uuid.UUID = Query(..., description="Asset ID to assign"),
 ) -> APIResponse[AssetRequestResponse]:
@@ -731,7 +731,7 @@ async def create_damage_report(
     summary="List damage reports",
 )
 async def list_damage_reports(
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
     asset_id: uuid.UUID | None = Query(None, description="Filter by asset ID"),
     status_filter: str | None = Query(None, alias="status", description="Filter by report status"),
@@ -757,7 +757,7 @@ async def list_damage_reports(
 )
 async def update_damage_report_status(
     report_id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[AssetService, Depends(get_asset_service)],
     status: str = Query(..., description="New status: UNDER_REVIEW, MAINTENANCE_SCHEDULED, REPAIRED, REPLACED, CLOSED"),
     resolution_notes: str | None = Query(None, description="Resolution notes"),

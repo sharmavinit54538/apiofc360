@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
 from app.models.employee import Employee
@@ -60,7 +60,7 @@ async def list_letter_types(claims: Annotated[dict, Depends(get_current_user_cla
 @router.post("/letters/{letter_type}/generate", response_model=APIResponse[dict[str, Any]])
 async def generate_letter(
     letter_type: str, payload: LetterGeneratePayload,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     try:
@@ -82,7 +82,7 @@ async def generate_letter(
 @router.post("/{doc_id}/request-esign", response_model=APIResponse[dict[str, Any]], status_code=status.HTTP_201_CREATED)
 async def request_esign(
     doc_id: uuid.UUID, payload: ESignRequestPayload, request: Request,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     try:

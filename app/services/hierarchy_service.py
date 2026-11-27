@@ -121,6 +121,10 @@ class HierarchyService:
 
         return True
 
+    @staticmethod
+    def _mgr_id(emp: Employee) -> uuid.UUID | None:
+        return emp.reporting_manager_id or emp.manager_id
+
     async def build_tree(
         self,
         company_id: uuid.UUID | None,
@@ -131,27 +135,30 @@ class HierarchyService:
         employment_type: str | None = None,
         reporting_manager_id: str | None = None,
         search: str | None = None,
+        include_salary: bool = True,
     ) -> list[HierarchyTreeResponse]:
-        """Fetch all employees and build a nested tree structure with optional filtering."""
+        """Fetch company employees and build a cycle-safe nested tree with optional filtering."""
         if root_manager_id:
-            root_emp = await self.repo.get_employee_by_id(root_manager_id)
-            if root_emp:
-                descendants = await self.repo.get_recursive_descendants(root_manager_id)
-                employees = [root_emp] + descendants
-            else:
-                employees = await self.repo.get_company_employees(company_id)
+            root_emp = await self.repo.get_employee_by_id(root_manager_id, company_id=company_id)
+            if not root_emp:
+                return []
+            descendants = await self.repo.get_recursive_descendants(
+                root_manager_id, company_id=company_id
+            )
+            employees = [root_emp] + [d for d in descendants if d.id != root_emp.id]
         else:
             employees = await self.repo.get_company_employees(company_id)
 
-        # O(N) lookup for manager names
         emp_lookup = {emp.id: emp for emp in employees}
+        nodes: dict[uuid.UUID, HierarchyTreeResponse] = {}
+        parent_map: dict[uuid.UUID, uuid.UUID | None] = {}
 
-        # Build node map — including all new fields
-        nodes = {}
         for emp in employees:
+            eff_mgr = self._mgr_id(emp)
+            parent_map[emp.id] = eff_mgr if (eff_mgr in emp_lookup and eff_mgr != emp.id) else None
             m_name = None
-            if emp.manager_id and emp.manager_id in emp_lookup:
-                m = emp_lookup[emp.manager_id]
+            if eff_mgr and eff_mgr in emp_lookup:
+                m = emp_lookup[eff_mgr]
                 m_name = f"{m.first_name} {m.last_name}".strip()
 
             nodes[emp.id] = HierarchyTreeResponse(
@@ -170,33 +177,52 @@ class HierarchyService:
                 employment_status=emp.employment_status,
                 joining_date=emp.joining_date,
                 date_of_birth=emp.date_of_birth,
-                ctc=emp.ctc,
-                reporting_to=emp.manager_id,
+                ctc=emp.ctc if include_salary else None,
+                reporting_to=eff_mgr,
                 reporting_manager_name=m_name,
                 children=[],
             )
 
-        roots = []
+        def _would_create_cycle(child_id: uuid.UUID, parent_id: uuid.UUID) -> bool:
+            cur: uuid.UUID | None = parent_id
+            seen: set[uuid.UUID] = {child_id}
+            while cur is not None:
+                if cur in seen:
+                    return True
+                seen.add(cur)
+                cur = parent_map.get(cur)
+            return False
+
+        roots: list[HierarchyTreeResponse] = []
         for emp in employees:
             node = nodes[emp.id]
-            # Root node conditions
+            parent_id = parent_map[emp.id]
             if root_manager_id and emp.id == root_manager_id:
                 roots.append(node)
-            elif not root_manager_id and (emp.manager_id is None or emp.manager_id not in nodes):
+            elif parent_id is None:
                 roots.append(node)
+            elif not _would_create_cycle(emp.id, parent_id):
+                nodes[parent_id].children.append(node)
             else:
-                parent_id = emp.manager_id
-                if parent_id in nodes:
-                    nodes[parent_id].children.append(node)
-
-        if not roots and nodes:
-            roots = list(nodes.values())
+                # Break corrupted cycle edge safely at top level without infinite recursion
+                logger.warning(
+                    "Broken pre-existing reporting cycle for employee=%s manager=%s",
+                    emp.id,
+                    parent_id,
+                )
+                parent_map[emp.id] = None
+                roots.append(node)
 
         has_filters = any([department, designation, location, employment_type, reporting_manager_id, search])
         if not has_filters:
             return roots
 
+        visited_filter: set[uuid.UUID] = set()
+
         def filter_node_tree(node: HierarchyTreeResponse) -> HierarchyTreeResponse | None:
+            if node.id in visited_filter:
+                return None
+            visited_filter.add(node.id)
             emp_obj = emp_lookup.get(node.id)
             is_match = self._matches_filter(
                 emp_obj, department, designation, location, employment_type, reporting_manager_id, search
@@ -231,64 +257,76 @@ class HierarchyService:
         employment_type: str | None = None,
         reporting_manager_id: str | None = None,
         search: str | None = None,
+        include_salary: bool = True,
     ) -> list[OrganizationChartNode]:
         """Fetch hierarchy flat representation optimized for React Flow rendering with optional filtering."""
         if root_manager_id:
-            root_emp = await self.repo.get_employee_by_id(root_manager_id)
-            if root_emp:
-                descendants = await self.repo.get_recursive_descendants(root_manager_id)
-                employees = [root_emp] + descendants
-            else:
-                employees = await self.repo.get_company_employees(company_id)
+            root_emp = await self.repo.get_employee_by_id(root_manager_id, company_id=company_id)
+            if not root_emp:
+                return []
+            descendants = await self.repo.get_recursive_descendants(
+                root_manager_id, company_id=company_id
+            )
+            all_employees = [root_emp] + [d for d in descendants if d.id != root_emp.id]
         else:
-            employees = await self.repo.get_company_employees(company_id)
+            all_employees = await self.repo.get_company_employees(company_id)
+
+        # Build full company lookup BEFORE filtering to eliminate N+1 manager queries
+        emp_lookup = {emp.id: emp for emp in all_employees}
 
         has_filters = any([department, designation, location, employment_type, reporting_manager_id, search])
-        if has_filters:
-            employees = [
-                emp for emp in employees
+        employees = (
+            [
+                emp for emp in all_employees
                 if self._matches_filter(
                     emp, department, designation, location, employment_type, reporting_manager_id, search
                 )
             ]
+            if has_filters
+            else all_employees
+        )
 
-        # O(N) lookup tables for team sizes and manager names
-        subordinates = {emp.id: [] for emp in employees}
-        emp_lookup = {emp.id: emp for emp in employees}
+        # Cycle-safe O(N) team sizes over filtered nodes
+        filtered_ids = {emp.id for emp in employees}
+        subordinates: dict[uuid.UUID, list[uuid.UUID]] = {emp.id: [] for emp in employees}
         for emp in employees:
-            if emp.manager_id in subordinates:
-                subordinates[emp.manager_id].append(emp.id)
+            eff_mgr = self._mgr_id(emp)
+            if eff_mgr in filtered_ids and eff_mgr != emp.id:
+                subordinates[eff_mgr].append(emp.id)
 
-        memo_team_size = {}
+        memo_team_size: dict[uuid.UUID, int] = {}
 
-        def get_recursive_size(emp_uuid: uuid.UUID) -> int:
+        def get_recursive_size(emp_uuid: uuid.UUID, visiting: set[uuid.UUID]) -> int:
             if emp_uuid in memo_team_size:
                 return memo_team_size[emp_uuid]
+            if emp_uuid in visiting:
+                return 0
+            visiting.add(emp_uuid)
             size = 0
             for sub_id in subordinates.get(emp_uuid, []):
-                size += 1 + get_recursive_size(sub_id)
+                if sub_id not in visiting:
+                    size += 1 + get_recursive_size(sub_id, visiting)
+            visiting.remove(emp_uuid)
             memo_team_size[emp_uuid] = size
             return size
 
-        # Precompute sizes
         for emp in employees:
-            get_recursive_size(emp.id)
+            if emp.id not in memo_team_size:
+                get_recursive_size(emp.id, set())
 
         chart_nodes = []
         for emp in employees:
+            eff_mgr = self._mgr_id(emp)
             manager_name = None
-            if emp.manager_id:
-                m_emp = emp_lookup.get(emp.manager_id)
-                if not m_emp:
-                    # Look up from database if not in current company subset
-                    m_emp = await self.repo.get_employee_by_id_raw(emp.manager_id)
+            if eff_mgr:
+                m_emp = emp_lookup.get(eff_mgr)
                 if m_emp:
                     manager_name = f"{m_emp.first_name} {m_emp.last_name}".strip()
 
             chart_nodes.append(
                 OrganizationChartNode(
                     id=str(emp.id),
-                    parentId=str(emp.manager_id) if emp.manager_id else None,
+                    parentId=str(eff_mgr) if eff_mgr else None,
                     name=f"{emp.first_name} {emp.last_name}".strip(),
                     designation=emp.designation,
                     department=emp.department,
@@ -305,23 +343,23 @@ class HierarchyService:
         return chart_nodes
 
     async def assign_manager(
-        self, employee_id: uuid.UUID, manager_id: uuid.UUID, updated_by: uuid.UUID
+        self,
+        employee_id: uuid.UUID,
+        manager_id: uuid.UUID,
+        updated_by: uuid.UUID,
+        company_id: uuid.UUID | None = None,
     ) -> Employee:
-        """Assign reporting manager to an employee, performing all validations & logging audit."""
-        employee = await self.repo.get_employee_by_id(employee_id)
+        """Assign reporting manager to an employee, enforcing tenant & cycle validations + audit."""
+        employee = await self.repo.get_employee_by_id(employee_id, company_id=company_id)
         if not employee:
             raise NotFoundException("Employee not found.")
 
-        # Business validations
-        await self.validate_hierarchy(employee_id, manager_id)
+        await self.validate_hierarchy(employee_id, manager_id, company_id=company_id)
 
-        previous_manager_id = employee.manager_id
-
-        # Skip update if manager is already assigned
-        if previous_manager_id == manager_id:
+        previous_manager_id = self._mgr_id(employee)
+        if previous_manager_id == manager_id and employee.reporting_manager_id == manager_id and employee.manager_id == manager_id:
             return employee
 
-        # Log action info
         logger.info(
             "Assigning manager | employee=%s | manager=%s | updated_by=%s",
             employee_id,
@@ -329,11 +367,9 @@ class HierarchyService:
             updated_by,
         )
 
-        # Apply updates to both manager_id and reporting_manager_id to keep schemas in sync
         employee.manager_id = manager_id
         employee.reporting_manager_id = manager_id
 
-        # Insert audit log entry
         audit = HierarchyAuditLog(
             employee_id=employee_id,
             previous_manager_id=previous_manager_id,
@@ -341,30 +377,57 @@ class HierarchyService:
             updated_by=updated_by,
         )
         await self.repo.create_audit_log(audit)
+        try:
+            from app.models.audit_log import AuditLog
+            self.session.add(
+                AuditLog(
+                    id=uuid.uuid4(),
+                    user_id=updated_by,
+                    company_id=employee.company_id,
+                    action="Reporting Manager Assigned",
+                    details=f"Assigned reporting manager {manager_id} to employee {employee_id}",
+                )
+            )
+            await self.session.flush()
+        except Exception:
+            logger.warning("Failed writing general AuditLog for manager assignment | employee=%s", employee_id)
 
-        # Commit changes
         await self.session.commit()
         return employee
 
     async def change_manager(
-        self, employee_id: uuid.UUID, new_manager_id: uuid.UUID, updated_by: uuid.UUID
+        self,
+        employee_id: uuid.UUID,
+        new_manager_id: uuid.UUID,
+        updated_by: uuid.UUID,
+        company_id: uuid.UUID | None = None,
     ) -> Employee:
-        """Transfer reporting manager. Syntactic sugar over assign_manager with explicit log contexts."""
+        """Transfer reporting manager within tenant boundary."""
         logger.info(
             "Transferring manager | employee=%s | new_manager=%s | updated_by=%s",
             employee_id,
             new_manager_id,
             updated_by,
         )
-        return await self.assign_manager(employee_id, new_manager_id, updated_by)
+        return await self.assign_manager(
+            employee_id,
+            new_manager_id,
+            updated_by,
+            company_id=company_id,
+        )
 
-    async def remove_manager(self, employee_id: uuid.UUID, updated_by: uuid.UUID) -> Employee:
-        """Remove reporting manager (orphan node / top-level root transition)."""
-        employee = await self.repo.get_employee_by_id(employee_id)
+    async def remove_manager(
+        self,
+        employee_id: uuid.UUID,
+        updated_by: uuid.UUID,
+        company_id: uuid.UUID | None = None,
+    ) -> Employee:
+        """Remove reporting manager within tenant boundary."""
+        employee = await self.repo.get_employee_by_id(employee_id, company_id=company_id)
         if not employee:
             raise NotFoundException("Employee not found.")
 
-        previous_manager_id = employee.manager_id
+        previous_manager_id = self._mgr_id(employee)
         if previous_manager_id is None:
             return employee
 
@@ -375,11 +438,9 @@ class HierarchyService:
             updated_by,
         )
 
-        # Apply null updates
         employee.manager_id = None
         employee.reporting_manager_id = None
 
-        # Audit log entry
         audit = HierarchyAuditLog(
             employee_id=employee_id,
             previous_manager_id=previous_manager_id,
@@ -387,50 +448,72 @@ class HierarchyService:
             updated_by=updated_by,
         )
         await self.repo.create_audit_log(audit)
+        try:
+            from app.models.audit_log import AuditLog
+            self.session.add(
+                AuditLog(
+                    id=uuid.uuid4(),
+                    user_id=updated_by,
+                    company_id=employee.company_id,
+                    action="Reporting Manager Removed",
+                    details=f"Removed reporting manager {previous_manager_id} from employee {employee_id}",
+                )
+            )
+            await self.session.flush()
+        except Exception:
+            logger.warning("Failed writing general AuditLog for manager removal | employee=%s", employee_id)
 
-        # Commit
         await self.session.commit()
         return employee
 
-    async def get_reporting_chain(self, employee_id: uuid.UUID) -> list[Employee]:
+    async def get_reporting_chain(
+        self, employee_id: uuid.UUID, company_id: uuid.UUID | None = None
+    ) -> list[Employee]:
         """Fetch recursive managers list starting from direct manager up to root."""
-        return await self.repo.get_recursive_ancestors(employee_id)
+        return await self.repo.get_recursive_ancestors(employee_id, company_id=company_id)
 
-    async def get_team(self, manager_id: uuid.UUID) -> list[Employee]:
+    async def get_team(
+        self, manager_id: uuid.UUID, company_id: uuid.UUID | None = None
+    ) -> list[Employee]:
         """Fetch all recursive descendants reporting to this manager."""
-        return await self.repo.get_recursive_descendants(manager_id)
+        return await self.repo.get_recursive_descendants(manager_id, company_id=company_id)
 
-    async def detect_cycle(self, employee_id: uuid.UUID, manager_id: uuid.UUID) -> bool:
+    async def detect_cycle(
+        self,
+        employee_id: uuid.UUID,
+        manager_id: uuid.UUID,
+        company_id: uuid.UUID | None = None,
+    ) -> bool:
         """Return True if assigning manager_id to employee_id creates a circular loop."""
-        return await self.repo.detect_cycle(employee_id, manager_id)
+        return await self.repo.detect_cycle(employee_id, manager_id, company_id=company_id)
 
-    async def validate_hierarchy(self, employee_id: uuid.UUID, manager_id: uuid.UUID) -> None:
+    async def validate_hierarchy(
+        self,
+        employee_id: uuid.UUID,
+        manager_id: uuid.UUID,
+        company_id: uuid.UUID | None = None,
+    ) -> None:
         """Execute all business validation rules before assigning a manager."""
         if employee_id == manager_id:
             logger.warning("Validation error: Self-reporting attempt | employee=%s", employee_id)
             raise BadRequestException("Employee cannot report to themselves.")
 
-        # Load employee
-        employee = await self.repo.get_employee_by_id(employee_id)
+        employee = await self.repo.get_employee_by_id(employee_id, company_id=company_id)
         if not employee:
             raise NotFoundException("Employee not found.")
 
-        # Load manager
-        manager = await self.repo.get_employee_by_id_raw(manager_id)
+        manager = await self.repo.get_employee_by_id_raw(manager_id, company_id=company_id)
         if not manager:
             raise NotFoundException("Proposed manager not found.")
 
-        # Check soft-deletion
         if manager.is_deleted:
             logger.warning("Validation error: Manager is soft-deleted | manager=%s", manager_id)
             raise BadRequestException("Soft deleted employee cannot become manager.")
 
-        # Check status active
-        if manager.status != "ACTIVE":
+        if str(manager.status or "").upper() != "ACTIVE" or not getattr(manager, "is_active", True):
             logger.warning("Validation error: Manager is inactive | manager=%s | status=%s", manager_id, manager.status)
             raise BadRequestException("Inactive employee cannot become manager.")
 
-        # Check company alignment
         if employee.company_id != manager.company_id:
             logger.warning(
                 "Validation error: Company mismatch | employee=%s (company=%s) | manager=%s (company=%s)",
@@ -441,8 +524,7 @@ class HierarchyService:
             )
             raise BadRequestException("Manager must belong to the same company.")
 
-        # Check cycle loop (cannot report to subordinate)
-        if await self.repo.detect_cycle(employee_id, manager_id):
+        if await self.repo.detect_cycle(employee_id, manager_id, company_id=employee.company_id):
             logger.warning(
                 "Validation error: Cycle detected | employee=%s | manager=%s",
                 employee_id,
@@ -478,55 +560,66 @@ class HierarchyService:
                 hierarchy_depth=0,
             )
 
-        # Build adjacency maps
+        # Build adjacency maps (cycle-safe, supporting both reporting_manager_id and manager_id)
         subordinates = {emp.id: [] for emp in employees}
+        parent_map = {}
         for emp in employees:
-            if emp.manager_id in subordinates:
-                subordinates[emp.manager_id].append(emp.id)
+            eff_mgr = self._mgr_id(emp)
+            if eff_mgr in subordinates and eff_mgr != emp.id:
+                subordinates[eff_mgr].append(emp.id)
+                parent_map[emp.id] = eff_mgr
+            else:
+                parent_map[emp.id] = None
 
-        # Count how many have direct reports
         managers_count = sum(1 for emp in employees if len(subordinates[emp.id]) > 0)
 
-        # Compute recursive sizes using memoized search
-        memo_team_size = {}
+        memo_team_size: dict[uuid.UUID, int] = {}
 
-        def get_recursive_size(emp_uuid: uuid.UUID) -> int:
+        def get_recursive_size(emp_uuid: uuid.UUID, visiting: set[uuid.UUID]) -> int:
             if emp_uuid in memo_team_size:
                 return memo_team_size[emp_uuid]
+            if emp_uuid in visiting:
+                return 0
+            visiting.add(emp_uuid)
             size = 0
             for sub_id in subordinates.get(emp_uuid, []):
-                size += 1 + get_recursive_size(sub_id)
+                if sub_id not in visiting:
+                    size += 1 + get_recursive_size(sub_id, visiting)
+            visiting.remove(emp_uuid)
             memo_team_size[emp_uuid] = size
             return size
 
-        # Largest team (direct + recursive)
         largest_team = 0
         for emp in employees:
-            sz = get_recursive_size(emp.id)
+            sz = get_recursive_size(emp.id, set())
             if sz > largest_team:
                 largest_team = sz
 
-        # Average team size (total subordinates / managers_count)
-        employees_with_manager = sum(1 for emp in employees if emp.manager_id is not None)
+        employees_with_manager = sum(1 for emp in employees if parent_map.get(emp.id) is not None)
         average_team_size = (
             float(employees_with_manager) / float(managers_count) if managers_count > 0 else 0.0
         )
 
-        # Compute level depths for each node
-        depths = {}
-        roots = [
-            emp.id
-            for emp in employees
-            if emp.manager_id is None or emp.manager_id not in subordinates
-        ]
+        depths: dict[uuid.UUID, int] = {}
+        roots = [emp.id for emp in employees if parent_map.get(emp.id) is None]
 
-        def compute_depth(emp_uuid: uuid.UUID, current_depth: int):
+        def compute_depth(emp_uuid: uuid.UUID, current_depth: int, visiting: set[uuid.UUID]) -> None:
+            if emp_uuid in visiting or current_depth > 50:
+                return
+            if emp_uuid in depths and depths[emp_uuid] >= current_depth:
+                return
             depths[emp_uuid] = current_depth
+            visiting.add(emp_uuid)
             for sub_id in subordinates.get(emp_uuid, []):
-                compute_depth(sub_id, current_depth + 1)
+                compute_depth(sub_id, current_depth + 1, visiting)
+            visiting.remove(emp_uuid)
 
         for r_id in roots:
-            compute_depth(r_id, 1)
+            compute_depth(r_id, 1, set())
+        # Cover disconnected cycles if any
+        for emp in employees:
+            if emp.id not in depths:
+                compute_depth(emp.id, 1, set())
 
         hierarchy_depth = max(depths.values()) if depths else 0
 
@@ -550,43 +643,51 @@ class HierarchyService:
         company_id: uuid.UUID | None,
         *,
         preloaded_employee: Employee | None = None,
+        include_salary: bool = True,
     ) -> ReportingChainResponse:
         """Fetch employee direct details, manager, peers, direct reports, reporting chain and level."""
-        employee = preloaded_employee or await self.repo.get_employee_by_id(employee_uuid)
+        employee = preloaded_employee or await self.repo.get_employee_by_id(
+            employee_uuid, company_id=company_id
+        )
         if not employee or (company_id is not None and employee.company_id != company_id):
             raise NotFoundException("Employee not found.")
 
-        reporting_chain = await self.repo.get_recursive_ancestors(employee_uuid)
-        direct_reports = await self.repo.get_direct_reports(employee_uuid)
+        eff_company = company_id or employee.company_id
+        eff_mgr_id = self._mgr_id(employee)
+
+        reporting_chain = await self.repo.get_recursive_ancestors(
+            employee_uuid, company_id=eff_company
+        )
+        direct_reports = await self.repo.get_direct_reports(
+            employee_uuid, company_id=eff_company
+        )
         peers = (
-            await self.repo.get_peers(employee_uuid, employee.manager_id)
-            if employee.manager_id is not None
+            await self.repo.get_peers(employee_uuid, eff_mgr_id, company_id=eff_company)
+            if eff_mgr_id is not None
             else []
         )
 
-        # get_recursive_ancestors returns CEO -> ... -> immediate manager (last element).
         manager = None
         manager_name = None
-        if employee.manager_id:
-            if reporting_chain and reporting_chain[-1].id == employee.manager_id:
+        if eff_mgr_id:
+            if reporting_chain and reporting_chain[-1].id == eff_mgr_id:
                 manager = reporting_chain[-1]
             else:
-                manager = await self.repo.get_employee_by_id(employee.manager_id)
+                manager = await self.repo.get_employee_by_id(eff_mgr_id, company_id=eff_company)
             if manager:
                 manager_name = f"{manager.first_name} {manager.last_name}".strip()
 
-        # Build emp_lookup for resolving manager names in related employees
         all_related = ([manager] if manager else []) + list(peers) + list(direct_reports) + list(reporting_chain)
         emp_lookup = {e.id: e for e in all_related if e}
 
-        # Organization Level (depth from top root manager)
         level = len(reporting_chain) + 1
 
-        def _node(emp, override_manager_name: str | None = None) -> HierarchyNodeResponse:
+        def _node(emp: Employee, override_manager_name: str | None = None) -> HierarchyNodeResponse:
             """Build HierarchyNodeResponse with all fields populated."""
+            node_mgr_id = self._mgr_id(emp)
             m_name = override_manager_name
-            if m_name is None and emp.manager_id and emp.manager_id in emp_lookup:
-                m = emp_lookup[emp.manager_id]
+            if m_name is None and node_mgr_id and node_mgr_id in emp_lookup:
+                m = emp_lookup[node_mgr_id]
                 m_name = f"{m.first_name} {m.last_name}".strip()
             return HierarchyNodeResponse(
                 id=emp.id,
@@ -604,8 +705,8 @@ class HierarchyService:
                 employment_status=emp.employment_status,
                 joining_date=emp.joining_date,
                 date_of_birth=emp.date_of_birth,
-                ctc=emp.ctc,
-                reporting_to=emp.manager_id,
+                ctc=emp.ctc if include_salary else None,
+                reporting_to=node_mgr_id,
                 reporting_manager_name=m_name,
             )
 

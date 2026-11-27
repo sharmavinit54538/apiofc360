@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.schemas.auth import APIResponse
 from app.schemas.recruitment import OfferCreate, OfferResponse
 from app.services.recruitment_service import RecruitmentService, get_recruitment_service
@@ -24,7 +24,7 @@ router = APIRouter()
 async def create_offer(
     id: uuid.UUID,
     payload: OfferCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[OfferResponse]:
     """Create offer record, generate placeholder offer letter document, and email candidate. Admin and HR only."""
@@ -46,7 +46,7 @@ async def create_offer(
 )
 async def convert_candidate(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
 ) -> APIResponse[None]:
     """Create User account, Employee record, default onboarding checklist, and send welcome emails. Admin and HR only."""

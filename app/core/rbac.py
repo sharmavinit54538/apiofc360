@@ -36,6 +36,13 @@ __all__ = [
     "require_it_admin",
     "require_admin_or_manager",
     "require_executive",
+    "require_tenant_hr_admin",
+    "require_tenant_admin",
+    "require_tenant_admin_or_manager",
+    "require_tenant_directory_reader",
+    "require_tenant_employee_or_above",
+    "reject_super_admin_operational_access",
+    "normalize_operational_role",
     "require_employee_or_above",
     "require_roles",
 ]
@@ -393,4 +400,152 @@ async def require_super_admin(
                 detail="Super Admin access required.",
             )
 
+    return claims
+
+
+import uuid as _rbac_uuid  # noqa: E402
+
+_TENANT_RECRUITER_ALIASES = frozenset({"recruiter", "talent_acquisition", "ta", "ta_specialist", "recruiting"})
+_TENANT_HR_ADMIN_ALIASES = frozenset({"hr_admin", "hr", "admin", "company_admin", "hr_manager"})
+_TENANT_IT_ADMIN_ALIASES = frozenset({"it_admin", "it", "itadmin", "tech_admin", "system_admin"})
+_TENANT_EXECUTIVE_ALIASES = frozenset(
+    {"executive", "exec", "cxo", "ceo", "cto", "cfo", "coo", "chro", "cio", "ciso", "vp"}
+)
+_TENANT_MANAGER_ALIASES = frozenset({"manager", "mgr", "lead", "team_lead"})
+_TENANT_EMPLOYEE_ALIASES = frozenset({"employee", "emp", "staff", "user"})
+_TENANT_INTERN_ALIASES = frozenset({"intern", "trainee"})
+_TENANT_SUPER_ADMIN_ALIASES = frozenset({"super_admin", "superadmin", "platform_admin", "root"})
+
+
+def normalize_operational_role(claims: dict | None) -> str:
+    """Strictly normalize a caller's role claim without falling open to employee."""
+    if not isinstance(claims, dict):
+        return ""
+    raw = str(claims.get("role") or "").strip().lower()
+    if not raw:
+        return ""
+    if raw in _TENANT_SUPER_ADMIN_ALIASES:
+        return RoleEnum.SUPER_ADMIN.value
+    if raw in _TENANT_RECRUITER_ALIASES:
+        return "recruiter"
+    parsed = RoleEnum.from_str(raw, strict=True)
+    if parsed is not None:
+        return parsed.value
+    if raw in _TENANT_HR_ADMIN_ALIASES:
+        return RoleEnum.HR_ADMIN.value
+    if raw in _TENANT_IT_ADMIN_ALIASES:
+        return RoleEnum.IT_ADMIN.value
+    if raw in _TENANT_EXECUTIVE_ALIASES:
+        return RoleEnum.EXECUTIVE.value
+    if raw in _TENANT_MANAGER_ALIASES:
+        return RoleEnum.MANAGER.value
+    if raw in _TENANT_EMPLOYEE_ALIASES:
+        return RoleEnum.EMPLOYEE.value
+    if raw in _TENANT_INTERN_ALIASES:
+        return RoleEnum.INTERN.value
+    return ""
+
+
+def reject_super_admin_operational_access(claims: dict | None) -> str:
+    """Block Super Admin from tenant operational APIs and enforce valid UUID company_id."""
+    if not isinstance(claims, dict) or not claims.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    role = normalize_operational_role(claims)
+    if role == RoleEnum.SUPER_ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin is restricted to platform-level management and cannot access tenant operational resources.",
+        )
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Unrecognized user role.",
+        )
+    raw_company_id = claims.get("company_id")
+    if not raw_company_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is not associated with a company.",
+        )
+    try:
+        _rbac_uuid.UUID(str(raw_company_id))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid company association.",
+        ) from exc
+    return role
+
+
+def require_tenant_hr_admin(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Require tenant HR Admin role; strictly excludes Super Admin and non-HR roles."""
+    role = reject_super_admin_operational_access(claims)
+    if role != RoleEnum.HR_ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. HR Admin access required.",
+        )
+    return claims
+
+
+def require_tenant_admin(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Require tenant HR Admin or IT Admin; strictly excludes Super Admin."""
+    role = reject_super_admin_operational_access(claims)
+    if role not in {RoleEnum.HR_ADMIN.value, RoleEnum.IT_ADMIN.value}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Tenant Administrator privileges required.",
+        )
+    return claims
+
+
+def require_tenant_admin_or_manager(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Require tenant Admin, Manager, or Executive; strictly excludes Super Admin."""
+    role = reject_super_admin_operational_access(claims)
+    if role not in {
+        RoleEnum.HR_ADMIN.value,
+        RoleEnum.IT_ADMIN.value,
+        RoleEnum.MANAGER.value,
+        RoleEnum.EXECUTIVE.value,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Administrator or Manager privileges required.",
+        )
+    return claims
+
+
+def require_tenant_directory_reader(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Require HR Admin, IT Admin, Manager, Executive, or Recruiter within tenant."""
+    role = reject_super_admin_operational_access(claims)
+    if role not in {
+        RoleEnum.HR_ADMIN.value,
+        RoleEnum.IT_ADMIN.value,
+        RoleEnum.MANAGER.value,
+        RoleEnum.EXECUTIVE.value,
+        "recruiter",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Employee directory privileges required.",
+        )
+    return claims
+
+
+def require_tenant_employee_or_above(
+    claims: Annotated[dict, Depends(get_current_user_claims)],
+) -> dict:
+    """Require any authenticated tenant employee role; strictly excludes Super Admin."""
+    reject_super_admin_operational_access(claims)
     return claims

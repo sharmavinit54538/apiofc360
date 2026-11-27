@@ -18,7 +18,7 @@ from app.models.document.company import CompanyDocument
 
 logger = logging.getLogger(__name__)
 
-ADMIN_ROLES = {"super_admin", "hr_admin", "executive"}
+ADMIN_ROLES = {"hr_admin", "executive"}
 
 _ACCESS_EMPLOYEE_COLUMNS = (
     Employee.id,
@@ -64,6 +64,11 @@ async def resolve_visible_employee_ids(claims: dict, session: AsyncSession) -> l
         list[UUID]: Specific list of employee IDs the caller can view.
     """
     role = (claims.get("role") or "").lower()
+    if role == "super_admin":
+        raise AppException(
+            message="Super Admin cannot access tenant internal documents.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     if role in ADMIN_ROLES:
         return None
 

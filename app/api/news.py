@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.departments import require_admin_or_hr
+from app.core.rbac import require_tenant_admin
 from app.middleware.auth import get_current_user_claims
 from app.schemas.auth import APIResponse
 from app.schemas.communication import (
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/news", tags=["Company News Management"])
 )
 async def create_news(
     payload: CompanyNewsCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyNewsResponse]:
     """Create a new news article draft. Admin and HR only."""
@@ -99,7 +99,7 @@ async def get_news(
 async def update_news(
     id: uuid.UUID,
     payload: CompanyNewsCreate,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyNewsResponse]:
     """Update details of news article draft. Admin and HR only."""
@@ -120,7 +120,7 @@ async def update_news(
 )
 async def delete_news(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[None]:
     """Soft delete news article. Admin and HR only."""
@@ -141,7 +141,7 @@ async def delete_news(
 )
 async def publish_news(
     id: uuid.UUID,
-    claims: Annotated[dict, Depends(require_admin_or_hr)],
+    claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[CommunicationService, Depends(get_communication_service)],
 ) -> APIResponse[CompanyNewsResponse]:
     """Publish news article draft. Admin and HR only."""
