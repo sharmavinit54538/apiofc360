@@ -126,7 +126,8 @@ async def v1_get_period(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    period = await PayrollPeriodService.get_period(db, periodId)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    period = await PayrollPeriodService.get_period(db, periodId, company_id=c_uuid)
     return _ok(period, "Payroll period retrieved successfully")
 
 
@@ -140,7 +141,14 @@ async def v1_create_run(
     _require_admin_or_manager(claims)
     p_uuid = uuid.UUID(payload.period_id)
     user_id = _uid(claims)
-    run = await PayrollRunService.create_run(db, p_uuid, user_id=user_id)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    run = await PayrollRunService.create_run(
+        db,
+        p_uuid,
+        company_id=c_uuid,
+        user_id=user_id,
+        user_role=_role(claims),
+    )
     return _ok(run, "Payroll run created successfully")
 
 
@@ -268,7 +276,8 @@ async def v1_get_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.get_run(db, runId)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    run = await PayrollRunService.get_run(db, runId, company_id=c_uuid)
     return _ok(run, "Payroll run details retrieved successfully")
 
 
@@ -296,7 +305,8 @@ async def v1_cancel_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.cancel_run(db, runId, user_id=_uid(claims), user_role=_role(claims))
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    run = await PayrollRunService.cancel_run(db, runId, user_id=_uid(claims), user_role=_role(claims), company_id=c_uuid)
     return _ok(run, "Payroll run cancelled successfully")
 
 
@@ -315,9 +325,10 @@ async def v1_get_run_employees(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     res = await PayrollRunService.list_run_employees(
         db, runId, page=page, limit=limit, search=search, department=department,
-        validation_status=validationStatus, sort_by=sortBy, sort_dir=sortDir,
+        validation_status=validationStatus, sort_by=sortBy, sort_dir=sortDir, company_id=c_uuid,
     )
     return _ok(res, "Run employees retrieved successfully")
 
@@ -350,7 +361,7 @@ async def v1_get_run_single_employee(
                     detail="Employee not found in your organization.",
                 )
 
-    res = await PayrollRunService.get_run_employee(db, runId, employeeId)
+    res = await PayrollRunService.get_run_employee(db, runId, employeeId, company_id=company_id)
     return _ok(res, "Employee run details retrieved successfully")
 
 
@@ -382,7 +393,7 @@ async def v1_download_payslip(
                     detail="Employee not found in your organization.",
                 )
 
-    content, filename = await PayslipService.get_payslip_file(db, runId, employeeId)
+    content, filename = await PayslipService.get_payslip_file(db, runId, employeeId, company_id=company_id)
     return Response(
         content=content,
         media_type="application/pdf",
@@ -431,7 +442,8 @@ async def v1_preview_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.get_preview(db, runId)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    res = await PayrollRunService.get_preview(db, runId, company_id=c_uuid)
     return _ok(res, "Payroll run preview retrieved successfully")
 
 
@@ -444,8 +456,9 @@ async def v1_reject_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     run = await PayrollRunService.reject_run(
-        db, runId, reason=payload.reason, comments=payload.comments, user_id=_uid(claims), user_role=_role(claims)
+        db, runId, reason=payload.reason, comments=payload.comments, user_id=_uid(claims), user_role=_role(claims), company_id=c_uuid,
     )
     return _ok(run, "Payroll run rejected successfully")
 
@@ -458,7 +471,8 @@ async def v1_retry_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.retry_run(db, runId, user_id=_uid(claims), user_role=_role(claims))
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    run = await PayrollRunService.retry_run(db, runId, user_id=_uid(claims), user_role=_role(claims), company_id=c_uuid)
     return _ok(run, "Payroll run retry triggered successfully")
 
 
@@ -471,12 +485,14 @@ async def v1_get_run_status(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     if job_id:
+        await PayrollRunService.get_run(db, runId, company_id=c_uuid)
         job = await PayrollJobTracker.get_job(job_id)
         if job:
             return _ok(job, "Job status retrieved")
 
-    run = await PayrollRunService.get_run(db, runId)
+    run = await PayrollRunService.get_run(db, runId, company_id=c_uuid)
     return _ok({
         "run_id": str(run.id),
         "status": run.status,
@@ -494,5 +510,6 @@ async def v1_get_run_validation(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.validate_run(db, runId)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    res = await PayrollRunService.validate_run(db, runId, company_id=c_uuid)
     return _ok(res, "Payroll run validation retrieved successfully")

@@ -44,11 +44,17 @@ class PayslipService:
 
     @classmethod
     async def get_payslip_detail(
-        cls, session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         stmt = select(Payslip).where(
             Payslip.payroll_run_id == run_id, Payslip.employee_id == employee_id
         )
+        if company_id is not None:
+            stmt = stmt.where(Payslip.company_id == company_id)
         ps = (await session.execute(stmt)).scalar_one_or_none()
         if not ps:
             raise HTTPException(status_code=404, detail="Payslip not found for this employee and run.")
@@ -262,11 +268,15 @@ class PayslipService:
     async def get_payslip_file(
         cls, session: AsyncSession, run_id: uuid.UUID, employee_id: uuid.UUID,
         password_protect: bool | None = None, password_rule: str | None = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> tuple[bytes, str]:
-        detail = await cls.get_payslip_detail(session, run_id, employee_id)
-        ps = (await session.execute(select(Payslip).where(
+        detail = await cls.get_payslip_detail(session, run_id, employee_id, company_id=company_id)
+        stmt = select(Payslip).where(
             Payslip.payroll_run_id == run_id, Payslip.employee_id == employee_id
-        ))).scalar_one_or_none()
+        )
+        if company_id is not None:
+            stmt = stmt.where(Payslip.company_id == company_id)
+        ps = (await session.execute(stmt)).scalar_one_or_none()
         run = await session.get(PayrollRun, run_id)
         currency = str(getattr(run, "currency", "INR") or "INR") if run else "INR"
         branding = None

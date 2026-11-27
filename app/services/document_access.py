@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.exceptions import AppException
 from app.models.employee import Employee
@@ -18,6 +19,41 @@ from app.models.document.company import CompanyDocument
 logger = logging.getLogger(__name__)
 
 ADMIN_ROLES = {"super_admin", "hr_admin", "executive"}
+
+_ACCESS_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.department,
+    Employee.branch,
+    Employee.reporting_manager_id,
+    Employee.manager_id,
+    Employee.is_deleted,
+)
+
+
+async def _get_active_employee_by_user_id(
+    session: AsyncSession, user_id: uuid.UUID
+) -> Employee | None:
+    """Load non-PII employee scope attributes for a user without decrypting PII."""
+    stmt = (
+        select(Employee)
+        .options(load_only(*_ACCESS_EMPLOYEE_COLUMNS))
+        .where(and_(Employee.user_id == user_id, Employee.is_deleted == False))  # noqa: E712
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def _get_active_employee_by_id(
+    session: AsyncSession, employee_id: uuid.UUID
+) -> Employee | None:
+    """Load non-PII employee scope attributes by ID without decrypting PII."""
+    stmt = (
+        select(Employee)
+        .options(load_only(*_ACCESS_EMPLOYEE_COLUMNS))
+        .where(and_(Employee.id == employee_id, Employee.is_deleted == False))  # noqa: E712
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def resolve_visible_employee_ids(claims: dict, session: AsyncSession) -> list[uuid.UUID] | None:
@@ -36,9 +72,7 @@ async def resolve_visible_employee_ids(claims: dict, session: AsyncSession) -> l
         return []
     user_id = uuid.UUID(str(user_id_raw))
 
-    from app.repositories.employee_repository import EmployeeRepository
-    emp_repo = EmployeeRepository(session)
-    caller_emp = await emp_repo.get_by_user_id(user_id)
+    caller_emp = await _get_active_employee_by_user_id(session, user_id)
     if not caller_emp:
         return []
 
@@ -90,11 +124,8 @@ async def assert_can_access_employee_doc(
         raise AppException(message="Document not found.", status_code=status.HTTP_404_NOT_FOUND)
     user_id = uuid.UUID(str(user_id_raw))
 
-    from app.repositories.employee_repository import EmployeeRepository
-    emp_repo = EmployeeRepository(session)
-
     # 1. Tenant Isolation
-    doc_emp = doc.employee or await emp_repo.get_by_id(doc.employee_id)
+    doc_emp = doc.employee or await _get_active_employee_by_id(session, doc.employee_id)
     if not doc_emp:
         raise AppException(message="Document not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -110,7 +141,7 @@ async def assert_can_access_employee_doc(
         return
 
     # 3. Non-admin viewers
-    viewer_emp = await emp_repo.get_by_user_id(user_id)
+    viewer_emp = await _get_active_employee_by_user_id(session, user_id)
     if not viewer_emp:
         raise AppException(message="Document not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -177,8 +208,7 @@ async def assert_can_access_company_doc(
         return
 
     # 3. Non-admin scoping
-    from app.repositories.employee_repository import EmployeeRepository
-    viewer_emp = await EmployeeRepository(session).get_by_user_id(user_id)
+    viewer_emp = await _get_active_employee_by_user_id(session, user_id)
 
     # NEVER HR_ONLY or PRIVATE for normal viewers
     if doc.visibility in {"HR_ONLY", "PRIVATE"}:

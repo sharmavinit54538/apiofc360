@@ -7,6 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.api.payroll.dependencies import Claims
 from app.api.payroll.permissions import _require_admin_or_manager, _role, _uid
@@ -21,6 +22,14 @@ from app.services.payroll.payslip_service import PayslipService
 router = APIRouter(tags=["Payroll v2 - Employee Payroll"])
 
 
+_PAYROLL_SCOPE_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.is_deleted,
+)
+
+
 def _ok(data: Any, message: str = "Operation successful") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message}
 
@@ -29,13 +38,56 @@ async def _resolve_current_employee(session: AsyncSession, claims: Claims) -> Op
     user_id = _uid(claims)
     if not user_id:
         return None
-    stmt = select(Employee).where(Employee.user_id == user_id)
+    company_id_str = claims.get("company_id") if isinstance(claims, dict) else None
+    c_uuid = uuid.UUID(str(company_id_str)) if company_id_str else None
+    stmt = (
+        select(Employee)
+        .options(load_only(*_PAYROLL_SCOPE_EMPLOYEE_COLUMNS))
+        .where(Employee.user_id == user_id, Employee.is_deleted == False)  # noqa: E712
+    )
+    if c_uuid is not None:
+        stmt = stmt.where(Employee.company_id == c_uuid)
     emp = (await session.execute(stmt)).scalar_one_or_none()
     if not emp:
-        stmt2 = select(Employee).where(Employee.id == user_id)
+        stmt2 = (
+            select(Employee)
+            .options(load_only(*_PAYROLL_SCOPE_EMPLOYEE_COLUMNS))
+            .where(Employee.id == user_id, Employee.is_deleted == False)  # noqa: E712
+        )
+        if c_uuid is not None:
+            stmt2 = stmt2.where(Employee.company_id == c_uuid)
         emp = (await session.execute(stmt2)).scalar_one_or_none()
+    return emp
+
+
+async def _authorize_employee_scope(
+    session: AsyncSession, employee_id: uuid.UUID, claims: Claims, *, action_label: str = "records"
+) -> Employee:
+    from app.api.payroll.permissions import _is_admin_or_manager, _require_tenant_id
+
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    if not _is_admin_or_manager(claims):
+        caller_emp = await _resolve_current_employee(session, claims)
+        if not caller_emp or caller_emp.id != employee_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: You can only view your own {action_label}.",
+            )
+        return caller_emp
+
+    emp_stmt = (
+        select(Employee)
+        .options(load_only(*_PAYROLL_SCOPE_EMPLOYEE_COLUMNS))
+        .where(Employee.id == employee_id, Employee.is_deleted == False)  # noqa: E712
+    )
+    if c_uuid is not None:
+        emp_stmt = emp_stmt.where(Employee.company_id == c_uuid)
+    emp = (await session.execute(emp_stmt)).scalar_one_or_none()
     if not emp:
-        emp = (await session.execute(select(Employee).limit(1))).scalar_one_or_none()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found in your organization.",
+        )
     return emp
 
 
@@ -47,17 +99,18 @@ async def get_current_employee_dashboard(
 ):
     emp = await _resolve_current_employee(db, claims)
     if not emp:
-        return _ok({
-            "employee_id": str(uuid.uuid4()),
-            "current_ctc_annual_paise": 60000000,
-            "latest_net_pay_paise": 4500000,
-            "recent_payslips": [],
-            "pending_reimbursements_count": 0,
-            "tax_regime": "NEW",
-        }, "Employee dashboard summary retrieved")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No employee profile linked to the authenticated account.",
+        )
+
+    company_id_str = claims.get("company_id") if isinstance(claims, dict) else None
+    c_uuid = uuid.UUID(str(company_id_str)) if company_id_str else None
+    if c_uuid is not None and emp.company_id != c_uuid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-organization access denied.")
 
     data = await EmployeePayrollService.get_dashboard(
-        session=db, employee_id=emp.id, company_id=emp.company_id
+        session=db, employee_id=emp.id, company_id=c_uuid or emp.company_id
     )
     return _ok(data, "Employee dashboard retrieved successfully")
 
@@ -100,9 +153,7 @@ async def get_employee_compensation(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    # RBAC: Admin/HR or self
-    user_id = _uid(claims)
-    user_role = _role(claims)
+    await _authorize_employee_scope(db, employeeId, claims, action_label="compensation details")
     comp = await CompensationService.get_employee_compensation(db, employee_id=employeeId)
     return _ok({
         "id": str(comp.id),
@@ -131,6 +182,7 @@ async def create_employee_compensation_revision(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    await _authorize_employee_scope(db, employeeId, claims, action_label="compensation revisions")
     user_id = _uid(claims)
     rev = await CompensationService.create_compensation_revision(
         session=db,
@@ -162,10 +214,14 @@ async def get_employee_payslips_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    await _authorize_employee_scope(db, employeeId, claims, action_label="payslips")
     res = await PayslipService.get_employee_payslips(db, employee_id=employeeId, page=page, limit=limit)
     items_data = [
         {
             "id": str(p.id),
+            "run_id": str(p.payroll_run_id),
+            "payroll_run_id": str(p.payroll_run_id),
+            "employee_id": str(p.employee_id),
             "payslip_number": p.payslip_number,
             "period": f"{p.period_month:02d}/{p.period_year}",
             "period_month": p.period_month,
@@ -199,11 +255,12 @@ async def reveal_employee_bank_account(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
 
     revealed = await EmployeePayrollService.reveal_bank_account(
         session=db,

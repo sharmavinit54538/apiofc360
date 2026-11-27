@@ -38,7 +38,12 @@ def _auth_active_cache_key(user_id: uuid.UUID, company_id: uuid.UUID | None) -> 
     return f"{AUTH_ACTIVE_CACHE_PREFIX}:{company_part}:{user_id}"
 
 
-async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | None, session: AsyncSession) -> tuple[bool, str | None]:
+async def _check_user_active_cached(
+    user_id: uuid.UUID,
+    company_id: uuid.UUID | None,
+    session: AsyncSession,
+    validated_user: User | None = None,
+) -> tuple[bool, str | None]:
     """
     Check if user account is active, using cache.
     Returns: (is_active, rejection_reason_if_inactive)
@@ -50,9 +55,24 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
     if cached is not None:
         return cached.get("active", False), cached.get("reason")
     
-    # Cache miss - perform full check
-    repo = AuthRepository(session)
-    user = await repo.get_user_by_id(user_id)
+    from sqlalchemy.orm import load_only, noload
+
+    user = validated_user
+    if user is None:
+        user = (
+            await session.execute(
+                select(User)
+                .options(
+                    load_only(User.id, User.is_deleted, User.is_active, User.account_status),
+                    noload(User.company),
+                )
+                .where(
+                    User.id == user_id,
+                    (User.is_deleted.is_(False) | User.is_deleted.is_(None)),
+                )
+                .execution_options(bypass_tenant=True)
+            )
+        ).scalars().first()
     if not user or user.is_deleted:
         return False, "User account no longer exists."
     
@@ -61,7 +81,6 @@ async def _check_user_active_cached(user_id: uuid.UUID, company_id: uuid.UUID | 
         return False, "User account is inactive or disabled."
     
     # Check employee profile (load only status columns to avoid decrypting PII on every request)
-    from sqlalchemy.orm import load_only
     emp_res = await session.execute(
         select(Employee).options(
             load_only(Employee.id, Employee.is_active, Employee.status, Employee.employment_status, Employee.is_deleted)
@@ -220,8 +239,13 @@ async def get_current_user_claims(
     logger.debug("Access Token validated | user_id=%s | role=%s", user_id, role)
 
     from app.services.principal_validation import validate_principal
-    await validate_principal(session, claims)
-    active, reason = await _check_user_active_cached(uuid.UUID(user_id), uuid.UUID(company_id) if company_id else None, session)
+    validated_user = await validate_principal(session, claims)
+    active, reason = await _check_user_active_cached(
+        uuid.UUID(user_id),
+        uuid.UUID(company_id) if company_id else None,
+        session,
+        validated_user=validated_user,
+    )
     if not active:
         raise HTTPException(status_code=403, detail=reason)
     from app.db.base import tenant_id_ctx

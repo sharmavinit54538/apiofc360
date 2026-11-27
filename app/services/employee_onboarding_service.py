@@ -10,9 +10,9 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from decimal import Decimal
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, inspect as sa_inspect, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.models.employee import Employee
 from app.models.employee_address import EmployeeAddress
@@ -28,6 +28,22 @@ from app.models.document import DocumentCategory
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+# Minimal Employee columns needed for admin onboarding progress listing (excludes encrypted PII)
+_ONBOARDING_LIST_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.department,
+    Employee.designation,
+    Employee.joining_date,
+    Employee.work_location,
+    Employee.employee_onboarding_completed,
+    Employee.employee_onboarding_step,
+    Employee.is_deleted,
+)
 
 # List of steps in sequence
 ONBOARDING_STEPS = [
@@ -68,18 +84,19 @@ class EmployeeOnboardingService:
         self.db = db
 
     async def get_or_create_onboarding_steps(self, employee_id: uuid.UUID, *, commit: bool = True) -> List[EmployeeOnboarding]:
-        """Ensures that all 10 onboarding step tracking records exist for the employee."""
+        """Ensure all 10 onboarding step tracking records exist for the employee (idempotent, savepoint-safe)."""
         result = await self.db.execute(
             select(EmployeeOnboarding)
             .where(EmployeeOnboarding.employee_id == employee_id)
             .order_by(EmployeeOnboarding.step_order)
         )
-        existing_steps = result.scalars().all()
+        existing_steps = list(result.scalars().all())
 
         if len(existing_steps) == len(ONBOARDING_STEPS):
-            return list(existing_steps)
+            return existing_steps
 
-        # Create missing steps
+        from sqlalchemy.exc import IntegrityError
+
         existing_orders = {step.step_order for step in existing_steps}
         new_steps = []
         for step_def in ONBOARDING_STEPS:
@@ -90,17 +107,24 @@ class EmployeeOnboardingService:
                     step_order=step_def["order"],
                     is_required=True,
                     is_completed=False,
-                    status="PENDING"
+                    status="PENDING",
                 )
                 self.db.add(step_record)
                 new_steps.append(step_record)
-        
+
         if new_steps:
+            try:
+                async with self.db.begin_nested():
+                    await self.db.flush()
+            except IntegrityError:
+                for rec in new_steps:
+                    if rec in self.db:
+                        self.db.expunge(rec)
             if commit:
                 await self.db.commit()
             else:
                 await self.db.flush()
-            
+
         result = await self.db.execute(
             select(EmployeeOnboarding)
             .where(EmployeeOnboarding.employee_id == employee_id)
@@ -125,37 +149,65 @@ class EmployeeOnboardingService:
         )
         return result.scalar_one_or_none()
 
-    async def get_employee_by_id(self, employee_id: uuid.UUID) -> Optional[Employee]:
+    async def get_employee_by_id(
+        self,
+        employee_id: uuid.UUID,
+        *,
+        with_relations: bool = True,
+    ) -> Optional[Employee]:
         """Fetch employee record associated with employee ID."""
-        result = await self.db.execute(
-            select(Employee)
-            .where(Employee.id == employee_id)
-            .options(
+        stmt = select(Employee).where(
+            Employee.id == employee_id,
+            Employee.is_deleted == False,  # noqa: E712
+        )
+        if with_relations:
+            stmt = stmt.options(
                 selectinload(Employee.addresses),
                 selectinload(Employee.bank_accounts),
                 selectinload(Employee.education),
                 selectinload(Employee.experience),
                 selectinload(Employee.emergency_contacts),
                 selectinload(Employee.documents),
-                selectinload(Employee.onboarding_steps)
+                selectinload(Employee.onboarding_steps),
             )
-        )
+        else:
+            stmt = stmt.options(
+                load_only(Employee.id, Employee.company_id, Employee.is_deleted)
+            )
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_onboarding_status(self, employee: Employee) -> Dict[str, Any]:
-        """Calculate and return the current onboarding status & progress percentage."""
-        steps = await self.get_or_create_onboarding_steps(employee.id)
-        completed_count = sum(1 for step in steps if step.is_completed)
-        total_steps = len(steps)
-        percentage = round((completed_count / total_steps) * 100, 2) if total_steps > 0 else 0.0
+        """Compute current onboarding status & progress percentage without database writes on GET."""
+        loaded_steps = sa_inspect(employee).attrs.onboarding_steps.loaded_value
+        if loaded_steps is not None and isinstance(loaded_steps, list):
+            existing_steps = list(loaded_steps)
+        else:
+            res = await self.db.execute(
+                select(EmployeeOnboarding)
+                .where(EmployeeOnboarding.employee_id == employee.id)
+                .order_by(EmployeeOnboarding.step_order)
+            )
+            existing_steps = list(res.scalars().all())
 
-        steps_map = {step.step_name: step.is_completed for step in steps}
+        by_order = {step.step_order: step for step in existing_steps}
+        steps_map: Dict[str, bool] = {}
+        completed_count = 0
+        for step_def in ONBOARDING_STEPS:
+            persisted = by_order.get(step_def["order"])
+            is_done = bool(persisted and persisted.is_completed)
+            steps_map[step_def["name"]] = is_done
+            if is_done:
+                completed_count += 1
+
+        total_steps = len(ONBOARDING_STEPS)
+        percentage = round((completed_count / total_steps) * 100, 2) if total_steps > 0 else 0.0
 
         return {
             "onboarding_completed": employee.employee_onboarding_completed,
             "current_step": employee.employee_onboarding_step,
             "completion_percentage": percentage,
-            "steps_completed": steps_map
+            "steps_completed": steps_map,
         }
 
     async def save_draft(self, employee: Employee, current_step: int, draft_data: Dict[str, Any]) -> None:
@@ -899,7 +951,7 @@ class EmployeeOnboardingService:
                     policy_version="1.0",
                     ip_address=ip_address,
                     digital_signature=item["digital_signature"],
-                    accepted_at=datetime.now()
+                    accepted_at=datetime.now(timezone.utc)
                 )
                 self.db.add(acceptance)
 
@@ -987,16 +1039,17 @@ class EmployeeOnboardingService:
         return {
             "success": True,
             "message": "Onboarding workflow completed successfully.",
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         }
 
     async def _mark_step_completed(self, employee_id: uuid.UUID, step_order: int) -> None:
-        """Internal helper to mark step status as completed."""
+        """Internal helper to ensure onboarding step rows exist and mark a step completed."""
+        await self.get_or_create_onboarding_steps(employee_id, commit=False)
         await self.db.execute(
             update(EmployeeOnboarding)
             .where(EmployeeOnboarding.employee_id == employee_id)
             .where(EmployeeOnboarding.step_order == step_order)
-            .values(is_completed=True, status="VERIFIED", completed_at=datetime.now())
+            .values(is_completed=True, status="VERIFIED", completed_at=datetime.now(timezone.utc))
         )
 
     # -------------------------------------------------------------
@@ -1011,10 +1064,20 @@ class EmployeeOnboardingService:
         company_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
         """Admin view to list onboarding status within the current tenant."""
-        query = select(Employee).options(
-            selectinload(Employee.onboarding_steps),
-            selectinload(Employee.documents)
-        ).where(Employee.is_deleted == False)  # noqa: E712
+        query = (
+            select(Employee)
+            .options(
+                load_only(*_ONBOARDING_LIST_EMPLOYEE_COLUMNS),
+                selectinload(Employee.onboarding_steps),
+                selectinload(Employee.documents).load_only(
+                    EmployeeDocument.id,
+                    EmployeeDocument.employee_id,
+                    EmployeeDocument.document_type,
+                    EmployeeDocument.is_deleted,
+                ),
+            )
+            .where(Employee.is_deleted == False)  # noqa: E712
+        )
         if company_id is not None:
             query = query.where(Employee.company_id == company_id)
         if department:
@@ -1025,6 +1088,17 @@ class EmployeeOnboardingService:
             query = query.where(Employee.employee_onboarding_completed == True)
         elif status_filter == "PENDING":
             query = query.where(Employee.employee_onboarding_completed == False)
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    Employee.first_name.ilike(term),
+                    Employee.last_name.ilike(term),
+                    Employee.employee_id.ilike(term),
+                    Employee.department.ilike(term),
+                    Employee.designation.ilike(term),
+                )
+            )
 
         result = await self.db.execute(query)
         employees = result.scalars().all()
@@ -1090,7 +1164,7 @@ class EmployeeOnboardingService:
         doc.status = status
         doc.is_verified = (status == "VERIFIED")
         doc.verified_by = verifier_id
-        doc.verified_at = datetime.now()
+        doc.verified_at = datetime.now(timezone.utc)
         doc.description = f"{comments or ''} (Verification Status updated by HR)"
         
         self.db.add(doc)

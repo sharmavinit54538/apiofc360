@@ -161,11 +161,11 @@ class PaymentBatchService:
             stmt = stmt.where(PaymentBatch.batch_number.ilike(f"%{search}%"))
         if period_id:
             try:
-                p_uuid = uuid.UUID(period_id)
+                p_uuid = period_id if isinstance(period_id, uuid.UUID) else uuid.UUID(str(period_id))
                 stmt = stmt.join(PayrollRun, PaymentBatch.run_id == PayrollRun.id).where(
                     PayrollRun.period_id == p_uuid
                 )
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
         count_stmt = select(func.count()).select_from(stmt.subquery())

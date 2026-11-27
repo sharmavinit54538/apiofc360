@@ -79,6 +79,37 @@ def _format_time(time_obj: Any) -> str:
     return ""
 
 
+def _serialize_shift(shift: Shift, emp_count: int = 0) -> dict[str, Any]:
+    """Serialize a Shift row with full schedule, break, grace, and status attributes."""
+    duration_hours = _calculate_duration_hours(shift.start_time, shift.end_time)
+    work_hours = float(shift.work_hours) if getattr(shift, "work_hours", None) is not None else duration_hours
+    working_days = list(shift.working_days) if getattr(shift, "working_days", None) else ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    return {
+        "id": str(shift.id),
+        "code": getattr(shift, "code", None),
+        "shift_code": getattr(shift, "code", None),
+        "name": shift.name,
+        "start_time": _format_time(shift.start_time),
+        "end_time": _format_time(shift.end_time),
+        "is_overnight": bool(shift.is_overnight),
+        "is_night_shift": bool(getattr(shift, "is_night_shift", False)),
+        "night_premium_percent": float(getattr(shift, "night_premium_percent", 0) or 0),
+        "duration_minutes": int(getattr(shift, "duration_minutes", 0) or round(duration_hours * 60)),
+        "duration_hours": duration_hours,
+        "work_hours": work_hours,
+        "break_duration_minutes": int(getattr(shift, "break_duration_minutes", 60) or 0),
+        "grace_period_minutes": int(getattr(shift, "grace_period_minutes", 15) or 0),
+        "working_days": working_days,
+        "is_active": bool(getattr(shift, "is_active", True)),
+        "is_default": bool(getattr(shift, "is_default", False)),
+        "status": "ACTIVE" if getattr(shift, "is_active", True) else "INACTIVE",
+        "color": getattr(shift, "color", None),
+        "description": getattr(shift, "description", None),
+        "employee_count": emp_count,
+        "created_at": shift.created_at.isoformat() if shift.created_at else None,
+    }
+
+
 def _calculate_duration_hours(start_time: Any, end_time: Any) -> float:
     """Calculate shift duration in hours."""
     st = _to_time(start_time)
@@ -173,17 +204,7 @@ async def list_shifts(
     items = []
     for s in shifts:
         emp_count = employee_counts.get(s.name.lower(), 0)
-        duration_hours = _calculate_duration_hours(s.start_time, s.end_time)
-        items.append({
-            "id": str(s.id),
-            "name": s.name,
-            "start_time": _format_time(s.start_time),
-            "end_time": _format_time(s.end_time),
-            "is_overnight": s.is_overnight,
-            "duration_hours": duration_hours,
-            "employee_count": emp_count,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-        })
+        items.append(_serialize_shift(s, emp_count=emp_count))
 
     return APIResponse[dict](
         success=True,
@@ -291,16 +312,7 @@ async def create_shift(
     return APIResponse[dict](
         success=True,
         message="Shift created.",
-        data={
-            "id": str(shift.id),
-            "name": shift.name,
-            "start_time": _format_time(shift.start_time),
-            "end_time": _format_time(shift.end_time),
-            "is_overnight": shift.is_overnight,
-            "duration_hours": _calculate_duration_hours(shift.start_time, shift.end_time),
-            "employee_count": 0,
-            "created_at": shift.created_at.isoformat() if shift.created_at else None,
-        },
+        data=_serialize_shift(shift, emp_count=0),
         errors=None,
     )
 
@@ -340,16 +352,7 @@ async def get_shift(
     return APIResponse[dict](
         success=True,
         message="Shift retrieved.",
-        data={
-            "id": str(shift.id),
-            "name": shift.name,
-            "start_time": _format_time(shift.start_time),
-            "end_time": _format_time(shift.end_time),
-            "is_overnight": shift.is_overnight,
-            "duration_hours": _calculate_duration_hours(shift.start_time, shift.end_time),
-            "employee_count": emp_count,
-            "created_at": shift.created_at.isoformat() if shift.created_at else None,
-        },
+        data=_serialize_shift(shift, emp_count=emp_count),
         errors=None,
     )
 
@@ -458,16 +461,7 @@ async def update_shift(
     return APIResponse[dict](
         success=True,
         message="Shift updated.",
-        data={
-            "id": str(shift.id),
-            "name": shift.name,
-            "start_time": _format_time(shift.start_time),
-            "end_time": _format_time(shift.end_time),
-            "is_overnight": shift.is_overnight,
-            "duration_hours": _calculate_duration_hours(shift.start_time, shift.end_time),
-            "employee_count": emp_count,
-            "created_at": shift.created_at.isoformat() if shift.created_at else None,
-        },
+        data=_serialize_shift(shift, emp_count=emp_count),
         errors=None,
     )
 

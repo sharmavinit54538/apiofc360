@@ -760,3 +760,5 @@ __all__ += [
 ]
 
 from app.models.automation_jobs import NotificationAutomationRule, AutomationExecution
+from app.models.interview_recording import InterviewRecording, RecordingChunk, RecordingAccessLog
+from app.models.visitor import Visitor

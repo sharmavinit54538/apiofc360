@@ -14,6 +14,7 @@ from typing import Any, List, Optional
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.redis_client import redis_client
 from app.models.employee import Employee
@@ -82,7 +83,11 @@ class CompensationService:
         comp = (await session.execute(stmt)).scalar_one_or_none()
         if not comp:
             # Check if employee exists
-            emp_stmt = select(Employee).where(Employee.id == employee_id)
+            emp_stmt = (
+                select(Employee)
+                .options(load_only(Employee.id, Employee.company_id))
+                .where(Employee.id == employee_id)
+            )
             emp = (await session.execute(emp_stmt)).scalar_one_or_none()
             if not emp:
                 raise HTTPException(
@@ -152,7 +157,13 @@ class CompensationService:
         eff_date = effective_date or date.today()
 
         if not comp:
-            emp = (await session.execute(select(Employee).where(Employee.id == employee_id))).scalar_one_or_none()
+            emp = (
+                await session.execute(
+                    select(Employee)
+                    .options(load_only(Employee.id, Employee.company_id))
+                    .where(Employee.id == employee_id)
+                )
+            ).scalar_one_or_none()
             comp = Compensation(
                 id=uuid.uuid4(),
                 employee_id=employee_id,
@@ -364,7 +375,11 @@ class CompensationService:
                 try:
                     parsed_emp_id = uuid.UUID(emp_id_str.strip())
                     emp_exists = (
-                        await session.execute(select(Employee).where(Employee.id == parsed_emp_id))
+                        await session.execute(
+                            select(Employee)
+                            .options(load_only(Employee.id, Employee.company_id))
+                            .where(Employee.id == parsed_emp_id)
+                        )
                     ).scalar_one_or_none()
                     if not emp_exists:
                         errors.append(f"Employee '{emp_id_str}' does not exist")

@@ -12,13 +12,49 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, noload, selectinload
 
+from app.models.department import Department
 from app.models.leave import LeaveRequest
 from app.models.employee_leave_policy import EmployeeLeavePolicy
 from app.models.employee import Employee
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+# Strictly non-PII columns required by leave workflows, list DTOs, and LeaveRequest properties.
+_LEAVE_EMPLOYEE_SAFE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.department,
+    Employee.department_id,
+    Employee.designation,
+    Employee.reporting_manager_id,
+    Employee.manager_id,
+)
+
+
+def _employee_safe_options() -> tuple[Any, ...]:
+    return (
+        load_only(*_LEAVE_EMPLOYEE_SAFE_COLUMNS),
+        selectinload(Employee.department_rel).load_only(
+            Department.id,
+            Department.department_name,
+        ),
+    )
+
+
+def _leave_request_load_options() -> tuple[Any, ...]:
+    return (
+        selectinload(LeaveRequest.employee).options(*_employee_safe_options()),
+        selectinload(LeaveRequest.reviewed_by)
+        .load_only(User.id, User.name)
+        .noload(User.company),
+    )
 
 
 class LeaveRepository:
@@ -29,10 +65,7 @@ class LeaveRepository:
         stmt = (
             select(LeaveRequest)
             .where(LeaveRequest.id == leave_id)
-            .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
-                selectinload(LeaveRequest.reviewed_by),
-            )
+            .options(*_leave_request_load_options())
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -45,10 +78,7 @@ class LeaveRepository:
         stmt = (
             select(LeaveRequest)
             .where(LeaveRequest.employee_id == employee_id)
-            .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
-                selectinload(LeaveRequest.reviewed_by),
-            )
+            .options(*_leave_request_load_options())
             .order_by(LeaveRequest.start_date.desc(), LeaveRequest.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -82,10 +112,7 @@ class LeaveRepository:
             .join(Employee, LeaveRequest.employee_id == Employee.id)
             .where(and_(*conditions))
             .order_by(LeaveRequest.start_date.asc(), LeaveRequest.created_at.asc())
-            .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
-                selectinload(LeaveRequest.reviewed_by),
-            )
+            .options(*_leave_request_load_options())
             .limit(limit)
             .offset(offset)
         )
@@ -269,6 +296,57 @@ class LeaveRepository:
             policy = await self.get_employee_leave_policy_by_type(employee_id, leave_type)
         return policy
 
+    async def ensure_employee_leave_policies_bulk(
+        self,
+        employee_id: uuid.UUID,
+        allocations: list[dict[str, Any]],
+        effective_from: date | None = None,
+        effective_to: date | None = None,
+    ) -> None:
+        """Bulk-insert multiple default leave policies in one round-trip with ON CONFLICT DO NOTHING."""
+        if not allocations:
+            return
+        rows = [
+            {
+                "id": uuid.uuid4(),
+                "employee_id": employee_id,
+                "leave_type": alloc["leave_type"],
+                "total_days": alloc["total_days"],
+                "used_days": Decimal("0.0"),
+                "carry_forward": False,
+                "effective_from": effective_from,
+                "effective_to": effective_to,
+            }
+            for alloc in allocations
+        ]
+        bind = getattr(self.session, "bind", None)
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", "postgresql")
+        if dialect_name == "postgresql":
+            stmt = (
+                pg_insert(EmployeeLeavePolicy)
+                .values(rows)
+                .on_conflict_do_nothing(index_elements=["employee_id", "leave_type", "effective_from"])
+            )
+            await self.session.execute(stmt)
+        elif dialect_name == "sqlite":
+            stmt = (
+                sqlite_insert(EmployeeLeavePolicy)
+                .values(rows)
+                .on_conflict_do_nothing(index_elements=["employee_id", "leave_type", "effective_from"])
+            )
+            await self.session.execute(stmt)
+        else:
+            for alloc in allocations:
+                await self.ensure_employee_leave_policy(
+                    employee_id=employee_id,
+                    leave_type=alloc["leave_type"],
+                    total_days=alloc["total_days"],
+                    effective_from=effective_from,
+                    effective_to=effective_to,
+                )
+            return
+        await self.session.flush()
+
     async def get_pending_leave_days_by_type(
         self, employee_id: uuid.UUID, leave_type: str, exclude_leave_id: uuid.UUID | None = None
     ) -> Decimal:
@@ -284,11 +362,16 @@ class LeaveRepository:
         val = res.scalar()
         return Decimal(str(val or 0.0))
 
+    async def get_employee_id_by_user_id(self, user_id: uuid.UUID) -> uuid.UUID | None:
+        stmt = select(Employee.id).where(Employee.user_id == user_id, Employee.is_deleted == False)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Employee | None:
         stmt = (
             select(Employee)
             .where(Employee.user_id == user_id, Employee.is_deleted == False)
-            .options(selectinload(Employee.department_rel))
+            .options(*_employee_safe_options())
         )
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
@@ -297,7 +380,7 @@ class LeaveRepository:
         stmt = (
             select(Employee)
             .where(Employee.id == employee_id, Employee.is_deleted == False)
-            .options(selectinload(Employee.department_rel))
+            .options(*_employee_safe_options())
         )
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
@@ -307,7 +390,22 @@ class LeaveRepository:
     ) -> list[Employee]:
         stmt = (
             select(Employee)
-            .options(selectinload(Employee.department_rel))
+            .options(
+                load_only(
+                    Employee.id,
+                    Employee.company_id,
+                    Employee.employee_id,
+                    Employee.first_name,
+                    Employee.last_name,
+                    Employee.department,
+                    Employee.department_id,
+                    Employee.designation,
+                ),
+                selectinload(Employee.department_rel).load_only(
+                    Department.id,
+                    Department.department_name,
+                ),
+            )
             .where(Employee.company_id == company_id, Employee.is_deleted == False)
         )
         if search and search.strip():
@@ -367,10 +465,7 @@ class LeaveRepository:
             .join(Employee, LeaveRequest.employee_id == Employee.id)
             .where(and_(*conditions))
             .order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
-            .options(
-                selectinload(LeaveRequest.employee).selectinload(Employee.department_rel),
-                selectinload(LeaveRequest.reviewed_by),
-            )
+            .options(*_leave_request_load_options())
             .limit(limit)
             .offset(offset)
         )

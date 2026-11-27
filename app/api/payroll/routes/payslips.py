@@ -576,13 +576,34 @@ async def download_payslip_pdf(
     claims: Claims = None,
     db: DB = None,
 ) -> Response:
-    _require_admin_or_manager(claims)
+    from fastapi import HTTPException
+    from app.api.payroll.permissions import _is_admin_or_manager, _uid, _as_uuid
+
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id).options(selectinload(Payslip.employee))
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
     if not p:
         return Response(content=b"Payslip Not Found", media_type="text/plain", status_code=404)
+
+    if not _is_admin_or_manager(claims):
+        caller_uid = _uid(claims)
+        emp = (
+            await db.execute(
+                select(Employee).where(
+                    Employee.user_id == caller_uid,
+                    Employee.is_deleted == False,  # noqa: E712
+                )
+            )
+        ).scalar_one_or_none() if caller_uid else None
+        if not emp or emp.id != p.employee_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only download your own payslip.",
+            )
 
     p.download_count = (p.download_count or 0) + 1
     await db.commit()
@@ -602,8 +623,13 @@ async def email_single_payslip(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
+    from app.api.payroll.permissions import _as_uuid
+
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id)
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
@@ -624,8 +650,13 @@ async def regenerate_single_payslip(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
+    from app.api.payroll.permissions import _as_uuid
+
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id).options(selectinload(Payslip.employee))
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
@@ -645,8 +676,13 @@ async def delete_payslip(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
+    from app.api.payroll.permissions import _as_uuid
+
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id)
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
@@ -666,8 +702,13 @@ async def get_payslip_audit_logs(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
+    from app.api.payroll.permissions import _as_uuid
+
     _require_admin_or_manager(claims)
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id).options(selectinload(Payslip.employee))
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
@@ -721,13 +762,27 @@ async def get_payslip(
     claims: Claims = None,
     db: DB = None,
 ) -> APIResponse[dict]:
-    _require_admin_or_manager(claims)
+    from app.api.payroll.permissions import _is_admin_or_manager, _uid, _as_uuid
+
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
     stmt = select(Payslip).where(Payslip.id == payslip_id).options(selectinload(Payslip.employee))
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
     res = await db.execute(stmt)
     p = res.scalar_one_or_none()
 
     if not p:
         from app.api.payroll.exceptions import NotFoundException
         raise NotFoundException("Payslip not found.")
+
+    if not _is_admin_or_manager(claims):
+        user_id = _uid(claims)
+        emp_stmt = select(Employee).where(Employee.user_id == user_id)
+        if c_uuid is not None:
+            emp_stmt = emp_stmt.where(Employee.company_id == c_uuid)
+        emp = (await db.execute(emp_stmt)).scalar_one_or_none()
+        if not emp or emp.id != p.employee_id:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Forbidden: You can only view your own payslip.")
 
     return success_response(_payslip_dict(p), "Payslip details retrieved.")

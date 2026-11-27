@@ -144,38 +144,122 @@ class SettingsService:
 
     # ── Master Data: Designations ──────────────────────────────────────────────
 
-    async def list_designations(self, company_id: Optional[uuid.UUID]) -> List[Dict[str, Any]]:
-        from sqlalchemy import text
-        stmt = text("SELECT id, name, description, created_at FROM designations WHERE company_id = :cid OR company_id IS NULL")
-        res = await self.session.execute(stmt, {"cid": company_id})
-        rows = res.fetchall()
-        return [
+    async def list_designations(
+        self,
+        company_id: Optional[uuid.UUID],
+        *,
+        search: Optional[str] = None,
+        department_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        data = await self.list_designations_paginated(
+            company_id,
+            search=search,
+            department_id=department_id,
+            page=page,
+            limit=limit,
+        )
+        return data["items"]
+
+    async def list_designations_paginated(
+        self,
+        company_id: Optional[uuid.UUID],
+        *,
+        search: Optional[str] = None,
+        department_id: Optional[str] = None,
+        page: int = 1,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        from app.models.onboarding import Designation
+        from sqlalchemy import or_
+
+        stmt = select(Designation)
+        if company_id is not None:
+            stmt = stmt.where(or_(Designation.company_id == company_id, Designation.company_id.is_(None)))
+        else:
+            stmt = stmt.where(Designation.company_id.is_(None))
+        if search and search.strip():
+            escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            term = f"%{escaped}%"
+            stmt = stmt.where(Designation.name.ilike(term, escape="\\"))
+
+        total = int((await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0)
+        offset = max(0, (page - 1) * limit)
+        rows = (
+            await self.session.execute(
+                stmt.order_by(Designation.name.asc(), Designation.created_at.desc()).offset(offset).limit(limit)
+            )
+        ).scalars().all()
+        items = [
             {
-                "id": str(r[0]),
-                "name": r[1],
-                "description": r[2],
-                "created_at": r[3].isoformat() if r[3] else None,
+                "id": str(d.id),
+                "name": d.name,
+                "description": d.description,
+                "department_id": department_id,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
             }
-            for r in rows
+            for d in rows
         ]
+        return {"items": items, "total": total, "page": page, "limit": limit}
+
+    async def get_designation(
+        self, company_id: Optional[uuid.UUID], designation_id: uuid.UUID
+    ) -> Optional[Dict[str, Any]]:
+        from app.models.onboarding import Designation
+        from sqlalchemy import or_
+
+        stmt = select(Designation).where(Designation.id == designation_id)
+        if company_id is not None:
+            stmt = stmt.where(or_(Designation.company_id == company_id, Designation.company_id.is_(None)))
+        d = (await self.session.execute(stmt)).scalar_one_or_none()
+        if not d:
+            return None
+        return {
+            "id": str(d.id),
+            "name": d.name,
+            "description": d.description,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
 
     async def create_designation(
         self, company_id: Optional[uuid.UUID], payload: DesignationCreateRequest
     ) -> Dict[str, Any]:
-        from sqlalchemy import text
-        des_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
-        stmt = text("INSERT INTO designations (id, company_id, name, description, created_at) VALUES (:id, :cid, :name, :desc, :now)")
-        await self.session.execute(
-            stmt,
-            {"id": des_id, "cid": company_id, "name": payload.name, "desc": payload.description, "now": now},
+        from app.models.onboarding import Designation
+
+        clean_name = payload.name.strip()
+        normalized = clean_name.lower()
+        existing = (
+            await self.session.execute(
+                select(Designation).where(
+                    Designation.company_id == company_id,
+                    func.lower(Designation.name) == normalized,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return {
+                "id": str(existing.id),
+                "name": existing.name,
+                "description": existing.description,
+                "created_at": existing.created_at.isoformat() if existing.created_at else None,
+            }
+
+        item = Designation(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            name=clean_name,
+            normalized_name=normalized,
+            description=payload.description,
         )
+        self.session.add(item)
         await self.session.commit()
+        await self.session.refresh(item)
         return {
-            "id": str(des_id),
-            "name": payload.name,
-            "description": payload.description,
-            "created_at": now.isoformat(),
+            "id": str(item.id),
+            "name": item.name,
+            "description": item.description,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
         }
 
     # ── Master Data: Holidays ──────────────────────────────────────────────────

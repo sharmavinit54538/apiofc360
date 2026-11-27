@@ -5,9 +5,9 @@ from typing import Any, Optional
 from app.schemas.auth import APIResponse
 
 
-def success_response(data: Any, message: str = "Success") -> APIResponse[dict]:
+def success_response(data: Any, message: str = "Success") -> APIResponse[Any]:
     """Return success APIResponse envelope."""
-    return APIResponse[dict](
+    return APIResponse[Any](
         success=True,
         message=message,
         data=data,
@@ -15,9 +15,9 @@ def success_response(data: Any, message: str = "Success") -> APIResponse[dict]:
     )
 
 
-def error_response(message: str, errors: Optional[list] = None) -> APIResponse[dict]:
+def error_response(message: str, errors: Optional[list] = None) -> APIResponse[Any]:
     """Return error APIResponse envelope."""
-    return APIResponse[dict](
+    return APIResponse[Any](
         success=False,
         message=message,
         data=None,

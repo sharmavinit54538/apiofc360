@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile, status, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.permissions import _require_admin
@@ -203,10 +203,20 @@ async def create_employment_type(
 async def list_designations(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
+    search: Optional[str] = Query(None),
+    department_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=500),
 ):
     cid = _get_cid(claims)
     srv = SettingsService(session)
-    items = await srv.list_designations(cid)
+    items = await srv.list_designations(
+        cid,
+        search=search,
+        department_id=department_id,
+        page=page,
+        limit=limit,
+    )
     return _ok(items)
 
 
@@ -216,6 +226,60 @@ async def create_designation(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
 ):
+    _require_admin(claims)
+    cid = _get_cid(claims)
+    srv = SettingsService(session)
+    res = await srv.create_designation(cid, payload)
+    return _ok(res)
+
+
+designations_router = APIRouter(prefix="/designations", tags=["Core - Designations"])
+
+
+@designations_router.get("")
+async def list_canonical_designations(
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+    search: Optional[str] = Query(None),
+    department_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Canonical paginated designations list at GET /api/v1/designations."""
+    cid = _get_cid(claims)
+    srv = SettingsService(session)
+    data = await srv.list_designations_paginated(
+        cid,
+        search=search,
+        department_id=department_id,
+        page=page,
+        limit=limit,
+    )
+    return _ok(data)
+
+
+@designations_router.get("/{designation_id}")
+async def get_canonical_designation(
+    designation_id: uuid.UUID,
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Retrieve a designation by ID within the caller's company scope."""
+    cid = _get_cid(claims)
+    srv = SettingsService(session)
+    item = await srv.get_designation(cid, designation_id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Designation not found.")
+    return _ok(item)
+
+
+@designations_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_canonical_designation(
+    payload: DesignationCreateRequest,
+    claims: dict = Depends(get_current_user_claims),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Create a company designation at POST /api/v1/designations."""
     _require_admin(claims)
     cid = _get_cid(claims)
     srv = SettingsService(session)

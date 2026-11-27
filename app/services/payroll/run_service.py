@@ -567,16 +567,21 @@ class PayrollRunService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
         company_id: Optional[uuid.UUID] = None,
+        reason: Optional[str] = None,
     ) -> PayrollRun:
         run = await cls.get_run(session, run_id, company_id=company_id)
-        if run.status in ("FINALIZED", "LOCKED", "PAID"):
+        if run.status in ("FINALIZED", "LOCKED", "PAID") or run.is_locked:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Finalized, locked, or disbursed payroll runs cannot be cancelled.",
             )
+        if run.status == "CANCELLED":
+            return run
 
         old_status = run.status
         run.status = "CANCELLED"
+        clean_reason = reason.strip() if isinstance(reason, str) and reason.strip() else "Payroll run cancelled"
+        run.notes = clean_reason
 
         await PayrollAuditService.log_event(
             session=session,
@@ -588,6 +593,7 @@ class PayrollRunService:
             actor_role=user_role,
             before_status=old_status,
             after_status="CANCELLED",
+            reason=clean_reason,
         )
         await session.commit()
         await session.refresh(run)
@@ -819,6 +825,143 @@ class PayrollRunService:
         company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         return await cls.validate_run(session, run_id, company_id=company_id)
+
+    @classmethod
+    async def recalculate_run(
+        cls,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> PayrollRun:
+        """Reset uncommitted calculation artifacts and re-run payroll calculation atomically."""
+        from sqlalchemy import delete as sa_delete
+        from app.models.payroll_models import PaymentBatch
+
+        stmt = select(PayrollRun).where(PayrollRun.id == run_id)
+        if company_id is not None:
+            stmt = stmt.where(PayrollRun.company_id == company_id)
+        run = (
+            await session.execute(stmt.with_for_update().execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        if run is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll run not found.")
+
+        if run.is_locked or run.status in ("APPROVED", "FINALIZED", "LOCKED", "PAID", "CANCELLED", "VOID"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot recalculate payroll run in '{run.status}' state.",
+            )
+        if run.status == "PROCESSING":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Payroll run is currently processing; wait for completion before recalculating.",
+            )
+
+        active_batches = (
+            await session.scalar(
+                select(func.count(PaymentBatch.id)).where(
+                    PaymentBatch.run_id == run_id,
+                    PaymentBatch.status != "REJECTED",
+                )
+            )
+        ) or 0
+        paid_slips = (
+            await session.scalar(
+                select(func.count(Payslip.id)).where(
+                    Payslip.payroll_run_id == run_id,
+                    Payslip.payment_status == "PAID",
+                )
+            )
+        ) or 0
+        if active_batches or paid_slips:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot recalculate a run with paid payslips or active payment batches.",
+            )
+
+        old_status = run.status
+
+        # Roll back ArrearLedger entries applied by this uncommitted run so they re-apply cleanly.
+        arrear_rows = (
+            await session.execute(
+                select(ArrearLedger).where(ArrearLedger.applied_run_id == run_id)
+            )
+        ).scalars().all()
+        for arrear in arrear_rows:
+            arrear.status = "PENDING"
+            arrear.applied_run_id = None
+            arrear.applied_at = None
+
+        # Roll back deducted advance/loan EMIs for employees in this run if safe to re-evaluate.
+        run_emp_ids = list(
+            (
+                await session.execute(
+                    select(PayrollRunEmployee.employee_id).where(PayrollRunEmployee.run_id == run_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if run_emp_ids:
+            loan_stmt = select(AdvanceLoan).where(AdvanceLoan.employee_id.in_(run_emp_ids))
+            if run.company_id is not None:
+                loan_stmt = loan_stmt.where(
+                    or_(AdvanceLoan.company_id == run.company_id, AdvanceLoan.company_id.is_(None))
+                )
+            loans = list((await session.execute(loan_stmt.with_for_update())).scalars().all())
+            for loan in loans:
+                inst = (
+                    await session.execute(
+                        select(AdvanceLoanInstallment).where(
+                            AdvanceLoanInstallment.loan_id == loan.id,
+                            AdvanceLoanInstallment.period_month == run.period_month,
+                            AdvanceLoanInstallment.period_year == run.period_year,
+                            AdvanceLoanInstallment.status == "DEDUCTED",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if inst is not None:
+                    inst.status = "PENDING"
+                    loan.outstanding_balance = as_decimal(loan.outstanding_balance) + as_decimal(inst.emi_amount)
+                    loan.installments_paid = max(0, int(loan.installments_paid or 0) - 1)
+                    if loan.status == "CLOSED":
+                        loan.status = "ACTIVE"
+
+        # Clear provisional employee lines & unpaid payslips so re-calculation starts clean.
+        await session.execute(sa_delete(Payslip).where(Payslip.payroll_run_id == run_id))
+        await session.execute(sa_delete(PayrollRunEmployee).where(PayrollRunEmployee.run_id == run_id))
+
+        run.status = "VALIDATED"
+        run.total_employees = 0
+        run.total_gross_paise = 0
+        run.total_deductions_paise = 0
+        run.total_net_paise = 0
+        run.total_gross_base_paise = 0
+        run.total_deductions_base_paise = 0
+        run.total_net_base_paise = 0
+        run.total_gross = Decimal("0.00")
+        run.total_deductions = Decimal("0.00")
+        run.total_net = Decimal("0.00")
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PayrollRun",
+            entity_id=run.id,
+            action="RECALCULATE",
+            company_id=run.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=old_status,
+            after_status="VALIDATED",
+            reason="Reset provisional payroll postings for recalculation",
+        )
+        await session.commit()
+
+        return await cls.execute_run_calculation(
+            session, run_id, user_id=user_id, user_role=user_role, company_id=company_id
+        )
 
     @classmethod
     async def _advance_deduction_for_employee(

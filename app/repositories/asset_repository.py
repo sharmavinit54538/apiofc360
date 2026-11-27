@@ -8,12 +8,22 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.models.asset import Asset, AssetAssignmentHistory, AssetMaintenanceRecord, AssetRequest, AssetDamageReport
 from app.models.employee import Employee
 
 logger = logging.getLogger(__name__)
+
+# Assets responses only render assignee display identity and department; avoid loading encrypted PII.
+_ASSET_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.department,
+)
 
 
 class AssetRepository:
@@ -32,10 +42,9 @@ class AssetRepository:
         """Retrieve asset with loaded relationships."""
         stmt = (
             select(Asset)
-            .outerjoin(Employee, Asset.employee_id == Employee.id)
             .where(Asset.id == asset_id)
             .options(
-                selectinload(Asset.employee),
+                selectinload(Asset.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS),
                 selectinload(Asset.assignment_history),
                 selectinload(Asset.maintenance_history),
             )
@@ -51,7 +60,7 @@ class AssetRepository:
             select(Asset)
             .where(Asset.id == asset_id)
             .options(
-                selectinload(Asset.employee),
+                selectinload(Asset.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS),
                 selectinload(Asset.assignment_history),
                 selectinload(Asset.maintenance_history),
             )
@@ -69,7 +78,7 @@ class AssetRepository:
             select(Asset)
             .where(Asset.tag == tag)
             .options(
-                selectinload(Asset.employee),
+                selectinload(Asset.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS),
                 selectinload(Asset.assignment_history),
                 selectinload(Asset.maintenance_history),
             )
@@ -96,8 +105,8 @@ class AssetRepository:
         """Query paginated lists of assets with filters."""
         # 1. Build Query
         stmt = select(Asset).options(
-            selectinload(Asset.employee),
-            selectinload(Asset.maintenance_history)
+            selectinload(Asset.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS),
+            selectinload(Asset.maintenance_history),
         )
         count_stmt = select(func.count(Asset.id))
         
@@ -316,7 +325,11 @@ class AssetRepository:
 
     async def get_asset_request_by_id(self, request_id: uuid.UUID, company_id: uuid.UUID | None = None, *, for_update: bool = False) -> AssetRequest | None:
         """Retrieve asset request by ID."""
-        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.id == request_id)
+        stmt = (
+            select(AssetRequest)
+            .options(selectinload(AssetRequest.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS))
+            .where(AssetRequest.id == request_id)
+        )
         if for_update:
             stmt = stmt.with_for_update().execution_options(populate_existing=True)
         if company_id is not None:
@@ -333,7 +346,11 @@ class AssetRepository:
         limit: int = 20,
     ) -> tuple[list[AssetRequest], int]:
         """List asset requests with filters."""
-        stmt = select(AssetRequest).options(selectinload(AssetRequest.employee)).where(AssetRequest.company_id == company_id)
+        stmt = (
+            select(AssetRequest)
+            .options(selectinload(AssetRequest.employee).load_only(*_ASSET_EMPLOYEE_COLUMNS))
+            .where(AssetRequest.company_id == company_id)
+        )
         count_stmt = select(func.count(AssetRequest.id)).where(AssetRequest.company_id == company_id)
 
         if employee_id:

@@ -545,24 +545,35 @@ class HierarchyService:
         )
 
     async def get_employee_reporting_details(
-        self, employee_uuid: uuid.UUID, company_id: uuid.UUID
+        self,
+        employee_uuid: uuid.UUID,
+        company_id: uuid.UUID | None,
+        *,
+        preloaded_employee: Employee | None = None,
     ) -> ReportingChainResponse:
         """Fetch employee direct details, manager, peers, direct reports, reporting chain and level."""
-        employee = await self.repo.get_employee_by_id(employee_uuid)
-        if not employee or employee.company_id != company_id:
+        employee = preloaded_employee or await self.repo.get_employee_by_id(employee_uuid)
+        if not employee or (company_id is not None and employee.company_id != company_id):
             raise NotFoundException("Employee not found.")
 
-        # Fetch manager
+        reporting_chain = await self.repo.get_recursive_ancestors(employee_uuid)
+        direct_reports = await self.repo.get_direct_reports(employee_uuid)
+        peers = (
+            await self.repo.get_peers(employee_uuid, employee.manager_id)
+            if employee.manager_id is not None
+            else []
+        )
+
+        # get_recursive_ancestors returns CEO -> ... -> immediate manager (last element).
         manager = None
         manager_name = None
         if employee.manager_id:
-            manager = await self.repo.get_employee_by_id(employee.manager_id)
+            if reporting_chain and reporting_chain[-1].id == employee.manager_id:
+                manager = reporting_chain[-1]
+            else:
+                manager = await self.repo.get_employee_by_id(employee.manager_id)
             if manager:
                 manager_name = f"{manager.first_name} {manager.last_name}".strip()
-
-        peers = await self.repo.get_peers(employee_uuid, employee.manager_id)
-        direct_reports = await self.repo.get_direct_reports(employee_uuid)
-        reporting_chain = await self.repo.get_recursive_ancestors(employee_uuid)
 
         # Build emp_lookup for resolving manager names in related employees
         all_related = ([manager] if manager else []) + list(peers) + list(direct_reports) + list(reporting_chain)

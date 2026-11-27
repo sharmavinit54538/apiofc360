@@ -14,6 +14,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.permissions import permission_granted
 from app.middleware.auth import get_current_user
@@ -180,7 +181,19 @@ async def resolve_expense_actor(db: AsyncSession, claims: dict) -> ExpenseActor:
         raise HTTPException(status_code=403, detail="Account does not belong to the authenticated tenant.")
 
     employees = (await db.execute(
-        select(Employee).where(
+        select(Employee)
+        .options(
+            load_only(
+                Employee.id,
+                Employee.company_id,
+                Employee.user_id,
+                Employee.is_active,
+                Employee.status,
+                Employee.employment_status,
+                Employee.is_deleted,
+            )
+        )
+        .where(
             Employee.user_id == user_id,
             Employee.company_id == company_id,
             Employee.is_deleted.is_(False),

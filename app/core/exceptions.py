@@ -165,11 +165,28 @@ def add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
             response.headers["Access-Control-Allow-Origin"] = cleaned_origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Expose-Headers"] = (
-                "Authorization, Content-Type, Content-Disposition, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining"
+                "Authorization, Content-Type, Content-Disposition, X-Request-ID, X-Correlation-ID, X-Process-Time, X-RateLimit-Limit, X-RateLimit-Remaining"
             )
             response.headers["Vary"] = "Origin"
 
     return response
+
+
+def _resolve_request_id(request: Request | None = None) -> str | None:
+    """Resolve active X-Request-ID from request state or contextvars."""
+    if request is not None:
+        state_req = getattr(getattr(request, "state", None), "request_id", None)
+        if state_req:
+            return str(state_req)
+        hdr_req = request.headers.get("x-request-id") or request.headers.get("X-Request-ID")
+        if hdr_req:
+            return str(hdr_req).strip()[:128] or None
+    try:
+        from app.middleware.request_id import get_current_request_id
+
+        return get_current_request_id()
+    except Exception:
+        return None
 
 
 def error_response_content(
@@ -178,6 +195,7 @@ def error_response_content(
     code: str | None = None,
     errors: ErrorList | None = None,
     field: str | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a common error response payload."""
 
@@ -192,6 +210,8 @@ def error_response_content(
         response_data["error"] = {"code": code, "message": message}
     if field is not None:
         response_data["field"] = field
+    if request_id is not None:
+        response_data["request_id"] = request_id
     return response_data
 
 
@@ -226,7 +246,8 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 
     user_id, role = _extract_user_and_role(request)
 
-    log_msg = f"AppException on {request.method} {request.url.path} | User: {user_id} | Role: {role} | Status: {exc.status_code} | Msg: {exc.message}"
+    req_id = _resolve_request_id(request)
+    log_msg = f"AppException on {request.method} {request.url.path} | RequestID: {req_id} | User: {user_id} | Role: {role} | Status: {exc.status_code} | Msg: {exc.message}"
     if exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
         logger.error(log_msg)
     elif exc.status_code in (401, 403, 404):
@@ -242,6 +263,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
                 code=getattr(exc, "code", None),
                 errors=exc.errors,
                 field=getattr(exc, "field", None),
+                request_id=req_id,
             )
         ),
     )
@@ -351,6 +373,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         str(errors),
     )
 
+    req_id = _resolve_request_id(request)
     response_body = {
         "success": False,
         "message": top_message,
@@ -358,6 +381,8 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         "data": None,
         "errors": errors,
     }
+    if req_id:
+        response_body["request_id"] = req_id
 
     response = JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -383,7 +408,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 
     user_id, role = _extract_user_and_role(request)
 
-    log_msg = f"HTTPException on {request.method} {request.url.path} | User: {user_id} | Role: {role} | Status: {status_code} | Msg: {message}"
+    req_id = _resolve_request_id(request)
+    log_msg = f"HTTPException on {request.method} {request.url.path} | RequestID: {req_id} | User: {user_id} | Role: {role} | Status: {status_code} | Msg: {message}"
     if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
         logger.error(log_msg)
     elif status_code in (401, 403, 404):
@@ -391,7 +417,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     else:
         logger.warning(log_msg)
 
-    err_payload = error_response_content(message=message, code=code)
+    err_payload = error_response_content(message=message, code=code, request_id=req_id)
     if detail_dict:
         for k, v in detail_dict.items():
             if k not in ("message", "code"):
@@ -490,9 +516,12 @@ async def field_encryption_exception_handler(request: Request, exc: FieldEncrypt
         if is_unavailable
         else "Encrypted field could not be processed."
     )
+    req_id = _resolve_request_id(request)
     response = JSONResponse(
         status_code=status_code,
-        content=jsonable_encoder(error_response_content(message=public_msg, code=code)),
+        content=jsonable_encoder(
+            error_response_content(message=public_msg, code=code, request_id=req_id)
+        ),
     )
     return add_cors_headers(request, response)
 
@@ -501,11 +530,13 @@ async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> 
     """Render uncaught database exceptions with accurate status codes and without leaking internals."""
 
     user_id, role = _extract_user_and_role(request)
+    req_id = _resolve_request_id(request)
 
     logger.exception(
-        "Database error on %s %s | User: %s | Role: %s",
+        "Database error on %s %s | RequestID: %s | User: %s | Role: %s",
         request.method,
         request.url.path,
+        req_id,
         user_id,
         role,
         exc_info=exc,
@@ -517,22 +548,36 @@ async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> 
         code = "DATABASE_UNAVAILABLE"
         message = "Database service is temporarily unavailable. Please try again shortly."
     else:
-        # Check for data truncation errors (StringDataRightTruncationError)
+        # Check for data truncation, invalid input syntax, or schema drift errors cleanly without leaking internals.
         orig = getattr(exc, "orig", None)
-        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        sqlstate = str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
         orig_msg = str(orig or exc).lower()
         if sqlstate == "22001" or "too long" in orig_msg or "truncat" in orig_msg:
             status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
             code = "DATA_TOO_LONG"
             message = "One or more field values exceed the maximum allowed length."
+        elif sqlstate == "22P02" or "invalid input syntax" in orig_msg:
+            status_code = status.HTTP_400_BAD_REQUEST
+            code = "INVALID_INPUT"
+            message = "Invalid identifier or input format."
         else:
+            if sqlstate in {"42703", "42P01"}:
+                logger.critical(
+                    "Database schema mismatch detected on %s %s (sqlstate=%s, request_id=%s). Verify Alembic migrations are at head.",
+                    request.method,
+                    request.url.path,
+                    sqlstate,
+                    req_id,
+                )
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             code = "DATABASE_ERROR"
             message = "Internal server error."
 
     response = JSONResponse(
         status_code=status_code,
-        content=jsonable_encoder(error_response_content(message=message, code=code)),
+        content=jsonable_encoder(
+            error_response_content(message=message, code=code, request_id=req_id)
+        ),
     )
     return add_cors_headers(request, response)
 
@@ -541,11 +586,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """Render uncaught exceptions without leaking internals."""
 
     user_id, role = _extract_user_and_role(request)
+    req_id = _resolve_request_id(request)
 
     logger.exception(
-        "Unhandled error on %s %s | User: %s | Role: %s",
+        "Unhandled error on %s %s | RequestID: %s | User: %s | Role: %s",
         request.method,
         request.url.path,
+        req_id,
         user_id,
         role,
         exc_info=exc,
@@ -553,7 +600,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=jsonable_encoder(
-            error_response_content(message="Internal server error.", code="INTERNAL_SERVER_ERROR")
+            error_response_content(
+                message="Internal server error.",
+                code="INTERNAL_SERVER_ERROR",
+                request_id=req_id,
+            )
         ),
     )
     return add_cors_headers(request, response)

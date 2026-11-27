@@ -18,37 +18,35 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add missing columns that don't exist yet
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("status", sa.String(30), nullable=False, server_default=sa.text("'DRAFT'")),
-    )
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("settlement_breakup", JSONB(), nullable=True),
-    )
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("statement_path", sa.String(500), nullable=True),
-    )
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("statement_hash", sa.String(64), nullable=True),
-    )
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("settled_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.add_column(
-        "fnf_settlements",
-        sa.Column("generated_letters_json", JSONB(), nullable=True),
-    )
+    bind = op.get_bind()
+    existing_cols = {
+        c["name"] for c in sa.inspect(bind).get_columns("fnf_settlements")
+    }
+    cols_to_add = [
+        ("status", sa.Column("status", sa.String(30), nullable=False, server_default=sa.text("'DRAFT'"))),
+        ("settlement_breakup", sa.Column("settlement_breakup", JSONB(), nullable=True)),
+        ("statement_path", sa.Column("statement_path", sa.String(500), nullable=True)),
+        ("statement_hash", sa.Column("statement_hash", sa.String(64), nullable=True)),
+        ("settled_at", sa.Column("settled_at", sa.DateTime(timezone=True), nullable=True)),
+        ("generated_letters_json", sa.Column("generated_letters_json", JSONB(), nullable=True)),
+    ]
+    for col_name, col in cols_to_add:
+        if col_name not in existing_cols:
+            op.add_column("fnf_settlements", col)
 
 
 def downgrade() -> None:
-    op.drop_column("fnf_settlements", "generated_letters_json")
-    op.drop_column("fnf_settlements", "settled_at")
-    op.drop_column("fnf_settlements", "statement_hash")
-    op.drop_column("fnf_settlements", "statement_path")
-    op.drop_column("fnf_settlements", "settlement_breakup")
-    op.drop_column("fnf_settlements", "status")
+    bind = op.get_bind()
+    existing_cols = {
+        c["name"] for c in sa.inspect(bind).get_columns("fnf_settlements")
+    }
+    for col_name in (
+        "generated_letters_json",
+        "settled_at",
+        "statement_hash",
+        "statement_path",
+        "settlement_breakup",
+        "status",
+    ):
+        if col_name in existing_cols:
+            op.drop_column("fnf_settlements", col_name)

@@ -1006,11 +1006,7 @@ class EmployeeService:
         except SQLAlchemyError as exc:
             logger.exception("get_employee: db error", exc_info=exc)
             try:
-                raw_employee = await self.repo.get_by_id_raw(employee_uuid, company_id=company_id)
-                if raw_employee:
-                    return EmployeeResponse.model_validate(raw_employee)
-            except FieldEncryptionError:
-                raise
+                await self.session.rollback()
             except Exception:
                 pass
             raise DatabaseException() from exc

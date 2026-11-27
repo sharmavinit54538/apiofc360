@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.core.exceptions import AppException, NotFoundException
 from app.db.database import get_db_session
 from app.middleware.auth import get_current_user_claims
-from app.repositories.employee_repository import EmployeeRepository
+from app.repositories.leave_repository import LeaveRepository
 from app.schemas.auth import APIResponse
 from app.schemas.leave import (
     LeaveApprovalRequest,
@@ -49,11 +49,10 @@ async def _get_current_employee_id(claims: dict, db: Any) -> uuid.UUID:
         raise AppException(message="Invalid user association.", status_code=status.HTTP_401_UNAUTHORIZED)
 
     user_id = uuid.UUID(str(user_id_raw))
-    emp_repo = EmployeeRepository(db)
-    employee = await emp_repo.get_by_user_id(user_id)
-    if not employee:
+    emp_id = await LeaveRepository(db).get_employee_id_by_user_id(user_id)
+    if not emp_id:
         raise AppException(message="Employee profile not found.", status_code=status.HTTP_404_NOT_FOUND)
-    return employee.id
+    return emp_id
 
 
 @router.get(
@@ -239,15 +238,12 @@ async def get_all_requests(
     company_id = _resolve_company_id(claims)
     caller_user_id = uuid.UUID(str(claims["sub"]))
 
-    # Manager scope: only direct reports
+    service = LeaveService(db)
     manager_employee_id = None
     if role == "manager":
-        mgr_emp = await EmployeeRepository(db).get_by_user_id(caller_user_id)
-        if not mgr_emp:
+        manager_employee_id = await service.repo.get_employee_id_by_user_id(caller_user_id)
+        if not manager_employee_id:
             raise AppException(message="Manager profile not found.", status_code=status.HTTP_404_NOT_FOUND)
-        manager_employee_id = mgr_emp.id
-
-    service = LeaveService(db)
     items, total = await service.get_all_leave_requests(
         company_id=company_id,
         status=status_filter,

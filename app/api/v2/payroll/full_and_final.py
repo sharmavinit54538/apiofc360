@@ -123,8 +123,11 @@ async def get_full_and_final(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
-    settlement = await FullAndFinalService.get_settlement(db, fnfId)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    settlement = await FullAndFinalService.get_settlement(db, fnfId, company_id=c_uuid)
     return _ok(_fnf_dict(settlement), "Full and final settlement details retrieved successfully")
 
 
@@ -136,9 +139,12 @@ async def approve_full_and_final(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     remarks = payload.remarks if payload else None
     settlement = await FullAndFinalService.approve_settlement(
         session=db,
@@ -146,6 +152,7 @@ async def approve_full_and_final(
         user_id=user_id,
         user_role=user_role,
         remarks=remarks,
+        company_id=c_uuid,
     )
     return _ok(_fnf_dict(settlement), "Full and final settlement approved successfully")
 
@@ -158,9 +165,12 @@ async def finalize_full_and_final(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     notes = payload.notes if payload else None
     settlement = await FullAndFinalService.finalize_settlement(
         session=db,
@@ -168,6 +178,7 @@ async def finalize_full_and_final(
         user_id=user_id,
         user_role=user_role,
         notes=notes,
+        company_id=c_uuid,
     )
     return _ok(_fnf_dict(settlement), "Full and final settlement finalized successfully")
 
@@ -180,15 +191,19 @@ async def reject_full_and_final(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
     settlement = await FullAndFinalService.reject_settlement(
         session=db,
         fnf_id=fnfId,
         user_id=user_id,
         user_role=user_role,
         reason=payload.reason,
+        company_id=c_uuid,
     )
     return _ok(_fnf_dict(settlement), "Full and final settlement rejected")
 

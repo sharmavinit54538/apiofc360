@@ -148,6 +148,7 @@ from app.api.helpdesk import router as helpdesk_router
 
 # ── Attendance Module Routers (from app/attendance/routers/) ───────────────────
 from app.attendance.routers import router as attendance_router
+from app.attendance.routers.shifts import router as shifts_compat_router
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Unified Router Assembly
@@ -210,6 +211,8 @@ def get_v1_router() -> APIRouter:
         polls_router,
         internal_dashboard_router,
         attendance_router,  # from app/attendance/routers/
+        shifts_compat_router,  # canonical /api/v1/shifts alias
+        core_settings_router.designations_router,  # canonical /api/v1/designations alias
         expenses_router,
     ):
         router.include_router(r)

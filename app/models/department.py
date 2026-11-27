@@ -31,6 +31,7 @@ class Department(Base):
         Index("ix_departments_parent_department_id", "parent_department_id"),
         Index("ix_departments_status", "status"),
         Index("ix_departments_is_deleted", "is_deleted"),
+        Index("ix_departments_company_active_created", "company_id", "is_deleted", "created_at"),
         UniqueConstraint("company_id", "normalized_name", name="uq_departments_company_normalized_name"),
         UniqueConstraint("company_id", "normalized_code", name="uq_departments_company_normalized_code"),
     )

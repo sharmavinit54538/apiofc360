@@ -12,8 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _require_admin, _require_admin_or_manager, _role, _uid
+from app.api.payroll.permissions import _is_admin_or_manager, _require_admin, _require_admin_or_manager, _require_tenant_id, _role, _uid
 from app.db.database import get_db_session
+from app.models.employee import Employee
 from app.models.payroll import PayrollRun
 from app.schemas.payroll_v2.runs import (
     PayrollRunApproveRequest,
@@ -24,6 +25,7 @@ from app.schemas.payroll_v2.runs import (
     PayrollRunRejectRequest,
     PayrollRunSendBackRequest,
 )
+from app.services.payroll.idempotency_service import IdempotencyService, get_optional_idempotency_key
 from app.services.payroll.payment_batch_service import PaymentBatchService
 from app.services.payroll.payslip_service import PayslipService
 from app.services.payroll.parallel_comparison_service import ParallelPayrollComparisonService
@@ -119,17 +121,90 @@ async def list_runs_v2(
     return _ok([_run_dict(r) for r in runs], "Payroll runs retrieved successfully")
 
 
+class PayrollRunCancelRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+def _optional_claims_company(claims: Claims) -> uuid.UUID | None:
+    return _require_tenant_id(claims, allow_super_admin_global=True)
+
+
+async def _run_status_payload(run: PayrollRun, job_id: Optional[str] = None) -> dict[str, Any]:
+    target_job = job_id or getattr(run, "job_id", None)
+    job_data = await PayrollJobTracker.get_job(target_job) if target_job else None
+    completed_states = ("PROCESSED", "CALCULATED", "PENDING_APPROVAL", "APPROVED", "FINALIZED", "LOCKED", "PAID")
+    failed_states = ("FAILED", "CANCELLED")
+    if job_data:
+        progress = int(job_data.get("progress") or 0)
+        job_status = str(job_data.get("status") or "PROCESSING")
+    elif run.status in completed_states:
+        progress = 100
+        job_status = "COMPLETED"
+    elif run.status in failed_states:
+        progress = 100
+        job_status = run.status
+    elif run.status == "PROCESSING":
+        progress = 25
+        job_status = "PROCESSING"
+    else:
+        progress = 0
+        job_status = run.status or "PENDING"
+
+    err_obj = None
+    if job_data and job_data.get("error"):
+        err_obj = {"message": str(job_data["error"])}
+    elif run.status == "FAILED" and isinstance(run.validation_errors, list) and run.validation_errors:
+        first_err = run.validation_errors[0]
+        if isinstance(first_err, dict):
+            err_obj = {
+                "code": first_err.get("code"),
+                "message": str(first_err.get("detail") or first_err.get("message") or "Payroll calculation failed."),
+            }
+
+    total_emp = int(run.total_employees or 0)
+    processed_emp = int(job_data.get("processed") or (total_emp if run.status in completed_states else 0)) if job_data else (total_emp if run.status in completed_states else 0)
+    return {
+        "run_id": str(run.id),
+        "period_id": str(run.period_id) if run.period_id else None,
+        "status": run.status,
+        "run_status": run.status,
+        "validation_status": run.validation_status,
+        "validation_errors": run.validation_errors,
+        "is_locked": run.is_locked,
+        "total_employees": total_emp,
+        "progress": progress,
+        "employees": {
+            "total": total_emp,
+            "processed": processed_emp,
+            "failed": int(job_data.get("failed") or 0) if job_data else (total_emp if run.status == "FAILED" else 0),
+        },
+        "error": err_obj,
+        "job_id": target_job,
+        "job": job_data or {
+            "status": job_status,
+            "progress": progress,
+        },
+    }
+
+
 @router.post("/runs", status_code=status.HTTP_201_CREATED, summary="Create a new payroll run")
 async def create_run_v2(
     payload: PayrollRunCreateRequest,
     claims: Claims = None,
+    idempotency_key: Optional[str] = Depends(get_optional_idempotency_key),
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
-    company_id_str = claims.get("company_id") if claims else None
-    c_uuid = uuid.UUID(company_id_str) if company_id_str else None
+    c_uuid = _optional_claims_company(claims)
+    scoped_key = f"create_run:{c_uuid or 'global'}:{idempotency_key}" if idempotency_key else None
+    if scoped_key:
+        cached = await IdempotencyService.get_cached_result(scoped_key)
+        if cached:
+            return cached["data"]
+        await IdempotencyService.lock_key(scoped_key)
+
     p_uuid = uuid.UUID(payload.period_id)
     run = await PayrollRunService.create_run(
         session=db,
@@ -144,7 +219,10 @@ async def create_run_v2(
         fx_rate_as_of=payload.fx_rate_as_of,
         statutory_rules=payload.statutory_rules,
     )
-    return _ok(_run_dict(run), f"Payroll run created for period {p_uuid}")
+    resp = _ok(_run_dict(run), f"Payroll run created for period {p_uuid}")
+    if scoped_key:
+        await IdempotencyService.store_result(scoped_key, 201, resp)
+    return resp
 
 
 @router.get("/runs/{runId}", summary="Get payroll run details")
@@ -154,7 +232,7 @@ async def get_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.get_run(db, runId)
+    run = await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
     return _ok(_run_dict(run), "Payroll run details retrieved successfully")
 
 
@@ -166,21 +244,101 @@ async def delete_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.delete_run(db, run_id=runId)
+    res = await PayrollRunService.delete_run(db, run_id=runId, company_id=_optional_claims_company(claims))
     return _ok(res, "Payroll run deleted successfully")
 
 
-# 1b. POST /api/v2/payroll/runs/{runId}/cancel - Cancel payroll run (alias for delete with different semantics)
+# 1b. POST /api/v2/payroll/runs/{runId}/cancel - Cancel payroll run (status transition + audit trail)
 @router.post("/runs/{runId}/cancel", summary="Cancel payroll run")
 async def cancel_run_v2(
     runId: uuid.UUID,
+    payload: Optional[PayrollRunCancelRequest] = None,
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    # Cancel is similar to delete but may have different business logic in the future
-    res = await PayrollRunService.delete_run(db, run_id=runId)
-    return _ok(res, "Payroll run cancelled successfully")
+    run = await PayrollRunService.cancel_run(
+        db,
+        run_id=runId,
+        user_id=_uid(claims),
+        user_role=_role(claims),
+        company_id=_optional_claims_company(claims),
+        reason=payload.reason if payload else None,
+    )
+    return _ok(_run_dict(run), "Payroll run cancelled successfully")
+
+
+# 1c. GET /api/v2/payroll/runs/{runId}/status - Live payroll run status
+@router.get("/runs/{runId}/status", summary="Get live payroll run status and async job progress")
+async def get_run_status_v2(
+    runId: uuid.UUID,
+    job_id: Optional[str] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    run = await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
+    return _ok(await _run_status_payload(run, job_id=job_id), "Payroll run status retrieved successfully")
+
+
+# 1d. POST /api/v2/payroll/runs/{runId}/retry - Retry failed payroll run
+@router.post("/runs/{runId}/retry", summary="Retry failed payroll run")
+async def retry_run_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    idempotency_key: Optional[str] = Depends(get_optional_idempotency_key),
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    c_uuid = _optional_claims_company(claims)
+    scoped_key = f"retry_run:{c_uuid or 'global'}:{runId}:{idempotency_key}" if idempotency_key else None
+    if scoped_key:
+        cached = await IdempotencyService.get_cached_result(scoped_key)
+        if cached:
+            return cached["data"]
+        await IdempotencyService.lock_key(scoped_key)
+
+    run = await PayrollRunService.retry_run(
+        db,
+        run_id=runId,
+        user_id=_uid(claims),
+        user_role=_role(claims),
+        company_id=c_uuid,
+    )
+    resp = _ok(_run_dict(run), "Payroll run retry executed successfully")
+    if scoped_key:
+        await IdempotencyService.store_result(scoped_key, 200, resp)
+    return resp
+
+
+# 1e. POST /api/v2/payroll/runs/{runId}/recalculate - Recalculate uncommitted run
+@router.post("/runs/{runId}/recalculate", summary="Recalculate uncommitted payroll run")
+async def recalculate_run_v2(
+    runId: uuid.UUID,
+    claims: Claims = None,
+    idempotency_key: Optional[str] = Depends(get_optional_idempotency_key),
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    c_uuid = _optional_claims_company(claims)
+    scoped_key = f"recalc_run:{c_uuid or 'global'}:{runId}:{idempotency_key}" if idempotency_key else None
+    if scoped_key:
+        cached = await IdempotencyService.get_cached_result(scoped_key)
+        if cached:
+            return cached["data"]
+        await IdempotencyService.lock_key(scoped_key)
+
+    run = await PayrollRunService.recalculate_run(
+        db,
+        run_id=runId,
+        user_id=_uid(claims),
+        user_role=_role(claims),
+        company_id=c_uuid,
+    )
+    resp = _ok(_run_dict(run), "Payroll run recalculated successfully")
+    if scoped_key:
+        await IdempotencyService.store_result(scoped_key, 200, resp)
+    return resp
 
 
 # 2. GET /api/v2/payroll/runs/{runId}/approval
@@ -191,15 +349,27 @@ async def get_run_approval_details(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.get_run(db, runId)
+    run = await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
     return _ok({
         "run_id": str(run.id),
+        "period_id": str(run.period_id) if run.period_id else None,
+        "period_month": run.period_month,
+        "period_year": run.period_year,
         "status": run.status,
-        "is_approved": run.status in ("APPROVED", "FINALIZED"),
+        "is_approved": run.status in ("APPROVED", "FINALIZED", "LOCKED", "PAID"),
         "approved_by": str(run.approved_by) if run.approved_by else None,
         "approved_at": run.approved_at.isoformat() if run.approved_at else None,
         "comments": run.comments,
         "rejection_reason": run.rejection_reason,
+        "total_employees": run.total_employees,
+        "total_gross_paise": run.total_gross_paise,
+        "total_deductions_paise": run.total_deductions_paise,
+        "total_net_paise": run.total_net_paise,
+        "total_gross": float(run.total_gross or 0),
+        "total_deductions": float(run.total_deductions or 0),
+        "total_net": float(run.total_net or 0),
+        "validation_status": run.validation_status,
+        "validation_errors": run.validation_errors,
     }, "Approval status retrieved successfully")
 
 
@@ -209,11 +379,20 @@ async def approve_run_v2(
     runId: uuid.UUID,
     payload: Optional[PayrollRunApproveRequest] = None,
     claims: Claims = None,
+    idempotency_key: Optional[str] = Depends(get_optional_idempotency_key),
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    c_uuid = _optional_claims_company(claims)
+    scoped_key = f"approve_run:{c_uuid or 'global'}:{runId}:{idempotency_key}" if idempotency_key else None
+    if scoped_key:
+        cached = await IdempotencyService.get_cached_result(scoped_key)
+        if cached:
+            return cached["data"]
+        await IdempotencyService.lock_key(scoped_key)
+
     comments = payload.comments if payload else None
     run = await PayrollRunService.approve_run(
         session=db,
@@ -221,9 +400,44 @@ async def approve_run_v2(
         comments=comments,
         user_id=user_id,
         user_role=user_role,
-        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+        company_id=c_uuid,
     )
-    return _ok(_run_dict(run), "Payroll run approved successfully")
+    resp = _ok(_run_dict(run), "Payroll run approved successfully")
+    if scoped_key:
+        await IdempotencyService.store_result(scoped_key, 200, resp)
+    return resp
+
+
+async def _authorize_employee_payslip_access(
+    db: AsyncSession,
+    claims: Claims,
+    employee_id: uuid.UUID,
+    action_label: str = "payslip",
+) -> uuid.UUID | None:
+    c_uuid = _optional_claims_company(claims)
+    if _is_admin_or_manager(claims):
+        return c_uuid
+    user_id = _uid(claims)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: You can only view your own {action_label}.",
+        )
+    stmt = select(Employee).where(Employee.user_id == user_id, Employee.is_deleted == False)  # noqa: E712
+    if c_uuid is not None:
+        stmt = stmt.where(Employee.company_id == c_uuid)
+    caller_emp = (await db.execute(stmt)).scalar_one_or_none()
+    if not caller_emp:
+        stmt2 = select(Employee).where(Employee.id == user_id, Employee.is_deleted == False)  # noqa: E712
+        if c_uuid is not None:
+            stmt2 = stmt2.where(Employee.company_id == c_uuid)
+        caller_emp = (await db.execute(stmt2)).scalar_one_or_none()
+    if not caller_emp or caller_emp.id != employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: You can only view your own {action_label}.",
+        )
+    return c_uuid
 
 
 # 4. GET /api/v2/payroll/runs/{runId}/employees
@@ -251,6 +465,7 @@ async def list_run_employees_v2(
         validation_status=validationStatus,
         sort_by=sortBy,
         sort_dir=sortDir,
+        company_id=_optional_claims_company(claims),
     )
     return _ok(res, "Run employees retrieved successfully")
 
@@ -264,7 +479,12 @@ async def get_run_employee_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.get_run_employee(db, run_id=runId, employee_id=employeeId)
+    res = await PayrollRunService.get_run_employee(
+        db,
+        run_id=runId,
+        employee_id=employeeId,
+        company_id=_optional_claims_company(claims),
+    )
     return _ok(res, "Employee run breakdown retrieved successfully")
 
 
@@ -276,8 +496,8 @@ async def get_run_employee_payslip_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    _require_admin_or_manager(claims)
-    res = await PayslipService.get_payslip_detail(db, run_id=runId, employee_id=employeeId)
+    c_uuid = await _authorize_employee_payslip_access(db, claims, employeeId, action_label="payslip")
+    res = await PayslipService.get_payslip_detail(db, run_id=runId, employee_id=employeeId, company_id=c_uuid)
     return _ok(res, "Employee payslip retrieved successfully")
 
 
@@ -289,7 +509,10 @@ async def download_run_employee_payslip_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    content_bytes, filename = await PayslipService.get_payslip_file(db, run_id=runId, employee_id=employeeId)
+    c_uuid = await _authorize_employee_payslip_access(db, claims, employeeId, action_label="payslip")
+    content_bytes, filename = await PayslipService.get_payslip_file(
+        db, run_id=runId, employee_id=employeeId, company_id=c_uuid
+    )
     return Response(
         content=content_bytes,
         media_type="application/pdf",
@@ -305,14 +528,18 @@ async def get_run_finalization_summary(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.get_run(db, runId)
+    run = await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
     return _ok({
         "run_id": str(run.id),
-        "is_finalized": run.status == "FINALIZED",
+        "period_id": str(run.period_id) if run.period_id else None,
+        "status": run.status,
+        "is_finalized": run.status in ("FINALIZED", "LOCKED", "PAID"),
         "is_locked": run.is_locked,
         "finalized_by": str(run.finalized_by) if run.finalized_by else None,
         "finalized_at": run.finalized_at.isoformat() if run.finalized_at else None,
         "total_employees": run.total_employees,
+        "total_gross_paise": run.total_gross_paise,
+        "total_deductions_paise": run.total_deductions_paise,
         "total_net_paise": run.total_net_paise,
         "notes": run.notes,
     }, "Finalization summary retrieved successfully")
@@ -324,11 +551,20 @@ async def finalize_run_v2(
     runId: uuid.UUID,
     payload: Optional[PayrollRunFinalizeRequest] = None,
     claims: Claims = None,
+    idempotency_key: Optional[str] = Depends(get_optional_idempotency_key),
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
+    c_uuid = _optional_claims_company(claims)
+    scoped_key = f"finalize_run:{c_uuid or 'global'}:{runId}:{idempotency_key}" if idempotency_key else None
+    if scoped_key:
+        cached = await IdempotencyService.get_cached_result(scoped_key)
+        if cached:
+            return cached["data"]
+        await IdempotencyService.lock_key(scoped_key)
+
     notes = payload.notes if payload else None
     lock = payload.lock if payload else True
     run = await PayrollRunService.finalize_run(
@@ -338,9 +574,12 @@ async def finalize_run_v2(
         lock=lock,
         user_id=user_id,
         user_role=user_role,
-        company_id=uuid.UUID(claims["company_id"]) if claims and claims.get("company_id") else None,
+        company_id=c_uuid,
     )
-    return _ok(_run_dict(run), "Payroll run finalized successfully")
+    resp = _ok(_run_dict(run), "Payroll run finalized successfully")
+    if scoped_key:
+        await IdempotencyService.store_result(scoped_key, 200, resp)
+    return resp
 
 
 # 10. GET /api/v2/payroll/runs/{runId}/generation-status
@@ -352,18 +591,8 @@ async def get_run_generation_status(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    run = await PayrollRunService.get_run(db, runId)
-    target_job = job_id or run.job_id
-    job_data = await PayrollJobTracker.get_job(target_job) if target_job else None
-    return _ok({
-        "run_id": str(run.id),
-        "run_status": run.status,
-        "job_id": target_job,
-        "job": job_data or {
-            "status": "COMPLETED" if run.status in ("CALCULATED", "APPROVED", "FINALIZED") else "UNKNOWN",
-            "progress": 100 if run.status in ("CALCULATED", "APPROVED", "FINALIZED") else 0,
-        },
-    }, "Generation status retrieved successfully")
+    run = await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
+    return _ok(await _run_status_payload(run, job_id=job_id), "Generation status retrieved successfully")
 
 
 # 11. POST /api/v2/payroll/runs/{runId}/payment-batches
@@ -397,8 +626,10 @@ async def create_payment_batch_from_run(
         "run_id": str(batch.run_id),
         "batch_number": batch.batch_number,
         "status": batch.status,
+        "payment_mode": batch.payment_mode,
         "total_amount_paise": batch.total_amount_paise,
         "total_records": batch.total_records,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
     }, "Payment batch created successfully from run")
 
 
@@ -410,7 +641,9 @@ async def list_run_payment_batches(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PaymentBatchService.list_batches(session=db, run_id=runId)
+    c_uuid = _claims_company(claims)
+    await PayrollRunService.get_run(db, runId, company_id=c_uuid)
+    res = await PaymentBatchService.list_batches(session=db, company_id=c_uuid, run_id=runId)
     batches_data = [
         {
             "id": str(b.id),
@@ -435,6 +668,7 @@ async def generate_run_payslips_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
     emp_ids = payload.employee_ids if payload else None
     force = payload.force if payload else False
     fmt = payload.format if payload else "pdf"
@@ -456,7 +690,7 @@ async def preview_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    preview = await PayrollRunService.get_preview(db, run_id=runId)
+    preview = await PayrollRunService.get_preview(db, run_id=runId, company_id=_optional_claims_company(claims))
     return _ok(preview, "Payroll run preview retrieved successfully")
 
 
@@ -572,6 +806,7 @@ async def reject_run_v2(
         comments=payload.comments,
         user_id=user_id,
         user_role=user_role,
+        company_id=_optional_claims_company(claims),
     )
     return _ok(_run_dict(run), "Payroll run rejected")
 
@@ -584,7 +819,7 @@ async def revalidate_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.revalidate_run(db, run_id=runId)
+    res = await PayrollRunService.revalidate_run(db, run_id=runId, company_id=_optional_claims_company(claims))
     return _ok(res, "Payroll run revalidated successfully")
 
 
@@ -596,8 +831,9 @@ async def review_run_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    preview = await PayrollRunService.get_preview(db, run_id=runId)
-    val = await PayrollRunService.validate_run(db, run_id=runId)
+    c_uuid = _optional_claims_company(claims)
+    preview = await PayrollRunService.get_preview(db, run_id=runId, company_id=c_uuid)
+    val = await PayrollRunService.validate_run(db, run_id=runId, company_id=c_uuid)
     return _ok({"summary": preview, "validation": val}, "Payroll run review summary generated")
 
 
@@ -621,6 +857,7 @@ async def send_back_run_v2(
         comments=comments,
         user_id=user_id,
         user_role=user_role,
+        company_id=_optional_claims_company(claims),
     )
     return _ok(_run_dict(run), "Payroll run sent back successfully")
 
@@ -633,7 +870,7 @@ async def validate_run_post_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.validate_run(db, run_id=runId)
+    res = await PayrollRunService.validate_run(db, run_id=runId, company_id=_optional_claims_company(claims))
     return _ok(res, "Run validation completed")
 
 
@@ -645,7 +882,7 @@ async def get_run_validation_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.validate_run(db, run_id=runId)
+    res = await PayrollRunService.validate_run(db, run_id=runId, company_id=_optional_claims_company(claims))
     return _ok(res, "Payroll run validation status retrieved successfully")
 
 
@@ -657,7 +894,7 @@ async def get_run_validation_issues_v2(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    res = await PayrollRunService.validate_run(db, run_id=runId)
+    res = await PayrollRunService.validate_run(db, run_id=runId, company_id=_optional_claims_company(claims))
     issues = res.get("issues", [])
     return _ok(issues, "Validation issues retrieved successfully")
 

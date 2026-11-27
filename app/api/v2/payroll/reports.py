@@ -132,13 +132,17 @@ async def export_payroll_report(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
     export_id = uuid.uuid4()
     job_id = await dispatch_report_export(
         export_id=export_id,
         report_key=reportKey,
         file_format=payload.format,
         filters=payload.filters or {},
+        company_id=company_id,
     )
     return _ok(
         {"exportId": str(export_id), "jobId": job_id, "status": "PENDING"},
@@ -153,8 +157,13 @@ async def download_report_export(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _require_tenant_id
+
     _require_admin_or_manager(claims)
-    content_bytes, filename = await PayrollReportService.get_export_download(db, export_id=exportId)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    content_bytes, filename = await PayrollReportService.get_export_download(
+        db, export_id=exportId, company_id=company_id
+    )
     return Response(
         content=content_bytes,
         media_type="text/csv" if filename.endswith(".csv") else "application/octet-stream",

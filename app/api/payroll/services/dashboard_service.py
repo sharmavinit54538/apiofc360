@@ -116,6 +116,8 @@ class DashboardService:
             company_id=company_id,
             legal_entity_id=period.legal_entity_id if period else None,
             limit=12,
+            precomputed_runs=recent_run_orms if len(recent_run_orms) < 10 else None,
+            precomputed_enrichments=enrichments,
         )
 
         recent_runs: list[DashboardRunSummary] = []

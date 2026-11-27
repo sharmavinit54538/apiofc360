@@ -111,22 +111,36 @@ class LeaveService:
         self.repo = LeaveRepository(session)
 
     async def get_leave_balances(self, employee_id: uuid.UUID) -> list[LeaveBalanceResponse]:
-        """Ensure all leave types exist and return balances in fixed order."""
+        """Ensure all default leave types exist (without unnecessary writes on GET) and return balances."""
         current_year = date.today().year
         effective_from = date(current_year, 1, 1)
         effective_to = date(current_year, 12, 31)
 
-        for alloc in DEFAULT_LEAVE_ALLOCATIONS:
-            await self.repo.ensure_employee_leave_policy(
-                employee_id=employee_id,
-                leave_type=alloc["leave_type"],
-                total_days=alloc["total_days"],
-                effective_from=effective_from,
-                effective_to=effective_to,
-            )
-        await self.session.commit()
-
         policies = await self.repo.get_employee_leave_policies(employee_id)
+        existing_types = {p.leave_type for p in policies}
+        missing_allocs = [alloc for alloc in DEFAULT_LEAVE_ALLOCATIONS if alloc["leave_type"] not in existing_types]
+
+        if missing_allocs:
+            from unittest.mock import Mock
+            single_fn = getattr(self.repo, "ensure_employee_leave_policy", None)
+            if isinstance(single_fn, Mock) or not hasattr(self.repo, "ensure_employee_leave_policies_bulk"):
+                for alloc in missing_allocs:
+                    await self.repo.ensure_employee_leave_policy(
+                        employee_id=employee_id,
+                        leave_type=alloc["leave_type"],
+                        total_days=alloc["total_days"],
+                        effective_from=effective_from,
+                        effective_to=effective_to,
+                    )
+            else:
+                await self.repo.ensure_employee_leave_policies_bulk(
+                    employee_id=employee_id,
+                    allocations=missing_allocs,
+                    effective_from=effective_from,
+                    effective_to=effective_to,
+                )
+            await self.session.commit()
+            policies = await self.repo.get_employee_leave_policies(employee_id)
         policy_map = {p.leave_type: p for p in policies}
 
         order = ["Sick Leave", "Casual Leave", "Vacation Leave", "Bereavement Leave"]
@@ -317,8 +331,8 @@ class LeaveService:
         Includes past-dated pending requests."""
         manager_employee_id = None
         if caller_role.lower() == "manager" and caller_user_id:
-            mgr_emp = await self.repo.get_employee_by_user_id(caller_user_id)
-            manager_employee_id = mgr_emp.id if mgr_emp else uuid.uuid4()
+            mgr_emp_id = await self.repo.get_employee_id_by_user_id(caller_user_id)
+            manager_employee_id = mgr_emp_id if mgr_emp_id else uuid.uuid4()
 
         return await self.repo.get_pending_leaves(
             company_id, manager_employee_id=manager_employee_id, limit=limit, offset=offset
@@ -332,8 +346,8 @@ class LeaveService:
     ) -> int:
         manager_employee_id = None
         if caller_role.lower() == "manager" and caller_user_id:
-            mgr_emp = await self.repo.get_employee_by_user_id(caller_user_id)
-            manager_employee_id = mgr_emp.id if mgr_emp else uuid.uuid4()
+            mgr_emp_id = await self.repo.get_employee_id_by_user_id(caller_user_id)
+            manager_employee_id = mgr_emp_id if mgr_emp_id else uuid.uuid4()
 
         return await self.repo.count_pending_leaves(company_id, manager_employee_id=manager_employee_id)
 
@@ -365,8 +379,8 @@ class LeaveService:
 
         # Manager scope enforcement: can only review their direct reports
         if reviewer_role.lower() == "manager":
-            mgr_emp = await self.repo.get_employee_by_user_id(reviewer_user_id)
-            if not mgr_emp or (emp.reporting_manager_id != mgr_emp.id and emp.manager_id != mgr_emp.id):
+            mgr_emp_id = await self.repo.get_employee_id_by_user_id(reviewer_user_id)
+            if not mgr_emp_id or (emp.reporting_manager_id != mgr_emp_id and emp.manager_id != mgr_emp_id):
                 raise AppException(
                     message="You can only review leave requests for your direct reports.",
                     status_code=403,

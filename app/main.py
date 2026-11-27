@@ -163,6 +163,22 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.error("Failed to pre-warm tenant class cache: %s", str(err))
 
+        # Non-destructive schema drift diagnostic (verifies Alembic head + ORM columns exist)
+        try:
+            from app.core.readiness import inspect_schema_drift
+            drift = await inspect_schema_drift(engine)
+            if drift["schema_drift"]:
+                logger.critical(
+                    "Database schema drift detected on startup: revision_match=%s, missing_tables=%d, missing_columns=%d. Run `alembic upgrade head`.",
+                    drift["revision_match"],
+                    drift["missing_tables"],
+                    drift["missing_columns"],
+                )
+            else:
+                logger.info("Schema readiness check passed (ORM aligned with PostgreSQL and Alembic head).")
+        except Exception as schema_err:
+            logger.warning("Startup schema check skipped: %s", schema_err)
+
         try:
             await ensure_superadmin_provisioned()
         except RuntimeError:
@@ -430,9 +446,13 @@ def create_app() -> FastAPI:
     from app.middleware.security_headers import SecurityHeadersMiddleware
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # Tenant Context Middleware - added before CORS so CORS remains the outermost layer
+    # Tenant Context Middleware - added before RequestID & CORS so RequestID runs early
     from app.middleware.tenant_context import TenantContextMiddleware
     app.add_middleware(TenantContextMiddleware)
+
+    # Request / Correlation ID Middleware (outermost before CORS so error handlers & logs carry request_id)
+    from app.middleware.request_id import RequestIDMiddleware
+    app.add_middleware(RequestIDMiddleware)
 
     # CORS Middleware - MUST be added LAST so it executes FIRST (outermost ASGI layer)
     # This guarantees that preflight OPTIONS requests are answered immediately at the network edge
@@ -444,7 +464,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+        expose_headers=["Authorization", "Content-Type", "Content-Disposition", "X-Request-ID", "X-Correlation-ID", "X-Process-Time", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
         max_age=86400,
     )
 

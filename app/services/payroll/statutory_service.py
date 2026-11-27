@@ -1696,8 +1696,11 @@ class StatutoryService:
         component: str,
         period_id: uuid.UUID,
         file_format: str = "csv",
+        company_id: Optional[uuid.UUID] = None,
     ) -> dict[str, Any]:
         p_stmt = select(PayrollPeriod).where(PayrollPeriod.id == period_id)
+        if company_id is not None:
+            p_stmt = p_stmt.where(PayrollPeriod.company_id == company_id)
         period = (await session.execute(p_stmt)).scalar_one_or_none()
         if not period:
             raise HTTPException(status_code=404, detail="Payroll period not found.")
@@ -1710,6 +1713,9 @@ class StatutoryService:
                 Payslip.period_year == period.period_year,
             )
         )
+        effective_cid = company_id or period.company_id
+        if effective_cid is not None:
+            ps_stmt = ps_stmt.where(Payslip.company_id == effective_cid, Employee.company_id == effective_cid)
         payslips = (await session.execute(ps_stmt)).scalars().all()
 
         output = io.StringIO()

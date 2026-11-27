@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.models.document import (
     DocumentCategory,
@@ -26,6 +26,21 @@ from app.models.employee import Employee
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+# Safe non-PII Employee columns needed for document access checks and enrichment.
+_DOC_EMPLOYEE_SAFE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.department,
+    Employee.branch,
+    Employee.reporting_manager_id,
+    Employee.manager_id,
+    Employee.is_deleted,
+)
 
 
 class DocumentRepository:
@@ -88,7 +103,7 @@ class DocumentRepository:
             .where(and_(EmployeeDocument.id == doc_uuid, self._emp_doc_active_filter()))
             .options(
                 selectinload(EmployeeDocument.category),
-                selectinload(EmployeeDocument.employee),
+                selectinload(EmployeeDocument.employee).load_only(*_DOC_EMPLOYEE_SAFE_COLUMNS),
                 selectinload(EmployeeDocument.uploader),
                 selectinload(EmployeeDocument.versions),
                 selectinload(EmployeeDocument.signatures).selectinload(DocumentSignature.signer),
@@ -179,7 +194,7 @@ class DocumentRepository:
         # Eager load relationships to prevent N+1 queries
         stmt = stmt.options(
             selectinload(EmployeeDocument.category),
-            selectinload(EmployeeDocument.employee),
+            selectinload(EmployeeDocument.employee).load_only(*_DOC_EMPLOYEE_SAFE_COLUMNS),
             selectinload(EmployeeDocument.uploader),
             selectinload(EmployeeDocument.signatures).selectinload(DocumentSignature.signer),
             selectinload(EmployeeDocument.verifications),
@@ -599,7 +614,7 @@ class DocumentRepository:
         total = count_res.scalar() or 0
 
         stmt = stmt.options(
-            selectinload(EmployeeDocument.employee),
+            selectinload(EmployeeDocument.employee).load_only(*_DOC_EMPLOYEE_SAFE_COLUMNS),
             selectinload(EmployeeDocument.category),
             selectinload(EmployeeDocument.uploader),
             selectinload(EmployeeDocument.signatures).selectinload(DocumentSignature.signer),
@@ -641,7 +656,7 @@ class DocumentRepository:
         total = count_res.scalar() or 0
 
         stmt = stmt.options(
-            selectinload(EmployeeDocument.employee),
+            selectinload(EmployeeDocument.employee).load_only(*_DOC_EMPLOYEE_SAFE_COLUMNS),
             selectinload(EmployeeDocument.category),
             selectinload(EmployeeDocument.uploader),
             selectinload(EmployeeDocument.signatures).selectinload(DocumentSignature.signer),

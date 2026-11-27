@@ -28,6 +28,8 @@ class LeaveRequest(Base):
         Index("ix_leave_requests_employee_id", "employee_id"),
         Index("ix_leave_requests_status", "status"),
         Index("ix_leave_requests_dates", "start_date", "end_date"),
+        Index("ix_leave_requests_emp_sort", "employee_id", "start_date", "created_at"),
+        Index("ix_leave_requests_status_sort", "status", "start_date", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -93,8 +95,13 @@ class LeaveRequest(Base):
     def reviewed_by_name(self) -> str | None:
         """Resolve full name of the reviewer."""
         if self.reviewed_by:
-            first = self.reviewed_by.first_name or ""
-            last = self.reviewed_by.last_name or ""
+            full_name = getattr(self.reviewed_by, "name", None)
+            if full_name:
+                cleaned = str(full_name).strip()
+                if cleaned:
+                    return cleaned
+            first = getattr(self.reviewed_by, "first_name", None) or ""
+            last = getattr(self.reviewed_by, "last_name", None) or ""
             name = f"{first} {last}".strip()
             return name if name else None
         return None

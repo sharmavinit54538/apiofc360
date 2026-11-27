@@ -48,9 +48,9 @@ class Settings(BaseSettings):
         description="Force IPv4 resolution for database host (legacy workaround for IPv6 direct connection issues - e.g., Supabase direct). Default False for Render/standard PostgreSQL.",
     )
     DB_ECHO: bool = False
-    # DB pool defaults kept small for ECS Fargate. Tune based on RDS max_connections.
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 5
+    # DB pool defaults sized for concurrent dashboard/detail requests without connection starvation.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 10
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 300
 

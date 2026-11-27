@@ -93,6 +93,7 @@ class PayrollCycleService:
         processing_date: Optional[date] = None,
         payment_date: Optional[date] = None,
         regularisation_deadline: Optional[datetime] = None,
+        remarks: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
     ) -> PayrollPeriod:
@@ -129,7 +130,7 @@ class PayrollCycleService:
             status="OPEN",
             is_locked=False,
             regularisation_deadline=regularisation_deadline,
-            remarks=None,
+            remarks=remarks.strip() if isinstance(remarks, str) and remarks.strip() else None,
         )
         session.add(cycle)
 
@@ -202,6 +203,7 @@ class PayrollCycleService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
         company_id: Optional[uuid.UUID] = None,
+        reason: Optional[str] = None,
     ) -> PayrollPeriod:
         cycle = await cls.get_cycle(session, cycle_id, company_id=company_id)
         
@@ -220,6 +222,9 @@ class PayrollCycleService:
         cycle.attendance_locked_at = cycle.attendance_locked_at or cycle.locked_at
         cycle.attendance_locked_by = cycle.attendance_locked_by or user_id
         cycle.unlock_reason = None
+        clean_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
+        if clean_reason:
+            cycle.remarks = clean_reason
 
         await PayrollAuditService.log_event(
             session=session,
@@ -231,7 +236,7 @@ class PayrollCycleService:
             actor_role=user_role,
             before_status=old_status,
             after_status="LOCKED",
-            reason="Payroll period locked",
+            reason=clean_reason or "Payroll period locked",
         )
         await AttendanceToPayrollSyncService.sync_on_attendance_lock(session, cycle, commit=False)
         await session.commit()

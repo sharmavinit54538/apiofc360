@@ -139,6 +139,7 @@ async def get_company_attendance(
 async def get_all_records(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
+    employee_id: str | None = Query(None),
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
     status: str | None = Query(None),
@@ -147,8 +148,45 @@ async def get_all_records(
 ):
     _require_admin_or_manager(claims)
     cid = _get_cid(claims)
+    resolved_emp_id: uuid.UUID | None = None
+    if employee_id:
+        try:
+            resolved_emp_id = uuid.UUID(str(employee_id))
+        except ValueError:
+            from sqlalchemy import select
+            from app.models.employee import Employee
+            resolved_emp_id = (
+                await session.execute(
+                    select(Employee.id).where(
+                        Employee.employee_id == employee_id,
+                        Employee.company_id == cid,
+                        Employee.is_deleted == False,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+            if resolved_emp_id is None:
+                return _ok({"total": 0, "page": page, "limit": limit, "items": [], "present_days": 0, "absent_days": 0, "late_days": 0})
     srv = AttendanceCoreService(session)
-    res = await srv.list_records(company_id=cid, from_date=from_date, to_date=to_date, status=status, page=page, limit=limit)
+    res = await srv.list_records(company_id=cid, employee_id=resolved_emp_id, from_date=from_date, to_date=to_date, status=status, page=page, limit=limit)
+    if resolved_emp_id is not None:
+        from app.attendance.models.attendance import Attendance
+        from sqlalchemy import and_, case, func, or_, select
+        summary_row = (
+            await session.execute(
+                select(
+                    func.coalesce(func.sum(case((func.lower(Attendance.status) != "absent", 1), else_=0)), 0).label("present_days"),
+                    func.coalesce(func.sum(case((func.lower(Attendance.status) == "absent", 1), else_=0)), 0).label("absent_days"),
+                    func.coalesce(func.sum(case((or_(Attendance.is_late.is_(True), func.lower(Attendance.status) == "late"), 1), else_=0)), 0).label("late_days"),
+                ).where(and_(Attendance.employee_id == resolved_emp_id, Attendance.company_id == cid))
+            )
+        ).one()
+        present_d = int(summary_row.present_days or 0)
+        late_d = int(summary_row.late_days or 0)
+        res["present_days"] = present_d
+        res["absent_days"] = int(summary_row.absent_days or 0)
+        res["late_days"] = late_d
+        if present_d > 0:
+            res["punctuality"] = f"{round((max(0, present_d - late_d) / present_d) * 100, 1)}% on-time"
     return _ok(res)
 
 
@@ -171,36 +209,106 @@ async def get_attendance_analytics_trends(
     session: AsyncSession = Depends(get_db_session),
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
+    start_date: date | None = Query(None),
+    startDate: date | None = Query(None),
+    end_date: date | None = Query(None),
+    endDate: date | None = Query(None),
+    view_mode: str | None = Query(None),
+    viewMode: str | None = Query(None),
+    department_id: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    shift_id: str | None = Query(None),
+    shiftId: str | None = Query(None),
+    location_id: str | None = Query(None),
+    locationId: str | None = Query(None),
 ):
+    _require_admin_or_manager(claims)
     cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    res = await srv.get_analytics_trends(company_id=cid, from_date=from_date, to_date=to_date)
-    return _ok(res)
+    from app.attendance.services.analytics_service import AttendanceAnalyticsService
+    data = await AttendanceAnalyticsService(session).get_attendance_trends(
+        company_id=cid,
+        start_date=start_date or startDate or from_date,
+        end_date=end_date or endDate or to_date,
+        view_mode=view_mode or viewMode or "week",
+        department_id=department_id or departmentId,
+        shift_id=shift_id or shiftId,
+        location_id=location_id or locationId,
+    )
+    return _ok(data)
 
 
 @router.get("/analytics/rate")
+@router.get("/analytics/rate-kpi")
 async def get_attendance_analytics_rate(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
+    start_date: date | None = Query(None),
+    startDate: date | None = Query(None),
+    end_date: date | None = Query(None),
+    endDate: date | None = Query(None),
+    view_mode: str | None = Query(None),
+    viewMode: str | None = Query(None),
+    department_id: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    shift_id: str | None = Query(None),
+    shiftId: str | None = Query(None),
+    location_id: str | None = Query(None),
+    locationId: str | None = Query(None),
 ):
+    _require_admin_or_manager(claims)
     cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    res = await srv.get_analytics_rate(company_id=cid, from_date=from_date, to_date=to_date)
-    return _ok(res)
+    from app.attendance.services.analytics_service import AttendanceAnalyticsService
+    data = await AttendanceAnalyticsService(session).get_attendance_rate(
+        company_id=cid,
+        start_date=start_date or startDate or from_date,
+        end_date=end_date or endDate or to_date,
+        view_mode=view_mode or viewMode or "week",
+        department_id=department_id or departmentId,
+        shift_id=shift_id or shiftId,
+        location_id=location_id or locationId,
+    )
+    return _ok(data)
 
 
 @router.get("/analytics/weekly")
 async def get_attendance_analytics_weekly(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    weeks: int = Query(4, ge=1, le=12),
+    weeks: int | None = Query(None, ge=1, le=12),
+    start_date: date | None = Query(None),
+    startDate: date | None = Query(None),
+    end_date: date | None = Query(None),
+    endDate: date | None = Query(None),
+    view_mode: str | None = Query(None),
+    viewMode: str | None = Query(None),
+    department_id: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    shift_id: str | None = Query(None),
+    shiftId: str | None = Query(None),
+    location_id: str | None = Query(None),
+    locationId: str | None = Query(None),
 ):
+    _require_admin_or_manager(claims)
     cid = _get_cid(claims)
-    srv = AttendanceCoreService(session)
-    res = await srv.get_analytics_weekly(company_id=cid, weeks=weeks)
-    return _ok(res)
+    from app.attendance.services.analytics_service import AttendanceAnalyticsService
+    resolved_start = start_date or startDate
+    resolved_end = end_date or endDate
+    if weeks is not None and not resolved_start and not resolved_end:
+        from datetime import timedelta
+        resolved_end = date.today()
+        resolved_start = resolved_end - timedelta(weeks=weeks)
+    data = await AttendanceAnalyticsService(session).get_attendance_weekly(
+        company_id=cid,
+        start_date=resolved_start,
+        end_date=resolved_end,
+        view_mode=view_mode or viewMode or "week",
+        department_id=department_id or departmentId,
+        shift_id=shift_id or shiftId,
+        location_id=location_id or locationId,
+    )
+    return _ok(data)
 
 
 @router.get("/calendar")

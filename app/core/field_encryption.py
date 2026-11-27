@@ -126,11 +126,14 @@ def _decode_key_material(material: str) -> bytes:
 
 def _key_ring() -> list[tuple[str, bytes]]:
     ring: list[tuple[str, bytes]] = []
+    seen_ids: set[str] = set()
     for material in _configured_keys():
         key = _decode_key_material(material)
         # The key id is only a short fingerprint, never key material itself.
         key_id = hashlib.sha256(b"ofc360:key-id:v1\x00" + key).hexdigest()[:12]
-        ring.append((key_id, key))
+        if key_id not in seen_ids:
+            seen_ids.add(key_id)
+            ring.append((key_id, key))
     if not ring:
         raise FieldEncryptionError(
             "FIELD_ENCRYPTION_KEY is required to read or write encrypted PII fields."

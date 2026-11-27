@@ -14,7 +14,7 @@ from app.api.payroll.permissions import (
     _require_admin_or_manager, _require_payroll_permission, _require_tenant_id, _role, _uid,
 )
 from app.db.database import get_db_session
-from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest, PayrollCycleCreateRequest
+from app.schemas.payroll_v2.cycles import PayrollCycleActionRequest, PayrollCycleCreateRequest, PayrollCycleLockRequest
 from app.schemas.payroll_v2.periods import PayrollPeriodResponse
 from app.services.payroll.cycle_service import PayrollCycleService
 
@@ -104,6 +104,7 @@ async def create_payroll_cycle(
         processing_date=payload.processing_date,
         payment_date=payload.payment_date,
         regularisation_deadline=payload.regularisation_deadline,
+        remarks=payload.remarks,
         user_id=user_id,
         user_role=user_role,
     )
@@ -158,6 +159,7 @@ async def unlock_attendance_v2(
 @router.post("/cycles/{cycleId}/lock", summary="Lock a payroll period")
 async def lock_payroll_cycle(
     cycleId: uuid.UUID,
+    payload: Optional[PayrollCycleLockRequest] = None,
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -171,6 +173,7 @@ async def lock_payroll_cycle(
         user_id=user_id,
         user_role=user_role,
         company_id=c_uuid,
+        reason=payload.reason if payload else None,
     )
     return _ok(_period_dict(cycle), f"Payroll period '{cycle.name}' locked successfully")
 

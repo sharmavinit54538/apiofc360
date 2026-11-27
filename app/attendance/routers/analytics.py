@@ -50,25 +50,51 @@ async def get_attendance_analytics(
     )
 
 
+def _resolve_filter_params(
+    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    startDate: date | None = Query(None, description="Start date alias (YYYY-MM-DD)"),
+    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
+    endDate: date | None = Query(None, description="End date alias (YYYY-MM-DD)"),
+    view_mode: str | None = Query(None, pattern="^(week|month)$", description="View mode: week or month"),
+    viewMode: str | None = Query(None, pattern="^(week|month)$", description="View mode alias: week or month"),
+    department_id: str | None = Query(None),
+    departmentId: str | None = Query(None),
+    shift_id: str | None = Query(None),
+    shiftId: str | None = Query(None),
+    location_id: str | None = Query(None),
+    locationId: str | None = Query(None),
+) -> dict:
+    return {
+        "start_date": start_date or startDate,
+        "end_date": end_date or endDate,
+        "view_mode": view_mode or viewMode or "week",
+        "department_id": department_id or departmentId,
+        "shift_id": shift_id or shiftId,
+        "location_id": location_id or locationId,
+    }
+
+
 @router.get(
     "/analytics/rate",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[dict],
     summary="Get attendance rate analytics (Admin and Managers)",
 )
+@router.get(
+    "/analytics/rate-kpi",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get attendance rate KPI analytics with period comparison (Admin and Managers)",
+)
 async def get_attendance_rate(
     claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    view_mode: str = Query("week", pattern="^(week|month)$", description="View mode: week or month"),
+    filters: Annotated[dict, Depends(_resolve_filter_params)] = None,
 ) -> APIResponse[dict]:
     """Get attendance rate analytics for a date range."""
     company_id = _get_company_id(claims)
     service = AttendanceAnalyticsService(db)
-    data = await service.get_attendance_rate(
-        company_id=company_id, start_date=start_date, end_date=end_date, view_mode=view_mode
-    )
+    data = await service.get_attendance_rate(company_id=company_id, **(filters or {}))
     return APIResponse[dict](
         success=True,
         message="Attendance rate analytics retrieved.",
@@ -86,16 +112,12 @@ async def get_attendance_rate(
 async def get_attendance_distribution(
     claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    view_mode: str = Query("week", pattern="^(week|month)$", description="View mode: week or month"),
+    filters: Annotated[dict, Depends(_resolve_filter_params)] = None,
 ) -> APIResponse[dict]:
-    """Get attendance distribution (on time, late, absent) for a date range."""
+    """Get attendance distribution (on time, late, absent, on leave) for a date range."""
     company_id = _get_company_id(claims)
     service = AttendanceAnalyticsService(db)
-    data = await service.get_attendance_distribution(
-        company_id=company_id, start_date=start_date, end_date=end_date, view_mode=view_mode
-    )
+    data = await service.get_attendance_distribution(company_id=company_id, **(filters or {}))
     return APIResponse[dict](
         success=True,
         message="Attendance distribution analytics retrieved.",
@@ -113,16 +135,12 @@ async def get_attendance_distribution(
 async def get_attendance_weekly(
     claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    view_mode: str = Query("week", pattern="^(week|month)$", description="View mode: week or month"),
+    filters: Annotated[dict, Depends(_resolve_filter_params)] = None,
 ) -> APIResponse[dict]:
     """Get weekly aggregated attendance data by weekday (Mon-Sun)."""
     company_id = _get_company_id(claims)
     service = AttendanceAnalyticsService(db)
-    data = await service.get_attendance_weekly(
-        company_id=company_id, start_date=start_date, end_date=end_date, view_mode=view_mode
-    )
+    data = await service.get_attendance_weekly(company_id=company_id, **(filters or {}))
     return APIResponse[dict](
         success=True,
         message="Weekly attendance analytics retrieved.",
@@ -140,16 +158,12 @@ async def get_attendance_weekly(
 async def get_attendance_trends(
     claims: Annotated[dict, Depends(require_admin_or_manager)] = None,
     db: Annotated[AsyncSession, Depends(get_db_session)] = None,
-    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    view_mode: str = Query("week", pattern="^(week|month)$", description="View mode: week or month"),
+    filters: Annotated[dict, Depends(_resolve_filter_params)] = None,
 ) -> APIResponse[dict]:
     """Get daily attendance trends for a date range."""
     company_id = _get_company_id(claims)
     service = AttendanceAnalyticsService(db)
-    data = await service.get_attendance_trends(
-        company_id=company_id, start_date=start_date, end_date=end_date, view_mode=view_mode
-    )
+    data = await service.get_attendance_trends(company_id=company_id, **(filters or {}))
     return APIResponse[dict](
         success=True,
         message="Attendance trends analytics retrieved.",

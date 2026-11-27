@@ -8,9 +8,41 @@ from typing import Optional
 
 from sqlalchemy import select, and_, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.attendance.models.attendance import Attendance, AttendanceState
 from app.models.employee import Employee
+
+# Restrict Employee projections in attendance paths to non-PII operational columns
+# so daily check-in/today/history/team endpoints never touch encrypted national IDs.
+_ATTENDANCE_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.profile_photo_url,
+    Employee.department,
+    Employee.department_id,
+    Employee.designation,
+    Employee.branch,
+    Employee.branch_id,
+    Employee.work_location,
+    Employee.work_mode,
+    Employee.shift,
+    Employee.shift_id,
+    Employee.status,
+    Employee.employment_status,
+    Employee.is_active,
+    Employee.is_deleted,
+    Employee.manager_id,
+    Employee.reporting_manager_id,
+    Employee.is_face_enrolled,
+    Employee.face_embedding,
+    Employee.face_enrolled_at,
+    Employee.verification_status,
+)
 
 
 class AttendanceRepository:
@@ -113,20 +145,26 @@ class AttendanceRepository:
 
     async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Optional[Employee]:
         """Finds employee profile linked to user account ID."""
-        stmt = select(Employee).where(
-            and_(Employee.user_id == user_id, Employee.is_deleted == False)
+        stmt = (
+            select(Employee)
+            .where(and_(Employee.user_id == user_id, Employee.is_deleted == False))
+            .options(load_only(*_ATTENDANCE_EMPLOYEE_COLUMNS))
         )
         res = await self.db.execute(stmt)
         return res.scalars().first()
 
     async def get_team_reporting_employees(self, manager_id: uuid.UUID, company_id: uuid.UUID) -> list[Employee]:
         """Gets active employees reporting directly to manager."""
-        stmt = select(Employee).where(
-            and_(
-                Employee.company_id == company_id,
-                Employee.is_deleted == False,
-                or_(Employee.manager_id == manager_id, Employee.reporting_manager_id == manager_id)
+        stmt = (
+            select(Employee)
+            .where(
+                and_(
+                    Employee.company_id == company_id,
+                    Employee.is_deleted == False,
+                    or_(Employee.manager_id == manager_id, Employee.reporting_manager_id == manager_id),
+                )
             )
+            .options(load_only(*_ATTENDANCE_EMPLOYEE_COLUMNS))
         )
         res = await self.db.execute(stmt)
         return list(res.scalars().all())

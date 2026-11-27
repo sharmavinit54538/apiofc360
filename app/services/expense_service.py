@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager
+from sqlalchemy.orm import contains_eager, load_only
 
 from app.models.employee import Employee
 from app.models.payroll import PayrollAuditLog, ReimbursementClaim
@@ -41,7 +41,16 @@ class ExpenseService:
                 Employee.company_id == self.actor.company_id,
                 ReimbursementClaim.deleted_at.is_(None),
             )
-            .options(contains_eager(ReimbursementClaim.employee))
+            .options(
+                contains_eager(ReimbursementClaim.employee).load_only(
+                    Employee.id,
+                    Employee.employee_id,
+                    Employee.first_name,
+                    Employee.last_name,
+                    Employee.department,
+                    Employee.designation,
+                )
+            )
         )
 
     def _visible(self, statement):

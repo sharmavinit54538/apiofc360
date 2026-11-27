@@ -19,13 +19,16 @@ class PayrollSettingsService:
         stmt = select(StatutoryComplianceConfig).where(StatutoryComplianceConfig.is_active == True)
         if company_id:
             stmt = stmt.where(StatutoryComplianceConfig.company_id == company_id)
+        else:
+            stmt = stmt.where(StatutoryComplianceConfig.company_id.is_(None))
         
         result = await db.execute(stmt)
         config = result.scalars().first()
 
         if not config:
-            # Seed initial active configuration row in DB
+            # Seed initial active configuration row in DB scoped to this company
             config = StatutoryComplianceConfig(
+                company_id=company_id,
                 company_name="Aurix AI Enterprise",
                 legal_business_name="Aurix AI Technologies Pvt Ltd",
                 gst_number="36AAACA1234A1Z5",
@@ -94,10 +97,11 @@ class PayrollSettingsService:
         actor_role: Optional[str] = None,
         actor_email: Optional[str] = None,
         ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> StatutoryComplianceConfig:
         """Update active settings, write audit log, and create a version history snapshot."""
-        config = await PayrollSettingsService.get_active_settings(db)
+        config = await PayrollSettingsService.get_active_settings(db, company_id=company_id)
         
         # Build diff tracking
         diffs = {}
@@ -178,9 +182,12 @@ class PayrollSettingsService:
         return config
 
     @staticmethod
-    async def get_history(db: AsyncSession) -> List[Dict[str, Any]]:
+    async def get_history(db: AsyncSession, company_id: Optional[uuid.UUID] = None) -> List[Dict[str, Any]]:
         """Retrieve historical configuration version snapshots."""
-        stmt = select(PayrollSettingsHistory).order_by(PayrollSettingsHistory.version_number.desc())
+        stmt = select(PayrollSettingsHistory)
+        if company_id is not None:
+            stmt = stmt.where(PayrollSettingsHistory.company_id == company_id)
+        stmt = stmt.order_by(PayrollSettingsHistory.version_number.desc())
         res = await db.execute(stmt)
         rows = res.scalars().all()
         return [
@@ -198,11 +205,14 @@ class PayrollSettingsService:
         ]
 
     @staticmethod
-    async def get_audit_logs(db: AsyncSession) -> List[Dict[str, Any]]:
+    async def get_audit_logs(db: AsyncSession, company_id: Optional[uuid.UUID] = None) -> List[Dict[str, Any]]:
         """Retrieve audit log entries for settings changes."""
         stmt = select(PayrollAuditLog).where(
             PayrollAuditLog.entity_type == "StatutoryComplianceConfig"
-        ).order_by(PayrollAuditLog.created_at.desc()).limit(100)
+        )
+        if company_id is not None:
+            stmt = stmt.where(PayrollAuditLog.company_id == company_id)
+        stmt = stmt.order_by(PayrollAuditLog.created_at.desc()).limit(100)
         
         res = await db.execute(stmt)
         logs = res.scalars().all()
@@ -229,9 +239,13 @@ class PayrollSettingsService:
         return items
 
     @staticmethod
-    async def reset_to_defaults(db: AsyncSession, reason: str = "Reset to statutory compliance presets") -> StatutoryComplianceConfig:
+    async def reset_to_defaults(
+        db: AsyncSession,
+        reason: str = "Reset to statutory compliance presets",
+        company_id: Optional[uuid.UUID] = None,
+    ) -> StatutoryComplianceConfig:
         """Reset settings to default compliance presets."""
-        config = await PayrollSettingsService.get_active_settings(db)
+        config = await PayrollSettingsService.get_active_settings(db, company_id=company_id)
         config.currency = "INR"
         config.country = "India"
         config.timezone = "Asia/Kolkata"

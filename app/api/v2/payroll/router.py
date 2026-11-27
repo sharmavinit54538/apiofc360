@@ -8,6 +8,7 @@ from app.api.v2.payroll.accounting import router as accounting_router
 from app.api.v2.payroll.company_bank import router as company_bank_router
 from app.api.v2.payroll.compensation import router as compensation_router
 from app.api.v2.payroll.cycles import router as cycles_router
+from app.api.v2.payroll.dashboard import router as dashboard_router
 from app.api.v2.payroll.employee_payroll import router as employee_payroll_router
 from app.api.v2.payroll.full_and_final import router as full_and_final_router
 from app.api.v2.payroll.pay_components import router as pay_components_router
@@ -26,6 +27,7 @@ router.include_router(accounting_router)
 router.include_router(company_bank_router)
 router.include_router(compensation_router)
 router.include_router(cycles_router)
+router.include_router(dashboard_router)
 router.include_router(employee_payroll_router)
 router.include_router(full_and_final_router)
 router.include_router(payslips_router)

@@ -341,69 +341,79 @@ class DepartmentService:
             if dept_ids:
                 from sqlalchemy import select, func
                 from app.models.employee import Employee
-                emp_stmt = select(Employee.department_id, func.count(Employee.id)).where(
+                emp_filters = [
                     Employee.department_id.in_(dept_ids),
-                    Employee.is_deleted == False,
-                    Employee.status == "ACTIVE"
-                ).group_by(Employee.department_id)
+                    Employee.is_deleted == False,  # noqa: E712
+                    Employee.status == "ACTIVE",
+                ]
+                if company_id is not None:
+                    emp_filters.append(Employee.company_id == company_id)
+                emp_stmt = select(Employee.department_id, func.count(Employee.id)).where(*emp_filters).group_by(Employee.department_id)
                 emp_result = await self.session.execute(emp_stmt)
                 emp_counts = {dept_id: count for dept_id, count in emp_result.all()}
 
-            # Batch fetch parent department names and manager users
-            parent_dept_ids = [d.parent_department_id for d in departments if d.parent_department_id]
-            parent_dept_names = {}
-            parent_manager_ids = set()
-            if parent_dept_ids:
+            # Use eager-loaded relations first; fall back to batch fetch only if mock/caller skipped eager loading.
+            parent_dept_names: dict[uuid.UUID, str] = {}
+            parent_manager_map: dict[uuid.UUID, uuid.UUID | None] = {}
+            manager_users: dict[uuid.UUID, str] = {}
+
+            missing_parent_ids: list[uuid.UUID] = []
+            for d in departments:
+                mgr_user = getattr(d, "manager_user", None)
+                if mgr_user is not None and getattr(mgr_user, "id", None) is not None:
+                    manager_users[mgr_user.id] = mgr_user.name
+                p_dept = getattr(d, "parent_department", None)
+                if p_dept is not None:
+                    parent_dept_names[p_dept.id] = p_dept.department_name
+                    parent_manager_map[p_dept.id] = p_dept.manager_id
+                    p_mgr = getattr(p_dept, "manager_user", None)
+                    if p_mgr is not None and getattr(p_mgr, "id", None) is not None:
+                        manager_users[p_mgr.id] = p_mgr.name
+                elif d.parent_department_id:
+                    missing_parent_ids.append(d.parent_department_id)
+
+            if missing_parent_ids:
                 from app.models.department import Department
                 parent_stmt = select(Department.id, Department.department_name, Department.manager_id).where(
-                    Department.id.in_(parent_dept_ids)
+                    Department.id.in_(missing_parent_ids)
                 )
                 parent_result = await self.session.execute(parent_stmt)
                 for pid, pname, pmgr_id in parent_result.all():
                     parent_dept_names[pid] = pname
-                    if pmgr_id:
-                        parent_manager_ids.add(pmgr_id)
-            
-            # Batch fetch manager users
-            manager_users = {}
-            all_manager_ids = set()
+                    parent_manager_map[pid] = pmgr_id
+
+            missing_manager_ids: set[uuid.UUID] = set()
             for d in departments:
-                if d.manager_id:
-                    all_manager_ids.add(d.manager_id)
-            all_manager_ids.update(parent_manager_ids)
-            
-            if all_manager_ids:
+                if d.manager_id and d.manager_id not in manager_users:
+                    missing_manager_ids.add(d.manager_id)
+                if d.parent_department_id:
+                    pmgr_id = parent_manager_map.get(d.parent_department_id)
+                    if pmgr_id and pmgr_id not in manager_users:
+                        missing_manager_ids.add(pmgr_id)
+
+            if missing_manager_ids:
                 from app.models.user import User
-                user_stmt = select(User).where(User.id.in_(all_manager_ids))
+                user_stmt = select(User.id, User.name).where(User.id.in_(missing_manager_ids))
                 user_result = await self.session.execute(user_stmt)
-                manager_users = {u.id: u.name for u in user_result.scalars().all()}
+                for uid, uname in user_result.all():
+                    manager_users[uid] = uname
 
             items = []
             for d in departments:
                 emp_count = emp_counts.get(d.id, 0)
                 manager_name = manager_users.get(d.manager_id) if d.manager_id else None
-                
+
                 parent_department_name = None
                 reporting_manager_id = None
                 reporting_manager_name = None
-                
+
                 if d.parent_department_id:
                     parent_department_name = parent_dept_names.get(d.parent_department_id)
-                    reporting_manager_id = None
-                    # Find the parent department's manager_id from the parent query result
-                    if d.parent_department_id:
-                        # We need to get the manager_id from the parent department
-                        # Since we only fetched names, we need to check if we have the manager_id
-                        # Let's fetch it from the parent department if needed
-                        pass
-                    
-                    # Get the parent department's manager_id from the original department object
-                    # We can get it from the parent_dept_names dict but we need manager_id too
-                    # Let's just query it if we don't have it
-                    if d.parent_department:
+                    reporting_manager_id = parent_manager_map.get(d.parent_department_id)
+                    if reporting_manager_id is None and getattr(d, "parent_department", None):
                         reporting_manager_id = d.parent_department.manager_id
-                        if reporting_manager_id:
-                            reporting_manager_name = manager_users.get(reporting_manager_id)
+                    if reporting_manager_id:
+                        reporting_manager_name = manager_users.get(reporting_manager_id)
 
                 items.append(
                     DepartmentListItem(

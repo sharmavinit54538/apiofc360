@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, noload, selectinload
 
 from app.models.department import Department
 from app.models.employee import Employee
@@ -101,8 +101,14 @@ class DepartmentRepository:
             filters.append(Department.parent_department_id == parent_id)
 
         stmt = select(Department).where(and_(*filters)).options(
-            selectinload(Department.parent_department),
-            selectinload(Department.manager_user),
+            selectinload(Department.parent_department)
+            .load_only(Department.id, Department.department_name, Department.manager_id)
+            .selectinload(Department.manager_user)
+            .load_only(User.id, User.name)
+            .noload(User.company),
+            selectinload(Department.manager_user)
+            .load_only(User.id, User.name)
+            .noload(User.company),
         )
 
         if status and status.lower() != "all":

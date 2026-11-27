@@ -285,16 +285,27 @@ async def _async_generate_bank_file(batch_id_str: str, file_format: str, job_id:
 
 
 async def _async_export_payroll_report(
-    export_id_str: str, report_key: str, file_format: str, filters: dict, job_id: str
+    export_id_str: str,
+    report_key: str,
+    file_format: str,
+    filters: dict,
+    job_id: str,
+    company_id_str: str | None = None,
 ):
     """Export report to CSV/XLSX."""
     await PayrollJobTracker.update_job(job_id, "PROCESSING", progress=25)
     try:
         from app.db.database import AsyncSessionLocal
         from app.services.payroll.report_service import PayrollReportService
+        c_uuid = uuid.UUID(company_id_str) if company_id_str else None
         async with AsyncSessionLocal() as session:
             export_rec = await PayrollReportService.generate_export(
-                session, uuid.UUID(export_id_str), report_key, file_format, filters
+                session,
+                uuid.UUID(export_id_str),
+                report_key,
+                file_format,
+                filters,
+                company_id=c_uuid,
             )
             await PayrollJobTracker.update_job(
                 job_id,
@@ -423,20 +434,28 @@ async def dispatch_bank_file_generation(
 
 
 async def dispatch_report_export(
-    export_id: uuid.UUID, report_key: str, file_format: str, filters: dict
+    export_id: uuid.UUID,
+    report_key: str,
+    file_format: str,
+    filters: dict,
+    company_id: uuid.UUID | None = None,
 ) -> str:
     job_id = await PayrollJobTracker.create_job("report_export", {"export_id": str(export_id)})
+    cid_str = str(company_id) if company_id else None
+    safe_filters = dict(filters or {})
+    if cid_str and "company_id" not in safe_filters:
+        safe_filters["company_id"] = cid_str
     if settings.USE_CELERY:
         try:
             from app.workers.celery_app import celery_app
             celery_app.send_task(
                 "app.workers.payroll_tasks.export_payroll_report_task",
-                args=[str(export_id), report_key, file_format, filters, job_id],
+                args=[str(export_id), report_key, file_format, safe_filters, job_id],
             )
             return job_id
         except Exception as e:
             logger.warning("Celery dispatch failed, running asyncio background task: %s", e)
-    asyncio.create_task(_async_export_payroll_report(str(export_id), report_key, file_format, filters, job_id))
+    asyncio.create_task(_async_export_payroll_report(str(export_id), report_key, file_format, safe_filters, job_id, cid_str))
     return job_id
 
 

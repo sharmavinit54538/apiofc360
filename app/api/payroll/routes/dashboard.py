@@ -7,7 +7,6 @@ from fastapi import APIRouter, Query
 
 from app.api.payroll.dependencies import DB, Claims
 from app.api.payroll.permissions import _require_admin_or_manager, _require_tenant_id
-from app.api.payroll.responses import success_response
 from app.api.payroll.services.dashboard_service import DashboardService
 from app.schemas.auth import APIResponse
 from app.schemas.payroll_dashboard import PayrollDashboardResponse
@@ -35,4 +34,9 @@ async def get_payroll_dashboard(
         month=month,
         year=year,
     )
-    return success_response(dashboard, "Dashboard metrics retrieved.")
+    return APIResponse[PayrollDashboardResponse](
+        success=True,
+        message="Dashboard metrics retrieved.",
+        data=dashboard,
+        errors=None,
+    )

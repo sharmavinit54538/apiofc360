@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import DB, Claims
-from app.api.payroll.permissions import _require_admin_or_manager
+from app.api.payroll.permissions import _require_admin_or_manager, _require_tenant_id, _uid
 from app.api.payroll.responses import success_response
 from app.schemas.auth import APIResponse
 from app.schemas.payroll_settings import (
@@ -92,7 +92,8 @@ async def get_payroll_settings(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    config = await PayrollSettingsService.get_active_settings(db)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    config = await PayrollSettingsService.get_active_settings(db, company_id=company_id)
     data = _model_to_dict(config)
     return success_response(data, "Active payroll settings retrieved successfully.")
 
@@ -107,29 +108,55 @@ async def update_payroll_settings(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
 
     actor_email = claims.get("email") if claims else "admin@aurix.ai"
     actor_role = claims.get("role") if claims else "ADMIN"
     ip_address = request.client.host if request.client else "127.0.0.1"
     user_agent = request.headers.get("user-agent", "Browser Dashboard")
 
-    # Validate payload if fields match update schema
+    # Normalize camelCase UI form keys if sent directly alongside snake_case schema keys
     validated_data = payload.copy()
+    camel_to_snake = {
+        "payFrequency": "pay_cycle_type",
+        "pfEnabled": "pf_enabled",
+        "pfEmployeePercent": "employee_pf_rate",
+        "pfEmployerPercent": "employer_pf_rate",
+        "pfWageCeiling": "pf_wage_ceiling",
+        "esiEnabled": "esi_enabled",
+        "esiEmployeePercent": "employee_esi_rate",
+        "esiEmployerPercent": "employer_esi_rate",
+        "esiWageCeiling": "esi_wage_ceiling",
+        "ptState": "pt_state",
+        "tdsDefaultRegime": "default_tax_regime",
+    }
+    for c_key, s_key in camel_to_snake.items():
+        if c_key in payload and s_key not in payload:
+            val = payload[c_key]
+            if c_key in ("pfEmployeePercent", "pfEmployerPercent", "esiEmployeePercent", "esiEmployerPercent") and isinstance(val, (int, float)):
+                # UI stores percentages like 12 or 0.75 whereas DB stores ratios like 0.12 or 0.0075
+                val = round(float(val) / 100.0, 6)
+            elif c_key in ("payFrequency", "tdsDefaultRegime", "ptState") and isinstance(val, str):
+                val = val.strip().upper()
+            validated_data[s_key] = val
+
+    # Validate payload if fields match update schema
     try:
-        update_schema = PayrollSettingsUpdateSchema(**payload)
+        update_schema = PayrollSettingsUpdateSchema(**validated_data)
         dumped = update_schema.model_dump(exclude_unset=True)
         validated_data.update(dumped)
-    except Exception as e:
-        # Pass validated dict through or raise 422 if invalid regex
+    except Exception:
         pass
 
     updated_config = await PayrollSettingsService.update_settings(
         db=db,
         payload=validated_data,
+        actor_id=_uid(claims),
         actor_role=actor_role,
         actor_email=actor_email,
         ip_address=ip_address,
-        user_agent=user_agent
+        user_agent=user_agent,
+        company_id=company_id,
     )
 
     data = _model_to_dict(updated_config)
@@ -142,7 +169,8 @@ async def get_settings_history(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    history = await PayrollSettingsService.get_history(db)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    history = await PayrollSettingsService.get_history(db, company_id=company_id)
     return success_response(history, "Payroll settings version history retrieved.")
 
 
@@ -152,7 +180,8 @@ async def get_settings_audit(
     db: DB = None,
 ) -> APIResponse[List[dict]]:
     _require_admin_or_manager(claims)
-    logs = await PayrollSettingsService.get_audit_logs(db)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    logs = await PayrollSettingsService.get_audit_logs(db, company_id=company_id)
     return success_response(logs, "Payroll settings audit log retrieved.")
 
 
@@ -163,8 +192,9 @@ async def reset_payroll_settings(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
     reason = payload.reason if payload else "Reset settings to default compliance presets"
-    config = await PayrollSettingsService.reset_to_defaults(db, reason=reason)
+    config = await PayrollSettingsService.reset_to_defaults(db, reason=reason, company_id=company_id)
     data = _model_to_dict(config)
     return success_response(data, "Payroll settings reset to compliance presets.")
 
@@ -175,7 +205,8 @@ async def test_payroll_settings(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    config = await PayrollSettingsService.get_active_settings(db)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    config = await PayrollSettingsService.get_active_settings(db, company_id=company_id)
     return success_response(
         {
             "status": "HEALTHY",
@@ -194,6 +225,7 @@ async def export_payroll_settings(
     db: DB = None,
 ) -> APIResponse[dict]:
     _require_admin_or_manager(claims)
-    config = await PayrollSettingsService.get_active_settings(db)
+    company_id = _require_tenant_id(claims, allow_super_admin_global=True)
+    config = await PayrollSettingsService.get_active_settings(db, company_id=company_id)
     data = _model_to_dict(config)
     return success_response(data, "Payroll configuration export snapshot generated.")

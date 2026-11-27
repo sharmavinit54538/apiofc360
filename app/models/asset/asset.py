@@ -56,11 +56,13 @@ class Asset(Base):
         Index("ix_assets_status", "status"),
         Index("ix_assets_company_id", "company_id"),
         Index("ix_assets_is_deleted", "is_deleted"),
+        Index("ix_assets_employee_id", "employee_id"),
+        Index("ix_assets_company_active_created", "company_id", "is_deleted", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
+        PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False
     )
     tag: Mapped[str] = mapped_column(String(100), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

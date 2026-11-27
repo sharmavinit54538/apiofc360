@@ -214,6 +214,24 @@ class SensitiveDataFilter(PIIRedactionFilter):
     """Backward-compatible name for the combined credential/PII filter."""
 
 
+class CorrelationIDFilter(logging.Filter):
+    """Attach active request_id and correlation_id ContextVars to log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            from app.middleware.request_id import correlation_id_ctx, request_id_ctx
+
+            req_id = request_id_ctx.get()
+            corr_id = correlation_id_ctx.get()
+            if req_id and not getattr(record, "request_id", None):
+                record.request_id = req_id
+            if corr_id and not getattr(record, "correlation_id", None):
+                record.correlation_id = corr_id
+        except Exception:
+            pass
+        return True
+
+
 class JSONFormatter(logging.Formatter):
     """JSON log formatter with automated sensitive-data masking."""
 
@@ -252,9 +270,12 @@ def setup_structured_logging() -> None:
         for existing_handler in root_logger.handlers:
             if not any(isinstance(item, PIIRedactionFilter) for item in existing_handler.filters):
                 existing_handler.addFilter(PIIRedactionFilter())
+            if not any(isinstance(item, CorrelationIDFilter) for item in existing_handler.filters):
+                existing_handler.addFilter(CorrelationIDFilter())
         return
 
     handler = logging.StreamHandler()
+    handler.addFilter(CorrelationIDFilter())
     handler.addFilter(SensitiveDataFilter())
 
     if settings.ENVIRONMENT.lower() in ("production", "prod"):

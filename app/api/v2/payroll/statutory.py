@@ -788,3 +788,27 @@ async def generate_statutory_register_api(
         return _ok(result, "Statutory register generated from live records")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/statutory/reports/{component}/download", summary="Download generated statutory return file (PF/ESI/PT/TDS)")
+async def download_statutory_report_v2(
+    component: str,
+    period_id: uuid.UUID = Query(..., alias="periodId"),
+    file_format: str = Query("csv", alias="format"),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    _require_admin_or_manager(claims)
+    res = await StatutoryService.generate_report_file(
+        db,
+        component=component,
+        period_id=period_id,
+        file_format=file_format,
+        company_id=_required_company(claims),
+    )
+    media_type = "text/plain; charset=utf-8" if file_format.lower() == "txt" else "text/csv; charset=utf-8"
+    return Response(
+        content=res["content"],
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{res["file_name"]}"'},
+    )

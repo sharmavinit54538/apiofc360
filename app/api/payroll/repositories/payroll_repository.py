@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Optional
 
-from sqlalchemy import and_, desc, exists, func, or_, select
+from sqlalchemy import Text, and_, cast, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.exceptions import NotFoundException
@@ -764,11 +764,15 @@ class PayrollRepository:
                 SalaryStructure.is_active == True,  # noqa: E712
             )
         )
+        has_pan_expr = (
+            Employee.pan_number.isnot(None)
+            & (func.length(func.btrim(cast(Employee.pan_number, Text))) > 0)
+        )
         emp_stmt = select(
             Employee.id,
             Employee.first_name,
             Employee.last_name,
-            Employee.pan_number,
+            has_pan_expr.label("has_pan"),
             has_bank_expr.label("has_bank"),
             has_comp_expr.label("has_comp"),
             has_sal_expr.label("has_sal"),
@@ -789,55 +793,57 @@ class PayrollRepository:
         missing_bank = []
         missing_comp = []
 
-        for eid, fname, lname, pan, has_bank, has_comp, has_sal in employees:
+        for eid, fname, lname, has_pan, has_bank, has_comp, has_sal in employees:
             full_name = f"{fname or ''} {lname or ''}".strip() or "Employee"
-            if not pan:
+            if not has_pan:
                 missing_pan.append((str(eid), full_name))
             if not has_bank:
                 missing_bank.append((str(eid), full_name))
             if not has_comp and not has_sal:
                 missing_comp.append((str(eid), full_name))
 
-        # Pending approvals across queues (exact SQL counts)
-        runs_pending_stmt = select(func.count(PayrollRun.id)).where(
-            PayrollRun.status.in_(("PENDING_APPROVAL", "UNDER_REVIEW"))
-        )
-        if company_id is not None:
-            runs_pending_stmt = runs_pending_stmt.where(PayrollRun.company_id == company_id)
-        runs_pending_approval = int((await self.db.execute(runs_pending_stmt)).scalar() or 0)
+        # Pending approvals across queues (single round-trip scalar subselects)
+        runs_conds = [PayrollRun.status.in_(("PENDING_APPROVAL", "UNDER_REVIEW"))]
+        var_conds = [VariableInput.status == "PENDING"]
+        rev_conds = [CompensationRevision.status == "PENDING"]
+        att_conds = [AttendanceRegularizationRequest.status == "PENDING"]
+        leave_conds = [LeaveRequest.status == "PENDING", Employee.is_deleted == False]  # noqa: E712
 
-        var_stmt = select(func.count(VariableInput.id)).where(VariableInput.status == "PENDING")
         if company_id is not None:
-            var_stmt = var_stmt.where(VariableInput.company_id == company_id)
+            runs_conds.append(PayrollRun.company_id == company_id)
+            var_conds.append(VariableInput.company_id == company_id)
+            rev_conds.append(CompensationRevision.company_id == company_id)
+            att_conds.append(AttendanceRegularizationRequest.company_id == company_id)
+            leave_conds.append(Employee.company_id == company_id)
         if period is not None:
-            var_stmt = var_stmt.where(VariableInput.period_id == period.id)
-        variable_inputs_pending = int((await self.db.execute(var_stmt)).scalar() or 0)
+            var_conds.append(VariableInput.period_id == period.id)
+            if period.start_date and period.end_date:
+                leave_conds.append(LeaveRequest.start_date <= period.end_date)
+                leave_conds.append(LeaveRequest.end_date >= period.start_date)
 
-        rev_stmt = select(func.count(CompensationRevision.id)).where(CompensationRevision.status == "PENDING")
-        if company_id is not None:
-            rev_stmt = rev_stmt.where(CompensationRevision.company_id == company_id)
-        compensation_revisions_pending = int((await self.db.execute(rev_stmt)).scalar() or 0)
-
-        att_reg_stmt = select(func.count(AttendanceRegularizationRequest.id)).where(
-            AttendanceRegularizationRequest.status == "PENDING"
-        )
-        if company_id is not None:
-            att_reg_stmt = att_reg_stmt.where(AttendanceRegularizationRequest.company_id == company_id)
-        attendance_regularizations_pending = int((await self.db.execute(att_reg_stmt)).scalar() or 0)
-
-        leave_stmt = (
-            select(func.count(LeaveRequest.id))
-            .join(Employee, LeaveRequest.employee_id == Employee.id)
-            .where(LeaveRequest.status == "PENDING", Employee.is_deleted == False)  # noqa: E712
-        )
-        if company_id is not None:
-            leave_stmt = leave_stmt.where(Employee.company_id == company_id)
-        if period is not None and period.start_date and period.end_date:
-            leave_stmt = leave_stmt.where(
-                LeaveRequest.start_date <= period.end_date,
-                LeaveRequest.end_date >= period.start_date,
+        pending_counts = (
+            await self.db.execute(
+                select(
+                    select(func.count(PayrollRun.id)).where(*runs_conds).scalar_subquery().label("runs_pending"),
+                    select(func.count(VariableInput.id)).where(*var_conds).scalar_subquery().label("var_pending"),
+                    select(func.count(CompensationRevision.id)).where(*rev_conds).scalar_subquery().label("rev_pending"),
+                    select(func.count(AttendanceRegularizationRequest.id)).where(*att_conds).scalar_subquery().label("att_pending"),
+                    (
+                        select(func.count(LeaveRequest.id))
+                        .select_from(LeaveRequest)
+                        .join(Employee, LeaveRequest.employee_id == Employee.id)
+                        .where(*leave_conds)
+                        .scalar_subquery()
+                    ).label("leave_pending"),
+                )
             )
-        leave_requests_pending = int((await self.db.execute(leave_stmt)).scalar() or 0)
+        ).one()
+
+        runs_pending_approval = int(pending_counts.runs_pending or 0)
+        variable_inputs_pending = int(pending_counts.var_pending or 0)
+        compensation_revisions_pending = int(pending_counts.rev_pending or 0)
+        attendance_regularizations_pending = int(pending_counts.att_pending or 0)
+        leave_requests_pending = int(pending_counts.leave_pending or 0)
 
         # Active statutory configuration check
         cfg_stmt = select(StatutoryComplianceConfig).where(StatutoryComplianceConfig.is_active == True)  # noqa: E712
@@ -1084,28 +1090,34 @@ class PayrollRepository:
         company_id: Optional[uuid.UUID],
         legal_entity_id: Optional[uuid.UUID] = None,
         limit: int = 12,
+        precomputed_runs: Optional[list[PayrollRun]] = None,
+        precomputed_enrichments: Optional[dict[uuid.UUID, dict[str, Any]]] = None,
     ) -> list[dict[str, Any]]:
         """Build chronological monthly trend series from real non-cancelled payroll runs (oldest -> newest)."""
-        stmt = select(PayrollRun).where(PayrollRun.status.notin_(EXCLUDED_RUN_STATUSES))
-        if company_id is not None:
-            stmt = stmt.where(PayrollRun.company_id == company_id)
-        if legal_entity_id is not None:
-            stmt = stmt.where(PayrollRun.legal_entity_id == legal_entity_id)
-        stmt = stmt.order_by(
-            desc(PayrollRun.period_year),
-            desc(PayrollRun.period_month),
-            desc(PayrollRun.created_at),
-        ).limit(limit * 3)
-
-        all_runs = list((await self.db.execute(stmt)).scalars().all())
+        if precomputed_runs is not None:
+            all_runs = [r for r in precomputed_runs if r.status not in EXCLUDED_RUN_STATUSES]
+        else:
+            stmt = select(PayrollRun).where(PayrollRun.status.notin_(EXCLUDED_RUN_STATUSES))
+            if company_id is not None:
+                stmt = stmt.where(PayrollRun.company_id == company_id)
+            if legal_entity_id is not None:
+                stmt = stmt.where(PayrollRun.legal_entity_id == legal_entity_id)
+            stmt = stmt.order_by(
+                desc(PayrollRun.period_year),
+                desc(PayrollRun.period_month),
+                desc(PayrollRun.created_at),
+            ).limit(limit * 3)
+            all_runs = list((await self.db.execute(stmt)).scalars().all())
         if not all_runs:
             return []
 
-        # Deduplicate to authoritative run per (year, month) if multiple entities weren't filtered,
-        # OR aggregate across distinct entities within a month cleanly via bulk enrichment
-        enrichments = await self.get_bulk_run_enrichments(
-            company_id=company_id, run_ids=[r.id for r in all_runs]
-        )
+        enrichments: dict[uuid.UUID, dict[str, Any]] = dict(precomputed_enrichments or {})
+        missing_run_ids = [r.id for r in all_runs if r.id not in enrichments]
+        if missing_run_ids:
+            fetched = await self.get_bulk_run_enrichments(
+                company_id=company_id, run_ids=missing_run_ids
+            )
+            enrichments.update(fetched)
 
         by_month: dict[tuple[int, int], dict[str, Any]] = {}
         for r in all_runs:

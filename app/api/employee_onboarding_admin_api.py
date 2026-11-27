@@ -25,8 +25,14 @@ class BGVStatusPayload(BaseModel):
     provider_reference: Optional[str] = None
 
 
-async def _tenant_employee(employee_id: uuid.UUID, claims: dict, svc: EmployeeOnboardingService):
-    employee = await svc.get_employee_by_id(employee_id)
+async def _tenant_employee(
+    employee_id: uuid.UUID,
+    claims: dict,
+    svc: EmployeeOnboardingService,
+    *,
+    with_relations: bool = False,
+):
+    employee = await svc.get_employee_by_id(employee_id, with_relations=with_relations)
     if employee is None or (
         str(claims.get("role") or "").lower() != "super_admin"
         and str(employee.company_id) != str(claims.get("company_id"))
@@ -111,7 +117,7 @@ async def get_progress_details(
 ):
     """Retrieve full onboarding data for a specific employee."""
     svc = EmployeeOnboardingService(db)
-    emp = await _tenant_employee(employee_id, claims, svc)
+    emp = await _tenant_employee(employee_id, claims, svc, with_relations=True)
     progress_data = await svc.get_onboarding_progress_data(emp)
     status_data = await svc.get_onboarding_status(emp)
     

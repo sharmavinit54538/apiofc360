@@ -24,8 +24,15 @@ class FullAndFinalService:
     """Business logic for employee exit Full & Final settlements."""
 
     @classmethod
-    async def get_settlement(cls, session: AsyncSession, fnf_id: uuid.UUID) -> FullAndFinalSettlement:
+    async def get_settlement(
+        cls,
+        session: AsyncSession,
+        fnf_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> FullAndFinalSettlement:
         stmt = select(FullAndFinalSettlement).where(FullAndFinalSettlement.id == fnf_id)
+        if company_id is not None:
+            stmt = stmt.where(FullAndFinalSettlement.company_id == company_id)
         res = await session.execute(stmt)
         item = res.scalar_one_or_none()
         if not item:
@@ -160,8 +167,9 @@ class FullAndFinalService:
         remarks: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> FullAndFinalSettlement:
-        settlement = await cls.get_settlement(session, fnf_id)
+        settlement = await cls.get_settlement(session, fnf_id, company_id=company_id)
         if settlement.status in ("APPROVED", "FINALIZED"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -212,8 +220,9 @@ class FullAndFinalService:
         notes: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> FullAndFinalSettlement:
-        settlement = await cls.get_settlement(session, fnf_id)
+        settlement = await cls.get_settlement(session, fnf_id, company_id=company_id)
         old_status = settlement.status
         settlement.status = "FINALIZED"
         settlement.finalized_by = user_id
@@ -247,8 +256,9 @@ class FullAndFinalService:
         reason: str,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> FullAndFinalSettlement:
-        settlement = await cls.get_settlement(session, fnf_id)
+        settlement = await cls.get_settlement(session, fnf_id, company_id=company_id)
         old_status = settlement.status
         settlement.status = "REJECTED"
         settlement.rejected_by = user_id
@@ -272,9 +282,14 @@ class FullAndFinalService:
         return settlement
 
     @classmethod
-    async def generate_statement(cls, session: AsyncSession, fnf_id: uuid.UUID) -> tuple[bytes, str]:
+    async def generate_statement(
+        cls,
+        session: AsyncSession,
+        fnf_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> tuple[bytes, str]:
         import os
-        settlement = await cls.get_settlement(session, fnf_id)
+        settlement = await cls.get_settlement(session, fnf_id, company_id=company_id)
         if settlement.statement_path and os.path.isfile(settlement.statement_path):
             with open(settlement.statement_path, "rb") as handle:
                 return handle.read(), f"FnF_Settlement_{settlement.id}.pdf"

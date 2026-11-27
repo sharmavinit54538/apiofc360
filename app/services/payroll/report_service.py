@@ -57,14 +57,17 @@ class PayrollReportService:
         if period_id:
             try:
                 p_uuid = uuid.UUID(str(period_id))
-                p_obj = (
-                    await session.execute(select(PayrollPeriod).where(PayrollPeriod.id == p_uuid))
-                ).scalar_one_or_none()
+                p_stmt = select(PayrollPeriod).where(PayrollPeriod.id == p_uuid)
+                if company_id is not None:
+                    p_stmt = p_stmt.where(PayrollPeriod.company_id == company_id)
+                p_obj = (await session.execute(p_stmt)).scalar_one_or_none()
                 if p_obj:
                     stmt = stmt.where(
                         Payslip.period_month == p_obj.period_month,
                         Payslip.period_year == p_obj.period_year,
                     )
+                else:
+                    stmt = stmt.where(Payslip.id.is_(None))
             except ValueError:
                 pass
 
@@ -135,12 +138,19 @@ class PayrollReportService:
         report_key: str,
         file_format: str,
         filters: dict[str, Any],
+        company_id: Optional[uuid.UUID] = None,
     ) -> PayrollReportExport:
+        if company_id is None and isinstance(filters, dict) and filters.get("company_id"):
+            try:
+                company_id = uuid.UUID(str(filters["company_id"]))
+            except ValueError:
+                company_id = None
         stmt = select(PayrollReportExport).where(PayrollReportExport.id == export_id)
         export_rec = (await session.execute(stmt)).scalar_one_or_none()
         if not export_rec:
             export_rec = PayrollReportExport(
                 id=export_id,
+                company_id=company_id,
                 report_key=report_key,
                 file_format=file_format,
                 file_name=f"{report_key}_{export_id.hex[:6]}.{file_format}",
@@ -152,7 +162,7 @@ class PayrollReportService:
 
         # Fetch data
         data_res = await cls.get_report_data(
-            session, report_key, filters, page=1, limit=10000
+            session, report_key, filters, page=1, limit=10000, company_id=company_id
         )
         rows = data_res["data"]
 
@@ -174,9 +184,14 @@ class PayrollReportService:
 
     @classmethod
     async def get_export_download(
-        cls, session: AsyncSession, export_id: uuid.UUID
+        cls,
+        session: AsyncSession,
+        export_id: uuid.UUID,
+        company_id: Optional[uuid.UUID] = None,
     ) -> tuple[bytes, str]:
         stmt = select(PayrollReportExport).where(PayrollReportExport.id == export_id)
+        if company_id is not None:
+            stmt = stmt.where(PayrollReportExport.company_id == company_id)
         export_rec = (await session.execute(stmt)).scalar_one_or_none()
         if not export_rec:
             raise HTTPException(status_code=404, detail="Export not found.")

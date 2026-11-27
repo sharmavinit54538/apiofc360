@@ -11,8 +11,10 @@ from fastapi import APIRouter, Depends, Query, File, UploadFile, Response, statu
 
 from app.core.exceptions import AppException
 from app.core.rbac import require_admin, require_admin_or_manager, ADMIN_MANAGER_ROLES
-from app.middleware.auth import get_current_user_claims
+from app.middleware.auth import get_current_user_claims, get_current_user_claims_optional
 from app.schemas.auth import APIResponse
+from app.schemas.hierarchy import HierarchyTreeResponse
+from app.services.hierarchy_service import HierarchyService, get_hierarchy_service
 from app.schemas.employee import (
     ActivateEmployeeRequest,
     ApproveRejectRequest,
@@ -26,6 +28,9 @@ from app.schemas.employee import (
     DeactivateEmployeeRequest,
 )
 from app.services.employee_service import EmployeeService, get_employee_service
+from app.services.hierarchy_service import HierarchyService, get_hierarchy_service
+from app.schemas.hierarchy import HierarchyTreeResponse
+from app.middleware.auth import get_current_user_claims_optional
 
 router = APIRouter(prefix="/employees", tags=["Employee Management"])
 
@@ -232,6 +237,37 @@ async def list_employees(
 
 # Static routes MUST come before /{id} to avoid UUID parsing conflicts
 @router.get(
+    "/hierarchy",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[HierarchyTreeResponse]],
+    summary="Get organization employee hierarchy tree",
+)
+async def get_employees_hierarchy(
+    department: str | None = Query(None),
+    designation: str | None = Query(None),
+    location: str | None = Query(None),
+    employment_type: str | None = Query(None),
+    reporting_manager_id: str | None = Query(None),
+    search: str | None = Query(None),
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
+) -> APIResponse[list[HierarchyTreeResponse]]:
+    """Return nested organization hierarchy tree (compatibility alias for /api/v1/hierarchy)."""
+    from app.api.hierarchy import get_hierarchy
+
+    return await get_hierarchy(
+        department=department,
+        designation=designation,
+        location=location,
+        employment_type=employment_type,
+        reporting_manager_id=reporting_manager_id,
+        search=search,
+        claims=claims,
+        service=service,
+    )
+
+
+@router.get(
     "/validate-invitation",
     status_code=status.HTTP_200_OK,
     response_model=APIResponse[dict],
@@ -287,6 +323,107 @@ async def validate_employee_invitation_alias(
         success=True,
         message="Token is valid.",
         data=data,
+        errors=None,
+    )
+
+
+@router.get(
+    "/hierarchy",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[list[HierarchyTreeResponse]],
+    summary="Get complete organization hierarchy tree",
+)
+async def get_employee_hierarchy(
+    department: str | None = Query(None),
+    designation: str | None = Query(None),
+    location: str | None = Query(None),
+    employment_type: str | None = Query(None),
+    reporting_manager_id: str | None = Query(None),
+    search: str | None = Query(None),
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    hierarchy_service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
+) -> APIResponse[list[HierarchyTreeResponse]]:
+    """Return nested organization hierarchy tree scoped to roles with optional filtering.
+    
+    This endpoint provides the same hierarchy data as /api/v1/hierarchy/ but under the
+    /api/v1/employees/ prefix for frontend compatibility.
+    """
+    role = str(claims.get("role", "")).lower() if claims else ""
+    user_uuid_raw = claims.get("sub") if claims else None
+    
+    # Reuse the super admin check logic from hierarchy router
+    is_super = False
+    if user_uuid_raw and role == "super_admin":
+        try:
+            user_uuid = uuid.UUID(str(user_uuid_raw))
+            from app.models.user import User
+            from sqlalchemy import select
+            from sqlalchemy.orm import load_only, noload
+            res = await hierarchy_service.session.execute(
+                select(User)
+                .options(
+                    load_only(
+                        User.id,
+                        User.email,
+                        User.role,
+                        User.is_active,
+                        User.is_deleted,
+                        User.account_status,
+                    ),
+                    noload(User.company),
+                )
+                .where(User.id == user_uuid)
+                .execution_options(bypass_tenant=True)
+            )
+            user = res.scalar_one_or_none()
+            if user and not user.is_deleted and user.is_active:
+                if str(getattr(user, "account_status", "") or "").upper() == "ACTIVE":
+                    is_super = bool(user.is_super_admin)
+        except Exception:
+            pass
+    
+    from app.api.hierarchy import _get_company_id_safe
+    company_uuid = None if is_super else _get_company_id_safe(claims)
+
+    root_id = None
+    allowed_admin_roles = {"super_admin", "hr_admin", "executive"}
+    if not is_super and role not in allowed_admin_roles:
+        if role == "manager":
+            from app.models.employee import Employee
+            from sqlalchemy import and_, select
+            from sqlalchemy.orm import load_only
+            from app.repositories.hierarchy_repository import _HIERARCHY_EMPLOYEE_COLUMNS
+            try:
+                user_uuid = uuid.UUID(str(user_uuid_raw))
+                conditions = [Employee.user_id == user_uuid, Employee.is_deleted == False]
+                if company_uuid is not None:
+                    conditions.append(Employee.company_id == company_uuid)
+                stmt = (
+                    select(Employee)
+                    .where(and_(*conditions))
+                    .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
+                )
+                res = await hierarchy_service.session.execute(stmt)
+                caller_emp = res.scalar_one_or_none()
+                if caller_emp:
+                    root_id = caller_emp.id
+            except Exception:
+                pass
+
+    tree = await hierarchy_service.build_tree(
+        company_id=company_uuid,
+        root_manager_id=root_id,
+        department=department,
+        designation=designation,
+        location=location,
+        employment_type=employment_type,
+        reporting_manager_id=reporting_manager_id,
+        search=search,
+    )
+    return APIResponse(
+        success=True,
+        message="Organization tree fetched successfully.",
+        data=tree,
         errors=None,
     )
 
@@ -622,6 +759,55 @@ async def get_onboarding_status(
         success=True,
         message="Onboarding status retrieved successfully.",
         data=result,
+        errors=None,
+    )
+
+
+@router.get(
+    "/{id}/reporting",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get employee reporting hierarchy details",
+)
+async def get_employee_reporting_details_compat(
+    id: uuid.UUID,
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
+) -> APIResponse[dict]:
+    """Compatibility alias delegating to /api/v1/hierarchy/{employee_id}."""
+    from app.api.hierarchy import get_employee_hierarchy_details
+
+    return await get_employee_hierarchy_details(
+        employee_id=id,
+        claims=claims,
+        service=service,
+    )
+
+
+@router.get(
+    "/{id}/reporting",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Get employee reporting hierarchy details",
+)
+async def get_employee_reporting(
+    id: uuid.UUID,
+    claims: Annotated[dict | None, Depends(get_current_user_claims_optional)] = None,
+    service: Annotated[HierarchyService, Depends(get_hierarchy_service)] = None,
+) -> APIResponse[dict]:
+    """Return manager, peers, direct reports, and reporting chain (compatibility alias for /api/v1/hierarchy/{id})."""
+    from app.api.hierarchy import get_employee_hierarchy_details
+
+    res = await get_employee_hierarchy_details(
+        employee_id=id,
+        claims=claims,
+        service=service,
+    )
+    payload = res.data.model_dump() if hasattr(res.data, "model_dump") else dict(res.data)
+    return APIResponse[dict](
+        success=True,
+        message=res.message,
+        data=payload,
         errors=None,
     )
 

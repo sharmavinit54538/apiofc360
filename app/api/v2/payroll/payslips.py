@@ -27,13 +27,17 @@ async def _resolve_current_employee_id(session: AsyncSession, claims: Claims) ->
     user_id = _uid(claims)
     if not user_id:
         return None
-    stmt = select(Employee).where(Employee.user_id == user_id)
+    company_id_str = claims.get("company_id") if isinstance(claims, dict) else None
+    c_uuid = uuid.UUID(str(company_id_str)) if company_id_str else None
+    stmt = select(Employee).where(Employee.user_id == user_id, Employee.is_deleted == False)  # noqa: E712
+    if c_uuid is not None:
+        stmt = stmt.where(Employee.company_id == c_uuid)
     emp = (await session.execute(stmt)).scalar_one_or_none()
     if not emp:
-        stmt2 = select(Employee).where(Employee.id == user_id)
+        stmt2 = select(Employee).where(Employee.id == user_id, Employee.is_deleted == False)  # noqa: E712
+        if c_uuid is not None:
+            stmt2 = stmt2.where(Employee.company_id == c_uuid)
         emp = (await session.execute(stmt2)).scalar_one_or_none()
-    if not emp:
-        emp = (await session.execute(select(Employee).limit(1))).scalar_one_or_none()
     return emp.id if emp else None
 
 
@@ -120,8 +124,14 @@ async def get_my_payslips_v2(
     items_data = [
         {
             "id": str(p.id),
+            "run_id": str(p.payroll_run_id),
+            "runId": str(p.payroll_run_id),
+            "payroll_run_id": str(p.payroll_run_id),
+            "employee_id": str(p.employee_id),
+            "employeeId": str(p.employee_id),
             "payslip_number": p.payslip_number,
             "period": f"{p.period_month:02d}/{p.period_year}",
+            "periodName": f"{p.period_month:02d}/{p.period_year}",
             "period_month": p.period_month,
             "period_year": p.period_year,
             "paid_days": float(p.paid_days),
@@ -133,7 +143,10 @@ async def get_my_payslips_v2(
             "total_deductions_paise": int(p.total_deductions * 100),
             "net_pay_paise": int(p.net_pay * 100),
             "payment_status": p.payment_status,
+            "status": p.payment_status or ("GENERATED" if p.generated_at else "PENDING"),
+            "payment_date": p.payment_date.isoformat() if p.payment_date else None,
             "pdf_path": p.pdf_path,
+            "download_url": f"/api/v2/payroll/my-payslips/{p.payroll_run_id}/download",
         }
         for p in res["items"]
     ]
@@ -195,7 +208,136 @@ async def get_my_provision_slips_v2(
     return _ok(res, "Provision slips retrieved successfully")
 
 
-# 4. GET /api/v2/payroll/payslips/{runId}/{employeeId}
+# 4. GET /api/v2/payroll/payslips - List payslips for organization (Admin / Manager)
+@router.get("/payslips", summary="List organization payslips (v2)")
+async def list_payslips_v2(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    runId: Optional[uuid.UUID] = Query(None),
+    periodId: Optional[uuid.UUID] = Query(None),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    status: Optional[str] = Query(None),
+    paymentStatus: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    from fastapi import HTTPException
+    from sqlalchemy import desc, func, or_
+    from sqlalchemy.orm import selectinload
+    from app.api.payroll.permissions import _require_tenant_id
+    from app.api.payroll.serializers import _payslip_dict
+    from app.models.payroll_models import PayrollPeriod
+
+    _require_admin_or_manager(claims)
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+
+    stmt = (
+        select(Payslip)
+        .join(Employee, Payslip.employee_id == Employee.id)
+        .options(selectinload(Payslip.employee))
+    )
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
+    if runId:
+        stmt = stmt.where(Payslip.payroll_run_id == runId)
+    if periodId:
+        p_stmt = select(PayrollPeriod).where(PayrollPeriod.id == periodId)
+        if c_uuid is not None:
+            p_stmt = p_stmt.where(PayrollPeriod.company_id == c_uuid)
+        p_obj = (await db.execute(p_stmt)).scalar_one_or_none()
+        if not p_obj:
+            raise HTTPException(status_code=404, detail=f"Payroll period '{periodId}' not found.")
+        stmt = stmt.where(
+            Payslip.period_month == p_obj.period_month,
+            Payslip.period_year == p_obj.period_year,
+        )
+    if month:
+        stmt = stmt.where(Payslip.period_month == month)
+    if year:
+        stmt = stmt.where(Payslip.period_year == year)
+    if status and status.lower() != "all":
+        if status.upper() == "GENERATED":
+            stmt = stmt.where(Payslip.generated_at.isnot(None))
+        elif status.upper() == "PENDING":
+            stmt = stmt.where(Payslip.generated_at.is_(None))
+        else:
+            stmt = stmt.where(func.upper(Payslip.status) == status.upper())
+    if paymentStatus and paymentStatus.lower() != "all":
+        stmt = stmt.where(func.upper(Payslip.payment_status) == paymentStatus.upper())
+    if department and department.lower() != "all":
+        stmt = stmt.where(Employee.department == department)
+    if search and search.strip():
+        q = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Employee.first_name.ilike(q),
+                Employee.last_name.ilike(q),
+                Employee.employee_id.ilike(q),
+                Payslip.payslip_number.ilike(q),
+            )
+        )
+
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+    offset = max(0, (page - 1) * limit)
+    rows = (
+        await db.execute(
+            stmt.order_by(desc(Payslip.period_year), desc(Payslip.period_month), desc(Payslip.created_at))
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    items_data = [_payslip_dict(p) for p in rows]
+    total_pages = max(1, (total + limit - 1) // limit)
+    return _ok(
+        {
+            "items": items_data,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "totalPages": total_pages,
+        },
+        "Payslips retrieved successfully",
+    )
+
+
+# 4b. GET /api/v2/payroll/payslips/{payslipId} - Single payslip by ID (Admin/Manager or owning Employee)
+@router.get("/payslips/{payslipId}", summary="Get payslip detail by payslip ID (v2)")
+async def get_payslip_by_id_v2(
+    payslipId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    from fastapi import HTTPException, status as http_status
+    from sqlalchemy.orm import selectinload
+    from app.api.payroll.permissions import _is_admin_or_manager, _require_tenant_id
+    from app.api.payroll.serializers import _payslip_dict
+
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    stmt = select(Payslip).where(Payslip.id == payslipId).options(selectinload(Payslip.employee))
+    if c_uuid is not None:
+        stmt = stmt.where(Payslip.company_id == c_uuid)
+    ps = (await db.execute(stmt)).scalar_one_or_none()
+    if not ps:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Payslip not found.")
+
+    if not _is_admin_or_manager(claims):
+        emp_id = await _resolve_current_employee_id(db, claims)
+        if not emp_id or emp_id != ps.employee_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only view your own payslip.",
+            )
+
+    payload = _payslip_dict(ps)
+    payload["run_id"] = payload.get("payroll_run_id")
+    return _ok(payload, "Payslip detail retrieved successfully")
+
+
+# 5. GET /api/v2/payroll/payslips/{runId}/{employeeId}
 @router.get("/payslips/{runId}/{employeeId}", summary="Get payslip detail for an employee in a run")
 async def get_payslip_detail_v2(
     runId: uuid.UUID,
@@ -203,6 +345,29 @@ async def get_payslip_detail_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from fastapi import HTTPException, status as http_status
+    from app.api.payroll.permissions import _is_admin_or_manager, _require_tenant_id
+
+    c_uuid = _require_tenant_id(claims, allow_super_admin_global=True)
+    if not _is_admin_or_manager(claims):
+        caller_emp_id = await _resolve_current_employee_id(db, claims)
+        if not caller_emp_id or caller_emp_id != employeeId:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only view your own payslip.",
+            )
+    elif c_uuid is not None:
+        emp = (
+            await db.execute(
+                select(Employee).where(Employee.id == employeeId, Employee.company_id == c_uuid)
+            )
+        ).scalar_one_or_none()
+        if not emp:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Employee not found in your organization.",
+            )
+
     detail = await PayslipService.get_payslip_detail(db, run_id=runId, employee_id=employeeId)
     return _ok(detail, "Payslip detail retrieved successfully")
 

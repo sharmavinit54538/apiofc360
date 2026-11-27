@@ -8,12 +8,39 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update, literal
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.models.employee import Employee
 from app.models.hierarchy_audit import HierarchyAuditLog
 from app.models.recruitment import Job
 
 logger = logging.getLogger(__name__)
+
+# Strict safe column projection for hierarchy queries: excludes encrypted national IDs
+# so org charts and reporting chains never decrypt or leak PAN/Aadhaar/UAN/Passport/Voter ID.
+_HIERARCHY_EMPLOYEE_COLUMNS = (
+    Employee.id,
+    Employee.employee_id,
+    Employee.first_name,
+    Employee.last_name,
+    Employee.designation,
+    Employee.department,
+    Employee.profile_photo_url,
+    Employee.role,
+    Employee.status,
+    Employee.branch,
+    Employee.shift,
+    Employee.employment_type,
+    Employee.employment_status,
+    Employee.joining_date,
+    Employee.date_of_birth,
+    Employee.ctc,
+    Employee.manager_id,
+    Employee.reporting_manager_id,
+    Employee.company_id,
+    Employee.user_id,
+    Employee.is_deleted,
+)
 
 
 class HierarchyRepository:
@@ -23,51 +50,31 @@ class HierarchyRepository:
         self.session = session
 
     async def get_employee_by_id(self, employee_uuid: uuid.UUID) -> Employee | None:
-        """Return active employee by ID."""
+        """Return active employee by ID without loading encrypted PII columns."""
         result = await self.session.execute(
-            select(Employee).where(
-                and_(Employee.id == employee_uuid, Employee.is_deleted == False)
-            )
+            select(Employee)
+            .where(and_(Employee.id == employee_uuid, Employee.is_deleted == False))
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         return result.scalar_one_or_none()
 
     async def get_employee_by_id_raw(self, employee_uuid: uuid.UUID) -> Employee | None:
-        """Return employee record raw (even if soft-deleted or inactive)."""
+        """Return employee record raw (even if soft-deleted or inactive) without PII columns."""
         result = await self.session.execute(
-            select(Employee).where(Employee.id == employee_uuid)
+            select(Employee)
+            .where(Employee.id == employee_uuid)
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         return result.scalar_one_or_none()
 
     async def get_company_employees(self, company_id: uuid.UUID | None) -> list[Employee]:
-        """Get active employees in a company with load_only for maximum query performance, falling back to all active employees if none found."""
-        from sqlalchemy.orm import load_only
+        """Get active employees in a company with load_only for maximum query performance."""
         stmt = select(Employee).where(Employee.is_deleted == False)
         if company_id is not None:
             stmt = stmt.where(Employee.company_id == company_id)
 
         result = await self.session.execute(
-            stmt.options(
-                load_only(
-                    Employee.id,
-                    Employee.employee_id,
-                    Employee.first_name,
-                    Employee.last_name,
-                    Employee.designation,
-                    Employee.department,
-                    Employee.profile_photo_url,
-                    Employee.role,
-                    Employee.status,
-                    Employee.branch,
-                    Employee.shift,
-                    Employee.employment_type,
-                    Employee.employment_status,
-                    Employee.joining_date,
-                    Employee.date_of_birth,
-                    Employee.ctc,
-                    Employee.manager_id,
-                    Employee.company_id,
-                )
-            )
+            stmt.options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         employees = list(result.scalars().all())
 
@@ -76,28 +83,7 @@ class HierarchyRepository:
                 select(Employee)
                 .where(Employee.is_deleted == False)
                 .execution_options(bypass_tenant=True)
-                .options(
-                    load_only(
-                        Employee.id,
-                        Employee.employee_id,
-                        Employee.first_name,
-                        Employee.last_name,
-                        Employee.designation,
-                        Employee.department,
-                        Employee.profile_photo_url,
-                        Employee.role,
-                        Employee.status,
-                        Employee.branch,
-                        Employee.shift,
-                        Employee.employment_type,
-                        Employee.employment_status,
-                        Employee.joining_date,
-                        Employee.date_of_birth,
-                        Employee.ctc,
-                        Employee.manager_id,
-                        Employee.company_id,
-                    )
-                )
+                .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
             )
             employees = list(fallback_res.scalars().all())
 
@@ -106,20 +92,26 @@ class HierarchyRepository:
     async def get_direct_reports(self, manager_id: uuid.UUID) -> list[Employee]:
         """Fetch direct reports (one level down) for a manager."""
         result = await self.session.execute(
-            select(Employee).where(
-                and_(Employee.manager_id == manager_id, Employee.is_deleted == False)
-            )
+            select(Employee)
+            .where(and_(Employee.manager_id == manager_id, Employee.is_deleted == False))
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         return list(result.scalars().all())
 
     async def get_peers(self, employee_uuid: uuid.UUID, manager_id: uuid.UUID | None) -> list[Employee]:
         """Fetch peers (employees reporting to the same manager, excluding self)."""
-        stmt = select(Employee).where(
-            and_(
-                Employee.manager_id == manager_id,
-                Employee.id != employee_uuid,
-                Employee.is_deleted == False
+        if manager_id is None:
+            return []
+        stmt = (
+            select(Employee)
+            .where(
+                and_(
+                    Employee.manager_id == manager_id,
+                    Employee.id != employee_uuid,
+                    Employee.is_deleted == False,
+                )
             )
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -148,6 +140,7 @@ class HierarchyRepository:
             select(Employee)
             .join(cte_union, Employee.id == cte_union.c.id)
             .where(Employee.is_deleted == False)
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -186,6 +179,7 @@ class HierarchyRepository:
             select(Employee)
             .join(cte_union, Employee.id == cte_union.c.id)
             .where(Employee.is_deleted == False)
+            .options(load_only(*_HIERARCHY_EMPLOYEE_COLUMNS))
             .order_by(cte_union.c.depth.desc())
         )
         result = await self.session.execute(stmt)

@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import load_only, noload
 from app.models.user import User
 from app.models.user.role import OFFICIAL_SUPER_ADMIN_EMAIL
 from app.models.refresh_token import RefreshToken
@@ -15,7 +16,24 @@ async def validate_principal(session, claims):
         family_id = uuid.UUID(str(claims["sid"])) if claims.get("sid") else None
     except (KeyError, ValueError, TypeError) as exc:
         raise HTTPException(401, "Invalid identity claims.") from exc
-    user = await session.scalar(select(User).where(User.id == actor_id).execution_options(bypass_tenant=True))
+    user = await session.scalar(
+        select(User)
+        .options(
+            load_only(
+                User.id,
+                User.company_id,
+                User.role,
+                User.email,
+                User.is_deleted,
+                User.is_active,
+                User.is_verified,
+                User.account_status,
+            ),
+            noload(User.company),
+        )
+        .where(User.id == actor_id)
+        .execution_options(bypass_tenant=True)
+    )
     if not user or user.is_deleted:
         raise HTTPException(401, "User account no longer exists.")
     role = user.role.value if hasattr(user.role, "value") else str(user.role)
