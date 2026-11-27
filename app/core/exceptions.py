@@ -517,9 +517,18 @@ async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> 
         code = "DATABASE_UNAVAILABLE"
         message = "Database service is temporarily unavailable. Please try again shortly."
     else:
-        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        code = "DATABASE_ERROR"
-        message = "Internal server error."
+        # Check for data truncation errors (StringDataRightTruncationError)
+        orig = getattr(exc, "orig", None)
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        orig_msg = str(orig or exc).lower()
+        if sqlstate == "22001" or "too long" in orig_msg or "truncat" in orig_msg:
+            status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            code = "DATA_TOO_LONG"
+            message = "One or more field values exceed the maximum allowed length."
+        else:
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            code = "DATABASE_ERROR"
+            message = "Internal server error."
 
     response = JSONResponse(
         status_code=status_code,

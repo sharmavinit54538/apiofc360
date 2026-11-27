@@ -63,13 +63,13 @@ class Asset(Base):
         PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
     )
     tag: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(150), nullable=False)
-    category: Mapped[str] = mapped_column(String(50), nullable=False, default="laptop")
-    serial: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    vendor: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, default="laptop")
+    serial: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    vendor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     warranty_until: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="available", server_default=text("'available'"))
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="available", server_default=text("'available'"))
     
     # Active assignment
     employee_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
@@ -77,12 +77,12 @@ class Asset(Base):
     
     next_maintenance: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(150), nullable=True)
     purchase_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    location: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    image_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     timeline: Mapped[list[dict] | None] = mapped_column(
         MutableList.as_mutable(JSON), nullable=True, server_default=text("'[]'")
     )

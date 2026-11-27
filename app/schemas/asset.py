@@ -4,7 +4,23 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 import uuid
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# Valid asset statuses
+VALID_ASSET_STATUSES = {
+    "available", "assigned", "under-repair", "maintenance",
+    "lost", "retired", "disposed", "archived",
+}
+
+
+def _normalize_whitespace(v: str | None) -> str | None:
+    """Strip leading/trailing whitespace and collapse internal whitespace."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return None
+    return v
 
 
 class AssetAssignmentHistoryResponse(BaseModel):
@@ -181,6 +197,9 @@ class AssetResponse(BaseModel):
                 data.assignedTo = None
 
         # Generate backend QR code data URI
+        # Note: This is intentionally synchronous since it's pure in-memory computation
+        # (no I/O) and runs during response serialization. For large lists, consider
+        # caching or generating on demand.
         try:
             from app.core.config import settings
             import qrcode
@@ -191,7 +210,7 @@ class AssetResponse(BaseModel):
             # QR encodes the scannable URL
             qr_content = f"{settings.FRONTEND_BASE_URL}/dashboard/assets?scan={data.id}"
             factory = qrcode.image.svg.SvgImage
-            img = qrcode.make(qr_content, image_factory=factory)
+            img = qrcode.make(qr_content, image_factory=factory, box_size=4)
             
             stream = io.BytesIO()
             img.save(stream)
@@ -206,38 +225,120 @@ class AssetResponse(BaseModel):
 
 
 class AssetCreate(BaseModel):
-    tag: str
-    name: str
-    category: str
-    serial: str | None = None
-    vendor: str | None = None
+    tag: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(..., min_length=1, max_length=100)
+    serial: str | None = Field(None, max_length=150)
+    vendor: str | None = Field(None, max_length=255)
     purchase_date: date | None = None
     warranty_until: date | None = None
-    brand: str | None = None
-    model: str | None = None
+    brand: str | None = Field(None, max_length=150)
+    model: str | None = Field(None, max_length=150)
     purchase_cost: Decimal | None = None
-    location: str | None = None
-    notes: str | None = None
-    description: str | None = None
-    image_url: str | None = None  # Cloudinary image URL
+    location: str | None = Field(None, max_length=5000)
+    notes: str | None = Field(None, max_length=10000)
+    description: str | None = Field(None, max_length=10000)
+    image_url: str | None = Field(None, max_length=2048)  # Cloudinary image URL
+
+    # Normalize whitespace on string fields
+    @field_validator("tag", "name", "category", "serial", "vendor", "brand", "model", "location", "notes", "description", mode="before")
+    @classmethod
+    def normalize_whitespace(cls, v: str | None) -> str | None:
+        return _normalize_whitespace(v)
+
+    @field_validator("purchase_cost", mode="before")
+    @classmethod
+    def validate_purchase_cost(cls, v):
+        if v is not None:
+            cost = Decimal(str(v))
+            if cost < 0:
+                raise ValueError("Purchase cost must not be negative.")
+        return v
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        v = str(v).strip()
+        # Reject base64 data URLs being stored directly
+        if v.startswith("data:"):
+            raise ValueError("Base64 data URLs are not allowed. Upload images using the /assets/upload-image endpoint.")
+        # Reject blob URLs
+        if v.startswith("blob:"):
+            raise ValueError("Blob URLs are not allowed. Upload images using the /assets/upload-image endpoint.")
+        # Must be a valid URL
+        if not v.startswith(("http://", "https://", "/")):
+            raise ValueError("Invalid image URL format. Must be an HTTP(S) URL or a relative path.")
+        return v
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.purchase_date and self.warranty_until:
+            if self.warranty_until < self.purchase_date:
+                raise ValueError("Warranty expiry date cannot be before purchase date.")
+        return self
 
 
 class AssetUpdate(BaseModel):
     # Retain supplied status so the service rejects lifecycle bypasses explicitly.
     status: str | None = None
-    name: str | None = None
-    category: str | None = None
-    serial: str | None = None
-    vendor: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    category: str | None = Field(None, min_length=1, max_length=100)
+    serial: str | None = Field(None, max_length=150)
+    vendor: str | None = Field(None, max_length=255)
     purchase_date: date | None = None
     warranty_until: date | None = None
-    brand: str | None = None
-    model: str | None = None
+    brand: str | None = Field(None, max_length=150)
+    model: str | None = Field(None, max_length=150)
     purchase_cost: Decimal | None = None
-    location: str | None = None
-    notes: str | None = None
-    description: str | None = None
-    image_url: str | None = None  # Cloudinary image URL
+    location: str | None = Field(None, max_length=5000)
+    notes: str | None = Field(None, max_length=10000)
+    description: str | None = Field(None, max_length=10000)
+    image_url: str | None = Field(None, max_length=2048)  # Cloudinary image URL
+
+    # Normalize whitespace on string fields
+    @field_validator("name", "category", "serial", "vendor", "brand", "model", "location", "notes", "description", mode="before")
+    @classmethod
+    def normalize_whitespace(cls, v: str | None) -> str | None:
+        return _normalize_whitespace(v)
+
+    @field_validator("purchase_cost", mode="before")
+    @classmethod
+    def validate_purchase_cost(cls, v):
+        if v is not None:
+            cost = Decimal(str(v))
+            if cost < 0:
+                raise ValueError("Purchase cost must not be negative.")
+        return v
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        v = str(v).strip()
+        if v.startswith("data:"):
+            raise ValueError("Base64 data URLs are not allowed. Upload images using the /assets/upload-image endpoint.")
+        if v.startswith("blob:"):
+            raise ValueError("Blob URLs are not allowed. Upload images using the /assets/upload-image endpoint.")
+        if not v.startswith(("http://", "https://", "/")):
+            raise ValueError("Invalid image URL format. Must be an HTTP(S) URL or a relative path.")
+        return v
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def validate_status(cls, v: str | None) -> str | None:
+        if v is not None and v not in VALID_ASSET_STATUSES:
+            raise ValueError(f"Invalid status '{v}'. Must be one of: {', '.join(sorted(VALID_ASSET_STATUSES))}.")
+        return v
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.purchase_date and self.warranty_until:
+            if self.warranty_until < self.purchase_date:
+                raise ValueError("Warranty expiry date cannot be before purchase date.")
+        return self
 
 
 class AssetAssignRequest(BaseModel):
@@ -253,17 +354,24 @@ class AssetTransferRequest(BaseModel):
 
 
 class AssetLostRequest(BaseModel):
-    reason: str
+    reason: str = Field(..., min_length=1, max_length=5000)
     lost_date: date | None = None
 
 
 class AssetRequestCreate(BaseModel):
-    request_type: str
-    category: str
-    justification: str
-    preferred_brand: str | None = None
-    preferred_model: str | None = None
+    request_type: str = Field(..., min_length=1, max_length=50)
+    category: str = Field(..., min_length=1, max_length=100)
+    justification: str = Field(..., min_length=1, max_length=5000)
+    preferred_brand: str | None = Field(None, max_length=100)
+    preferred_model: str | None = Field(None, max_length=100)
     estimated_cost: float | None = None
+
+    @field_validator("estimated_cost", mode="before")
+    @classmethod
+    def validate_estimated_cost(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("Estimated cost must not be negative.")
+        return v
 
 
 class AssetRequestUpdate(BaseModel):
@@ -296,10 +404,10 @@ class AssetRequestResponse(BaseModel):
 
 class AssetDamageReportCreate(BaseModel):
     asset_id: uuid.UUID
-    damage_type: str
-    severity: str
-    description: str
-    location_of_incident: str | None = None
+    damage_type: str = Field(..., min_length=1, max_length=50)
+    severity: str = Field(..., min_length=1, max_length=20)
+    description: str = Field(..., min_length=1, max_length=5000)
+    location_of_incident: str | None = Field(None, max_length=200)
     incident_date: date | None = None
 
 

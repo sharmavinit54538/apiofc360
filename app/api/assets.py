@@ -166,6 +166,7 @@ async def upload_asset_image(
     Use the returned `image_url` as the image_url field when creating or updating an asset.
     """
     import os
+    import asyncio
     import cloudinary
     import cloudinary.uploader
     from app.core.exceptions import BadRequestException, AppException
@@ -190,7 +191,7 @@ async def upload_asset_image(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    # Validate file type
+    # Validate file type by Content-Type header
     allowed_types = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}
     if file.content_type not in allowed_types:
         raise BadRequestException(
@@ -201,7 +202,33 @@ async def upload_asset_image(
     MAX_SIZE = 5 * 1024 * 1024  # 5 MB
     contents = await file.read()
     if len(contents) > MAX_SIZE:
-        raise BadRequestException("File size exceeds 5MB limit.")
+        raise AppException(
+            message="File size exceeds 5MB limit.",
+            status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    # Validate actual file content (magic bytes) to prevent malicious uploads
+    _MAGIC_BYTES = {
+        b"\xff\xd8\xff": "image/jpeg",
+        b"\x89PNG": "image/png",
+        b"RIFF": "image/webp",  # WebP starts with RIFF
+        b"GIF8": "image/gif",
+    }
+    header = contents[:4]
+    detected_type = None
+    for magic, mime in _MAGIC_BYTES.items():
+        if header.startswith(magic):
+            detected_type = mime
+            break
+    # Additional check for WebP: RIFF....WEBP
+    if header.startswith(b"RIFF") and len(contents) >= 12 and contents[8:12] == b"WEBP":
+        detected_type = "image/webp"
+    
+    if detected_type is None:
+        raise AppException(
+            message="Unsupported image format. File content does not match a supported image type (JPEG, PNG, WebP, GIF).",
+            status_code=http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        )
 
     # Configure Cloudinary
     cloudinary.config(
@@ -211,14 +238,18 @@ async def upload_asset_image(
         secure=True,
     )
 
-    # Upload to Cloudinary
+    # Upload to Cloudinary in a thread pool to avoid blocking the event loop
     try:
-        upload_result = cloudinary.uploader.upload(
-            contents,
-            folder="hrms/assets",
-            resource_type="image",
-            overwrite=False,
-            unique_filename=True,
+        loop = asyncio.get_running_loop()
+        upload_result = await loop.run_in_executor(
+            None,
+            lambda: cloudinary.uploader.upload(
+                contents,
+                folder="hrms/assets",
+                resource_type="image",
+                overwrite=False,
+                unique_filename=True,
+            ),
         )
         image_url = upload_result.get("secure_url")
         public_id = upload_result.get("public_id")
