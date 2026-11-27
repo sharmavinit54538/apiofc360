@@ -1,7 +1,5 @@
 """FastAPI router for AI Attendance Monitor endpoints (/api/v1/ai/attendance/*)."""
 
-from __future__ import annotations
-
 import uuid
 from datetime import date
 from typing import Annotated, Optional
@@ -49,8 +47,8 @@ async def get_attendance_dashboard(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
     department_id: uuid.UUID | None = Query(None),
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ) -> APIResponse[AttendanceDashboardResponse]:
     """Retrieve dynamic attendance KPIs: Health Score, Attendance %, Anomalies, Late Arrivals, Overtime Hours, Today Present, Today Absent."""
     company_id = get_company_id_from_claims(claims)
@@ -79,8 +77,8 @@ async def get_attendance_trend(
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
     group_by: str = Query("daily", description="daily | weekly | monthly | department | shift"),
     department_id: uuid.UUID | None = Query(None),
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ) -> APIResponse[AttendanceTrendResponse]:
     """Retrieve attendance percentage trend grouped by daily, weekly, monthly, department, or shift."""
     company_id = get_company_id_from_claims(claims)
@@ -109,8 +107,8 @@ async def get_late_arrivals(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[AIAttendanceService, Depends(get_ai_attendance_service)],
     department_id: uuid.UUID | None = Query(None),
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
 ) -> APIResponse[LateArrivalsResponse]:
     """Retrieve late arrival records, expected vs actual check-in times, delay minutes, and employee frequencies."""
     company_id = get_company_id_from_claims(claims)

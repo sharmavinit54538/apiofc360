@@ -32,11 +32,11 @@ router = APIRouter(prefix="/recruitment", tags=["Recruitment Analytics & Alerts"
 async def get_analytics(
     claims: Annotated[dict, Depends(require_tenant_admin)],
     service: Annotated[RecruitmentService, Depends(get_recruitment_service)],
-    start_date: Annotated[date | None, Query(description="Filter from date (YYYY-MM-DD)")] = None,
-    end_date: Annotated[date | None, Query(description="Filter to date (YYYY-MM-DD)")] = None,
-    department: Annotated[str | None, Query(description="Filter by department")] = None,
-    job_id: Annotated[uuid.UUID | None, Query(description="Filter by job ID")] = None,
-    company_id: Annotated[uuid.UUID | None, Query(description="Filter by company ID (Super Admin only)")] = None,
+    start_date: date | None = Query(None, description="Filter from date (YYYY-MM-DD)"),
+    end_date: date | None = Query(None, description="Filter to date (YYYY-MM-DD)"),
+    department: str | None = Query(None, description="Filter by department"),
+    job_id: uuid.UUID | None = Query(None, description="Filter by job ID"),
+    company_id: uuid.UUID | None = Query(None, description="Filter by company ID (Super Admin only)"),
 ) -> APIResponse[RecruitmentAnalyticsResponse]:
     """Retrieve comprehensive recruitment metrics, pipeline breakdown, conversion rates, and time-to-hire.
 

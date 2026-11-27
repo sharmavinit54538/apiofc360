@@ -8,8 +8,6 @@ Production-ready onboarding flow with:
 - Token validation & activation endpoints for invited employees
 """
 
-from __future__ import annotations
-
 from datetime import datetime, date, timezone
 import logging
 import os

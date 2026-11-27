@@ -78,8 +78,8 @@ async def list_events(
     branch: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     visibility: str | None = Query(None),
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
     search: str | None = Query(None),
 ) -> APIResponse[list[CalendarEventResponse]]:
     """List calendar events with filters."""
@@ -379,7 +379,7 @@ async def list_meetings(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
     organizer_id: uuid.UUID | None = Query(None),
-    meeting_date: date | None = Query(None),
+    meeting_date: Optional[date] = Query(None),
     status_filter: str | None = Query(None, alias="status"),
 ) -> APIResponse[list[MeetingResponse]]:
     """List scheduled meetings."""
@@ -470,7 +470,7 @@ async def delete_meeting(
 async def list_birthdays(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
-    target_date: date | None = Query(None, description="Query date (defaults to today)"),
+    target_date: Optional[date] = Query(None, description="Query date (defaults to today)"),
 ) -> APIResponse[list[BirthdayListItem]]:
     """List active employee birthdays today."""
     query_date = target_date or date.today()
@@ -491,7 +491,7 @@ async def list_birthdays(
 async def list_anniversaries(
     claims: Annotated[dict, Depends(get_current_user_claims)],
     service: Annotated[CalendarService, Depends(get_calendar_service)],
-    target_date: date | None = Query(None, description="Query date (defaults to today)"),
+    target_date: Optional[date] = Query(None, description="Query date (defaults to today)"),
 ) -> APIResponse[list[AnniversaryListItem]]:
     """List active employee work anniversaries today."""
     query_date = target_date or date.today()

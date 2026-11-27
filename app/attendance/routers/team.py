@@ -1,7 +1,5 @@
 """Daily Face Attendance manager team view router."""
 
-from __future__ import annotations
-
 from datetime import date
 from typing import Annotated, Optional
 import uuid

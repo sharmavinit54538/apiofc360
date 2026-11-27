@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db_session
@@ -19,6 +20,7 @@ from app.schemas.chat_assistant import (
     ChatHistoryResponse,
     ChatSuggestionsResponse,
     CreateConversationRequest,
+    MessageDeliveryStatusResponse,
     RecommendationsPayload,
     ReportGeneratePayload,
 )
@@ -98,6 +100,109 @@ async def chat_with_assistant(
 
 
 @router.post(
+    "/stream",
+    status_code=status.HTTP_200_OK,
+    summary="Stream AI Chat Assistant Response via Server-Sent Events",
+)
+async def stream_chat_with_assistant(
+    http_request: Request,
+    request: ChatAssistantRequest,
+    claims: Annotated[dict, Depends(require_employee_or_above)],
+    service: Annotated[ChatAssistantService, Depends(get_chat_service)],
+) -> StreamingResponse:
+    """Stream real AI response chunks in real time using Server-Sent Events (SSE)."""
+    company_id = get_company_id_from_claims(claims)
+    user_id = claims.get("sub")
+    user_uuid = uuid.UUID(user_id) if user_id else None
+
+    return StreamingResponse(
+        service.process_chat_stream(
+            request=request,
+            company_id=company_id,
+            user_id=user_uuid,
+            is_disconnected=http_request.is_disconnected,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Content-Encoding": "identity",
+        },
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}/messages/{client_message_id}/status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[MessageDeliveryStatusResponse],
+    summary="Reconcile Chat Message Delivery Status",
+)
+@router.get(
+    "/history/{conversation_id}/messages/{client_message_id}/status",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[MessageDeliveryStatusResponse],
+    summary="Reconcile Chat Message Delivery Status (Alias)",
+)
+async def get_chat_message_status(
+    conversation_id: str,
+    client_message_id: str,
+    claims: Annotated[dict, Depends(require_employee_or_above)],
+    service: Annotated[ChatAssistantService, Depends(get_chat_service)],
+) -> APIResponse[MessageDeliveryStatusResponse]:
+    """Check delivery/completion status of a client-generated message ID before retrying."""
+    company_id = get_company_id_from_claims(claims)
+    user_id = claims.get("sub")
+    data = await service.get_message_status(
+        conversation_id=conversation_id,
+        client_message_id=client_message_id,
+        company_id=company_id,
+        user_id=uuid.UUID(user_id) if user_id else None,
+    )
+    return APIResponse[MessageDeliveryStatusResponse](
+        success=True,
+        message="Message delivery status fetched successfully.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.post(
+    "/conversations/{conversation_id}/cancel",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Cancel Active AI Stream Generation",
+)
+@router.post(
+    "/conversations/{conversation_id}/messages/{client_message_id}/cancel",
+    status_code=status.HTTP_200_OK,
+    response_model=APIResponse[dict],
+    summary="Cancel Specific Active AI Stream Generation",
+)
+async def cancel_chat_generation(
+    conversation_id: str,
+    claims: Annotated[dict, Depends(require_employee_or_above)],
+    service: Annotated[ChatAssistantService, Depends(get_chat_service)],
+    client_message_id: Optional[str] = None,
+) -> APIResponse[dict]:
+    """Signal active streaming generation for this conversation/message to stop cleanly."""
+    company_id = get_company_id_from_claims(claims)
+    user_id = claims.get("sub")
+    data = await service.cancel_message_generation(
+        conversation_id=conversation_id,
+        client_message_id=client_message_id,
+        company_id=company_id,
+        user_id=uuid.UUID(user_id) if user_id else None,
+    )
+    return APIResponse[dict](
+        success=True,
+        message="Cancellation signal recorded.",
+        data=data,
+        errors=None,
+    )
+
+
+@router.post(
     "/conversations",
     status_code=status.HTTP_201_CREATED,
     response_model=APIResponse[ChatAssistantResponse],
@@ -150,7 +255,7 @@ async def create_chat_conversation(
         await service.session.flush()
 
         greeting = (
-            f"Hello! I am OFC HR AI, your enterprise HRMS assistant for {title}. "
+            "Hello! I am OFC HR AI, your enterprise HRMS assistant. "
             "How can I assist you with workforce analytics, policies, or HR operations today?"
         )
         from app.models.ai import AIMessage
@@ -158,7 +263,7 @@ async def create_chat_conversation(
             conversation_id=conversation.id,
             role="assistant",
             message=greeting,
-            metadata={},
+            message_metadata={"status": "completed"},
         )
         service.session.add(greeting_msg)
         await service.session.commit()

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import time
 from typing import Any, AsyncGenerator
 
@@ -29,6 +30,7 @@ from app.llm.providers.base import (
     LLMResponse,
     ProviderCapability,
     ProviderConfig,
+    ProviderRequestError,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,13 +72,26 @@ class OllamaProvider(LLMProviderBase):
         )
         self.timeout_sec = float(timeout_sec)
 
-        # Enforce 120s timeout to prevent cold-start ReadTimeout crashes
+        # Enforce minimum 120s read timeout to prevent cold-start ReadTimeout crashes
         self.timeout_sec = max(self.timeout_sec, 120.0)
+        self._connect_timeout = float(getattr(settings, "OLLAMA_CONNECT_TIMEOUT", 5.0) or 5.0)
+        self._read_timeout = max(
+            self.timeout_sec,
+            float(getattr(settings, "OLLAMA_READ_TIMEOUT", self.timeout_sec) or self.timeout_sec),
+        )
+        self._write_timeout = float(getattr(settings, "OLLAMA_WRITE_TIMEOUT", 10.0) or 10.0)
+        self._pool_timeout = float(getattr(settings, "OLLAMA_POOL_TIMEOUT", 5.0) or 5.0)
 
         # Persistent connection pool (httpx.AsyncClient singleton)
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(self.timeout_sec, connect=15.0, read=self.timeout_sec, write=30.0),
+            timeout=httpx.Timeout(
+                self._read_timeout,
+                connect=self._connect_timeout,
+                read=self._read_timeout,
+                write=self._write_timeout,
+                pool=self._pool_timeout,
+            ),
             limits=httpx.Limits(
                 max_keepalive_connections=20,
                 max_connections=config.extra.get("max_connections", 50),
@@ -86,6 +101,11 @@ class OllamaProvider(LLMProviderBase):
         self._top_p = config.extra.get("top_p", 0.9)
         self._num_predict = config.extra.get("num_predict", 2048)
         self._fallback_model = getattr(settings, "OLLAMA_FALLBACK_MODEL", "gemma:2b")
+
+        # Short-lived /api/tags cache avoids redundant tag round-trips per request
+        self._tags_cache: list[str] | None = None
+        self._tags_cached_at: float = 0.0
+        self._tags_ttl_seconds: float = 30.0
 
         # Background health ping for auto-recovery
         self._health_ping_task: asyncio.Task | None = None
@@ -141,12 +161,83 @@ class OllamaProvider(LLMProviderBase):
             self._healthy = False
             return False
 
+    def _invalidate_tags_cache(self) -> None:
+        """Clear cached /api/tags result after model or connectivity changes."""
+        self._tags_cache = None
+        self._tags_cached_at = 0.0
+
+    @staticmethod
+    def _parse_retry_after(res: httpx.Response) -> float | None:
+        raw = res.headers.get("Retry-After")
+        if not raw:
+            return None
+        try:
+            return max(0.5, min(float(raw.strip()), 15.0))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _map_http_status_error(
+        status_code: int,
+        retry_after: float | None = None,
+    ) -> ProviderRequestError:
+        if status_code == 401:
+            return ProviderRequestError(
+                401,
+                "provider_unauthorized",
+                "AI provider authentication failed.",
+                retryable=False,
+                provider="ollama",
+            )
+        if status_code == 403:
+            return ProviderRequestError(
+                403,
+                "provider_forbidden",
+                "AI provider access is forbidden.",
+                retryable=False,
+                provider="ollama",
+            )
+        if status_code == 429:
+            return ProviderRequestError(
+                429,
+                "provider_rate_limited",
+                "The AI service is receiving too many requests right now.",
+                retryable=True,
+                retry_after=retry_after,
+                provider="ollama",
+            )
+        if status_code == 504:
+            return ProviderRequestError(
+                504,
+                "provider_timeout",
+                "The assistant timed out while waiting for the AI service.",
+                retryable=True,
+                provider="ollama",
+            )
+        if status_code in (502, 503):
+            code = "provider_bad_gateway" if status_code == 502 else "provider_unavailable"
+            return ProviderRequestError(
+                status_code,
+                code,
+                "The AI service is temporarily unavailable.",
+                retryable=True,
+                provider="ollama",
+            )
+        return ProviderRequestError(
+            502 if status_code >= 500 else status_code,
+            "provider_error",
+            "Unable to generate a response from the AI service.",
+            retryable=status_code >= 500,
+            provider="ollama",
+        )
+
     async def health_check_detailed(self) -> dict[str, Any]:
         """Return detailed health info including model availability."""
         try:
-            res = await self._client.get("/api/tags", timeout=5.0)
+            res = await self._client.get("/api/tags", timeout=self._connect_timeout)
             if res.status_code != 200:
                 self._healthy = False
+                self._invalidate_tags_cache()
                 return {"healthy": False, "model_available": False, "error": f"HTTP {res.status_code}"}
             self._healthy = True
             data = res.json()
@@ -156,6 +247,8 @@ class OllamaProvider(LLMProviderBase):
                 name = m.get("name") or m.get("model")
                 if name:
                     installed_models.append(name)
+            self._tags_cache = installed_models
+            self._tags_cached_at = time.monotonic()
             
             # Check if configured model is available
             configured_model = self.config.default_model or "llama3:latest"
@@ -179,17 +272,30 @@ class OllamaProvider(LLMProviderBase):
         except Exception as exc:
             logger.warning("Ollama detailed health check failed: %s", exc)
             self._healthy = False
+            self._invalidate_tags_cache()
             return {"healthy": False, "model_available": False, "error": str(exc)}
 
-    async def _verify_health_or_raise(self) -> list[str]:
+    async def _verify_health_or_raise(self, *, force_refresh: bool = False) -> list[str]:
         """Perform health check before generation.
 
         Returns list of installed model names if healthy, else raises HTTPException 503.
         """
+        if (
+            not force_refresh
+            and self._healthy
+            and self._tags_cache is not None
+            and (time.monotonic() - self._tags_cached_at) < self._tags_ttl_seconds
+        ):
+            return list(self._tags_cache)
+
         try:
-            res = await self._client.get("/api/tags", timeout=5.0)
+            res = await self._client.get("/api/tags", timeout=self._connect_timeout)
             if res.status_code != 200:
                 self.mark_unhealthy()
+                self._invalidate_tags_cache()
+                if res.status_code in (401, 403):
+                    err = self._map_http_status_error(res.status_code)
+                    raise HTTPException(status_code=err.status_code, detail=err.message)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Ollama server is not running.",
@@ -202,30 +308,35 @@ class OllamaProvider(LLMProviderBase):
                 name = m.get("name") or m.get("model")
                 if name:
                     installed_models.append(name)
+            self._tags_cache = installed_models
+            self._tags_cached_at = time.monotonic()
             return installed_models
         except HTTPException:
             raise
         except (httpx.ConnectError, httpx.NetworkError):
             self.mark_unhealthy()
+            self._invalidate_tags_cache()
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Ollama server is not running.",
             )
         except httpx.TimeoutException:
             self.mark_unhealthy()
+            self._invalidate_tags_cache()
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail=f"Ollama health check timed out after 5.0 seconds.",
+                detail=f"Ollama health check timed out after {self._connect_timeout:.1f} seconds.",
             )
         except Exception as exc:
             self.mark_unhealthy()
+            self._invalidate_tags_cache()
             logger.error("Ollama health check exception: %s", exc)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Ollama server is not running.",
             )
 
-    async def validate_or_pull_model(self, requested_model: str) -> str:
+    async def validate_or_pull_model(self, requested_model: str, *, force_refresh: bool = False) -> str:
         """Ensure requested model exists. Auto-fallback to available model if missing.
         
         Strategy:
@@ -236,7 +347,7 @@ class OllamaProvider(LLMProviderBase):
         5. Auto-fallback to first available text model
         6. Last resort: return requested_model and let Ollama handle the error
         """
-        installed = await self._verify_health_or_raise()
+        installed = await self._verify_health_or_raise(force_refresh=force_refresh)
         if not installed:
             logger.warning("No models installed in Ollama, returning requested model: %s", requested_model)
             return requested_model
@@ -329,6 +440,8 @@ class OllamaProvider(LLMProviderBase):
 
         max_retries = 3
         last_exc: Exception | None = None
+        last_status: int | None = None
+        last_code: str = "provider_unavailable"
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -370,9 +483,17 @@ class OllamaProvider(LLMProviderBase):
                         latency_ms=latency_ms,
                     )
 
+                if res.status_code in (401, 403):
+                    err = self._map_http_status_error(res.status_code)
+                    last_status = err.status_code
+                    last_code = err.code
+                    last_exc = err
+                    logger.error("Ollama auth/permission failure HTTP %d", res.status_code)
+                    break
+
                 if res.status_code in (404, 400):
-                    logger.warning("Model %s not installed, trying fallback", verified_model)
-                    # Try with fallback model
+                    self._invalidate_tags_cache()
+                    logger.warning("Model %s unavailable (HTTP %d), trying fallback", verified_model, res.status_code)
                     if verified_model != self._fallback_model:
                         verified_model = self._fallback_model
                         payload["model"] = verified_model
@@ -382,39 +503,70 @@ class OllamaProvider(LLMProviderBase):
                         detail=f"Model {verified_model} not installed.",
                     )
 
+                if res.status_code == 429:
+                    retry_after = self._parse_retry_after(res)
+                    last_status = 429
+                    last_code = "provider_rate_limited"
+                    last_exc = self._map_http_status_error(429, retry_after=retry_after)
+                    logger.warning("Ollama rate limited HTTP 429 (attempt %d/%d)", attempt, max_retries)
+                    if attempt < max_retries:
+                        await asyncio.sleep(retry_after or min(6.0, attempt * 1.5 + random.uniform(0.0, 0.5)))
+                    continue
+
                 if res.status_code >= 500:
+                    last_status = 504 if res.status_code == 504 else res.status_code
+                    last_code = self._map_http_status_error(res.status_code).code
+                    last_exc = RuntimeError(f"HTTP {res.status_code}")
                     logger.warning("Ollama server error %d (attempt %d/%d)", res.status_code, attempt, max_retries)
 
             except HTTPException:
                 raise
             except (httpx.ConnectError, httpx.NetworkError) as exc:
+                last_status = 503
+                last_code = "provider_unavailable"
                 last_exc = exc
+                self._invalidate_tags_cache()
                 logger.warning(
                     "Ollama connection error (attempt %d/%d): %s", attempt, max_retries, exc
                 )
+            except httpx.ReadTimeout as exc:
+                last_status = 504
+                last_code = "provider_timeout"
+                last_exc = exc
+                logger.warning(
+                    "Ollama read timeout after %.1fs (attempt %d/%d): %s",
+                    self._read_timeout,
+                    attempt,
+                    max_retries,
+                    exc,
+                )
+                break  # Do not chain multiple 120s generation timeouts
             except httpx.TimeoutException as exc:
+                last_status = 504
+                last_code = "provider_timeout"
                 last_exc = exc
                 logger.warning(
                     "Ollama request timeout (attempt %d/%d): %s", attempt, max_retries, exc
                 )
             except Exception as exc:
+                last_status = 502
+                last_code = "provider_error"
                 last_exc = exc
                 logger.warning(
                     "Ollama chat unexpected error (attempt %d/%d): %s", attempt, max_retries, exc
                 )
 
             if attempt < max_retries:
-                backoff_sec = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                backoff_sec = min(8.0, (2 ** (attempt - 1)) * 0.5 + random.uniform(0.0, 0.35))
                 await asyncio.sleep(backoff_sec)
 
-        # All retries exhausted - return graceful fallback instead of raising
+        # All retries exhausted - return structured fallback metadata for service layer inspection
         self.mark_unhealthy()
         fallback_msg = (
             "I'm currently unable to connect to the AI service. "
             "Please try again in a moment, or contact support if the issue persists."
         )
         logger.error("All retries exhausted for chat, returning fallback response: %s", last_exc)
-        # Return a valid 200 OK response with fallback content instead of raising
         return LLMResponse(
             content=fallback_msg,
             model=verified_model,
@@ -423,7 +575,11 @@ class OllamaProvider(LLMProviderBase):
             completion_tokens=0,
             total_tokens=0,
             finish_reason="error_fallback",
-            raw={"error": str(last_exc) if last_exc else "unknown"},
+            raw={
+                "error": str(last_exc) if last_exc else "unknown",
+                "error_code": last_code,
+                "status_code": last_status or 503,
+            },
             latency_ms=(time.perf_counter() - t0) * 1000,
         )
 
@@ -559,16 +715,20 @@ class OllamaProvider(LLMProviderBase):
     # Streaming Chat & Completions
     # ------------------------------------------------------------------
 
-    async def stream_chat(
+    async def stream_chat_events(
         self,
         messages: list[dict[str, str]],
         *,
         model: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield structured token/done events and raise ProviderRequestError on failure."""
         chosen_model = model or self.config.default_model or "llama3.1"
-        verified_model = await self.validate_or_pull_model(chosen_model)
+        try:
+            verified_model = await self.validate_or_pull_model(chosen_model)
+        except HTTPException as exc:
+            raise self._map_http_status_error(exc.status_code) from exc
 
         payload: dict[str, Any] = {
             "model": verified_model,
@@ -578,34 +738,154 @@ class OllamaProvider(LLMProviderBase):
             "options": {
                 "temperature": temperature,
                 "top_p": self._top_p,
+                "num_predict": max_tokens or self._num_predict,
             },
         }
 
-        try:
-            async with self._client.stream("POST", "/api/chat", json=payload) as response:
-                if response.status_code != 200:
-                    yield "I'm currently unable to connect to the AI service. Please try again in a moment."
-                    return
-                async for line in response.aiter_lines():
-                    if line:
+        max_prestream_attempts = 2
+        tokens_emitted = False
+
+        for attempt in range(1, max_prestream_attempts + 1):
+            try:
+                async with self._client.stream("POST", "/api/chat", json=payload) as response:
+                    if response.status_code in (401, 403):
+                        raise self._map_http_status_error(response.status_code)
+
+                    if response.status_code in (404, 400):
+                        self._invalidate_tags_cache()
+                        if verified_model != self._fallback_model and attempt == 1:
+                            logger.warning(
+                                "Streaming model '%s' returned %d; falling back to '%s'",
+                                verified_model,
+                                response.status_code,
+                                self._fallback_model,
+                            )
+                            verified_model = self._fallback_model
+                            payload["model"] = verified_model
+                            continue
+                        raise ProviderRequestError(
+                            502,
+                            "model_unavailable",
+                            "Requested AI model is currently unavailable.",
+                            retryable=False,
+                            provider="ollama",
+                        )
+
+                    if response.status_code != 200:
+                        retry_after = self._parse_retry_after(response)
+                        err = self._map_http_status_error(response.status_code, retry_after=retry_after)
+                        if not tokens_emitted and err.retryable and attempt < max_prestream_attempts:
+                            await asyncio.sleep(retry_after or (0.5 + random.uniform(0.0, 0.3)))
+                            continue
+                        raise err
+
+                    self.mark_healthy()
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
                         try:
                             chunk = json.loads(line)
-                            token = chunk.get("message", {}).get("content", "")
-                            if token:
-                                yield token
-                            if chunk.get("done"):
-                                break
                         except json.JSONDecodeError:
                             continue
-        except (httpx.ConnectError, httpx.NetworkError):
-            logger.warning("Ollama stream_chat connection error")
-            yield "I'm currently unable to connect to the AI service. Please try again in a moment."
-        except httpx.TimeoutException:
-            logger.warning("Ollama stream_chat timeout")
-            yield "The AI service is taking too long to respond. Please try again."
-        except Exception as exc:
-            logger.error("Ollama stream_chat failed: %s", exc)
-            yield "An unexpected error occurred. Please try again."
+
+                        if chunk.get("error"):
+                            raise ProviderRequestError(
+                                502,
+                                "stream_interrupted" if tokens_emitted else "provider_error",
+                                "The AI stream encountered an unexpected error.",
+                                retryable=True,
+                                provider="ollama",
+                            )
+
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            tokens_emitted = True
+                            yield {
+                                "type": "token",
+                                "content": token,
+                                "model": chunk.get("model", verified_model),
+                            }
+
+                        if chunk.get("done"):
+                            yield {
+                                "type": "done",
+                                "model": chunk.get("model", verified_model),
+                                "prompt_tokens": chunk.get("prompt_eval_count", 0),
+                                "completion_tokens": chunk.get("eval_count", 0),
+                                "done_reason": chunk.get("done_reason", "stop"),
+                            }
+                            return
+                return
+
+            except asyncio.CancelledError:
+                logger.info("Ollama stream cancelled (model=%s, tokens_emitted=%s)", verified_model, tokens_emitted)
+                raise
+            except ProviderRequestError:
+                self.mark_unhealthy()
+                raise
+            except (httpx.ConnectError, httpx.NetworkError) as exc:
+                self.mark_unhealthy()
+                self._invalidate_tags_cache()
+                logger.warning("Ollama stream connection error (attempt %d): %s", attempt, exc)
+                if not tokens_emitted and attempt < max_prestream_attempts:
+                    await asyncio.sleep(0.5 + random.uniform(0.0, 0.35))
+                    continue
+                raise ProviderRequestError(
+                    503 if not tokens_emitted else 502,
+                    "stream_interrupted" if tokens_emitted else "provider_unavailable",
+                    "The AI stream was interrupted." if tokens_emitted else "I'm currently unable to connect to the AI service.",
+                    retryable=True,
+                    provider="ollama",
+                ) from exc
+            except httpx.TimeoutException as exc:
+                self.mark_unhealthy()
+                logger.warning("Ollama stream timeout (tokens_emitted=%s): %s", tokens_emitted, exc)
+                if isinstance(exc, httpx.ConnectTimeout) and not tokens_emitted and attempt < max_prestream_attempts:
+                    await asyncio.sleep(0.5 + random.uniform(0.0, 0.3))
+                    continue
+                raise ProviderRequestError(
+                    504,
+                    "stream_interrupted" if tokens_emitted else "provider_timeout",
+                    "The assistant is taking longer than expected.",
+                    retryable=True,
+                    provider="ollama",
+                ) from exc
+            except Exception as exc:
+                self.mark_unhealthy()
+                logger.error("Ollama stream unexpected failure (tokens_emitted=%s): %s", tokens_emitted, exc)
+                raise ProviderRequestError(
+                    502,
+                    "stream_interrupted" if tokens_emitted else "provider_error",
+                    "Unable to generate a response.",
+                    retryable=True,
+                    provider="ollama",
+                ) from exc
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> AsyncGenerator[str, None]:
+        try:
+            async for event in self.stream_chat_events(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if event.get("type") == "token":
+                    yield event["content"]
+        except asyncio.CancelledError:
+            raise
+        except ProviderRequestError as exc:
+            logger.warning("Ollama stream_chat fallback due to %s: %s", exc.code, exc.message)
+            if exc.status_code == 504:
+                yield "The AI service is taking too long to respond. Please try again."
+            else:
+                yield "I'm currently unable to connect to the AI service. Please try again in a moment."
 
     async def stream_generate(
         self,
@@ -709,5 +989,6 @@ class OllamaProvider(LLMProviderBase):
     # ------------------------------------------------------------------
 
     async def close(self) -> None:
-        """Close reusable httpx client pool."""
+        """Stop background health ping and close reusable httpx client pool."""
+        self.stop_health_ping()
         await self._client.aclose()

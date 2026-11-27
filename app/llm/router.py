@@ -5,6 +5,7 @@ This is the core orchestration layer that all services call through.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, AsyncGenerator
@@ -14,6 +15,7 @@ from app.llm.providers.base import (
     LLMProviderBase,
     LLMResponse,
     ProviderCapability,
+    ProviderRequestError,
 )
 from app.llm.providers.registry import get_provider_registry
 
@@ -150,27 +152,103 @@ class LLMRouter:
         candidates = self._resolve_provider(provider, ProviderCapability.STREAMING, allow_half_open=True)
 
         for prov in candidates:
+            tokens_emitted = False
             try:
-                got_tokens = False
                 async for token in prov.stream_chat(
                     messages,
                     model=model if provider else None,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 ):
-                    got_tokens = True
+                    tokens_emitted = True
                     yield token
 
-                if got_tokens:
+                if tokens_emitted:
                     return
                 logger.warning("Provider '%s' stream returned no tokens, trying next", prov.name)
 
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 logger.warning("Provider '%s' stream failed: %s", prov.name, exc)
                 prov.mark_unhealthy()
+                if tokens_emitted:
+                    return
                 continue
 
         logger.error("All providers exhausted for stream request")
+
+    async def stream_chat_events(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        provider: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream structured token/done events and propagate ProviderRequestError."""
+        candidates = self._resolve_provider(provider, ProviderCapability.STREAMING, allow_half_open=True)
+        last_error: ProviderRequestError | None = None
+
+        for prov in candidates:
+            tokens_emitted = False
+            try:
+                if hasattr(prov, "stream_chat_events"):
+                    async for event in prov.stream_chat_events(
+                        messages,
+                        model=model if provider else None,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    ):
+                        if event.get("type") == "token":
+                            tokens_emitted = True
+                        yield {**event, "provider": prov.name}
+                    return
+
+                async for token in prov.stream_chat(
+                    messages,
+                    model=model if provider else None,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ):
+                    tokens_emitted = True
+                    yield {"type": "token", "content": token, "model": model or prov.config.default_model, "provider": prov.name}
+                if tokens_emitted:
+                    yield {"type": "done", "model": model or prov.config.default_model, "provider": prov.name}
+                    return
+
+            except asyncio.CancelledError:
+                raise
+            except ProviderRequestError as exc:
+                last_error = exc
+                logger.warning("Provider '%s' structured stream failed (%s): %s", prov.name, exc.code, exc.message)
+                prov.mark_unhealthy()
+                if tokens_emitted:
+                    raise
+                continue
+            except Exception as exc:
+                last_error = ProviderRequestError(
+                    502,
+                    "stream_interrupted" if tokens_emitted else "provider_error",
+                    "Unable to generate a response.",
+                    retryable=True,
+                    provider=prov.name,
+                )
+                logger.warning("Provider '%s' structured stream unexpected error: %s", prov.name, exc)
+                prov.mark_unhealthy()
+                if tokens_emitted:
+                    raise last_error from exc
+                continue
+
+        if last_error is not None:
+            raise last_error
+        raise ProviderRequestError(
+            503,
+            "provider_unavailable",
+            "The AI service is temporarily unavailable.",
+            retryable=True,
+        )
 
     # ------------------------------------------------------------------
     # Embeddings

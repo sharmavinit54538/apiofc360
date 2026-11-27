@@ -53,6 +53,28 @@ class EmbeddingResponse:
     cost_usd: float = 0.0
 
 
+class ProviderRequestError(Exception):
+    """Structured upstream AI provider error suitable for HTTP/SSE mapping."""
+
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        retry_after: float | None = None,
+        provider: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.retry_after = retry_after
+        self.provider = provider
+
+
 @dataclass
 class ProviderConfig:
     """Configuration for a single LLM provider."""

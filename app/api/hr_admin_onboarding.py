@@ -9,8 +9,6 @@ Complete, production-ready backend onboarding system for HR Admin:
 6. Review & Activate
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import re

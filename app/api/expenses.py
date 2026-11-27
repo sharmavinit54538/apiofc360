@@ -1,7 +1,5 @@
 """Expense Management API v1 — Reimbursement claims with full approval workflow."""
 
-from __future__ import annotations
-
 import uuid
 from typing import Annotated
 

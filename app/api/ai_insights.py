@@ -8,8 +8,6 @@ No fabricated, random, or hardcoded sample data:
   and error details.
 """
 
-from __future__ import annotations
-
 import asyncio
 import calendar
 import logging

@@ -1,7 +1,5 @@
 """Shift Management API Routes."""
 
-from __future__ import annotations
-
 import uuid
 from datetime import datetime, time, timezone
 from typing import Annotated, Any, List, Optional

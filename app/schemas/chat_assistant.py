@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Literal, Optional
+import uuid
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+MessageLifecycleState = Literal[
+    "pending",
+    "sending",
+    "accepted",
+    "generating",
+    "streaming",
+    "completed",
+    "failed",
+    "cancelled",
+    "retrying",
+    "interrupted",
+]
 
 
 class SourceCitation(BaseModel):
@@ -62,6 +76,9 @@ class ChatAssistantRequest(BaseModel):
     role: Optional[str] = Field(None, description="User role context")
     project_id: Optional[uuid.UUID] = Field(None, description="Filter by project")
     agent_id: Optional[str] = Field(None, alias="agentId", description="Optional agent id")
+    client_message_id: Optional[str] = Field(None, alias="clientMessageId", description="Client-generated idempotency identifier")
+    request_id: Optional[str] = Field(None, alias="requestId", description="Optional client tracing request ID")
+    stream: bool = Field(False, description="Whether client prefers streaming response")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -78,6 +95,10 @@ class ChatAssistantRequest(BaseModel):
             conv_id = data.get("conversationId") or data.get("session_id")
             if conv_id is not None and data.get("conversation_id") is None:
                 data["conversation_id"] = conv_id
+            # Normalize client_message_id fields
+            cmid = data.get("clientMessageId") or data.get("client_message_id")
+            if cmid is not None and data.get("client_message_id") is None:
+                data["client_message_id"] = str(cmid)
         return data
 
     def get_message_text(self) -> str:
@@ -87,6 +108,11 @@ class ChatAssistantRequest(BaseModel):
     def get_conversation_id(self) -> Optional[str]:
         """Get the normalized conversation ID."""
         return self.conversation_id or self.conversationId or self.session_id
+
+    def get_client_message_id(self) -> Optional[str]:
+        """Get the normalized client message identifier."""
+        raw = self.client_message_id
+        return raw.strip()[:128] if isinstance(raw, str) and raw.strip() else None
 
 
 class CreateConversationRequest(BaseModel):
@@ -114,6 +140,51 @@ class CreateConversationRequest(BaseModel):
         return data
 
 
+class ChatMessageItem(BaseModel):
+    """Serialized chat message returned in conversation details."""
+
+    id: str
+    messageId: Optional[str] = None
+    message_id: Optional[str] = None
+    conversationId: str
+    conversation_id: Optional[str] = None
+    role: str
+    sender: str
+    content: str
+    message: Optional[str] = None
+    timestamp: str
+    createdAt: Optional[str] = None
+    created_at: Optional[str] = None
+    status: str = "completed"
+    clientMessageId: Optional[str] = None
+    client_message_id: Optional[str] = None
+    sources: list[SourceCitation] = Field(default_factory=list)
+    charts: list[ChartData] = Field(default_factory=list)
+    tables: list[TableData] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    metadata: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.messageId is None:
+            self.messageId = self.id
+        if self.message_id is None:
+            self.message_id = self.id
+        if self.conversation_id is None:
+            self.conversation_id = self.conversationId
+        if self.message is None:
+            self.message = self.content
+        if self.createdAt is None:
+            self.createdAt = self.timestamp
+        if self.created_at is None:
+            self.created_at = self.timestamp
+        if self.clientMessageId is None and self.client_message_id is not None:
+            self.clientMessageId = self.client_message_id
+        elif self.client_message_id is None and self.clientMessageId is not None:
+            self.client_message_id = self.clientMessageId
+
+
 class ChatAssistantResponse(BaseModel):
     """Response payload matching frontend chat requirements."""
 
@@ -131,9 +202,20 @@ class ChatAssistantResponse(BaseModel):
     conversationId: str = Field(..., description="CamelCase conversation UUID")
     conversation_id: str = Field(..., description="Snake_case conversation UUID")
     session_id: Optional[str] = Field(None, description="Session ID alias")
+    title: Optional[str] = Field(None, description="Conversation title")
+    messages: list[ChatMessageItem] = Field(default_factory=list, description="Ordered messages when fetching conversation detail")
     role: str = Field("ai", description="Message sender role")
     messageId: Optional[str] = Field(None, description="Message UUID")
     message_id: Optional[str] = Field(None, description="Message UUID")
+    clientMessageId: Optional[str] = Field(None, description="Client-generated idempotency identifier")
+    client_message_id: Optional[str] = Field(None, description="Snake_case client message ID")
+    status: str = Field("completed", description="Message delivery lifecycle state")
+    requestId: Optional[str] = Field(None, description="Tracing request ID")
+    request_id: Optional[str] = Field(None, description="Snake_case tracing request ID")
+    timingMs: Optional[float] = Field(None, description="Total backend request latency in ms")
+    timing_ms: Optional[float] = Field(None, description="Snake_case total backend request latency in ms")
+    model: Optional[str] = Field(None, description="Model name used")
+    provider: Optional[str] = Field(None, description="Provider name used")
     ai_available: bool = Field(True, description="Whether AI/LLM service was available for this response")
     degraded: bool = Field(False, description="Whether response is degraded due to LLM unavailability")
 
@@ -156,6 +238,36 @@ class ChatAssistantResponse(BaseModel):
             self.message_id = self.messageId
         if self.session_id is None:
             self.session_id = self.conversation_id
+        if self.clientMessageId is None and self.client_message_id is not None:
+            self.clientMessageId = self.client_message_id
+        elif self.client_message_id is None and self.clientMessageId is not None:
+            self.client_message_id = self.clientMessageId
+        if self.requestId is None and self.request_id is not None:
+            self.requestId = self.request_id
+        elif self.request_id is None and self.requestId is not None:
+            self.request_id = self.requestId
+        if self.timingMs is None and self.timing_ms is not None:
+            self.timingMs = self.timing_ms
+        elif self.timing_ms is None and self.timingMs is not None:
+            self.timing_ms = self.timingMs
+
+
+class MessageDeliveryStatusResponse(BaseModel):
+    """Status reconciliation payload for idempotent message delivery."""
+
+    conversationId: str
+    conversation_id: str
+    clientMessageId: str
+    client_message_id: str
+    status: str
+    found: bool = True
+    message: Optional[ChatMessageItem] = None
+    response: Optional[ChatAssistantResponse] = None
+    partialContent: Optional[str] = None
+    error: Optional[str] = None
+    updatedAt: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ReportGeneratePayload(BaseModel):
@@ -237,19 +349,31 @@ class ChatHistoryResponse(BaseModel):
 class ChatFeedbackRequest(BaseModel):
     """User feedback payload for chat response."""
 
-    conversation_id: str
-    message_id: Optional[str] = None
+    conversation_id: Optional[str] = Field(None, alias="conversationId")
+    message_id: Optional[str] = Field(None, alias="messageId")
     rating: int = Field(..., description="Rating: up/down/1-5", ge=1, le=5)
     feedback: Optional[str] = Field(None, description="Optional text feedback")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     @model_validator(mode="before")
     @classmethod
     def normalize_rating(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "rating" in data:
-            rating = data["rating"]
-            if isinstance(rating, str):
-                if rating.lower() == "up":
-                    data["rating"] = 5
-                elif rating.lower() == "down":
+        if isinstance(data, dict):
+            if data.get("conversation_id") is None and data.get("conversationId") is not None:
+                data["conversation_id"] = data["conversationId"]
+            if data.get("message_id") is None and data.get("messageId") is not None:
+                data["message_id"] = data["messageId"]
+            if "rating" in data:
+                rating = data["rating"]
+                if isinstance(rating, str):
+                    lowered = rating.strip().lower()
+                    if lowered == "up":
+                        data["rating"] = 5
+                    elif lowered == "down":
+                        data["rating"] = 1
+                    elif lowered in {"-1", "0"}:
+                        data["rating"] = 1
+                elif isinstance(rating, (int, float)) and rating <= 0:
                     data["rating"] = 1
         return data

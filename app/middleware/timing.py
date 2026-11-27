@@ -1,18 +1,85 @@
-"""Request timing middleware — logs slow endpoints and adds X-Process-Time header.
-ASGI middleware for lower overhead."""
+"""Request timing and access logging middleware — logs API requests, status codes, and latency."""
 
 from __future__ import annotations
 
 import logging
 import time
 
-from starlette.responses import Response
+from app.middleware.request_id import get_current_request_id
 
 logger = logging.getLogger("app.timing")
 
+_QUIET_PATHS = frozenset({"/health/live", "/favicon.ico"})
+
+
+def _log_request(
+    method: str,
+    path: str,
+    status_code: int,
+    elapsed_ms: float,
+    request_id: str,
+) -> None:
+    """Emit structured request access and latency log to the application logger."""
+    is_quiet = path in _QUIET_PATHS or method == "OPTIONS"
+
+    if elapsed_ms > 500:
+        logger.error(
+            "API %s %s -> %s (%.1fms) [CRITICAL >500ms] | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+    elif status_code >= 500:
+        logger.error(
+            "API %s %s -> %s (%.1fms) | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+    elif elapsed_ms > 200:
+        logger.warning(
+            "API %s %s -> %s (%.1fms) [HIGH >200ms] | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+    elif elapsed_ms > 100:
+        logger.warning(
+            "API %s %s -> %s (%.1fms) [MEDIUM >100ms] | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+    elif is_quiet:
+        logger.debug(
+            "API %s %s -> %s (%.1fms) | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+    else:
+        logger.info(
+            "API %s %s -> %s (%.1fms) | req=%s",
+            method,
+            path,
+            status_code,
+            elapsed_ms,
+            request_id,
+        )
+
 
 class TimingMiddleware:
-    """Measure request processing time and flag slow endpoints."""
+    """Measure request processing time, add X-Process-Time header, and log API requests."""
 
     def __init__(self, app):
         self.app = app
@@ -25,32 +92,33 @@ class TimingMiddleware:
         start = time.perf_counter()
         path = scope.get("path", "")
         method = scope.get("method", "")
+        response_started = False
+
+        def _resolve_req_id() -> str:
+            req_id = get_current_request_id()
+            if req_id:
+                return req_id
+            state = scope.get("state")
+            if isinstance(state, dict) and state.get("request_id"):
+                return str(state["request_id"])
+            return "-"
 
         async def send_wrapper(message):
+            nonlocal response_started
             if message["type"] == "http.response.start":
+                response_started = True
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 headers = list(message.get("headers", []))
                 headers.append((b"x-process-time", f"{elapsed_ms:.1f}ms".encode()))
                 message["headers"] = headers
 
-                # Skip noisy paths & CORS preflights for logging
-                if path not in ("/health", "/favicon.ico", "/", "/docs", "/openapi.json") and method != "OPTIONS":
-                    if elapsed_ms > 500:
-                        logger.error(
-                            "LATENCY [%s] %s %s → %.1fms", "CRITICAL >500ms", method, path, elapsed_ms
-                        )
-                    elif elapsed_ms > 200:
-                        logger.warning(
-                            "LATENCY [%s] %s %s → %.1fms", "HIGH >200ms", method, path, elapsed_ms
-                        )
-                    elif elapsed_ms > 100:
-                        logger.warning(
-                            "LATENCY [%s] %s %s → %.1fms", "MEDIUM >100ms", method, path, elapsed_ms
-                        )
-                    elif elapsed_ms > 50:
-                        logger.debug(
-                            "LATENCY [%s] %s %s → %.1fms", "LOW >50ms", method, path, elapsed_ms
-                        )
+                status_code = int(message.get("status", 200))
+                _log_request(method, path, status_code, elapsed_ms, _resolve_req_id())
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            if not response_started:
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                _log_request(method, path, 500, elapsed_ms, _resolve_req_id())

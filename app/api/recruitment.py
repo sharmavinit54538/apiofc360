@@ -1,7 +1,5 @@
 """AI Resume Screening & ATS Matching API endpoints."""
 
-from __future__ import annotations
-
 import uuid
 from typing import Annotated, Any, Dict, List, Optional
 

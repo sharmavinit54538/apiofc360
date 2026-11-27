@@ -1,7 +1,5 @@
 """Job Management API routes."""
 
-from __future__ import annotations
-
 import uuid
 from typing import Annotated, Any, Dict, List, Optional
 from decimal import Decimal

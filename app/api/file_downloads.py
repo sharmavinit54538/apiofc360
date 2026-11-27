@@ -5,8 +5,6 @@ These endpoints replace public StaticFiles mounts for sensitive directories
 tenant-scoped downloads that validate path traversal and record ownership.
 """
 
-from __future__ import annotations
-
 import os
 import uuid
 from pathlib import Path

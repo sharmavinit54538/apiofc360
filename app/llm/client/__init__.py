@@ -13,7 +13,7 @@ from typing import Any, AsyncGenerator
 from app.core.config import settings
 from app.core.exceptions import LLMUnavailableError
 from app.llm.router import LLMRouter, get_llm_router
-from app.llm.providers.base import LLMResponse, EmbeddingResponse
+from app.llm.providers.base import LLMResponse, EmbeddingResponse, ProviderRequestError
 from app.llm.cost_tracker import get_cost_tracker
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,18 @@ class LLMClient:
                 completion_tokens=response.completion_tokens,
                 latency_ms=response.latency_ms,
                 endpoint="chat",
+            )
+
+        if response.finish_reason == "error_fallback":
+            raw = response.raw or {}
+            status_code = int(raw.get("status_code") or 503)
+            error_code = str(raw.get("error_code") or "provider_unavailable")
+            raise ProviderRequestError(
+                status_code=status_code,
+                code=error_code,
+                message=response.content or "AI service is currently unavailable.",
+                retryable=status_code not in (401, 403),
+                provider=response.provider,
             )
 
         if not response.content:
@@ -122,6 +134,7 @@ class LLMClient:
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int = 2048,
         provider: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Yield chat tokens as they arrive from the best available provider."""
@@ -131,8 +144,29 @@ class LLMClient:
                 model=model,
                 provider=provider,
                 temperature=temperature if temperature is not None else 0.3,
+                max_tokens=max_tokens,
             ):
                 yield token
+
+    async def stream_chat_events(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int = 2048,
+        provider: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Yield structured stream events (`token`, `done`) and propagate upstream errors."""
+        async with self._chat_semaphore:
+            async for event in self._router.stream_chat_events(
+                messages,
+                model=model,
+                provider=provider,
+                temperature=temperature if temperature is not None else 0.3,
+                max_tokens=max_tokens,
+            ):
+                yield event
 
     # ------------------------------------------------------------------
     # Completion (backward-compatible with old LLMCompletionsMixin)

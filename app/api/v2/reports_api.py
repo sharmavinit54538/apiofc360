@@ -9,8 +9,6 @@ Provides canonical production endpoints for:
 - Tenant-Scoped Report Log & Statistics Management
 """
 
-from __future__ import annotations
-
 from datetime import date, datetime
 from typing import Annotated, Any, Dict, List, Optional
 import uuid
@@ -243,8 +241,8 @@ async def delete_report(
 async def get_headcount_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date filter (YYYY-MM-DD)"),
+    start_date: Optional[date] = Query(None, description="Start date filter (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
     department: Optional[str] = Query(None, alias="department_id", description="Department filter"),
     status_filter: Optional[str] = Query(None, alias="status", description="Employee status filter"),
 ) -> APIResponse[List[HeadcountAnalyticsItem]]:
@@ -272,8 +270,8 @@ async def get_headcount_analytics(
 async def get_department_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
     department: Optional[str] = Query(None, alias="department_id", description="Department filter"),
     status_filter: Optional[str] = Query(None, alias="status", description="Employee status filter"),
 ) -> APIResponse[List[DepartmentAnalyticsItem]]:
@@ -301,8 +299,8 @@ async def get_department_analytics(
 async def get_tenure_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
     department: Optional[str] = Query(None, alias="department_id", description="Department filter"),
     status_filter: Optional[str] = Query(None, alias="status", description="Employee status filter"),
 ) -> APIResponse[List[TenureAnalyticsItem]]:
@@ -330,8 +328,8 @@ async def get_tenure_analytics(
 async def get_turnover_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
     department: Optional[str] = Query(None, alias="department_id", description="Department filter"),
 ) -> APIResponse[List[TurnoverAnalyticsItem]]:
     data = await service.get_turnover_analytics(
@@ -357,8 +355,8 @@ async def get_turnover_analytics(
 async def get_payroll_cost_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
 ) -> APIResponse[List[PayrollCostAnalyticsItem]]:
     data = await service.get_payroll_cost_analytics(
         ctx,
@@ -382,8 +380,8 @@ async def get_payroll_cost_analytics(
 async def get_compliance_analytics(
     ctx: Annotated[AnalyticsContext, Depends(require_analytics_access)],
     service: Annotated[AnalyticsReportsService, Depends(get_analytics_service)],
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
 ) -> APIResponse[ComplianceAnalyticsResponse]:
     data = await service.get_compliance_analytics(
         ctx,
@@ -410,8 +408,8 @@ async def export_analytics_dataset(
         "headcount",
         description="Dataset to export: headcount | department | tenure | turnover | payroll-cost | compliance",
     ),
-    start_date: date | None = Query(None, description="Start date filter"),
-    end_date: date | None = Query(None, description="End date filter"),
+    start_date: Optional[date] = Query(None, description="Start date filter"),
+    end_date: Optional[date] = Query(None, description="End date filter"),
     department: Optional[str] = Query(None, alias="department_id", description="Department filter"),
     status_filter: Optional[str] = Query(None, alias="status", description="Status filter"),
 ) -> Response:

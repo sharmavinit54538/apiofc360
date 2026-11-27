@@ -1,9 +1,7 @@
 """Daily Face Attendance analytics router."""
 
-from __future__ import annotations
-
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, Query, status
@@ -51,10 +49,10 @@ async def get_attendance_analytics(
 
 
 def _resolve_filter_params(
-    start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
-    startDate: date | None = Query(None, description="Start date alias (YYYY-MM-DD)"),
-    end_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
-    endDate: date | None = Query(None, description="End date alias (YYYY-MM-DD)"),
+    start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    startDate: Optional[date] = Query(None, description="Start date alias (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    endDate: Optional[date] = Query(None, description="End date alias (YYYY-MM-DD)"),
     view_mode: str | None = Query(None, pattern="^(week|month)$", description="View mode: week or month"),
     viewMode: str | None = Query(None, pattern="^(week|month)$", description="View mode alias: week or month"),
     department_id: str | None = Query(None),

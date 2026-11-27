@@ -5,11 +5,9 @@ Note: Face biometric check-in/check-out endpoints have been moved to
 This router provides non-biometric attendance operations only.
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,8 +92,8 @@ async def get_today_company_attendance(
 async def get_attendance_history(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: date | None = Query(None),
-    to_date: date | None = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -140,8 +138,8 @@ async def get_all_records(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
     employee_id: str | None = Query(None),
-    from_date: date | None = Query(None),
-    to_date: date | None = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
     status: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -195,7 +193,7 @@ async def get_all_records(
 async def get_attendance_analytics(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    target_date: date | None = Query(None),
+    target_date: Optional[date] = Query(None),
 ):
     cid = _get_cid(claims)
     srv = AttendanceCoreService(session)
@@ -207,12 +205,12 @@ async def get_attendance_analytics(
 async def get_attendance_analytics_trends(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: date | None = Query(None),
-    to_date: date | None = Query(None),
-    start_date: date | None = Query(None),
-    startDate: date | None = Query(None),
-    end_date: date | None = Query(None),
-    endDate: date | None = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    start_date: Optional[date] = Query(None),
+    startDate: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    endDate: Optional[date] = Query(None),
     view_mode: str | None = Query(None),
     viewMode: str | None = Query(None),
     department_id: str | None = Query(None),
@@ -242,12 +240,12 @@ async def get_attendance_analytics_trends(
 async def get_attendance_analytics_rate(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: date | None = Query(None),
-    to_date: date | None = Query(None),
-    start_date: date | None = Query(None),
-    startDate: date | None = Query(None),
-    end_date: date | None = Query(None),
-    endDate: date | None = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    start_date: Optional[date] = Query(None),
+    startDate: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    endDate: Optional[date] = Query(None),
     view_mode: str | None = Query(None),
     viewMode: str | None = Query(None),
     department_id: str | None = Query(None),
@@ -277,10 +275,10 @@ async def get_attendance_analytics_weekly(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
     weeks: int | None = Query(None, ge=1, le=12),
-    start_date: date | None = Query(None),
-    startDate: date | None = Query(None),
-    end_date: date | None = Query(None),
-    endDate: date | None = Query(None),
+    start_date: Optional[date] = Query(None),
+    startDate: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    endDate: Optional[date] = Query(None),
     view_mode: str | None = Query(None),
     viewMode: str | None = Query(None),
     department_id: str | None = Query(None),
@@ -382,8 +380,8 @@ async def get_overtime_records(
 async def export_attendance(
     claims: dict = Depends(get_current_user_claims),
     session: AsyncSession = Depends(get_db_session),
-    from_date: date | None = Query(None),
-    to_date: date | None = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
 ):
     _require_admin_or_manager(claims)
     cid = _get_cid(claims)

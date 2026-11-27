@@ -2,6 +2,9 @@
 # AI Workforce Planning endpoints active
 
 import logging
+import os
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -258,6 +261,28 @@ async def lifespan(app: FastAPI):
             logger.info(" ReDoc API Docs: http://127.0.0.1:8000/redoc")
         else:
             logger.info(" Public API documentation (/docs, /redoc, /openapi.json) is DISABLED in production.")
+
+        if os.name == "nt" and not settings.is_production and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                duplicates = await asyncio.to_thread(
+                    _find_duplicate_windows_listeners,
+                    {os.getpid(), os.getppid()},
+                )
+                for dup in duplicates:
+                    kill_pids = dup["orphan_worker_pids"] or dup["stale_socket_pids"]
+                    kill_cmd = " ".join(f"/PID {pid}" for pid in kill_pids)
+                    logger.critical(
+                        "Duplicate TCP listener on port %d (Windows SO_REUSEADDR conflict): "
+                        "stale socket PID(s)=%s, orphan worker PID(s)=%s. "
+                        "Incoming API traffic may route to the stale background process instead of this terminal, hiding API logs. "
+                        "Terminate stale process(es) with: taskkill /F %s",
+                        dup["port"],
+                        dup["stale_socket_pids"],
+                        dup["orphan_worker_pids"],
+                        kill_cmd,
+                    )
+            except Exception as dup_err:
+                logger.debug("Duplicate listener check skipped: %s", dup_err)
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
         
@@ -315,19 +340,114 @@ async def lifespan(app: FastAPI):
         logger.debug("TTS provider cleanup skipped: %s", e)
 
 
-def configure_logging() -> None:
-    """Configure process logging with mandatory credential/PII redaction."""
-    logging.basicConfig(
-        level=settings.LOG_LEVEL,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+def _find_duplicate_windows_listeners(own_pids: set[int]) -> list[dict[str, object]]:
+    """Detect multiple Windows TCP LISTENING sockets sharing our port via SO_REUSEADDR."""
+    res = subprocess.run(
+        ["netstat", "-ano", "-p", "TCP"],
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
     )
+    if res.returncode != 0 or not res.stdout:
+        return []
+
+    port_pids: dict[int, set[int]] = {}
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP" or parts[3].upper() != "LISTENING":
+            continue
+        local_addr = parts[1]
+        if ":" not in local_addr:
+            continue
+        try:
+            port = int(local_addr.rsplit(":", 1)[1])
+            pid = int(parts[4])
+        except ValueError:
+            continue
+        if pid > 0:
+            port_pids.setdefault(port, set()).add(pid)
+
+    duplicates: list[dict[str, object]] = []
+    for port, pids in sorted(port_pids.items()):
+        if not (pids & own_pids):
+            continue
+        stale_socket_pids = sorted(pid for pid in pids if pid not in own_pids)
+        if not stale_socket_pids:
+            continue
+
+        orphan_worker_pids: list[int] = []
+        try:
+            import psutil
+
+            stale_set = set(stale_socket_pids)
+            for proc in psutil.process_iter(["pid", "ppid", "name"]):
+                info = proc.info
+                proc_pid = info.get("pid")
+                if not proc_pid or proc_pid in own_pids:
+                    continue
+                name = (info.get("name") or "").lower()
+                if "python" not in name:
+                    continue
+                ppid = info.get("ppid")
+                if ppid in stale_set:
+                    orphan_worker_pids.append(proc_pid)
+        except Exception:
+            pass
+
+        duplicates.append(
+            {
+                "port": port,
+                "stale_socket_pids": stale_socket_pids,
+                "orphan_worker_pids": sorted(set(orphan_worker_pids)),
+            }
+        )
+
+    return duplicates
+
+
+def configure_logging() -> None:
+    """Configure process logging with line-buffered streams and mandatory PII redaction."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfig = getattr(stream, "reconfigure", None)
+        if callable(reconfig):
+            try:
+                reconfig(line_buffering=True)
+            except Exception:
+                pass
+
+    log_level = getattr(logging, str(settings.LOG_LEVEL).upper(), logging.INFO)
+    log_format = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+
+    logging.basicConfig(
+        level=log_level,
+        format=log_format,
+    )
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    if not root_logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter(log_format))
+        root_logger.addHandler(handler)
+
+    logging.getLogger("app").setLevel(log_level)
+
     from app.core.structured_logging import PIIRedactionFilter
 
     # basicConfig is a no-op when an embedding server installed handlers first;
     # attach the filter to every root handler in either case.
-    for handler in logging.getLogger().handlers:
+    # Leave uvicorn's own handlers untouched because AccessFormatter and
+    # ColourizedFormatter (color_message) require record.args to stay intact.
+    for handler in root_logger.handlers:
         if not any(isinstance(existing, PIIRedactionFilter) for existing in handler.filters):
             handler.addFilter(PIIRedactionFilter())
+
+    for uv_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uv_logger = logging.getLogger(uv_logger_name)
+        if uv_logger.handlers or uv_logger.propagate:
+            if uv_logger.level == logging.NOTSET or uv_logger.level > log_level:
+                uv_logger.setLevel(log_level)
 
     class CancelledErrorFilter(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
@@ -341,8 +461,10 @@ def configure_logging() -> None:
             return True
 
     db_filter = CancelledErrorFilter()
-    logging.getLogger("sqlalchemy.pool.impl.AsyncAdaptedQueuePool").addFilter(db_filter)
-    logging.getLogger("sqlalchemy.pool").addFilter(db_filter)
+    for pool_logger_name in ("sqlalchemy.pool.impl.AsyncAdaptedQueuePool", "sqlalchemy.pool"):
+        pool_logger = logging.getLogger(pool_logger_name)
+        if not any(type(existing).__name__ == "CancelledErrorFilter" for existing in pool_logger.filters):
+            pool_logger.addFilter(db_filter)
 
 
 # Try to use ORJSONResponse for faster JSON serialization
@@ -439,8 +561,28 @@ def create_app() -> FastAPI:
     from app.middleware.timing import TimingMiddleware
     app.add_middleware(TimingMiddleware)
 
-    # GZip compression for responses > 500 bytes (~60-70% size reduction)
-    app.add_middleware(GZipMiddleware, minimum_size=500)
+    # GZip compression for responses > 500 bytes, bypassing SSE streams so chunks flush immediately
+    class SSEBypassGZipMiddleware:
+        """Skip gzip buffering for Server-Sent Events streaming routes."""
+
+        def __init__(self, app: Any, minimum_size: int = 500) -> None:
+            self.app = app
+            self.gzip = GZipMiddleware(app, minimum_size=minimum_size)
+
+        async def __call__(self, scope, receive, send) -> None:
+            if scope.get("type") == "http":
+                path = scope.get("path", "")
+                accept = ""
+                for k, v in scope.get("headers") or ():
+                    if k.lower() == b"accept":
+                        accept = v.decode("latin-1").lower()
+                        break
+                if path.endswith("/stream") or "text/event-stream" in accept:
+                    await self.app(scope, receive, send)
+                    return
+            await self.gzip(scope, receive, send)
+
+    app.add_middleware(SSEBypassGZipMiddleware, minimum_size=500)
 
     # Security Headers Middleware
     from app.middleware.security_headers import SecurityHeadersMiddleware

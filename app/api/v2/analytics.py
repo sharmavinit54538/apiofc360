@@ -1,11 +1,9 @@
 """Analytics API v2 — Recruitment analytics dashboard endpoints."""
 
-from __future__ import annotations
-
 import logging
 import uuid
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -205,7 +203,7 @@ async def get_diversity_analytics(
 async def get_attrition_risk_analytics(
     claims: Annotated[dict, Depends(require_admin_or_manager)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
-    as_of_date: date | None = Query(None),
+    as_of_date: Optional[date] = Query(None),
     persist: bool = Query(False, description="Persist assessment snapshots after computing the response"),
     limit: int = Query(100, ge=1, le=500),
 ):
