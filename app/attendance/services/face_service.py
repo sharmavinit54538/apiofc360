@@ -13,22 +13,41 @@ Provides:
 from __future__ import annotations
 
 import base64
+import importlib.util
 import io
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import cv2
-import numpy as np
 from fastapi import HTTPException, status
 from PIL import Image
 
-try:
-    import face_recognition
-    HAS_FACE_RECOGNITION = True
-except ImportError:
-    HAS_FACE_RECOGNITION = False
+if TYPE_CHECKING:
+    import numpy as np
+
+HAS_FACE_RECOGNITION: bool = importlib.util.find_spec("face_recognition") is not None
 
 logger = logging.getLogger(__name__)
+
+
+def _get_np():
+    import numpy as np
+    return np
+
+
+def _get_cv2():
+    import cv2
+    return cv2
+
+
+def _get_face_recognition():
+    global HAS_FACE_RECOGNITION
+    try:
+        import face_recognition
+        HAS_FACE_RECOGNITION = True
+        return face_recognition
+    except ImportError:
+        HAS_FACE_RECOGNITION = False
+        return None
 
 # Documented Similarity Threshold: distance <= 0.50 corresponds to >= 85% biometric match confidence
 MATCH_DISTANCE_THRESHOLD: float = 0.50
@@ -114,7 +133,7 @@ class FaceRecognitionService:
             if pil_image.mode != "RGB":
                 pil_image = pil_image.convert("RGB")
 
-            return np.array(pil_image)
+            return _get_np().array(pil_image)
         except HTTPException:
             raise
         except Exception as exc:
@@ -134,6 +153,8 @@ class FaceRecognitionService:
         
         Raises HTTPException 400 with FACE_QUALITY_LOW code on quality failure.
         """
+        cv2 = _get_cv2()
+        np = _get_np()
         gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
         laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
@@ -235,6 +256,8 @@ class FaceRecognitionService:
                 detail={"code": "FACE_QUALITY_LOW", "message": "Failed to crop face region."},
             )
 
+        cv2 = _get_cv2()
+        np = _get_np()
         # 1. Chromatic distribution in YCrCb space
         # Real human skin typically exhibits Cr in [130, 175] and Cb in [75, 135]
         face_ycrcb = cv2.cvtColor(face_crop, cv2.COLOR_RGB2YCrCb)
@@ -323,7 +346,8 @@ class FaceRecognitionService:
         Returns:
             (face_location, quality_dict, liveness_score)
         """
-        if not HAS_FACE_RECOGNITION:
+        face_recognition = _get_face_recognition()
+        if face_recognition is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"code": "SYSTEM_ERROR", "message": "Face recognition subsystem is not installed."},
@@ -370,6 +394,12 @@ class FaceRecognitionService:
         """
         location, _, liveness_score = cls.detect_and_validate_single_face(rgb_array, enforce_liveness=enforce_liveness)
 
+        face_recognition = _get_face_recognition()
+        if face_recognition is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"code": "SYSTEM_ERROR", "message": "Face recognition subsystem is not installed."},
+            )
         encodings = face_recognition.face_encodings(rgb_array, known_face_locations=[location])
         if not encodings:
             raise HTTPException(
@@ -397,10 +427,12 @@ class FaceRecognitionService:
         if not saved_embedding or not live_embedding:
             return False, 1.0
 
+        np = _get_np()
         saved_arr = np.array(saved_embedding, dtype=np.float64)
         live_arr = np.array(live_embedding, dtype=np.float64)
 
-        if HAS_FACE_RECOGNITION:
+        face_recognition = _get_face_recognition()
+        if face_recognition is not None:
             distances = face_recognition.face_distance([saved_arr], live_arr)
             distance = float(distances[0])
         else:

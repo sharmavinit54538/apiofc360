@@ -12,7 +12,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payroll.dependencies import Claims
-from app.api.payroll.permissions import _is_admin_or_manager, _require_admin, _require_admin_or_manager, _require_tenant_id, _role, _uid
+from app.api.payroll.permissions import (
+    _is_admin_or_manager,
+    _is_payslip_admin_authorized,
+    _reject_super_admin,
+    _require_admin,
+    _require_admin_or_manager,
+    _require_payslip_manager_or_admin,
+    _require_tenant_id,
+    _role,
+    _uid,
+)
 from app.db.database import get_db_session
 from app.models.employee import Employee
 from app.models.payroll import PayrollRun
@@ -415,7 +425,7 @@ async def _authorize_employee_payslip_access(
     action_label: str = "payslip",
 ) -> uuid.UUID | None:
     c_uuid = _optional_claims_company(claims)
-    if _is_admin_or_manager(claims):
+    if await _is_payslip_admin_authorized(db, claims, c_uuid):
         return c_uuid
     user_id = _uid(claims)
     if not user_id:
@@ -506,17 +516,39 @@ async def get_run_employee_payslip_v2(
 async def download_run_employee_payslip_v2(
     runId: uuid.UUID,
     employeeId: uuid.UUID,
+    inline: bool = Query(False),
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.models.payroll import Payslip
+
     c_uuid = await _authorize_employee_payslip_access(db, claims, employeeId, action_label="payslip")
     content_bytes, filename = await PayslipService.get_payslip_file(
-        db, run_id=runId, employee_id=employeeId, company_id=c_uuid
+        db,
+        run_id=runId,
+        employee_id=employeeId,
+        company_id=c_uuid,
+        actor_id=_uid(claims),
+        actor_role=_role(claims),
     )
+    ps = (
+        await db.execute(
+            select(Payslip).where(Payslip.payroll_run_id == runId, Payslip.employee_id == employeeId)
+        )
+    ).scalar_one_or_none()
+    if ps is not None:
+        ps.download_count = (ps.download_count or 0) + 1
+        await db.commit()
+    disposition = "inline" if inline else "attachment"
     return Response(
         content=content_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "private, no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -604,12 +636,14 @@ async def create_payment_batch_from_run(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
+    _reject_super_admin(claims)
+    c_uuid = _require_tenant_id(claims)
     user_id = _uid(claims)
     user_role = _role(claims)
-    tenant = claims.get("company_id") if claims else None
-    if not tenant and user_role != "super_admin":
-        raise HTTPException(status_code=403, detail="Company scope is required for payment operations.")
-    src_uuid = uuid.UUID(payload.source_account_id)
+    try:
+        src_uuid = uuid.UUID(str(payload.source_account_id))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid source bank account ID.") from exc
     batch = await PaymentBatchService.create_batch_from_run(
         session=db,
         run_id=runId,
@@ -619,18 +653,12 @@ async def create_payment_batch_from_run(
         notes=payload.notes,
         user_id=user_id,
         user_role=user_role,
-        company_id=uuid.UUID(str(tenant)) if tenant else None,
+        company_id=c_uuid,
+        payment_date=payload.payment_date,
+        validate_source_account=True,
     )
-    return _ok({
-        "id": str(batch.id),
-        "run_id": str(batch.run_id),
-        "batch_number": batch.batch_number,
-        "status": batch.status,
-        "payment_mode": batch.payment_mode,
-        "total_amount_paise": batch.total_amount_paise,
-        "total_records": batch.total_records,
-        "created_at": batch.created_at.isoformat() if batch.created_at else None,
-    }, "Payment batch created successfully from run")
+    ctx = await PaymentBatchService.build_batch_contexts(db, [batch])
+    return _ok(PaymentBatchService.serialize_batch(batch, ctx), "Payment batch created successfully from run")
 
 
 # 12. GET /api/v2/payroll/runs/{runId}/payment-batches
@@ -641,21 +669,12 @@ async def list_run_payment_batches(
     db: AsyncSession = Depends(get_db_session),
 ):
     _require_admin_or_manager(claims)
-    c_uuid = _claims_company(claims)
+    _reject_super_admin(claims)
+    c_uuid = _require_tenant_id(claims)
     await PayrollRunService.get_run(db, runId, company_id=c_uuid)
     res = await PaymentBatchService.list_batches(session=db, company_id=c_uuid, run_id=runId)
-    batches_data = [
-        {
-            "id": str(b.id),
-            "batch_number": b.batch_number,
-            "status": b.status,
-            "total_amount_paise": b.total_amount_paise,
-            "total_records": b.total_records,
-            "payment_mode": b.payment_mode,
-            "created_at": b.created_at.isoformat() if b.created_at else None,
-        }
-        for b in res["items"]
-    ]
+    ctx = await PaymentBatchService.build_batch_contexts(db, res["items"])
+    batches_data = [PaymentBatchService.serialize_batch(b, ctx) for b in res["items"]]
     return _ok(batches_data, "Run payment batches retrieved successfully")
 
 
@@ -667,8 +686,17 @@ async def generate_run_payslips_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    _require_admin_or_manager(claims)
-    await PayrollRunService.get_run(db, runId, company_id=_optional_claims_company(claims))
+    from app.services.payroll.payslip_service import FINALIZED_RUN_STATUSES
+
+    c_uuid = _optional_claims_company(claims)
+    await _require_payslip_manager_or_admin(db, claims, c_uuid)
+    run = await PayrollRunService.get_run(db, runId, company_id=c_uuid)
+    allow_draft = bool(payload and payload.allow_draft)
+    if not allow_draft and str(run.status or "").upper() not in FINALIZED_RUN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Official payslip generation requires an approved or finalized payroll run (current: {run.status}).",
+        )
     emp_ids = payload.employee_ids if payload else None
     force = payload.force if payload else False
     fmt = payload.format if payload else "pdf"
@@ -678,6 +706,10 @@ async def generate_run_payslips_v2(
         employee_ids=emp_ids,
         force=force,
         format_type=fmt,
+        company_id=c_uuid,
+        actor_id=_uid(claims),
+        actor_role=_role(claims),
+        require_finalized=not allow_draft,
     )
     return _ok({"job_id": job_id, "status": "QUEUED"}, "Payslip generation initiated successfully")
 

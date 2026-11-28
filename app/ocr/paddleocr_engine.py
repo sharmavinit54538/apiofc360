@@ -8,16 +8,14 @@ Install: pip install paddlepaddle paddleocr
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    from paddleocr import PaddleOCR as _PaddleOCR
-    PADDLE_AVAILABLE = True
-except ImportError:
-    PADDLE_AVAILABLE = False
+PADDLE_AVAILABLE: bool = importlib.util.find_spec("paddleocr") is not None
+if not PADDLE_AVAILABLE:
     logger.info("PaddleOCR not installed — engine disabled")
 
 
@@ -36,6 +34,7 @@ class PaddleOCREngine:
         """Lazy-initialize PaddleOCR (heavy model load)."""
         if self._ocr is None and PADDLE_AVAILABLE:
             try:
+                from paddleocr import PaddleOCR as _PaddleOCR
                 self._ocr = _PaddleOCR(
                     use_angle_cls=True,
                     lang="en",

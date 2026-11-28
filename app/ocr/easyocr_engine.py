@@ -8,16 +8,14 @@ Install: pip install easyocr
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    import easyocr as _easyocr
-    EASYOCR_AVAILABLE = True
-except ImportError:
-    EASYOCR_AVAILABLE = False
+EASYOCR_AVAILABLE: bool = importlib.util.find_spec("easyocr") is not None
+if not EASYOCR_AVAILABLE:
     logger.info("EasyOCR not installed — engine disabled")
 
 
@@ -36,6 +34,7 @@ class EasyOCREngine:
         """Lazy-initialize EasyOCR reader (heavy model load)."""
         if self._reader is None and EASYOCR_AVAILABLE:
             try:
+                import easyocr as _easyocr
                 self._reader = _easyocr.Reader(
                     ["en"],
                     gpu=False,

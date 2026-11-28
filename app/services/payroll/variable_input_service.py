@@ -59,9 +59,9 @@ class VariableInputService:
             stmt = stmt.where(VariableInput.company_id == company_id)
         if period_id:
             try:
-                p_uuid = uuid.UUID(period_id)
+                p_uuid = period_id if isinstance(period_id, uuid.UUID) else uuid.UUID(str(period_id))
                 stmt = stmt.where(VariableInput.period_id == p_uuid)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
         # Accept both type_filter and input_type for backward compatibility
         effective_type_filter = type_filter or input_type

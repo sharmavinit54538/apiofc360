@@ -373,6 +373,14 @@ class Payslip(Base):
 
     pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    document_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    document_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="GENERATED", server_default=text("'GENERATED'"))
+    sha256_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verification_token: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
+    snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    released_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     email_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))  # NOT_SENT/SENT/DELIVERED/OPENED/FAILED
     email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     whatsapp_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SENT", server_default=text("'NOT_SENT'"))
@@ -389,6 +397,44 @@ class Payslip(Base):
 
     payroll_run: Mapped[PayrollRun] = relationship("PayrollRun", back_populates="payslips", lazy="select")
     employee: Mapped[Employee] = relationship("Employee", lazy="select")
+
+
+class PayslipDocument(Base):
+    """Immutable issued/draft PDF payslip version with integrity hash, snapshot & verification token."""
+
+    __tablename__ = "payslip_documents"
+    __table_args__ = (
+        UniqueConstraint("payslip_id", "version_number", name="uq_payslip_document_version"),
+        Index("ix_payslip_documents_company_id", "company_id"),
+        Index("ix_payslip_documents_payslip_id", "payslip_id"),
+        Index("ix_payslip_documents_verification_token", "verification_token"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    payslip_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payslips.id", ondelete="CASCADE"), nullable=False)
+    payroll_run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("payroll_runs.id", ondelete="CASCADE"), nullable=False)
+    employee_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+
+    document_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    payslip_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="FINAL", server_default=text("'FINAL'"))  # DRAFT|FINAL|RELEASED|SUPERSEDED
+    is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_token: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    payslip: Mapped[Payslip] = relationship("Payslip", lazy="select")
 
 
 class EmployeeInvestmentDeclaration(Base):

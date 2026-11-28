@@ -43,11 +43,14 @@ async def v1_get_employee_payslips(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _is_payslip_admin_authorized, _reject_super_admin
+
+    _reject_super_admin(claims)
     user_uid = _uid(claims)
     company_id = _as_uuid(claims.get("company_id")) if claims else None
 
-    # Enforce RBAC: Non-admin employees can ONLY view their own payslips
-    if not _is_admin_or_manager(claims):
+    # Enforce RBAC: Non-admin employees & unauthorized managers can ONLY view their own payslips
+    if not await _is_payslip_admin_authorized(db, claims, company_id):
         emp = await EmployeeRepository(db).get_by_user_id(user_uid) if user_uid else None
         if not emp or emp.id != employeeId:
             raise HTTPException(
@@ -55,7 +58,7 @@ async def v1_get_employee_payslips(
                 detail="Forbidden: You can only view your own payslips.",
             )
     else:
-        # Admin / Manager: ensure target employee belongs to their organization
+        # Admin / authorized Manager: ensure target employee belongs to their organization
         if company_id:
             emp = await EmployeeRepository(db).get_by_id(employeeId, company_id=company_id)
             if not emp:
@@ -76,6 +79,9 @@ async def v1_get_my_payslips(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _reject_super_admin
+
+    _reject_super_admin(claims)
     user_id = _uid(claims)
     from app.repositories.employee_repository import EmployeeRepository
     emp = await EmployeeRepository(db).get_by_user_id(user_id) if user_id else None
@@ -373,11 +379,15 @@ async def v1_download_payslip(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
+    from app.api.payroll.permissions import _is_payslip_admin_authorized, _reject_super_admin
+    from app.models.payroll import Payslip
+
+    _reject_super_admin(claims)
     user_uid = _uid(claims)
     company_id = _as_uuid(claims.get("company_id")) if claims else None
 
-    # Check RBAC: Employee can download own, Admin/Manager can download within organization
-    if not _is_admin_or_manager(claims):
+    # Check RBAC: Employee can download own, Admin/explicitly authorized Manager can download within organization
+    if not await _is_payslip_admin_authorized(db, claims, company_id):
         emp = await EmployeeRepository(db).get_by_user_id(user_uid) if user_uid else None
         if not emp or emp.id != employeeId:
             raise HTTPException(
@@ -393,11 +403,31 @@ async def v1_download_payslip(
                     detail="Employee not found in your organization.",
                 )
 
-    content, filename = await PayslipService.get_payslip_file(db, runId, employeeId, company_id=company_id)
+    content, filename = await PayslipService.get_payslip_file(
+        db,
+        runId,
+        employeeId,
+        company_id=company_id,
+        actor_id=user_uid,
+        actor_role=_role(claims),
+    )
+    ps = (
+        await db.execute(
+            select(Payslip).where(Payslip.payroll_run_id == runId, Payslip.employee_id == employeeId)
+        )
+    ).scalar_one_or_none()
+    if ps is not None:
+        ps.download_count = (ps.download_count or 0) + 1
+        await db.commit()
     return Response(
         content=content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -425,12 +455,23 @@ async def v1_generate_payslips(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    _require_admin_or_manager(claims)
+    from app.api.payroll.permissions import _require_payslip_manager_or_admin
+
+    c_uuid = _as_uuid(claims.get("company_id")) if isinstance(claims, dict) else None
+    await _require_payslip_manager_or_admin(db, claims, c_uuid)
     emp_ids = payload.employee_ids if payload else None
     force = payload.force if payload else False
     fmt = payload.format if payload else "pdf"
 
-    job_id = await dispatch_payslip_generation(runId, employee_ids=emp_ids, force=force, format_type=fmt)
+    job_id = await dispatch_payslip_generation(
+        runId,
+        employee_ids=emp_ids,
+        force=force,
+        format_type=fmt,
+        company_id=c_uuid,
+        actor_id=_uid(claims),
+        actor_role=_role(claims),
+    )
     return _ok({"job_id": job_id, "status": "QUEUED"}, "Payslip generation job initiated successfully")
 
 

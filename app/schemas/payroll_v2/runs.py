@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, List, Optional
 from pydantic import Field, field_validator
 
 from app.schemas.payroll_v2.common import PayrollBaseModel
+from app.schemas.payroll_v2.payment_batches import _coerce_date_value
 
 
 class PayrollRunCreateRequest(PayrollBaseModel):
@@ -49,6 +50,7 @@ class PayrollRunPayslipGenerateRequest(PayrollBaseModel):
     employee_ids: Optional[List[str]] = Field(default_factory=list, alias="employeeIds")
     force: bool = Field(False)
     format: str = Field("pdf")
+    allow_draft: bool = Field(False, alias="allowDraft")
 
 
 class HeldEmployeeItem(PayrollBaseModel):
@@ -61,6 +63,7 @@ class PayrollRunPaymentBatchCreateRequest(PayrollBaseModel):
     source_account_id: str = Field(..., alias="sourceAccountId")
     payment_mode: str = Field(..., alias="paymentMode")  # NEFT | RTGS | IMPS | UPI
     held_employee_ids: Optional[List[HeldEmployeeItem]] = Field(default_factory=list, alias="heldEmployeeIds")
+    payment_date: Optional[date] = Field(None, alias="paymentDate")
     notes: Optional[str] = Field(None)
 
     @field_validator("payment_mode")
@@ -70,6 +73,11 @@ class PayrollRunPaymentBatchCreateRequest(PayrollBaseModel):
         if mode not in ("NEFT", "RTGS", "IMPS", "UPI"):
             raise ValueError("paymentMode must be one of: NEFT, RTGS, IMPS, UPI")
         return mode
+
+    @field_validator("payment_date", mode="before")
+    @classmethod
+    def parse_payment_date(cls, v: Any) -> Optional[date]:
+        return _coerce_date_value(v)
 
 
 class PayrollRunEmployeeResponse(PayrollBaseModel):

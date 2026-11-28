@@ -180,8 +180,22 @@ def stop_lag_detector() -> None:
     _lag_detector_running = False
     if _lag_detector_task and not _lag_detector_task.done():
         _lag_detector_task.cancel()
-        _lag_detector_task = None
         logger.info("Event-loop lag detector stopped")
+
+
+async def stop_lag_detector_async() -> None:
+    """Cancel and await the event-loop lag detector task cleanly during shutdown."""
+    global _lag_detector_task, _lag_detector_running
+    _lag_detector_running = False
+    task = _lag_detector_task
+    _lag_detector_task = None
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Event-loop lag detector stopped cleanly")
 
 
 # Redis call instrumentation wrapper

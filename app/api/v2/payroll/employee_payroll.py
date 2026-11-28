@@ -214,7 +214,18 @@ async def get_employee_payslips_v2(
     claims: Claims = None,
     db: AsyncSession = Depends(get_db_session),
 ):
-    await _authorize_employee_scope(db, employeeId, claims, action_label="payslips")
+    from app.api.payroll.permissions import _is_payslip_admin_authorized, _require_tenant_id
+
+    c_uuid = _require_tenant_id(claims)
+    if not await _is_payslip_admin_authorized(db, claims, c_uuid):
+        caller_emp = await _resolve_current_employee(db, claims)
+        if not caller_emp or caller_emp.id != employeeId:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only view your own payslips.",
+            )
+    else:
+        await _authorize_employee_scope(db, employeeId, claims, action_label="payslips")
     res = await PayslipService.get_employee_payslips(db, employee_id=employeeId, page=page, limit=limit)
     items_data = [
         {

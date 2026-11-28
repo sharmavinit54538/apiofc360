@@ -482,6 +482,12 @@ class PaymentBatch(Base):
         ForeignKey("payroll_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("payroll_periods.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     batch_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     operation_key: Mapped[str] = mapped_column(String(100), nullable=False, default="INITIAL", server_default=text("'INITIAL'"))
@@ -490,12 +496,27 @@ class PaymentBatch(Base):
     payment_mode: Mapped[str] = mapped_column(
         String(30), nullable=False, default="NEFT", server_default=text("'NEFT'")
     )  # NEFT | RTGS | IMPS | UPI
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, default="INR", server_default=text("'INR'")
+    )
 
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default=text("'DRAFT'")
-    )  # DRAFT | VALIDATED | APPROVED | SUBMITTED | RECONCILED | REJECTED
+    )  # DRAFT | VALIDATING | VALIDATION_FAILED | VALIDATED | PENDING_APPROVAL | APPROVED | REJECTED | FILE_GENERATED | SUBMITTED | PROCESSING | PARTIAL | PAID | FAILED | RECONCILED
 
+    gross_amount_paise: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
+    held_amount_paise: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
     total_amount_paise: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
+    paid_amount_paise: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
+    failed_amount_paise: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0")
     )
     total_records: Mapped[int] = mapped_column(
@@ -504,6 +525,11 @@ class PaymentBatch(Base):
 
     bank_reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     submission_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    bank_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("payment_batch_bank_files.id", ondelete="SET NULL", use_alter=True, name="fk_payment_batches_bank_file_id"),
+        nullable=True,
+    )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Maker-checker (dual control) attribution: who created the batch and who
@@ -518,6 +544,18 @@ class PaymentBatch(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reconciled_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -553,9 +591,11 @@ class PaymentBatch(Base):
         foreign_keys="PaymentBatchItem.batch_id",
     )
     bank_files: Mapped[list["PaymentBatchBankFile"]] = relationship(
-        "PaymentBatchBankFile", back_populates="batch", cascade="all, delete-orphan", lazy="select"
+        "PaymentBatchBankFile", back_populates="batch", cascade="all, delete-orphan", lazy="select",
+        foreign_keys="PaymentBatchBankFile.batch_id",
     )
     run: Mapped["PayrollRun"] = relationship("PayrollRun", lazy="select")
+    period: Mapped["PayrollPeriod | None"] = relationship("PayrollPeriod", lazy="select", foreign_keys=[period_id])
 
 
 class PaymentBatchItem(Base):
@@ -597,17 +637,30 @@ class PaymentBatchItem(Base):
     )  # PENDING | HELD | RELEASED | SUCCESS | FAILED | RETRIED
 
     hold_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    held_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    held_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ifsc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_holder_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     transaction_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payment_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
     utr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reconciliation_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="PENDING", server_default=text("'PENDING'")
+    )
     repayout_batch_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"), nullable=True
     )
+    failure_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retry_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
@@ -656,6 +709,13 @@ class PaymentBatchBankFile(Base):
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_size_bytes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    sha256_checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="GENERATED", server_default=text("'GENERATED'")
     )
@@ -665,7 +725,7 @@ class PaymentBatchBankFile(Base):
     )
 
     batch: Mapped["PaymentBatch"] = relationship(
-        "PaymentBatch", back_populates="bank_files", lazy="select"
+        "PaymentBatch", back_populates="bank_files", lazy="select", foreign_keys=[batch_id]
     )
 
 

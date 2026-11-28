@@ -99,6 +99,7 @@ class Company(Base):
     email_sender_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email_reply_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
     branded_pdf_header_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    payslip_settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class LegalEntity(TenantMixin, TimestampMixin, Base):

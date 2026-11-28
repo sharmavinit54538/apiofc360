@@ -1,7 +1,10 @@
 """Main application entrypoint for FastAPI backend."""
 # AI Workforce Planning endpoints active
 
+import asyncio
+import contextlib
 import logging
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -25,7 +28,7 @@ from app.core.perf_instrumentation import (
     install_db_instrumentation,
     wrap_redis_client,
     start_lag_detector,
-    stop_lag_detector,
+    stop_lag_detector_async,
     PerfHeadersMiddleware,
 )
 
@@ -54,6 +57,7 @@ from app.middleware.auth import get_current_user_claims
 from app.core.config import settings
 from app.core.exceptions import install_exception_handlers
 
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 logger = logging.getLogger("app.main")
 
 
@@ -198,12 +202,52 @@ async def lifespan(app: FastAPI):
         except Exception as seed_err:
             logger.warning("Document seed notice: %s", str(seed_err))
 
-        # Start document expiry alert background scheduler
+        # Start document expiry alert background scheduler (guard against duplicate instance)
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from app.services.document_expiry_service import run_document_expiry_scheduler
+                existing_sched = getattr(app.state, "expiry_scheduler_task", None)
+                if existing_sched is None or existing_sched.done():
+                    app.state.expiry_scheduler_task = asyncio.create_task(
+                        run_document_expiry_scheduler(),
+                        name="document-expiry-scheduler",
+                    )
+            except Exception as sched_err:
+                logger.warning("Expiry scheduler notice: %s", str(sched_err))
+
+        # Validate Celery integration & broker readiness cleanly on startup
         try:
-            from app.services.document_expiry_service import run_document_expiry_scheduler
-            asyncio.create_task(run_document_expiry_scheduler())
-        except Exception as sched_err:
-            logger.warning("Expiry scheduler notice: %s", str(sched_err))
+            from app.workers.celery_app import CELERY_AVAILABLE, check_celery_broker_connectivity
+            if settings.USE_CELERY:
+                if not CELERY_AVAILABLE:
+                    msg = "USE_CELERY=true but 'celery' package is not installed in the active Python environment."
+                    logger.critical(msg)
+                    if settings.is_production:
+                        raise RuntimeError(msg)
+                else:
+                    celery_status = await asyncio.to_thread(check_celery_broker_connectivity, 2.0)
+                    if celery_status["broker_reachable"]:
+                        logger.info("Celery broker reachable (%s)", celery_status["broker_url"])
+                    else:
+                        logger.error(
+                            "Celery enabled (USE_CELERY=true) but broker unreachable (%s): %s",
+                            celery_status["broker_url"],
+                            celery_status["error"],
+                        )
+                        if settings.is_production:
+                            raise RuntimeError(
+                                f"Celery broker unreachable in production: {celery_status['error']}"
+                            )
+            else:
+                logger.info(
+                    "Celery background worker dispatch disabled (USE_CELERY=false, celery_installed=%s); "
+                    "using tracked in-process async tasks for local development.",
+                    CELERY_AVAILABLE,
+                )
+        except RuntimeError:
+            raise
+        except Exception as celery_err:
+            logger.warning("Celery startup diagnostic notice: %s", celery_err)
 
         # Connect to Redis and wrap with instrumentation
         try:
@@ -286,58 +330,76 @@ async def lifespan(app: FastAPI):
     else:
         logger.error("Application started without active database connection. Verify DATABASE_URL in Render environment variables.")
         
-    yield
-    
-    # Graceful shutdown
-    stop_lag_detector()
-
-    # Graceful shutdown of database pool
     try:
-        logger.info("Shutting down database engine connection pool...")
-        await engine.dispose()
-        logger.info("Database engine shut down cleanly.")
-    except Exception as e:
-        logger.error("Error shutting down database engine: %s", str(e))
+        yield
+    except asyncio.CancelledError:
+        logger.info("FastAPI lifespan cancelled (normal reload or shutdown signal).")
+        raise
+    finally:
+        logger.info("Initiating graceful application shutdown...")
 
-    # Graceful shutdown of Redis connection
-    try:
-        from app.core.redis_client import redis_client
-        await redis_client.disconnect()
-    except Exception as e:
-        logger.error("Error shutting down Redis connection: %s", str(e))
+        # Cancel background document expiry scheduler cleanly
+        sched_task = getattr(app.state, "expiry_scheduler_task", None)
+        if sched_task is not None:
+            if not sched_task.done():
+                sched_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await sched_task
+            app.state.expiry_scheduler_task = None
 
-    # Graceful shutdown of HTTP clients
-    try:
-        from app.llm.providers.registry import get_provider_registry
-        registry = get_provider_registry()
-        await registry.close_all()
-        logger.info("LLM provider registry closed")
-    except Exception as e:
-        logger.debug("LLM provider cleanup skipped: %s", e)
+        # Drain/cancel any in-process fallback payroll background tasks
+        try:
+            from app.workers.payroll_tasks import shutdown_background_tasks
+            await shutdown_background_tasks(timeout=5.0)
+        except Exception as bg_err:
+            logger.debug("Background task shutdown notice: %s", bg_err)
 
-    try:
-        from app.services.stt.providers import get_stt_provider
-        for name in ["deepgram", "whisper", "google_cloud"]:
-            try:
-                provider = get_stt_provider(name)
-                if hasattr(provider, 'close'):
-                    await provider.close()
-            except Exception:
-                pass
-    except Exception as e:
-        logger.debug("STT provider cleanup skipped: %s", e)
+        # Graceful shutdown of event-loop lag detector
+        await stop_lag_detector_async()
 
-    try:
-        from app.services.tts.providers import get_tts_provider
-        for name in ["elevenlabs", "openai", "google_cloud", "azure", "coqui"]:
-            try:
-                provider = get_tts_provider(name)
-                if hasattr(provider, 'close'):
-                    await provider.close()
-            except Exception:
-                pass
-    except Exception as e:
-        logger.debug("TTS provider cleanup skipped: %s", e)
+        # Graceful shutdown of database pool
+        try:
+            logger.info("Shutting down database engine connection pool...")
+            await engine.dispose()
+            logger.info("Database engine shut down cleanly.")
+        except Exception as e:
+            logger.error("Error shutting down database engine: %s", str(e))
+
+        # Graceful shutdown of Redis connection
+        try:
+            from app.core.redis_client import redis_client
+            await redis_client.disconnect()
+        except Exception as e:
+            logger.error("Error shutting down Redis connection: %s", str(e))
+
+        # Graceful shutdown of already-initialized HTTP clients
+        try:
+            from app.llm.providers.registry import get_provider_registry
+            registry = get_provider_registry()
+            await registry.close_all()
+            logger.info("LLM provider registry closed")
+        except Exception as e:
+            logger.debug("LLM provider cleanup skipped: %s", e)
+
+        try:
+            from app.services.stt.providers import _STT_PROVIDERS
+            for provider in list(_STT_PROVIDERS.values()):
+                if hasattr(provider, "close"):
+                    with contextlib.suppress(Exception):
+                        await provider.close()
+            _STT_PROVIDERS.clear()
+        except Exception as e:
+            logger.debug("STT provider cleanup skipped: %s", e)
+
+        try:
+            from app.services.tts.providers import _TTS_PROVIDERS
+            for provider in list(_TTS_PROVIDERS.values()):
+                if hasattr(provider, "close"):
+                    with contextlib.suppress(Exception):
+                        await provider.close()
+            _TTS_PROVIDERS.clear()
+        except Exception as e:
+            logger.debug("TTS provider cleanup skipped: %s", e)
 
 
 def _find_duplicate_windows_listeners(own_pids: set[int]) -> list[dict[str, object]]:
@@ -705,7 +767,7 @@ def create_app() -> FastAPI:
     # MUST be served via authenticated, tenant-scoped download endpoints with path traversal + ownership validation.
     public_subdirs = ["logos", "avatars"]
     for subdir in public_subdirs:
-        dir_path = os.path.join("uploads", subdir)
+        dir_path = os.path.join(_PROJECT_ROOT, "uploads", subdir)
         try:
             os.makedirs(dir_path, exist_ok=True)
         except PermissionError as err:
@@ -724,3 +786,30 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    multiprocessing.freeze_support()
+    is_dev = not settings.is_production
+    host = os.getenv("HOST", "127.0.0.1" if is_dev else "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
+
+    if is_dev:
+        uvicorn.run(
+            "app.main:app",
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=[os.path.join(_PROJECT_ROOT, "app")],
+        )
+    else:
+        workers = max(1, int(os.getenv("WEB_CONCURRENCY", "4")))
+        uvicorn.run(
+            "app.main:app",
+            host=host,
+            port=port,
+            workers=workers,
+            reload=False,
+        )

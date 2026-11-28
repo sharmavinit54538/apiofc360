@@ -130,6 +130,73 @@ def _require_admin(claims: dict | None) -> None:
         raise ForbiddenException("Admin role required.")
 
 
+def _has_explicit_permission(claims: dict | None, *needed: str) -> bool:
+    """Return True only when explicit permission claims include one of *needed*."""
+    if not claims or not isinstance(claims, dict):
+        return False
+    raw_permissions = claims.get("permissions")
+    if raw_permissions is None:
+        raw_permissions = claims.get("permission_codes")
+    if raw_permissions is None:
+        return False
+    if isinstance(raw_permissions, str):
+        perms = {raw_permissions}
+    else:
+        try:
+            perms = {str(p) for p in raw_permissions}
+        except TypeError:
+            return False
+    return bool(perms & set(needed) or "*" in perms or "payroll:*" in perms)
+
+
+async def _is_payslip_admin_authorized(
+    session: AsyncSession,
+    claims: dict | None,
+    company_id: Optional[uuid.UUID],
+) -> bool:
+    """Return True if caller may inspect or manage other employees' payslips within the tenant.
+
+    Platform Super Admin is strictly blocked. Tenant Managers are denied unless
+    explicitly authorized by BOTH company policy (`hr_settings.allow_manager_payslip_access`
+    or `payslip_settings.allow_manager_payslip_access`) AND backend permission claims
+    (`payroll:view_payslips` / `payroll:manage_payslips`); reporting hierarchy alone never
+    grants salary access.
+    """
+    verified = _reject_super_admin(claims)
+    role = _role(verified)
+    if role in ADMIN_ROLES or role == RoleEnum.EXECUTIVE.value:
+        return True
+    if role == RoleEnum.MANAGER.value:
+        if not _has_explicit_permission(verified, "payroll:view_payslips", "payroll:manage_payslips"):
+            return False
+        if company_id is None:
+            return False
+        from app.models.company import Company
+
+        comp = await session.get(Company, company_id)
+        if comp is None:
+            return False
+        hr_cfg = comp.hr_settings if isinstance(comp.hr_settings, dict) else {}
+        ps_cfg = comp.payslip_settings if isinstance(comp.payslip_settings, dict) else {}
+        return bool(hr_cfg.get("allow_manager_payslip_access") or ps_cfg.get("allow_manager_payslip_access"))
+    return False
+
+
+async def _require_payslip_manager_or_admin(
+    session: AsyncSession,
+    claims: dict | None,
+    company_id: Optional[uuid.UUID],
+) -> None:
+    """Fail-closed check for tenant payslip admin/authorized-manager operations."""
+    if not await _is_payslip_admin_authorized(session, claims, company_id):
+        role = _role(claims)
+        if role == RoleEnum.MANAGER.value:
+            raise ForbiddenException(
+                "Managers cannot access other employees' payslips without explicit company policy approval and backend permissions."
+            )
+        raise ForbiddenException("Authorized HR/Payroll Admin access required.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Strict Maker-Checker / Role Separation (dual control)
 # ─────────────────────────────────────────────────────────────────────────────

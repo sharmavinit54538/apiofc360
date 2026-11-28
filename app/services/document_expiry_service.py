@@ -122,15 +122,21 @@ async def process_document_expiry_alerts(session: AsyncSession) -> int:
 async def run_document_expiry_scheduler() -> None:
     """Daily background task to monitor and record document expiry alerts."""
     logger.info("Starting document expiry background scheduler...")
-    # Initial brief sleep to allow server and DB to initialize
-    await asyncio.sleep(5)
+    try:
+        # Initial brief sleep to allow server and DB to initialize
+        await asyncio.sleep(5)
 
-    while True:
-        try:
-            async with AsyncSessionLocal() as session:
-                await process_document_expiry_alerts(session)
-        except Exception as exc:
-            logger.error("Unhandled error in document expiry scheduler loop: %s", exc)
+        while True:
+            try:
+                async with AsyncSessionLocal() as session:
+                    await process_document_expiry_alerts(session)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("Unhandled error in document expiry scheduler loop: %s", exc)
 
-        # Run once daily (24 hours = 86400 seconds)
-        await asyncio.sleep(86400)
+            # Run once daily (24 hours = 86400 seconds)
+            await asyncio.sleep(86400)
+    except asyncio.CancelledError:
+        logger.info("Document expiry background scheduler stopped cleanly.")
+        return

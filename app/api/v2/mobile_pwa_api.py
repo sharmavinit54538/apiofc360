@@ -212,6 +212,9 @@ async def camera_document_upload(
 
 @router.get("/payslips")
 async def mobile_payslips(claims: Claims, db: Session) -> dict[str, Any]:
+    from app.api.payroll.permissions import _reject_super_admin
+
+    _reject_super_admin(claims)
     employee = await _employee(db, claims)
     payslips = (await db.execute(select(Payslip).where(
         Payslip.employee_id == employee.id, Payslip.company_id == _company(claims),
@@ -219,29 +222,55 @@ async def mobile_payslips(claims: Claims, db: Session) -> dict[str, Any]:
     return {"success": True, "data": [{
         "run_id": str(p.payroll_run_id), "period_month": p.period_month, "period_year": p.period_year,
         "payslip_number": p.payslip_number, "net_pay": float(p.net_pay), "payment_status": p.payment_status,
+        "document_id": getattr(p, "document_id", None),
+        "document_version": int(getattr(p, "document_version", 1) or 1),
         "pdf_url": f"/api/v2/pwa/payslips/{p.payroll_run_id}/pdf",
     } for p in payslips]}
 
 
 @router.get("/payslips/{run_id}")
 async def mobile_payslip_detail(run_id: uuid.UUID, claims: Claims, db: Session) -> dict[str, Any]:
+    from app.api.payroll.permissions import _reject_super_admin
+
+    _reject_super_admin(claims)
     employee = await _employee(db, claims)
-    detail = await PayslipService.get_payslip_detail(db, run_id, employee.id)
-    if detail.get("company_id") and uuid.UUID(str(detail["company_id"])) != _company(claims):
+    co_id = _company(claims)
+    detail = await PayslipService.get_payslip_detail(db, run_id, employee.id, company_id=co_id)
+    if detail.get("company_id") and uuid.UUID(str(detail["company_id"])) != co_id:
         raise HTTPException(status_code=404, detail="Payslip not found")
     return {"success": True, "data": detail}
 
 
 @router.get("/payslips/{run_id}/pdf")
 async def mobile_payslip_pdf(run_id: uuid.UUID, claims: Claims, db: Session) -> Response:
+    from app.api.payroll.permissions import _reject_super_admin
+
+    _reject_super_admin(claims)
     employee = await _employee(db, claims)
+    co_id = _company(claims)
     payslip = (await db.execute(select(Payslip).where(
         Payslip.payroll_run_id == run_id, Payslip.employee_id == employee.id,
-        Payslip.company_id == _company(claims),
+        Payslip.company_id == co_id,
     ))).scalar_one_or_none()
     if payslip is None:
         raise HTTPException(status_code=404, detail="Payslip not found")
-    content, filename = await PayslipService.get_payslip_file(db, run_id, employee.id)
+    content, filename = await PayslipService.get_payslip_file(
+        db,
+        run_id,
+        employee.id,
+        company_id=co_id,
+        actor_id=_uid(claims),
+        actor_role=_role(claims),
+    )
     payslip.download_count = (payslip.download_count or 0) + 1
     await db.commit()
-    return Response(content=content, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
