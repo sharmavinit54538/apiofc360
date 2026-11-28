@@ -753,3 +753,23 @@ async def export_payment_batch_report(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/payment-batches/{batchId}/reconciliation/export",
+    summary="Export payment batch reconciliation report CSV",
+)
+async def export_payment_batch_reconciliation_report(
+    batchId: uuid.UUID,
+    claims: Claims = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    c_uuid = _require_tenant_id(claims)
+    content_bytes, filename = await PaymentBatchService.export_reconciliation_report(
+        db, batchId, company_id=c_uuid
+    )
+    return Response(
+        content=content_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

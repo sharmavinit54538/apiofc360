@@ -3812,3 +3812,61 @@ class PaymentBatchService:
 
         filename = f"{batch.batch_number}_Disbursement_Report.csv"
         return output.getvalue().encode("utf-8"), filename
+
+    @classmethod
+    async def export_reconciliation_report(
+        cls, session: AsyncSession, batch_id: uuid.UUID, company_id: Optional[uuid.UUID] = None
+    ) -> tuple[bytes, str]:
+        """Export formal payment batch reconciliation summary & line-item UTR ledger CSV."""
+        recon = await cls.get_reconciliation(session, batch_id, company_id=company_id)
+        details = await cls.get_batch_details(session, batch_id, page=1, limit=5000, company_id=company_id)
+        batch = details["batch"]
+        ctx = await cls.build_batch_contexts(session, [batch])
+        batch_meta = cls.serialize_batch(batch, ctx)
+        serialized_items = await cls._serialize_items(
+            session, details["items"]["items"], currency=batch_meta["currency"], payment_mode=batch_meta.get("payment_mode")
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["OFC360 PAYMENT RECONCILIATION REPORT"])
+        writer.writerow(["Batch Number", _safe_csv_cell(batch_meta["batch_number"])])
+        writer.writerow(["Payroll Period", _safe_csv_cell(batch_meta.get("payroll_period") or "")])
+        writer.writerow(["Batch Status", _safe_csv_cell(batch_meta["status"])])
+        writer.writerow(["Expected Gross (INR)", f"{paise_to_rupees(recon['expected_paise']):.2f}"])
+        writer.writerow(["Total Paid (INR)", f"{paise_to_rupees(recon['paid_paise']):.2f}"])
+        writer.writerow(["Total Failed (INR)", f"{paise_to_rupees(recon['failed_paise']):.2f}"])
+        writer.writerow(["Total Held (INR)", f"{paise_to_rupees(recon['held_paise']):.2f}"])
+        writer.writerow(["Pending Settlement (INR)", f"{paise_to_rupees(recon['processing_paise']):.2f}"])
+        writer.writerow(["Variance / Mismatch (INR)", f"{paise_to_rupees(recon['mismatch_paise']):.2f}"])
+        writer.writerow(["Reconciled At", _safe_csv_cell(recon.get("reconciled_at") or "Not Reconciled")])
+        writer.writerow(["Reconciled By", _safe_csv_cell(recon.get("reconciled_by") or "")])
+        writer.writerow([])
+        writer.writerow([
+            "Employee Code",
+            "Employee Name",
+            "Payment Status",
+            "Reconciliation Status",
+            "Payable Amount (INR)",
+            "Paid Amount (INR)",
+            "Transaction Reference",
+            "UTR Number",
+            "Reconciled At",
+            "Remarks / Failure Reason",
+        ])
+        for it in serialized_items:
+            writer.writerow([
+                _safe_csv_cell(it.get("employee_code") or ""),
+                _safe_csv_cell(it.get("employee_name") or ""),
+                _safe_csv_cell(it["status"]),
+                _safe_csv_cell(it.get("reconciliation_status") or ""),
+                f"{paise_to_rupees(it.get('payable_amount_paise', 0)):.2f}",
+                f"{paise_to_rupees(it.get('paid_amount_paise', 0)):.2f}",
+                _safe_csv_cell(it.get("transaction_ref") or ""),
+                _safe_csv_cell(it.get("utr_number") or ""),
+                _safe_csv_cell(it.get("reconciled_at") or ""),
+                _safe_csv_cell(it.get("error_message") or it.get("hold_reason") or it.get("remarks") or ""),
+            ])
+
+        filename = f"{batch.batch_number}_Reconciliation_Report.csv"
+        return output.getvalue().encode("utf-8"), filename
