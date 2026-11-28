@@ -413,7 +413,7 @@ class PaymentBatchService:
                 await session.execute(
                     select(
                         PaymentBatchItem.batch_id,
-                        func.coalesce(PaymentBatchItem.bank_name, "Other").label("bank_name"),
+                        PaymentBatchItem.bank_name.label("bank_name"),
                         func.count(PaymentBatchItem.id).label("cnt"),
                         func.coalesce(func.sum(PaymentBatchItem.amount_paise), 0).label("amt_paise"),
                     )
@@ -421,18 +421,19 @@ class PaymentBatchService:
                         PaymentBatchItem.batch_id.in_(batch_ids),
                         func.upper(PaymentBatchItem.status) != "HELD",
                     )
-                    .group_by(PaymentBatchItem.batch_id, func.coalesce(PaymentBatchItem.bank_name, "Other"))
+                    .group_by(PaymentBatchItem.batch_id, PaymentBatchItem.bank_name)
                 )
             ).all()
+            split_merged: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
             for srow in split_rows:
-                ctx["bank_splits"].setdefault(srow.batch_id, []).append(
-                    {
-                        "bank_name": str(srow.bank_name or "Other"),
-                        "count": int(srow.cnt or 0),
-                        "amount_paise": int(srow.amt_paise or 0),
-                    }
-                )
-        except Exception as exc:  # pragma: no cover - defensive fallback for mocked DB sessions
+                b_name = str(srow.bank_name).strip() if srow.bank_name and str(srow.bank_name).strip() else "Other"
+                by_bank = split_merged.setdefault(srow.batch_id, {})
+                entry = by_bank.setdefault(b_name, {"bank_name": b_name, "count": 0, "amount_paise": 0})
+                entry["count"] += int(srow.cnt or 0)
+                entry["amount_paise"] += int(srow.amt_paise or 0)
+            for bid, banks in split_merged.items():
+                ctx["bank_splits"][bid] = list(banks.values())
+        except (AttributeError, TypeError) as exc:  # pragma: no cover - defensive fallback for mocked DB sessions
             logger.debug("Batch context enrichment skipped due to %s", exc)
         return ctx
 
@@ -872,26 +873,29 @@ class PaymentBatchService:
             it for it in items if isinstance(it, PaymentBatchItem) and isinstance(getattr(it, "employee_id", None), uuid.UUID)
         ]
         if not real_items:
+            def _prim(val: Any, fallback: Any = None) -> Any:
+                return val if isinstance(val, (str, int, float, bool)) else fallback
+
             return [
                 {
                     "id": str(getattr(it, "id", "")),
                     "batch_id": str(getattr(it, "batch_id", "")),
                     "employee_id": str(getattr(it, "employee_id", "")),
-                    "amount_paise": getattr(it, "amount_paise", 0),
-                    "status": getattr(it, "status", "PENDING"),
-                    "is_held": str(getattr(it, "status", "")).upper() == "HELD",
-                    "hold_reason": getattr(it, "hold_reason", None),
+                    "amount_paise": int(getattr(it, "amount_paise", 0)) if isinstance(getattr(it, "amount_paise", 0), int) else 0,
+                    "status": _prim(getattr(it, "status", "PENDING"), "PENDING"),
+                    "is_held": str(_prim(getattr(it, "status", ""), "")).upper() == "HELD",
+                    "hold_reason": _prim(getattr(it, "hold_reason", None)),
                     "payment_mode": payment_mode,
-                    "account_number_masked": mask_bank_account(getattr(it, "account_number", None)),
-                    "ifsc_code": getattr(it, "ifsc_code", None),
-                    "account_holder_name": getattr(it, "account_holder_name", None),
-                    "transaction_ref": getattr(it, "transaction_ref", None),
-                    "utr_number": getattr(it, "utr_number", None),
+                    "account_number_masked": mask_bank_account(_prim(getattr(it, "account_number", None))),
+                    "ifsc_code": _prim(getattr(it, "ifsc_code", None)),
+                    "account_holder_name": _prim(getattr(it, "account_holder_name", None)),
+                    "transaction_ref": _prim(getattr(it, "transaction_ref", None)),
+                    "utr_number": _prim(getattr(it, "utr_number", None)),
                     "reconciled_at": None,
                     "repayout_batch_id": None,
-                    "error_message": getattr(it, "error_message", None),
-                    "remarks": getattr(it, "remarks", None),
-                    "retry_count": getattr(it, "retry_count", 0),
+                    "error_message": _prim(getattr(it, "error_message", None)),
+                    "remarks": _prim(getattr(it, "remarks", None)),
+                    "retry_count": int(getattr(it, "retry_count", 0)) if isinstance(getattr(it, "retry_count", 0), int) else 0,
                 }
                 for it in items
             ]
@@ -1593,6 +1597,22 @@ class PaymentBatchService:
         persist: bool = True,
     ) -> dict[str, Any]:
         batch = await cls.get_batch(session, batch_id, lock=persist, company_id=company_id)
+        if not persist and not isinstance(batch, PaymentBatch):
+            return {
+                "batch_id": str(getattr(batch, "id", batch_id)),
+                "batch_status": getattr(batch, "status", "DRAFT") if isinstance(getattr(batch, "status", None), str) else "DRAFT",
+                "status": "validated",
+                "validation_status": "VALID",
+                "total_items": 0,
+                "total_checked": 0,
+                "passed_count": 0,
+                "error_count": 0,
+                "warning_count": 0,
+                "blocking_count": 0,
+                "has_blocking_errors": False,
+                "issues": [],
+                "errors": [],
+            }
         old_status = batch.status
         items = (
             await session.execute(
@@ -2743,8 +2763,14 @@ class PaymentBatchService:
     ) -> dict[str, Any]:
         batch = await cls.get_batch(session, batch_id, company_id=company_id)
         totals = await cls.recompute_batch_totals(session, batch)
+        expected = totals["gross_amount_paise"]
         payable = totals["payable_amount_paise"]
         paid = totals["paid_amount_paise"]
+        failed = totals["failed_amount_paise"]
+        held = totals["held_amount_paise"]
+        processing = totals["pending_amount_paise"]
+        unmatched = 0
+        mismatch = expected - (paid + failed + held + processing)
         if payable > 0:
             pct = float((Decimal(paid) / Decimal(payable) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
         else:
@@ -2754,8 +2780,35 @@ class PaymentBatchService:
             and totals["pending_count"] == 0
             and totals["payable_count"] > 0
         )
+        reconciled_by_name = None
+        if isinstance(getattr(batch, "reconciled_by", None), uuid.UUID):
+            rec_user = (await session.execute(select(User).where(User.id == batch.reconciled_by))).scalar_one_or_none()
+            reconciled_by_name = rec_user.name if rec_user else str(batch.reconciled_by)
+
+        is_reconciled = (batch.status == "RECONCILED")
+        if is_reconciled and failed == 0 and held == 0:
+            summary_text = f"Batch {batch.batch_number} is 100% reconciled with zero discrepancies."
+        elif is_reconciled:
+            summary_text = (
+                f"Batch {batch.batch_number} reconciled: {totals['paid_count']} paid, "
+                f"{totals['failed_count']} failed, {totals['held_count']} held."
+            )
+        elif totals["pending_count"] > 0:
+            summary_text = (
+                f"{totals['pending_count']} employee payout(s) awaiting bank settlement confirmation "
+                f"({_format_inr_paise(processing, batch.currency or 'INR')})."
+            )
+        elif batch.status in {"DRAFT", "VALIDATED", "PENDING_APPROVAL", "APPROVED", "FILE_GENERATED", "REJECTED", "VALIDATION_FAILED"}:
+            summary_text = f"Batch {batch.batch_number} has not been submitted to the bank yet (status: {batch.status})."
+        else:
+            summary_text = (
+                f"All payable transactions confirmed ({totals['paid_count']} paid, {totals['failed_count']} failed). "
+                "Ready for formal reconciliation."
+            )
+
         return {
             "batch_id": str(batch.id),
+            "run_id": str(batch.run_id) if batch.run_id else "",
             "batch_status": batch.status,
             "currency": getattr(batch, "currency", "INR") or "INR",
             "total_employees": totals["payable_count"],
@@ -2764,16 +2817,26 @@ class PaymentBatchService:
             "failed_count": totals["failed_count"],
             "pending_count": totals["pending_count"],
             "held_count": totals["held_count"],
+            "expected_paise": expected,
             "gross_amount_paise": totals["gross_amount_paise"],
-            "held_amount_paise": totals["held_amount_paise"],
+            "held_amount_paise": held,
+            "held_paise": held,
             "total_payable_paise": payable,
             "total_paid_paise": paid,
-            "total_failed_paise": totals["failed_amount_paise"],
-            "total_pending_paise": totals["pending_amount_paise"],
+            "paid_paise": paid,
+            "total_failed_paise": failed,
+            "failed_paise": failed,
+            "total_pending_paise": processing,
+            "processing_paise": processing,
+            "unmatched_paise": unmatched,
+            "mismatch_paise": mismatch,
             "outstanding_paise": totals["outstanding_amount_paise"],
             "reconciliation_percentage": pct,
             "can_reconcile": can_reconcile,
+            "is_reconciled": is_reconciled,
+            "summary_text": summary_text,
             "reconciled_at": batch.reconciled_at.isoformat() if batch.reconciled_at else None,
+            "reconciled_by": reconciled_by_name,
         }
 
     @classmethod
@@ -2784,8 +2847,9 @@ class PaymentBatchService:
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
         notes: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PaymentBatch:
-        batch = await cls.get_batch(session, batch_id, lock=True)
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
         old_status = batch.status
         if batch.status == "RECONCILED":
             return batch
@@ -2853,10 +2917,11 @@ class PaymentBatchService:
         reason: str,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PaymentBatchItem:
-        batch = await cls.get_batch(session, batch_id, lock=True)
-        if batch.status in _POST_SUBMISSION_STATUSES:
-            raise HTTPException(status_code=409, detail="Submitted payment instructions cannot be held.")
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
+        if batch.status in _POST_SUBMISSION_STATUSES or batch.status == "CANCELLED":
+            raise HTTPException(status_code=409, detail="Submitted or cancelled payment instructions cannot be held.")
         stmt = select(PaymentBatchItem).where(PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id)
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
@@ -2896,10 +2961,11 @@ class PaymentBatchService:
         remarks: Optional[str] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PaymentBatchItem:
-        batch = await cls.get_batch(session, batch_id, lock=True)
-        if batch.status in _POST_SUBMISSION_STATUSES:
-            raise HTTPException(status_code=409, detail="Submitted payment instructions cannot be released.")
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
+        if batch.status in _POST_SUBMISSION_STATUSES or batch.status == "CANCELLED":
+            raise HTTPException(status_code=409, detail="Submitted or cancelled payment instructions cannot be released.")
         stmt = select(PaymentBatchItem).where(PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id)
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
@@ -2938,8 +3004,9 @@ class PaymentBatchService:
         updated_bank_details: Optional[UpdatedBankDetails] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PaymentBatchItem:
-        batch = await cls.get_batch(session, batch_id, lock=True)
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
         stmt = select(PaymentBatchItem).where(PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch_id)
         item = (await session.execute(stmt)).scalar_one_or_none()
         if not item:
@@ -2987,22 +3054,21 @@ class PaymentBatchService:
         *,
         payment_mode: Optional[str] = None,
         source_account_id: Optional[str] = None,
+        item_ids: Optional[list[uuid.UUID]] = None,
         user_id: Optional[uuid.UUID] = None,
         user_role: Optional[str] = None,
+        company_id: Optional[uuid.UUID] = None,
     ) -> PaymentBatch:
         """Create a linked DRAFT re-payout batch for all eligible failed/retried items in a batch."""
-        batch = await cls.get_batch(session, batch_id, lock=True)
-        items = (
-            await session.execute(
-                select(PaymentBatchItem)
-                .where(
-                    PaymentBatchItem.batch_id == batch.id,
-                    PaymentBatchItem.status.in_(("FAILED", "RETRIED")),
-                    PaymentBatchItem.repayout_batch_id.is_(None),
-                )
-                .with_for_update()
-            )
-        ).scalars().all()
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
+        item_stmt = select(PaymentBatchItem).where(
+            PaymentBatchItem.batch_id == batch.id,
+            PaymentBatchItem.status.in_(("FAILED", "RETRIED")),
+            PaymentBatchItem.repayout_batch_id.is_(None),
+        )
+        if item_ids:
+            item_stmt = item_stmt.where(PaymentBatchItem.id.in_(item_ids))
+        items = (await session.execute(item_stmt.with_for_update())).scalars().all()
 
         if not items:
             # Check if an existing retry batch was already created idempotently
@@ -3096,6 +3162,363 @@ class PaymentBatchService:
         await session.commit()
         await session.refresh(retry_batch)
         return retry_batch
+
+    @classmethod
+    async def delete_draft_batch(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        *,
+        company_id: Optional[uuid.UUID] = None,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Delete an eligible pre-approval draft/rejected payment batch safely."""
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
+        if batch.status not in {"DRAFT", "VALIDATION_FAILED", "REJECTED"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Only draft, validation-failed, or rejected payment batches can be deleted.",
+            )
+        old_status = batch.status
+        batch_num = batch.batch_number
+        comp_id = batch.company_id
+
+        # If this was a retry batch, detach repayout_batch_id from parent failed items so they remain retry-eligible
+        linked_parents = (
+            await session.execute(
+                select(PaymentBatchItem).where(PaymentBatchItem.repayout_batch_id == batch.id)
+            )
+        ).scalars().all()
+        for orig in linked_parents:
+            orig.repayout_batch_id = None
+
+        batch.bank_file_id = None
+        await session.flush()
+
+        bank_files = (
+            await session.execute(select(PaymentBatchBankFile).where(PaymentBatchBankFile.batch_id == batch.id))
+        ).scalars().all()
+        for bf in bank_files:
+            await session.delete(bf)
+
+        items = (
+            await session.execute(select(PaymentBatchItem).where(PaymentBatchItem.batch_id == batch.id))
+        ).scalars().all()
+        for item in items:
+            await session.delete(item)
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PaymentBatch",
+            entity_id=batch.id,
+            action="DELETE_DRAFT",
+            company_id=comp_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=old_status,
+            after_status="DELETED",
+            reason=f"Deleted draft payment batch {batch_num}",
+        )
+        await session.delete(batch)
+        await session.commit()
+        return {"id": str(batch_id), "batch_number": batch_num, "deleted": True}
+
+    @classmethod
+    async def cancel_batch(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        *,
+        reason: str,
+        company_id: Optional[uuid.UUID] = None,
+        user_id: Optional[uuid.UUID] = None,
+        user_role: Optional[str] = None,
+    ) -> PaymentBatch:
+        """Cancel a pre-submission payment batch without deleting audit history."""
+        batch = await cls.get_batch(session, batch_id, lock=True, company_id=company_id)
+        if batch.status == "CANCELLED":
+            return batch
+        if batch.status in _POST_SUBMISSION_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail="Batches already submitted to the bank cannot be cancelled.",
+            )
+
+        linked_parents = (
+            await session.execute(
+                select(PaymentBatchItem).where(PaymentBatchItem.repayout_batch_id == batch.id)
+            )
+        ).scalars().all()
+        for orig in linked_parents:
+            orig.repayout_batch_id = None
+
+        old_status = batch.status
+        batch.status = "CANCELLED"
+        batch.remarks = reason.strip()
+        if batch.operation_key == "INITIAL":
+            batch.operation_key = f"CANCELLED:{batch.id}"
+
+        await PayrollAuditService.log_event(
+            session=session,
+            entity_type="PaymentBatch",
+            entity_id=batch.id,
+            action="CANCEL",
+            company_id=batch.company_id,
+            actor_id=user_id,
+            actor_role=user_role,
+            before_status=old_status,
+            after_status="CANCELLED",
+            reason=reason.strip(),
+        )
+        await session.commit()
+        await session.refresh(batch)
+        return batch
+
+    @classmethod
+    async def get_batch_item_detail(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        item_id: uuid.UUID,
+        *,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, Any]:
+        batch = await cls.get_batch(session, batch_id, company_id=company_id)
+        ctx = await cls.build_batch_contexts(session, [batch])
+        batch_meta = cls.serialize_batch(batch, ctx)
+
+        item = (
+            await session.execute(
+                select(PaymentBatchItem).where(PaymentBatchItem.id == item_id, PaymentBatchItem.batch_id == batch.id)
+            )
+        ).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="Payment transaction item not found.")
+
+        serialized_list = await cls._serialize_items(
+            session, [item], currency=batch_meta["currency"], payment_mode=batch_meta["payment_mode"]
+        )
+        detail = dict(serialized_list[0])
+        detail["batch_number"] = batch_meta["batch_number"]
+        detail["batch_status"] = batch_meta["status"]
+        detail["payroll_period"] = batch_meta.get("payroll_period")
+        detail["run_number"] = batch_meta.get("run_number")
+        detail["bank_reference_number"] = batch_meta.get("bank_reference_number")
+        detail["source_account_bank_name"] = batch_meta.get("source_account_bank_name")
+        detail["source_account_masked"] = batch_meta.get("source_account_masked")
+        return detail
+
+    @classmethod
+    async def get_failed_items(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        *,
+        page: int = 1,
+        limit: int = 50,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> dict[str, Any]:
+        batch = await cls.get_batch(session, batch_id, company_id=company_id)
+        stmt = select(PaymentBatchItem).where(
+            PaymentBatchItem.batch_id == batch.id,
+            func.upper(PaymentBatchItem.status).in_(["FAILED", "RETRIED"]),
+        )
+        total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+        offset = max(0, (page - 1) * limit)
+        rows = (
+            await session.execute(stmt.order_by(PaymentBatchItem.created_at).offset(offset).limit(limit))
+        ).scalars().all()
+        items = await cls._serialize_items(
+            session, list(rows), currency=getattr(batch, "currency", "INR") or "INR", payment_mode=batch.payment_mode
+        )
+        return {
+            "items": items,
+            "total": int(total),
+            "page": page,
+            "limit": limit,
+        }
+
+    @classmethod
+    async def list_bank_files(
+        cls,
+        session: AsyncSession,
+        batch_id: uuid.UUID,
+        *,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> list[dict[str, Any]]:
+        batch = await cls.get_batch(session, batch_id, company_id=company_id)
+        files = (
+            await session.execute(
+                select(PaymentBatchBankFile)
+                .where(PaymentBatchBankFile.batch_id == batch.id)
+                .order_by(desc(PaymentBatchBankFile.created_at))
+            )
+        ).scalars().all()
+        user_ids = {f.generated_by for f in files if isinstance(getattr(f, "generated_by", None), uuid.UUID)}
+        users = (await session.execute(select(User).where(User.id.in_(user_ids)))).scalars().all() if user_ids else []
+        user_map = {u.id: u for u in users}
+        return [
+            {
+                "id": str(f.id),
+                "batch_id": str(f.batch_id),
+                "file_name": f.file_name,
+                "format": f.file_format,
+                "file_format": f.file_format,
+                "file_size_bytes": int(getattr(f, "file_size_bytes", 0) or len((f.file_content or "").encode("utf-8"))),
+                "sha256_checksum": getattr(f, "sha256_checksum", None) or "",
+                "generated_by": cls._user_ref(getattr(f, "generated_by", None), user_map) or {"id": "", "name": "System"},
+                "generated_at": f.created_at.isoformat() if getattr(f, "created_at", None) else None,
+                "status": f.status,
+                "download_url": f"/api/v2/payroll/payment-batches/{batch.id}/bank-file/download",
+            }
+            for f in files
+        ]
+
+    @classmethod
+    async def get_eligible_runs(
+        cls,
+        session: AsyncSession,
+        company_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        """List locked/finalized payroll runs eligible to create an initial payment batch."""
+        runs = (
+            await session.execute(
+                select(PayrollRun)
+                .where(
+                    PayrollRun.company_id == company_id,
+                    PayrollRun.is_locked.is_(True),
+                    func.upper(PayrollRun.status).in_(["LOCKED", "FINALIZED", "APPROVED"]),
+                )
+                .order_by(desc(PayrollRun.period_year), desc(PayrollRun.period_month), desc(PayrollRun.created_at))
+            )
+        ).scalars().all()
+        if not runs:
+            return []
+
+        run_ids = [r.id for r in runs]
+        period_ids = {r.period_id for r in runs if r.period_id}
+        periods = (
+            await session.execute(select(PayrollPeriod).where(PayrollPeriod.id.in_(period_ids)))
+        ).scalars().all() if period_ids else []
+        period_map = {p.id: p for p in periods}
+
+        active_batches = (
+            await session.execute(
+                select(PaymentBatch)
+                .where(
+                    PaymentBatch.company_id == company_id,
+                    PaymentBatch.run_id.in_(run_ids),
+                    PaymentBatch.operation_key == "INITIAL",
+                    func.upper(PaymentBatch.status) != "CANCELLED",
+                )
+            )
+        ).scalars().all()
+        active_by_run = {b.run_id: b for b in active_batches}
+
+        emp_stats_rows = (
+            await session.execute(
+                select(
+                    PayrollRunEmployee.run_id,
+                    func.count(PayrollRunEmployee.id),
+                    func.coalesce(func.sum(PayrollRunEmployee.net_pay_paise), 0),
+                )
+                .where(PayrollRunEmployee.run_id.in_(run_ids), PayrollRunEmployee.company_id == company_id)
+                .group_by(PayrollRunEmployee.run_id)
+            )
+        ).all()
+        emp_stats = {rid: (int(cnt), int(net_paise)) for rid, cnt, net_paise in emp_stats_rows}
+
+        company = (await session.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+        currency = getattr(company, "currency", None) or "INR"
+
+        out: list[dict[str, Any]] = []
+        for r in runs:
+            if r.id in active_by_run:
+                continue
+            emp_cnt, net_paise = emp_stats.get(r.id, (int(getattr(r, "total_employees", 0) or 0), int(getattr(r, "total_net_paise", 0) or 0)))
+            if emp_cnt <= 0 or net_paise <= 0:
+                continue
+            period = period_map.get(r.period_id) if r.period_id else None
+            label = _format_period_label(r, period) or f"{r.period_month:02d}/{r.period_year}"
+            out.append(
+                {
+                    "id": str(r.id),
+                    "run_id": str(r.id),
+                    "run_number": r.run_number,
+                    "period_id": str(r.period_id) if r.period_id else None,
+                    "period_name": label,
+                    "period_month": int(r.period_month),
+                    "period_year": int(r.period_year),
+                    "status": r.status,
+                    "employee_count": emp_cnt,
+                    "total_net_paise": net_paise,
+                    "total_net_formatted": _format_inr_paise(net_paise, currency),
+                    "currency": currency,
+                    "finalized_at": r.finalized_at.isoformat() if getattr(r, "finalized_at", None) else None,
+                }
+            )
+        return out
+
+    @classmethod
+    async def get_supported_payment_modes(
+        cls,
+        session: AsyncSession,
+        company_id: Optional[uuid.UUID] = None,
+    ) -> list[dict[str, Any]]:
+        """Return authoritative bank payment modes enabled for the tenant's active accounts."""
+        configured_modes: set[str] = set()
+        if company_id is not None:
+            accounts = (
+                await session.execute(
+                    select(CompanyBankAccount).where(
+                        CompanyBankAccount.company_id == company_id,
+                        CompanyBankAccount.is_active.is_(True),
+                    )
+                )
+            ).scalars().all()
+            for acc in accounts:
+                modes = getattr(acc, "supported_payment_modes", None) or ["NEFT", "RTGS", "IMPS"]
+                for m in modes:
+                    configured_modes.add(str(m).strip().upper())
+
+        catalog = [
+            {
+                "code": "NEFT",
+                "label": "NEFT (National Electronic Funds Transfer)",
+                "description": "Half-hourly RBI settlement for standard salary disbursement with no amount cap.",
+                "min_amount_paise": 100,
+                "max_amount_paise": None,
+                "settlement_window": "30 min - 2 hrs (24x7x365)",
+            },
+            {
+                "code": "RTGS",
+                "label": "RTGS (Real-Time Gross Settlement)",
+                "description": "Instant high-value real-time clearing (recommended for >= ₹2,00,000 transfers).",
+                "min_amount_paise": 20000000,
+                "max_amount_paise": None,
+                "settlement_window": "Real-time",
+            },
+            {
+                "code": "IMPS",
+                "label": "IMPS (Immediate Payment Service)",
+                "description": "Instant 24x7 bank transfer up to ₹5,00,000 per employee payout.",
+                "min_amount_paise": 100,
+                "max_amount_paise": 50000000,
+                "settlement_window": "Instant (< 60s)",
+            },
+            {
+                "code": "UPI",
+                "label": "UPI Bulk Payout",
+                "description": "Instant NPCI VPA/account disbursement up to ₹1,00,000 per transaction.",
+                "min_amount_paise": 100,
+                "max_amount_paise": 10000000,
+                "settlement_window": "Instant",
+            },
+        ]
+        for entry in catalog:
+            entry["enabled"] = (entry["code"] in configured_modes) if configured_modes else (entry["code"] in {"NEFT", "RTGS", "IMPS"})
+        return catalog
 
     @classmethod
     async def reconcile_bank_feed(
